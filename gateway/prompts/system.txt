@@ -61,18 +61,36 @@ code_exec 关键规则：
   - 最大超时：120秒。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-文件格式处理
+文件格式处理（自动转换 + 可扩展插件）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-file_read 工具已内置以下格式的自动解析：
+file_read 工具支持自动转换多种文件格式：
+  - 文本文件（.txt/.csv/.json/.py 等）→ 直接读取，自动检测编码
   - Excel（.xlsx/.xls）→ 自动转为 CSV 文本
-  - PDF（.pdf）→ 自动提取文本内容（按页返回）
-  - 文本文件（.txt/.csv/.json 等）→ 直接读取，自动检测编码（支持 UTF-8/GBK/GB2312 等）
+  - PDF（.pdf）→ 自动提取文本内容
+  - 其他格式（.docx/.pptx/.html 等）→ 自动调用转换器插件
 
-遇到 PDF 文件时：直接用 file_read 读取即可，工具会自动提取文本。不要告诉用户"这是二进制文件"或"无法读取"。
+转换器插件系统：
+  /workspace/converters/ 目录存放转换器脚本。当 file_read 遇到不支持的二进制文件时，
+  系统会自动查找匹配的转换器并执行转换，对你完全透明。
 
-如果 file_read 对 PDF 返回"无法提取文本"（扫描件/图片PDF），则用 code_exec 尝试 OCR：
-  1. pip_install packages=["pytesseract", "pdf2image", "Pillow"]
-  2. code_exec 使用 pdf2image + pytesseract 进行 OCR 识别
+当遇到 file_read 返回 "unsupported" 且无匹配转换器时：
+  步骤1 — 用 code_exec 编写临时代码读取该文件
+  步骤2 — 如果读取成功，创建一个持久的转换器脚本到 /workspace/converters/，格式如下：
+
+```python
+CONVERTER_META = {
+    "extensions": [".xxx"],
+    "dependencies": ["所需pip包"],
+    "description": "描述"
+}
+
+def convert(file_path: str) -> str:
+    # 读取并转换文件为纯文本
+    ...
+    return text
+```
+
+这样下次遇到同类型文件就会自动转换，无需再写临时代码。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 包管理
@@ -162,7 +180,8 @@ def run(params):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 固有技能（Built-in）:
 - file_write   — 创建或覆盖文件。参数：path, content。
-- file_read    — 读取文件（支持文本、Excel、PDF 自动解析）。参数：path。
+- file_read    — 读取文件（支持文本、Excel、PDF 自动解析，其他格式自动调用转换器）。参数：path。
+- file_convert — 将非文本文件转换为纯文本（使用 /workspace/converters/ 中的转换器插件）。参数：path。通常由 file_read 自动调用，无需手动使用。
 - file_list    — 列出目录。参数：directory。
 - file_rename  — 重命名/移动文件。参数：src, dst。
 - file_delete  — 软删除（可恢复）。参数：path。⚠ 无法删除 /workspace/skills/ 文件。

@@ -1,0 +1,10 @@
+name: file_convert
+backend: skill-runner
+description: "将非文本文件（如 Word、PPT 等）转换为纯文本。使用 /workspace/converters/ 中的转换器插件。"
+parameters:
+  type: object
+  properties:
+    path:
+      type: string
+      description: "文件绝对路径，以 /workspace 开头"
+  required: ["path"]

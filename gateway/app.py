@@ -239,67 +239,13 @@ async def _execute_tools_with_status(
     audit.record("tool_loop", {"session_id": session_id, "tools_called": called_names})
 
 
-def _summarise_xlsx_csv(fname: str, csv_text: str) -> str:
-    """Convert raw CSV-from-xlsx into a compact, clean table for LLM consumption.
+def _format_prefetch_content(fname: str, content: str, max_chars: int = 10_000) -> str:
+    """Cap prefetched file content and add a header label.
 
-    Tries to detect quantity/price/total columns and extracts only meaningful rows.
-    Falls back to the raw text if parsing fails.
+    Format-agnostic: the actual file parsing is handled by skill-files
+    (built-in xlsx/pdf) and converter plugins (docx/pptx/etc).
     """
-    try:
-        import csv, io
-
-        # The file_read xlsx output is "[Sheet: name]\n<csv>" repeated per sheet
-        sections: list[str] = []
-        for block in re.split(r"\[Sheet:[^\]]*\]\n", csv_text):
-            block = block.strip()
-            if not block:
-                continue
-            reader = csv.reader(io.StringIO(block))
-            rows = [r for r in reader if any(c.strip() for c in r)]
-            if not rows:
-                continue
-
-            # Find header row: first row with 3+ non-empty cells
-            header_idx = next(
-                (i for i, r in enumerate(rows) if sum(1 for c in r if c.strip()) >= 3),
-                0,
-            )
-            header = rows[header_idx]
-            data_rows = rows[header_idx + 1:]
-
-            # Keep only rows with at least one numeric value
-            clean = []
-            for row in data_rows:
-                if any(
-                    c.strip().replace(".", "").replace("-", "").isdigit()
-                    for c in row
-                ):
-                    # Pad / truncate to header length
-                    while len(row) < len(header):
-                        row.append("")
-                    clean.append(row[: len(header)])
-
-            if not clean:
-                continue
-
-            # Build markdown table
-            col_widths = [max(len(str(h)), max((len(str(r[i])) for r in clean), default=0))
-                          for i, h in enumerate(header)]
-            def fmt_row(r: list) -> str:
-                return "| " + " | ".join(str(r[i]).ljust(col_widths[i]) for i in range(len(header))) + " |"
-            sep = "| " + " | ".join("-" * w for w in col_widths) + " |"
-
-            table_lines = [fmt_row(header), sep] + [fmt_row(r) for r in clean[:80]]
-            sections.append("\n".join(table_lines))
-
-        if sections:
-            return f"【文件: {fname}】\n" + "\n\n".join(sections)
-    except Exception:
-        pass
-
-    # Fallback: raw CSV capped
-    cap = 10_000
-    text = csv_text[:cap] + ("\n...[截断]" if len(csv_text) > cap else "")
+    text = content[:max_chars] + ("\n...[截断]" if len(content) > max_chars else "")
     return f"【文件: {fname}】\n{text}"
 
 
@@ -314,9 +260,15 @@ async def _prefetch_file_context(
     and hallucinate file data.  When a data file is referenced, the gateway
     fetches it directly and injects the real content into the conversation so
     the model always works from ground truth.
+
+    Format-agnostic: relies on file_read + auto-chain (file_convert) to handle
+    any file type.  No hardcoded extension list — new converter plugins take
+    effect automatically.
     """
-    DATA_EXTS = (".xlsx", ".xls", ".xlsm", ".csv", ".json", ".txt", ".pdf")
-    if not any(kw in user_content for kw in ["workspace", "data/", "docs/", "reports/"] + list(DATA_EXTS)):
+    _PREFETCH_HINTS = ("workspace", "data/", "docs/", "reports/", "文件", "文档", "报告", "数据")
+    has_hint = any(kw in user_content for kw in _PREFETCH_HINTS)
+    has_file_ref = bool(re.search(r'\w+\.\w{2,5}\b', user_content))
+    if not has_hint and not has_file_ref:
         return None
 
     # Search across all workspace content directories
@@ -339,7 +291,7 @@ async def _prefetch_file_context(
             continue
         # Fuzzy pattern: "以'X'开头" or starts-with prefix inside user message
         for token in re.findall(r"['\u2018\u2019\u201c\u201d](.+?)['\u2018\u2019\u201c\u201d]", user_content):
-            if name.startswith(token) and name.lower().endswith(DATA_EXTS):
+            if name.startswith(token):
                 target_files.append((dir_path, name))
                 break
 
@@ -350,10 +302,15 @@ async def _prefetch_file_context(
     for dir_path, fname in target_files:
         try:
             result = await router.dispatch("file_read", {"path": f"{dir_path}/{fname}"}, session_id)
+            # Skip files that couldn't be read (unsupported even after auto-chain)
+            if isinstance(result, dict) and result.get("unsupported"):
+                continue
             content: str = result.get("content", "")
-            summary = _summarise_xlsx_csv(fname, content)
-            parts.append(summary)
-            logger.info("prefetch: injected %s/%s (%d chars summarised)", dir_path, fname, len(summary))
+            if not content:
+                continue
+            formatted = _format_prefetch_content(fname, content)
+            parts.append(formatted)
+            logger.info("prefetch: injected %s/%s (%d chars)", dir_path, fname, len(formatted))
         except Exception as exc:
             logger.warning("prefetch: could not read %s/%s: %s", dir_path, fname, exc)
 

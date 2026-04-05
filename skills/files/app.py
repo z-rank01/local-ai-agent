@@ -67,12 +67,18 @@ async def health():
 @app.post("/tool/file_read")
 async def file_read(req: ReadRequest):
     try:
-        content = _file_ops.read(req.path)
-        return {"content": content}
+        result = _file_ops.read(req.path)
+        # result may be a str (text content) or a dict (unsupported binary metadata)
+        if isinstance(result, dict):
+            return result
+        return {"content": result}
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
     except (FileNotFoundError, IsADirectoryError) as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.exception("file_read failed for %s", req.path)
+        raise HTTPException(status_code=500, detail=f"Failed to read file: {exc}")
 
 
 @app.post("/tool/file_write")

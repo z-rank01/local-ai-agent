@@ -23,6 +23,7 @@ from skill_registry import (
     list_skills, run_skill, register_skill, unregister_skill,
     skill_info, update_skill, init_registry,
 )
+from converter_registry import convert_file, list_converters
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -86,6 +87,10 @@ class SkillUpdateRequest(BaseModel):
     auto_install_deps: bool = Field(default=True, description="是否重新安装依赖")
 
 
+class FileConvertRequest(BaseModel):
+    path: str = Field(..., description="文件绝对路径，以 /workspace 开头")
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -144,6 +149,23 @@ async def pip_install(req: PipInstallRequest):
         logger.warning("pip_install failed: exit=%d stderr=%s", result["exit_code"], result["stderr"][:200])
     else:
         logger.info("pip_install success: %s", req.packages)
+
+    return result
+
+
+@app.post("/tool/file_convert")
+async def file_convert(req: FileConvertRequest):
+    """Convert a non-text file to plain text using converter plugins."""
+    if not req.path.strip():
+        raise HTTPException(status_code=400, detail="path must not be empty")
+    if not req.path.startswith("/workspace"):
+        raise HTTPException(status_code=403, detail="path must start with /workspace")
+
+    logger.info("file_convert: %s", req.path)
+    result = convert_file(req.path)
+
+    if "error" in result:
+        logger.warning("file_convert %s error: %s", req.path, result["error"])
 
     return result
 

@@ -63,8 +63,38 @@ class ToolRouter:
             )
 
         result = resp.json()
+
+        # Auto-chain: when file_read returns unsupported binary, try file_convert
+        if tool == "file_read" and isinstance(result, dict) and result.get("unsupported"):
+            if "file_convert" in self._registry.known_tools:
+                convert_path = result.get("path") or params.get("path")
+                if convert_path:
+                    logger.info("Auto-chaining file_read → file_convert for %s", convert_path)
+                    try:
+                        convert_result = await self._dispatch_convert(convert_path, session_id)
+                        if not convert_result.get("unsupported") and not convert_result.get("error"):
+                            self._audit.record(
+                                "file_convert_auto",
+                                {"session_id": session_id, "path": convert_path, "status": "ok"},
+                            )
+                            return convert_result
+                    except Exception as exc:
+                        logger.warning("Auto file_convert failed for %s: %s", convert_path, exc)
+
         self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
         return result
+
+    async def _dispatch_convert(self, path: str, session_id: str) -> dict:
+        """Internal helper to call file_convert on skill-runner."""
+        backend = self._registry.get_backend("file_convert")
+        base_url = self._backend_urls[backend]
+        resp = await self._client.post(
+            f"{base_url}/tool/file_convert",
+            json={"path": path},
+        )
+        if resp.status_code >= 400:
+            return {"error": f"file_convert HTTP {resp.status_code}"}
+        return resp.json()
 
     async def close(self) -> None:
         await self._client.aclose()
