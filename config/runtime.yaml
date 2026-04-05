@@ -1,0 +1,21 @@
+workspace:
+  root: /workspace
+  trash: /trash
+  logs: /logs
+
+services:
+  gateway:
+    host: "0.0.0.0"
+    port: 8000
+  skill_files:
+    host: "0.0.0.0"
+    port: 8100
+
+timeouts:
+  llm_request_seconds: 120
+  skill_request_seconds: 30
+
+features:
+  audit_log: true
+  auto_git_commit: true
+  websearch: true

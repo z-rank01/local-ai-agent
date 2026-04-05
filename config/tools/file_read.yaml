@@ -1,0 +1,10 @@
+name: file_read
+backend: skill-files
+description: "Read the contents of a file in the workspace."
+parameters:
+  type: object
+  properties:
+    path:
+      type: string
+      description: "Absolute path starting with /workspace"
+  required: ["path"]

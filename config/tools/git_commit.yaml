@@ -1,0 +1,10 @@
+name: git_commit
+backend: skill-files
+description: "Commit all pending changes in the workspace with a message."
+parameters:
+  type: object
+  properties:
+    message:
+      type: string
+      description: "Commit message"
+  required: ["message"]

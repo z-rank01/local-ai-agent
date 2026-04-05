@@ -1,0 +1,21 @@
+name: skill_register
+backend: skill-runner
+description: |
+  注册一个新技能。验证技能脚本格式是否正确（必须包含 SKILL_METADATA 和 run 函数），
+  创建技能配置文件，并自动安装声明的依赖。
+  如果技能已通过 file_write 写入 /workspace/skills/，只需传 skill_name 即可注册。
+  也可通过 code 参数直接传入完整的技能代码。
+parameters:
+  type: object
+  properties:
+    skill_name:
+      type: string
+      description: "技能名（不含 .py 后缀）"
+    code:
+      type: string
+      description: "可选：完整的技能 Python 代码。若提供则自动写入 /workspace/skills/{skill_name}.py"
+    auto_install_deps:
+      type: boolean
+      description: "是否自动安装技能声明的依赖（默认 true）"
+  required:
+    - skill_name

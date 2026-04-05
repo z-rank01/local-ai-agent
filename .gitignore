@@ -1,0 +1,29 @@
+# Secrets & local env — do not commit
+.env
+.webui_secret_key
+
+# Python artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Data — runtime user data, managed separately (workspace has its own git)
+data/
+
+# SearXNG runtime generated files
+config/searxng/uwsgi.ini
+
+# Private notes
+后续需求.md
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,13 @@
+name: shell_exec
+backend: skill-runner
+description: "Run a short shell command in /workspace for diagnostics. Only use safe, non-destructive commands."
+parameters:
+  type: object
+  properties:
+    command:
+      type: string
+      description: "Shell command to run in /workspace"
+    timeout:
+      type: integer
+      description: "Timeout in seconds, up to policy limit"
+  required: ["command"]

@@ -1,0 +1,6 @@
+name: git_status
+backend: skill-files
+description: "Show the current git status of the workspace."
+parameters:
+  type: object
+  properties: {}

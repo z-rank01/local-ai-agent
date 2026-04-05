@@ -1,0 +1,63 @@
+paths:
+  allowed_prefixes:
+    - /workspace
+  denied_prefixes:
+    - /workspace/.git
+    - /etc
+    - /usr
+    - /bin
+    - /sbin
+    - /root
+    - /proc
+    - /sys
+    - /dev
+  # write-only prefixes: file_write is allowed, but file_delete and
+  # file_rename(src) are blocked.  Keeps skill scripts append/update-only.
+  write_only_prefixes:
+    - /workspace/skills
+
+files:
+  max_size_bytes: 10485760   # 10 MB
+  denied_extensions:
+    - .pem
+    - .key
+    - .p12
+    - .pfx
+    - .jks
+
+operations:
+  allow_delete: true          # soft-delete to /trash only, never physical
+  allow_overwrite: true
+  allow_git_commit: true
+  allow_shell_exec: true
+  allowed_git_operations:
+    - status
+    - commit
+    - log
+
+execution:
+  max_code_chars: 40000
+  max_command_chars: 5000
+  max_timeout_seconds: 300
+  denied_code_fragments:
+    - "__import__"
+    - "eval("
+    - "exec("
+    - "compile("
+    - "subprocess"
+    - "socket"
+    - "os.system"
+    - "os.popen"
+  denied_shell_fragments:
+    - "curl "
+    - "wget "
+    - "pip "
+    - "apt "
+    - "apt-get "
+    - "docker "
+    - "ssh "
+    - "scp "
+    - "nc "
+    - "rm "
+    - "mv "
+    - "dd "

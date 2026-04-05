@@ -1,0 +1,13 @@
+name: file_write
+backend: skill-files
+description: "Write or overwrite a file in the workspace."
+parameters:
+  type: object
+  properties:
+    path:
+      type: string
+      description: "Absolute path starting with /workspace"
+    content:
+      type: string
+      description: "Text content to write"
+  required: ["path", "content"]

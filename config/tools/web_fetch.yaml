@@ -1,0 +1,16 @@
+name: web_fetch
+backend: skill-websearch
+description: >
+  获取指定网页的正文内容。用于在 web_search 搜索到结果后，深入阅读某个页面的详细内容。
+  会自动提取网页正文，去除导航栏、广告等无关内容。
+parameters:
+  type: object
+  properties:
+    url:
+      type: string
+      description: "要获取的网页URL，必须以 http:// 或 https:// 开头"
+    max_chars:
+      type: integer
+      description: "最大返回字符数（默认20000，最大50000）"
+  required:
+    - url

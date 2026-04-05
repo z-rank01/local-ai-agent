@@ -1,0 +1,10 @@
+name: file_delete
+backend: skill-files
+description: "Move a file to trash (soft delete, reversible). Cannot delete files in /workspace/skills/."
+parameters:
+  type: object
+  properties:
+    path:
+      type: string
+      description: "Absolute path starting with /workspace"
+  required: ["path"]

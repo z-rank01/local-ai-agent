@@ -1,0 +1,16 @@
+name: skill_run
+backend: skill-runner
+description: "Run a custom skill from /workspace/skills/ by name. The skill must already exist as a .py file with SKILL_METADATA and a run() function."
+parameters:
+  type: object
+  properties:
+    skill_name:
+      type: string
+      description: "Skill filename without .py extension (e.g. 'word_count')"
+    params:
+      type: object
+      description: "Parameters to pass to the skill's run() function"
+    timeout:
+      type: integer
+      description: "Execution timeout in seconds"
+  required: ["skill_name"]

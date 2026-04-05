@@ -1,0 +1,154 @@
+name: local-ai-agent
+
+services:
+  skill-runner:
+    build:
+      context: ./skills/runner
+    container_name: skill-runner
+    restart: unless-stopped
+    expose:
+      - "8200"
+    volumes:
+      - ./data/workspace:/workspace
+      - runner-packages:/packages
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHON_EXEC_TIMEOUT: ${PYTHON_EXEC_TIMEOUT:-120}
+      SHELL_EXEC_TIMEOUT: ${SHELL_EXEC_TIMEOUT:-60}
+    networks:
+      - agent-net
+    cpus: 2.0
+    mem_limit: 2048m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  skill-files:
+    build:
+      context: ./skills/files
+    container_name: skill-files
+    restart: unless-stopped
+    expose:
+      - "8100"
+    volumes:
+      - ./data/workspace:/workspace
+      - ./data/trash:/trash
+      - ./data/logs:/logs
+      - ./config:/config:ro
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AUTO_GIT_COMMIT: ${AUTO_GIT_COMMIT:-true}
+    networks:
+      - agent-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  agent-gateway:
+    build:
+      context: ./gateway
+    container_name: agent-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    volumes:
+      - ./data/logs:/logs
+      - ./config:/config:ro
+      - ./gateway/prompts:/app/prompts:ro
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      SKILL_FILES_URL: http://skill-files:8100
+      SKILL_RUNNER_URL: http://skill-runner:8200
+      SKILL_WEBSEARCH_URL: http://skill-websearch:8300
+      ENABLE_WEBSEARCH: ${ENABLE_WEBSEARCH:-false}
+    networks:
+      - agent-net
+    depends_on:
+      skill-files:
+        condition: service_healthy
+      skill-runner:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── Web Search (optional, controlled by ENABLE_WEBSEARCH) ──
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    profiles:
+      - websearch
+    expose:
+      - "8080"
+    volumes:
+      - ./config/searxng:/etc/searxng
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080
+    networks:
+      - agent-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  skill-websearch:
+    build:
+      context: ./skills/websearch
+    container_name: skill-websearch
+    restart: unless-stopped
+    profiles:
+      - websearch
+    expose:
+      - "8300"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SEARXNG_URL: http://searxng:8080
+      FETCH_TIMEOUT: ${FETCH_TIMEOUT:-30}
+      MAX_FETCH_CHARS: ${MAX_FETCH_CHARS:-20000}
+    networks:
+      - agent-net
+    depends_on:
+      searxng:
+        condition: service_healthy
+    cpus: 1.0
+    mem_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+networks:
+  agent-net:
+    driver: bridge
+
+volumes:
+  runner-packages:
+    driver: local

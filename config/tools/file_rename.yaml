@@ -1,0 +1,13 @@
+name: file_rename
+backend: skill-files
+description: "Rename or move a file within the workspace. Cannot rename files out of /workspace/skills/."
+parameters:
+  type: object
+  properties:
+    src:
+      type: string
+      description: "Current absolute path starting with /workspace"
+    dst:
+      type: string
+      description: "New absolute path starting with /workspace"
+  required: ["src", "dst"]

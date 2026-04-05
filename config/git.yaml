@@ -1,0 +1,15 @@
+default_branch: main
+
+committer:
+  name: "Local AI Agent"
+  email: "local-agent@example.local"
+
+auto_commit:
+  enabled: true
+  on_write: true
+  on_delete: false
+
+commit_message:
+  write: "agent: write {path}"
+  delete: "agent: move {path} to trash"
+  bulk: "agent: bulk operation ({count} files)"

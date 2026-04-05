@@ -1,0 +1,13 @@
+name: code_exec
+backend: skill-runner
+description: "Execute a short Python snippet inside the sandboxed runner. Use this for computation, parsing, and temporary verification."
+parameters:
+  type: object
+  properties:
+    code:
+      type: string
+      description: "Python source code to execute"
+    timeout:
+      type: integer
+      description: "Timeout in seconds, up to policy limit"
+  required: ["code"]

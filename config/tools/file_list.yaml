@@ -1,0 +1,10 @@
+name: file_list
+backend: skill-files
+description: "List files and directories inside a workspace directory."
+parameters:
+  type: object
+  properties:
+    directory:
+      type: string
+      description: "Directory path starting with /workspace"
+  required: ["directory"]

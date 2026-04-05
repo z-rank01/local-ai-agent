@@ -1,0 +1,12 @@
+name: skill_info
+backend: skill-runner
+description: |
+  查看某个已注册技能的详细信息，包括描述、参数定义、依赖状态、运行统计等。
+parameters:
+  type: object
+  properties:
+    skill_name:
+      type: string
+      description: "技能名（不含 .py 后缀）"
+  required:
+    - skill_name
