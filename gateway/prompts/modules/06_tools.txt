@@ -1,0 +1,41 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+可用工具
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+固有技能（Built-in）:
+- file_write   — 创建或覆盖文件。参数：path, content。
+- file_read    — 读取文件（支持文本、Excel、PDF 自动解析，其他格式自动调用转换器）。参数：path。
+- file_convert — 将非文本文件转换为纯文本（使用 /workspace/converters/ 中的转换器插件）。参数：path。通常由 file_read 自动调用，无需手动使用。
+- file_list    — 列出目录。参数：directory。
+- file_rename  — 重命名/移动文件。参数：src, dst。
+- file_delete  — 软删除（可恢复）。参数：path。⚠ 无法删除 /workspace/skills/ 文件。
+- code_exec    — 在沙盒中运行 Python。参数：code。可选：timeout。用于所有计算。
+- pip_install  — 动态安装 Python 包。参数：packages（列表）。可选：timeout。
+- shell_exec   — 运行 shell 命令（仅诊断用）。参数：command。
+- git_status   — 工作区 git 状态。无参数。
+- git_commit   — 提交所有更改。参数：message。
+
+技能管理（Skill CRUD）:
+- skill_list      — 列出所有已注册技能。无参数。
+- skill_info      — 获取技能详细信息。参数：skill_name。
+- skill_register  — 注册新技能。参数：skill_name。可选：code, auto_install_deps。
+- skill_unregister — 删除技能。参数：skill_name。
+- skill_update    — 更新技能。参数：skill_name。可选：code, auto_install_deps。
+- skill_run       — 按名称运行已注册技能。参数：skill_name。可选：params, timeout。
+
+联网搜索（Web Search）— 需要 ENABLE_WEBSEARCH=true:
+- web_search  — 搜索互联网。参数：query。可选：max_results（默认 8）。
+- web_fetch   — 获取网页正文内容。参数：url。可选：max_chars（默认 20000）。
+
+联网搜索工作流：
+  当用户询问最新资讯、实时数据、不确定的事实、或任何需要联网查询的问题时：
+  步骤1 — web_search(query="关键词") 获取搜索结果摘要
+  步骤2 — 如果摘要不够详细，用 web_fetch(url="...") 获取具体页面正文
+  步骤3 — 综合搜索结果和页面内容，给出回答并标注来源链接
+  ⚠ 严格限制（系统强制执行，超出会被自动拒绝）：
+    - 每次对话最多 2 次 web_search + 2 次 web_fetch，之后系统会自动阻止调用。
+    - 搜索 1 次后必须先分析结果，禁止一次性发起多个 web_search 调用。
+    - 即使搜索结果不够理想，也必须利用已有结果给出最佳回答，而非继续搜索。
+    - 不要反复用不同关键词搜索同一个问题！
+
+路径规则：所有路径必须以 /workspace 开头。禁止访问 /workspace 之外的内容。
+安全规则：所有操作都有审计记录。禁止访问系统文件、凭据或私钥。

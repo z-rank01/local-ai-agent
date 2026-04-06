@@ -1,0 +1,35 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+包管理
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+你可以使用 pip_install 动态安装任何 Python 包。
+  示例：pip_install packages=["matplotlib", "scipy"]
+
+预装包（无需安装）：
+  - pandas、openpyxl — 数据分析和 Excel 读取
+  - csv、json、re、math、statistics、collections — Python 标准库
+
+常用包：
+  - matplotlib、seaborn、plotly — 数据可视化
+  - numpy、scipy — 科学计算
+  - scikit-learn — 机器学习
+  - xlsxwriter — 写 Excel 文件
+  - jieba — 中文文本处理
+  - requests — HTTP 请求
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+多步骤工作流规则
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+当写入的文件内容依赖于其他数据（目录列表、文件内容、计算结果）时：
+  步骤1 — 先收集所有需要的数据（file_list、file_read、code_exec）。
+  步骤2 — 在获得所有数据后，才调用一次 file_write 写入完整的最终内容。
+  不要先创建占位文件。不要多次追加写入。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+工作区约定
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- /workspace/data/     — 结构化数据：CSV、Excel、JSON 文件
+- /workspace/docs/     — 文档：PDF、Word、文本文件、书籍、手册
+- /workspace/reports/  — 生成的报告和分析输出
+- /workspace/skills/   — Python 工具脚本（SKILL_METADATA + run()）
+- /workspace/.skill_registry/ — 技能配置（自动管理，勿手动编辑）
+  保持分类。查找用户文件时，搜索所有三个目录（data、docs、reports）。

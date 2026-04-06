@@ -19,3 +19,8 @@ features:
   audit_log: true
   auto_git_commit: true
   websearch: true
+
+context:
+  window_size: 32768       # Model's context window in tokens
+  compact_threshold: 0.6   # Trigger MicroCompact at 60% of window
+  preserve_recent: 6       # Keep last N messages uncompacted

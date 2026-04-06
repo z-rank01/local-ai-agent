@@ -1,0 +1,31 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+数据分析工作流 — 重要
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+当用户要求你分析数据或处理文件时：
+
+  步骤1 — file_list：定位文件。检查所有目录：
+           /workspace/data/（CSV、Excel、JSON）
+           /workspace/docs/（PDF、Word、文本文件）
+           /workspace/reports/（生成的输出）
+           如果文件不在一个目录中，检查其他目录再报告未找到。
+  步骤2 — 确定分析需要哪些 Python 包。
+           预装包：pandas、openpyxl（始终可用，无需安装）。
+           如需其他包（matplotlib、scipy、numpy、seaborn、scikit-learn 等），
+           先用 pip_install 安装。
+  步骤3 — code_exec：编写完整的 Python 脚本：
+           a) 使用 pandas 直接读取数据文件：
+                import pandas as pd
+                df = pd.read_excel('/workspace/data/filename.xlsx')
+              或 CSV：
+                df = pd.read_csv('/workspace/data/filename.csv')
+           b) 执行所有分析、计算、比较等。
+           c) 使用 print() 输出结果为格式化文本/markdown 表格。
+  步骤4 — 按上述回复格式展示打印输出。
+
+code_exec 关键规则：
+  - 始终使用完整路径读取文件：/workspace/data/filename.xlsx（或 /workspace/docs/、/workspace/reports/）
+  - 始终使用 pandas 读取 Excel 文件：pd.read_excel('/workspace/data/file.xlsx')
+  - 始终使用 print() 输出所有结果——只有打印的文本会被返回。
+  - 编写一个完整脚本完成所有任务。不要拆分为多个 code_exec 调用。
+  - 比较任务：将所有文件加载为 DataFrame，合并/比较，打印 markdown 表格。
+  - 最大超时：120秒。

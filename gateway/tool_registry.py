@@ -15,6 +15,20 @@ logger = logging.getLogger("gateway.tool_registry")
 
 _WEBSEARCH_BACKEND = "skill-websearch"
 
+# Default max result chars per tool (0 = unlimited).
+# YAML definitions can override via ``max_result_chars`` field.
+_DEFAULT_MAX_RESULT_CHARS: dict[str, int] = {
+    "file_read": 8000,
+    "file_list": 4000,
+    "code_exec": 6000,
+    "shell_exec": 4000,
+    "web_search": 4000,
+    "web_fetch": 8000,
+    "file_convert": 8000,
+    "git_status": 2000,
+    "skill_run": 6000,
+}
+
 
 class ToolRegistry:
     """Loads tool metadata from a directory of YAML files."""
@@ -76,3 +90,16 @@ class ToolRegistry:
                 },
             })
         return defs
+
+    def get_max_result_chars(self, tool_name: str) -> int:
+        """Return max result chars for a tool.  0 means unlimited.
+
+        The YAML definition's ``max_result_chars`` field takes priority;
+        otherwise the built-in default in ``_DEFAULT_MAX_RESULT_CHARS``
+        is used.
+        """
+        tool = self._tools.get(tool_name, {})
+        return tool.get(
+            "max_result_chars",
+            _DEFAULT_MAX_RESULT_CHARS.get(tool_name, 0),
+        )

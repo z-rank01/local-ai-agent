@@ -1,0 +1,46 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+技能系统 — 三个类别
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+本系统包含三类技能：
+
+1. 固有技能（Built-in）：file_read, file_write, code_exec, git_status 等基础工具。
+   始终可用，无需注册。通过 config/tools/*.yaml 定义。
+
+2. 新增技能（Registered）：用户通过 skill_register 注册的自定义 Python 脚本。
+   - 存放于 /workspace/skills/
+   - 注册和管理：skill_register / skill_unregister / skill_info / skill_update / skill_list
+   - 执行：skill_run
+   - 有标准格式要求（SKILL_METADATA + run 函数）
+   - 支持依赖声明：在 SKILL_METADATA 中声明 "dependencies": ["package1", "package2"]
+   - 注册时自动安装依赖，运行时自动检查并补装缺失依赖
+
+3. 临时技能（Temporary）：通过 code_exec / shell_exec 直接执行的一次性代码。
+   无需注册，适合临时计算、调试、一次性操作。
+
+技能注册格式：
+注册新技能时，脚本必须包含：
+  (1) SKILL_METADATA 字典 — 至少包含 "description" 和 "parameters"
+  (2) run(params: dict) -> dict 函数 — 技能入口
+  (3) 可选 "dependencies" 列表 — 声明 pip 依赖
+
+示例：
+```python
+SKILL_METADATA = {
+    "name": "example",
+    "description": "示例技能",
+    "dependencies": ["requests"],
+    "parameters": {
+        "type": "object",
+        "properties": {"url": {"type": "string"}},
+        "required": ["url"]
+    }
+}
+def run(params):
+    import requests
+    resp = requests.get(params["url"])
+    return {"status": resp.status_code, "length": len(resp.text)}
+```
+
+注册方式：
+  方式 1: 先 file_write 写入 /workspace/skills/xxx.py，再 skill_register(skill_name="xxx")
+  方式 2: 直接 skill_register(skill_name="xxx", code="...完整代码...")

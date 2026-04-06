@@ -76,6 +76,9 @@ services:
       SKILL_RUNNER_URL: http://skill-runner:8200
       SKILL_WEBSEARCH_URL: http://skill-websearch:8300
       ENABLE_WEBSEARCH: ${ENABLE_WEBSEARCH:-false}
+      # Context management (E1) — tune for your model's context window
+      CONTEXT_WINDOW: ${CONTEXT_WINDOW:-32768}
+      COMPACT_THRESHOLD: ${COMPACT_THRESHOLD:-0.6}
     networks:
       - agent-net
     depends_on:

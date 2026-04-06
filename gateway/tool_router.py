@@ -64,6 +64,18 @@ class ToolRouter:
 
         result = resp.json()
 
+        # ── Truncate large string values in results (A5) ────────────────
+        max_chars = self._registry.get_max_result_chars(tool)
+        if max_chars and isinstance(result, dict):
+            for key in ("content", "stdout", "stderr", "output", "text"):
+                val = result.get(key)
+                if isinstance(val, str) and len(val) > max_chars:
+                    result = dict(result)  # shallow copy to avoid mutating cache
+                    result[key] = (
+                        val[:max_chars]
+                        + f"\n...[已截断，仅显示前 {max_chars} 字符，共 {len(val)} 字符]"
+                    )
+
         # Auto-chain: when file_read returns unsupported binary, try file_convert
         if tool == "file_read" and isinstance(result, dict) and result.get("unsupported"):
             if "file_convert" in self._registry.known_tools:

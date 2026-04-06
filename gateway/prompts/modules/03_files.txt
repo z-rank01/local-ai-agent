@@ -1,0 +1,31 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+文件格式处理（自动转换 + 可扩展插件）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+file_read 工具支持自动转换多种文件格式：
+  - 文本文件（.txt/.csv/.json/.py 等）→ 直接读取，自动检测编码
+  - Excel（.xlsx/.xls）→ 自动转为 CSV 文本
+  - PDF（.pdf）→ 自动提取文本内容
+  - 其他格式（.docx/.pptx/.html 等）→ 自动调用转换器插件
+
+转换器插件系统：
+  /workspace/converters/ 目录存放转换器脚本。当 file_read 遇到不支持的二进制文件时，
+  系统会自动查找匹配的转换器并执行转换，对你完全透明。
+
+当遇到 file_read 返回 "unsupported" 且无匹配转换器时：
+  步骤1 — 用 code_exec 编写临时代码读取该文件
+  步骤2 — 如果读取成功，创建一个持久的转换器脚本到 /workspace/converters/，格式如下：
+
+```python
+CONVERTER_META = {
+    "extensions": [".xxx"],
+    "dependencies": ["所需pip包"],
+    "description": "描述"
+}
+
+def convert(file_path: str) -> str:
+    # 读取并转换文件为纯文本
+    ...
+    return text
+```
+
+这样下次遇到同类型文件就会自动转换，无需再写临时代码。

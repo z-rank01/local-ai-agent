@@ -13,8 +13,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from audit_logger import AuditLogger
+from context_manager import ContextManager
 from llm_client import LLMClient
 from policy_engine import PolicyEngine
+from prompt_builder import PromptBuilder
+from session_store import SessionStore
 from tool_registry import ToolRegistry
 from tool_router import ToolRouter
 
@@ -52,13 +55,26 @@ async def lifespan(app: FastAPI):
     )
     llm = LLMClient(ollama_base_url, ollama_model)
 
+    context_window = int(os.environ.get("CONTEXT_WINDOW", "32768"))
+    compact_threshold = float(os.environ.get("COMPACT_THRESHOLD", "0.6"))
+    context_mgr = ContextManager(
+        context_window=context_window,
+        compact_threshold=compact_threshold,
+    )
+    sessions = SessionStore()
+    prompt = PromptBuilder()
+
     app.state.registry = registry
     app.state.router = router
     app.state.llm = llm
     app.state.audit = audit
+    app.state.context_mgr = context_mgr
+    app.state.sessions = sessions
+    app.state.prompt = prompt
 
     logger.info(
-        "Gateway started — skill-files=%s skill-runner=%s websearch=%s(enabled=%s) ollama=%s model=%s tools=%d",
+        "Gateway started — skill-files=%s skill-runner=%s websearch=%s(enabled=%s) "
+        "ollama=%s model=%s tools=%d context_window=%d compact_threshold=%.1f",
         skill_files_url,
         skill_runner_url,
         skill_websearch_url,
@@ -66,6 +82,8 @@ async def lifespan(app: FastAPI):
         ollama_base_url,
         ollama_model,
         len(registry.known_tools),
+        context_window,
+        compact_threshold,
     )
     yield
 
@@ -120,13 +138,9 @@ async def call_tool(req: ToolRequest, request: Request):
 async def chat(req: ChatRequest, request: Request):
     llm: LLMClient = request.app.state.llm
     audit: AuditLogger = request.app.state.audit
+    prompt_builder: PromptBuilder = request.app.state.prompt
 
-    try:
-        with open(_SYSTEM_PROMPT_PATH, encoding="utf-8") as f:
-            system_prompt = f.read()
-    except FileNotFoundError:
-        system_prompt = "You are a helpful local AI assistant."
-
+    system_prompt = prompt_builder.build()
     reply = await llm.chat(system_prompt, req.message)
     audit.record("chat", {"session_id": req.session_id, "input_length": len(req.message)})
     return {"reply": reply}
@@ -150,7 +164,9 @@ class OAIChatRequest(BaseModel):
 
 # ── Agentic tool-call loop ───────────────────────────────────────────────────
 
-def _load_system_prompt() -> str:
+def _load_system_prompt(prompt_builder: PromptBuilder | None = None) -> str:
+    if prompt_builder:
+        return prompt_builder.build()
     try:
         with open(_SYSTEM_PROMPT_PATH, encoding="utf-8") as f:
             return f.read()
@@ -419,9 +435,12 @@ async def _run_agent_loop(
     audit: AuditLogger,
     tool_definitions: list[dict],
     session_id: str = "default",
+    context_mgr: ContextManager | None = None,
 ) -> str:
     """Non-streaming: run all tool calls then return the full final text."""
     messages = await _inject_context_into_messages(messages, router, session_id)
+    if context_mgr:
+        messages = context_mgr.process(messages)
 
     any_tools, text = await _run_tool_rounds(
         messages, router, llm, audit, tool_definitions, session_id
@@ -498,6 +517,8 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
     llm: LLMClient = request.app.state.llm
     audit: AuditLogger = request.app.state.audit
     registry: ToolRegistry = request.app.state.registry
+    context_mgr: ContextManager = request.app.state.context_mgr
+    prompt_builder: PromptBuilder = request.app.state.prompt
 
     session_id = req.model or "oai"
     tool_definitions = registry.get_definitions()
@@ -507,7 +528,7 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
         {"role": m.role, "content": m.content or ""} for m in req.messages
     ]
     if not messages or messages[0]["role"] != "system":
-        messages.insert(0, {"role": "system", "content": _load_system_prompt()})
+        messages.insert(0, {"role": "system", "content": _load_system_prompt(prompt_builder)})
 
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
@@ -542,6 +563,7 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
                 messages = await _inject_context_into_messages(
                     messages, router, session_id
                 )
+                messages = context_mgr.process(messages)
 
                 tool_defs = tool_definitions if llm._supports_tools else None
                 max_rounds = 6
@@ -628,7 +650,10 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
 
     # ── Non-streaming path ──────────────────────────────────────────────────
     try:
-        reply = await _run_agent_loop(messages, router, llm, audit, tool_definitions, session_id)
+        reply = await _run_agent_loop(
+            messages, router, llm, audit, tool_definitions, session_id,
+            context_mgr=context_mgr,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
