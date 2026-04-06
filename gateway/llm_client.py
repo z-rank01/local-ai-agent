@@ -9,6 +9,15 @@ logger = logging.getLogger("gateway.llm")
 
 _JSON_BLOCK_RE = _re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", _re.DOTALL)
 
+# Known markers that signal the end of model thinking text leaked into content
+_THINKING_LEAK_MARKERS = [
+    "End thoughts.",
+    "End thoughts",
+    "end thoughts.",
+    "结束思考。",
+    "结束思考.",
+]
+
 
 def _maybe_extract_tool_calls(msg: dict) -> dict:
     """Normalise tool-call JSON that some models embed in the content field.
@@ -60,6 +69,71 @@ def _wrap_thinking(thinking: str, content: str) -> str:
     return f"<think>\n{thinking}\n</think>\n\n{content}"
 
 
+def _strip_thinking_leaks(text: str) -> str:
+    """Remove thinking-process text that leaked into the content field.
+
+    Some models (e.g. Gemma 4) produce a separate ``thinking`` field via
+    Ollama but let the tail of their internal monologue bleed into
+    ``content`` — e.g. ``*Finalizing.* ... End thoughts.``  This helper
+    strips that prefix so the user only sees the real answer.
+    """
+    # 1. Strip full <think>…</think> blocks that ended up in content
+    cleaned = _re.sub(r"<think>[\s\S]*?</think>\s*", "", text)
+    # 2. Strip prefix that ends with a known thinking-leak marker
+    for marker in _THINKING_LEAK_MARKERS:
+        idx = cleaned.find(marker)
+        if idx >= 0 and idx < 500:
+            cleaned = cleaned[idx + len(marker) :].lstrip()
+            break
+    return cleaned
+
+
+class _ContentSanitizer:
+    """Buffer initial streaming tokens to detect and strip thinking leaks.
+
+    Only activated when the model produced a ``thinking`` field, indicating
+    a risk that some thinking text leaked into ``content``.  Buffers up to
+    ``_MAX_BUFFER`` characters of content; once a known end-of-thinking
+    marker is found the prefix is stripped.  If no marker is found by the
+    time the buffer fills, content is passed through unchanged.
+    """
+
+    _MAX_BUFFER = 300
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._flushed = False
+
+    def feed(self, token: str) -> str:
+        """Feed a content token; returns text to emit (empty while buffering)."""
+        if self._flushed:
+            return token
+        self._buffer += token
+        # Look for an end-of-thinking marker
+        for marker in _THINKING_LEAK_MARKERS:
+            idx = self._buffer.find(marker)
+            if idx >= 0:
+                self._flushed = True
+                return self._buffer[idx + len(marker) :].lstrip()
+        # Also handle </think> tag in content
+        idx = self._buffer.find("</think>")
+        if idx >= 0:
+            self._flushed = True
+            return self._buffer[idx + 8 :].lstrip()
+        # Buffer full — no markers found, flush as-is
+        if len(self._buffer) >= self._MAX_BUFFER:
+            self._flushed = True
+            return self._buffer
+        return ""
+
+    def flush(self) -> str:
+        """Flush remaining buffer (call when stream ends)."""
+        if not self._flushed and self._buffer:
+            self._flushed = True
+            return self._buffer
+        return ""
+
+
 class LLMClient:
     def __init__(self, base_url: str, model: str):
         self._base_url = base_url.rstrip("/")
@@ -86,6 +160,8 @@ class LLMClient:
             msg = resp.json().get("message", {})
             content = msg.get("content", "")
             thinking = msg.get("thinking", "")
+            if thinking:
+                content = _strip_thinking_leaks(content)
             return _wrap_thinking(thinking, content)
         except httpx.HTTPStatusError as exc:
             logger.error("LLM HTTP error %s: %s", exc.response.status_code, exc)
@@ -146,7 +222,8 @@ class LLMClient:
         # process into content so downstream callers see it.
         thinking = msg.get("thinking", "")
         if thinking and not msg.get("tool_calls"):
-            msg = {**msg, "content": _wrap_thinking(thinking, msg.get("content", ""))}
+            cleaned = _strip_thinking_leaks(msg.get("content", ""))
+            msg = {**msg, "content": _wrap_thinking(thinking, cleaned)}
         return msg
 
     async def chat_stream_with_tools(
@@ -176,6 +253,7 @@ class LLMClient:
         tool_calls_acc: list[dict] = []
         thinking_started = False
         in_thinking = False
+        sanitizer: _ContentSanitizer | None = None
 
         try:
             async with self._client.stream(
@@ -202,18 +280,30 @@ class LLMClient:
                             yield ("<think>\n", None)
                             thinking_started = True
                             in_thinking = True
+                            sanitizer = _ContentSanitizer()
                         yield (thinking, None)
 
                     if content:
                         if in_thinking:
                             yield ("\n</think>\n\n", None)
                             in_thinking = False
-                        accumulated["content"] += content
-                        yield (content, None)
+                        if sanitizer:
+                            cleaned = sanitizer.feed(content)
+                            if cleaned:
+                                accumulated["content"] += cleaned
+                                yield (cleaned, None)
+                        else:
+                            accumulated["content"] += content
+                            yield (content, None)
 
                     if chunk.get("done"):
                         if in_thinking:
                             yield ("\n</think>\n\n", None)
+                        if sanitizer:
+                            remaining = sanitizer.flush()
+                            if remaining:
+                                accumulated["content"] += remaining
+                                yield (remaining, None)
                         break
 
             if tool_calls_acc:
@@ -259,6 +349,7 @@ class LLMClient:
         try:
             thinking_started = False
             in_thinking = False
+            sanitizer: _ContentSanitizer | None = None
             async with self._client.stream(
                 "POST", f"{self._base_url}/api/chat", json=payload
             ) as resp:
@@ -277,17 +368,27 @@ class LLMClient:
                                 yield "<think>\n"
                                 thinking_started = True
                                 in_thinking = True
+                                sanitizer = _ContentSanitizer()
                             yield thinking
 
                         if content:
                             if in_thinking:
                                 yield "\n</think>\n\n"
                                 in_thinking = False
-                            yield content
+                            if sanitizer:
+                                cleaned = sanitizer.feed(content)
+                                if cleaned:
+                                    yield cleaned
+                            else:
+                                yield content
 
                         if chunk.get("done"):
                             if in_thinking:
                                 yield "\n</think>\n\n"
+                            if sanitizer:
+                                remaining = sanitizer.flush()
+                                if remaining:
+                                    yield remaining
                             break
                     except _json.JSONDecodeError:
                         continue
