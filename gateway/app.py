@@ -60,6 +60,7 @@ async def lifespan(app: FastAPI):
     context_mgr = ContextManager(
         context_window=context_window,
         compact_threshold=compact_threshold,
+        llm=llm,
     )
     sessions = SessionStore()
     prompt = PromptBuilder()
@@ -440,7 +441,7 @@ async def _run_agent_loop(
     """Non-streaming: run all tool calls then return the full final text."""
     messages = await _inject_context_into_messages(messages, router, session_id)
     if context_mgr:
-        messages = context_mgr.process(messages)
+        messages = await context_mgr.process(messages)
 
     any_tools, text = await _run_tool_rounds(
         messages, router, llm, audit, tool_definitions, session_id
@@ -563,7 +564,7 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
                 messages = await _inject_context_into_messages(
                     messages, router, session_id
                 )
-                messages = context_mgr.process(messages)
+                messages = await context_mgr.process(messages)
 
                 tool_defs = tool_definitions if llm._supports_tools else None
                 max_rounds = 6
