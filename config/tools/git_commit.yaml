@@ -1,5 +1,7 @@
 name: git_commit
 backend: skill-files
+tier: core
+short_description: "Git commit changes."
 description: "Commit all pending changes in the workspace with a message."
 parameters:
   type: object

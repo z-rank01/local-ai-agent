@@ -1,5 +1,7 @@
 name: file_list
 backend: skill-files
+tier: core
+short_description: "List files in a directory."
 description: "List files and directories inside a workspace directory."
 parameters:
   type: object

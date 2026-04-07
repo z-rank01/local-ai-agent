@@ -1,5 +1,7 @@
 name: git_status
 backend: skill-files
+tier: core
+short_description: "Show git status."
 description: "Show the current git status of the workspace."
 parameters:
   type: object

@@ -1,5 +1,7 @@
 name: file_read
 backend: skill-files
+tier: core
+short_description: "Read a file."
 description: "Read the contents of a file in the workspace."
 parameters:
   type: object

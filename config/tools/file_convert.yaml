@@ -1,5 +1,7 @@
 name: file_convert
 backend: skill-runner
+tier: extended
+short_description: "Convert binary file to text."
 description: "将非文本文件（如 Word、PPT 等）转换为纯文本。使用 /workspace/converters/ 中的转换器插件。"
 parameters:
   type: object

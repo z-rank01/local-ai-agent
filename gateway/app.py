@@ -20,6 +20,7 @@ from prompt_builder import PromptBuilder
 from session_store import SessionStore
 from tool_registry import ToolRegistry
 from tool_router import ToolRouter
+from workspace_context import fetch_workspace_context
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -65,6 +66,9 @@ async def lifespan(app: FastAPI):
     sessions = SessionStore()
     prompt = PromptBuilder()
 
+    # Tool tier: "core" = only essential tools (saves context), "all" = everything
+    tool_tier = os.environ.get("TOOL_TIER", "core")
+
     app.state.registry = registry
     app.state.router = router
     app.state.llm = llm
@@ -72,10 +76,11 @@ async def lifespan(app: FastAPI):
     app.state.context_mgr = context_mgr
     app.state.sessions = sessions
     app.state.prompt = prompt
+    app.state.tool_tier = tool_tier
 
     logger.info(
         "Gateway started — skill-files=%s skill-runner=%s websearch=%s(enabled=%s) "
-        "ollama=%s model=%s tools=%d context_window=%d compact_threshold=%.1f",
+        "ollama=%s model=%s tools=%d tool_tier=%s context_window=%d compact_threshold=%.1f",
         skill_files_url,
         skill_runner_url,
         skill_websearch_url,
@@ -83,6 +88,7 @@ async def lifespan(app: FastAPI):
         ollama_base_url,
         ollama_model,
         len(registry.known_tools),
+        tool_tier,
         context_window,
         compact_threshold,
     )
@@ -165,9 +171,13 @@ class OAIChatRequest(BaseModel):
 
 # ── Agentic tool-call loop ───────────────────────────────────────────────────
 
-def _load_system_prompt(prompt_builder: PromptBuilder | None = None) -> str:
+def _load_system_prompt(
+    prompt_builder: PromptBuilder | None = None,
+    *,
+    extra_sections: list[str] | None = None,
+) -> str:
     if prompt_builder:
-        return prompt_builder.build()
+        return prompt_builder.build(extra_sections=extra_sections)
     try:
         with open(_SYSTEM_PROMPT_PATH, encoding="utf-8") as f:
             return f.read()
@@ -522,14 +532,26 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
     prompt_builder: PromptBuilder = request.app.state.prompt
 
     session_id = req.model or "oai"
-    tool_definitions = registry.get_definitions()
+    tool_tier: str = request.app.state.tool_tier
+    use_short = tool_tier == "core"
+    tool_definitions = registry.get_definitions(tier=tool_tier, use_short_desc=use_short)
+
+    # Fetch workspace context (D5): directory overview + memory index
+    try:
+        ws_sections = await fetch_workspace_context(router, session_id)
+    except Exception as exc:
+        logger.debug("Workspace context fetch failed: %s", exc)
+        ws_sections = []
 
     # Build messages; inject system prompt if the caller didn't supply one
     messages: list[dict] = [
         {"role": m.role, "content": m.content or ""} for m in req.messages
     ]
     if not messages or messages[0]["role"] != "system":
-        messages.insert(0, {"role": "system", "content": _load_system_prompt(prompt_builder)})
+        messages.insert(0, {
+            "role": "system",
+            "content": _load_system_prompt(prompt_builder, extra_sections=ws_sections),
+        })
 
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())

@@ -1,5 +1,7 @@
 name: file_rename
 backend: skill-files
+tier: extended
+short_description: "Rename or move a file."
 description: "Rename or move a file within the workspace. Cannot rename files out of /workspace/skills/."
 parameters:
   type: object

@@ -1,5 +1,7 @@
 name: skill_update
 backend: skill-runner
+tier: extended
+short_description: "Update a skill."
 description: |
   更新已注册技能的代码或元数据。可更新脚本代码、重新验证格式、重新安装依赖。
 parameters:

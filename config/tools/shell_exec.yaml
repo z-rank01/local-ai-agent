@@ -1,5 +1,7 @@
 name: shell_exec
 backend: skill-runner
+tier: core
+short_description: "Run a shell command."
 description: "Run a short shell command in /workspace for diagnostics. Only use safe, non-destructive commands."
 parameters:
   type: object

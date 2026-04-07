@@ -1,5 +1,7 @@
 name: skill_unregister
 backend: skill-runner
+tier: extended
+short_description: "Delete a skill."
 description: |
   删除一个已注册的技能。移除技能脚本文件和配置文件。
 parameters:

@@ -1,5 +1,7 @@
 name: code_exec
 backend: skill-runner
+tier: core
+short_description: "Run Python code."
 description: "Execute a short Python snippet inside the sandboxed runner. Use this for computation, parsing, and temporary verification."
 parameters:
   type: object

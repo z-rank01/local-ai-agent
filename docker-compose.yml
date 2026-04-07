@@ -79,6 +79,8 @@ services:
       # Context management (E1) — tune for your model's context window
       CONTEXT_WINDOW: ${CONTEXT_WINDOW:-32768}
       COMPACT_THRESHOLD: ${COMPACT_THRESHOLD:-0.6}
+      # Tool tier (C1): "core" = 9 essential tools (saves context), "all" = all 19+
+      TOOL_TIER: ${TOOL_TIER:-core}
     networks:
       - agent-net
     depends_on:

@@ -1,5 +1,7 @@
 name: file_delete
 backend: skill-files
+tier: extended
+short_description: "Delete a file."
 description: "Move a file to trash (soft delete, reversible). Cannot delete files in /workspace/skills/."
 parameters:
   type: object

@@ -1,5 +1,7 @@
 name: pip_install
 backend: skill-runner
+tier: extended
+short_description: "Install Python packages."
 description: "Install Python packages dynamically. Use this when you need a package that is not yet available. Pre-installed: pandas, openpyxl. Common packages: matplotlib, numpy, scipy, scikit-learn, seaborn, plotly, xlsxwriter."
 parameters:
   type: object

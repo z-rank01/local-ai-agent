@@ -3,6 +3,7 @@ Tool registry — loads tool definitions from config/tools/*.yaml at startup.
 
 Adding a new static tool requires only a new YAML file; no Python changes needed.
 Each YAML must have: name, backend (skill-files | skill-runner | skill-websearch), description, parameters.
+Optional fields: tier (core | extended), short_description.
 """
 
 import logging
@@ -36,8 +37,10 @@ class ToolRegistry:
     def __init__(self, tools_dir: str, *, enable_websearch: bool = False) -> None:
         self._tools: dict[str, dict[str, Any]] = {}
         self._load(tools_dir, enable_websearch)
-        logger.info("ToolRegistry loaded %d tools from %s (websearch=%s)",
-                     len(self._tools), tools_dir, enable_websearch)
+        core_count = sum(1 for t in self._tools.values() if t.get("tier", "core") == "core")
+        logger.info("ToolRegistry loaded %d tools (%d core, %d extended) from %s (websearch=%s)",
+                     len(self._tools), core_count, len(self._tools) - core_count,
+                     tools_dir, enable_websearch)
 
     def _load(self, tools_dir: str, enable_websearch: bool) -> None:
         tools_path = Path(tools_dir)
@@ -69,10 +72,26 @@ class ToolRegistry:
         """Return 'skill-files' or 'skill-runner' for a named tool."""
         return self._tools[tool_name]["backend"]
 
-    def get_definitions(self) -> list[dict[str, Any]]:
-        """Return tool definitions in OpenAI function-calling format."""
+    def get_definitions(self, *, tier: str = "all",
+                        use_short_desc: bool = False) -> list[dict[str, Any]]:
+        """Return tool definitions in OpenAI function-calling format.
+
+        Parameters
+        ----------
+        tier : str
+            ``"core"`` returns only core tools, ``"extended"`` returns only
+            extended tools, ``"all"`` (default) returns everything.
+        use_short_desc : bool
+            When True, prefer the compact ``short_description`` field
+            (saves context tokens for small models).  Falls back to
+            ``description`` when ``short_description`` is absent.
+        """
         defs = []
         for tool in self._tools.values():
+            tool_tier = tool.get("tier", "core")
+            if tier != "all" and tool_tier != tier:
+                continue
+
             params = tool.get("parameters", {"type": "object", "properties": {}})
             # Normalise: YAML may store required as a string "[...]" — coerce to list
             if isinstance(params.get("required"), str):
@@ -81,11 +100,17 @@ class ToolRegistry:
                     params["required"] = json.loads(params["required"])
                 except Exception:
                     params.pop("required", None)
+
+            if use_short_desc:
+                desc = tool.get("short_description") or tool.get("description", "")
+            else:
+                desc = tool.get("description", "")
+
             defs.append({
                 "type": "function",
                 "function": {
                     "name": tool["name"],
-                    "description": tool.get("description", ""),
+                    "description": desc,
                     "parameters": params,
                 },
             })

@@ -1,5 +1,7 @@
 name: skill_list
 backend: skill-runner
+tier: core
+short_description: "List available skills."
 description: "List all custom skills registered in /workspace/skills/. Call this before skill_run to discover available skill names and their parameters."
 parameters:
   type: object

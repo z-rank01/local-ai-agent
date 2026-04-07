@@ -1,5 +1,7 @@
 name: skill_run
 backend: skill-runner
+tier: extended
+short_description: "Run a custom skill."
 description: "Run a custom skill from /workspace/skills/ by name. The skill must already exist as a .py file with SKILL_METADATA and a run() function."
 parameters:
   type: object

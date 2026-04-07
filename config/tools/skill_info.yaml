@@ -1,5 +1,7 @@
 name: skill_info
 backend: skill-runner
+tier: extended
+short_description: "View skill details."
 description: |
   查看某个已注册技能的详细信息，包括描述、参数定义、依赖状态、运行统计等。
 parameters:

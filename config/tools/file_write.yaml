@@ -1,5 +1,7 @@
 name: file_write
 backend: skill-files
+tier: core
+short_description: "Write a file."
 description: "Write or overwrite a file in the workspace."
 parameters:
   type: object
