@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from audit_logger import AuditLogger
 from context_manager import ContextManager
-from llm_client import LLMClient
+from llm_client import LLMClient, strip_think_tags_from_history
 from policy_engine import PolicyEngine
 from prompt_builder import PromptBuilder
 from session_store import SessionStore
@@ -552,6 +552,10 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
             "role": "system",
             "content": _load_system_prompt(prompt_builder, extra_sections=ws_sections),
         })
+
+    # Strip <think> blocks from assistant messages in history to prevent
+    # the model from mimicking thinking patterns in subsequent turns.
+    messages = strip_think_tags_from_history(messages)
 
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())

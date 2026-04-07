@@ -16,7 +16,35 @@ _THINKING_LEAK_MARKERS = [
     "end thoughts.",
     "结束思考。",
     "结束思考.",
+    "</body>",
+    "</response>",
+    "Begin response.",
+    "begin response.",
+    "开始回答。",
+    "开始回答.",
 ]
+
+# Regex for stripping <think>...</think> blocks from message history
+_THINK_TAG_RE = _re.compile(r"<think>[\s\S]*?</think>\s*", _re.IGNORECASE)
+
+
+def strip_think_tags_from_history(messages: list[dict]) -> list[dict]:
+    """Strip <think>…</think> blocks from assistant messages in history.
+
+    Open WebUI stores the full assistant response (including thinking tags)
+    and sends it back in subsequent requests.  If the model sees many
+    ``<think>`` blocks in conversation history, it tends to mimic the
+    pattern and leak thinking text into its ``content`` output.  Stripping
+    them from history prevents this degradation.
+    """
+    result: list[dict] = []
+    for m in messages:
+        if m.get("role") == "assistant" and "<think>" in (m.get("content") or "").lower():
+            cleaned = _THINK_TAG_RE.sub("", m["content"]).strip()
+            result.append({**m, "content": cleaned})
+        else:
+            result.append(m)
+    return result
 
 
 def _maybe_extract_tool_calls(msg: dict) -> dict:
@@ -82,7 +110,7 @@ def _strip_thinking_leaks(text: str) -> str:
     # 2. Strip prefix that ends with a known thinking-leak marker
     for marker in _THINKING_LEAK_MARKERS:
         idx = cleaned.find(marker)
-        if idx >= 0 and idx < 500:
+        if idx >= 0 and idx < 1500:
             cleaned = cleaned[idx + len(marker) :].lstrip()
             break
     return cleaned
@@ -98,7 +126,7 @@ class _ContentSanitizer:
     time the buffer fills, content is passed through unchanged.
     """
 
-    _MAX_BUFFER = 300
+    _MAX_BUFFER = 1500
 
     def __init__(self) -> None:
         self._buffer = ""
