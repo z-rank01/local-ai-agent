@@ -193,6 +193,27 @@ Write-Step "Opening browser"
 Start-Process $openWebuiUrl
 Write-Ok "Launched $openWebuiUrl in default browser"
 
+# ── 6. Tailscale remote access check ─────────────────────────────────────
+Write-Step "Checking Tailscale (remote access)"
+
+$tailscaleIp = $null
+$tailscaleCmd = Get-Command tailscale -ErrorAction SilentlyContinue
+if ($tailscaleCmd) {
+    try {
+        $tsStatus = tailscale status --json 2>$null | ConvertFrom-Json
+        if ($tsStatus.Self.Online -eq $true) {
+            $tailscaleIp = ($tsStatus.Self.TailscaleIPs | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)
+            Write-Ok "Tailscale connected (IP: $tailscaleIp)"
+        } else {
+            Write-Host "   [WARN] Tailscale installed but not connected. Run 'tailscale up' to enable remote access." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "   [WARN] Tailscale installed but status check failed." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "   [INFO] Tailscale not installed. Install from https://tailscale.com/download for remote access." -ForegroundColor DarkGray
+}
+
 # ── Summary ───────────────────────────────────────────────────────────────
 $gwPort = "8400"
 try {
@@ -206,12 +227,20 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host "  All services started successfully!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Open WebUI  :  $openWebuiUrl" -ForegroundColor White
-Write-Host "  AI Gateway  :  http://localhost:$gwPort" -ForegroundColor White
+Write-Host "  Open WebUI (local)  :  $openWebuiUrl" -ForegroundColor White
+Write-Host "  AI Gateway          :  http://localhost:$gwPort" -ForegroundColor White
+if ($tailscaleIp) {
+    Write-Host "  Open WebUI (remote) :  http://${tailscaleIp}:$OpenWebuiPort" -ForegroundColor Cyan
+}
 if ($enableWebSearch) {
-    Write-Host "  Web Search  :  Enabled (SearXNG)" -ForegroundColor White
+    Write-Host "  Web Search          :  Enabled (SearXNG)" -ForegroundColor White
 }
 Write-Host ""
+if ($tailscaleIp) {
+    Write-Host "  Remote: Use http://${tailscaleIp}:$OpenWebuiPort from any Tailscale device" -ForegroundColor Cyan
+} else {
+    Write-Host "  Remote: Install Tailscale for remote access from phone/other computers" -ForegroundColor DarkGray
+}
 Write-Host "  Tip: To stop everything, close the Open WebUI window" -ForegroundColor DarkGray
 Write-Host "       and run:  docker compose down  in the project root." -ForegroundColor DarkGray
 Write-Host ""
