@@ -4,9 +4,10 @@
     One-click startup: Open WebUI + local-ai-agent Docker services.
 .DESCRIPTION
     1. Starts Docker Desktop if it is not already running
-    2. Launches "open-webui serve" in a new terminal window (via conda)
-    3. Waits for the Docker daemon, then brings up local-ai-agent containers
-    4. Polls Open WebUI until it responds, then opens the default browser
+    2. Checks Ollama and starts it if not running
+    3. Launches "open-webui serve" in a new terminal window (via conda)
+    4. Waits for the Docker daemon, then brings up local-ai-agent containers
+    5. Polls Open WebUI until it responds, then opens the default browser
 .PARAMETER CondaRoot
     Path to the conda installation directory. Default: C:\ProgramData\miniconda3
 .PARAMETER CondaEnv
@@ -98,7 +99,74 @@ if ($dockerOk) {
     Write-Ok "Docker daemon is ready"
 }
 
-# ── 2. Open WebUI (conda) ────────────────────────────────────────────────
+# ── 2. Ollama ─────────────────────────────────────────────────────────────
+Write-Step "Checking Ollama"
+
+$ollamaUrl = "http://localhost:11434"
+$ollamaRunning = $false
+try {
+    $r = Invoke-WebRequest -Uri $ollamaUrl -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+    if ($r.StatusCode -eq 200) { $ollamaRunning = $true }
+} catch {}
+
+if ($ollamaRunning) {
+    Write-Ok "Ollama already running at $ollamaUrl"
+} else {
+    # Try to locate ollama executable
+    $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
+    if (-not $ollamaCmd) {
+        $ollamaExe = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
+        if (Test-Path $ollamaExe) {
+            $ollamaCmd = Get-Item $ollamaExe
+        }
+    }
+
+    if (-not $ollamaCmd) {
+        Write-Fail "Ollama not found. Install from https://ollama.com/download"
+        exit 1
+    }
+
+    Write-Wait "Starting Ollama serve ..."
+    $ollamaPath = if ($ollamaCmd.Source) { $ollamaCmd.Source } else { $ollamaCmd.FullName }
+    Start-Process -FilePath $ollamaPath -ArgumentList "serve" -WindowStyle Hidden
+
+    $ready = Wait-Until -Condition {
+        try {
+            $r = Invoke-WebRequest -Uri $ollamaUrl -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+            $r.StatusCode -eq 200
+        } catch { $false }
+    } -Timeout 60 -Label "Waiting for Ollama"
+
+    if (-not $ready) {
+        Write-Fail "Ollama did not start within 60 seconds"
+        exit 1
+    }
+    Write-Ok "Ollama is ready"
+}
+
+# Check configured model availability
+$ollamaModel = "unknown"
+try {
+    $envFile = Join-Path $projectRoot ".env"
+    $match = Select-String -Path $envFile -Pattern 'OLLAMA_MODEL=(.+)' -ErrorAction SilentlyContinue
+    if ($match) { $ollamaModel = $match.Matches.Groups[1].Value.Trim() }
+} catch {}
+
+if ($ollamaModel -ne "unknown") {
+    $modelFound = $false
+    try {
+        $modelList = ollama list 2>&1
+        if ($modelList -match [regex]::Escape($ollamaModel)) { $modelFound = $true }
+    } catch {}
+
+    if ($modelFound) {
+        Write-Ok "Model '$ollamaModel' is available"
+    } else {
+        Write-Host "   [WARN] Model '$ollamaModel' not found locally. You may need to run: ollama pull $ollamaModel" -ForegroundColor Yellow
+    }
+}
+
+# ── 3. Open WebUI (conda) ────────────────────────────────────────────────
 Write-Step "Launching Open WebUI (conda env: $CondaEnv)"
 
 $alreadyRunning = $false
@@ -124,7 +192,7 @@ if ($alreadyRunning) {
     Write-Ok "Open WebUI launched in new Anaconda Prompt window"
 }
 
-# ── 3. Web Search option ──────────────────────────────────────────────────
+# ── 4. Web Search option ──────────────────────────────────────────────────
 Write-Step "Web Search (SearXNG)"
 
 $enableWebSearch = $false
@@ -148,7 +216,7 @@ if (Test-Path $envFile) {
     Set-Content -Path $envFile -Value $envContent -NoNewline
 }
 
-# ── 4. Docker Compose ────────────────────────────────────────────────────
+# ── 5. Docker Compose ────────────────────────────────────────────────────
 Write-Step "Starting local-ai-agent containers"
 
 Push-Location $projectRoot
@@ -169,7 +237,7 @@ try {
 }
 Write-Ok "Containers are up"
 
-# ── 4. Wait for Open WebUI ───────────────────────────────────────────────
+# ── 6. Wait for Open WebUI ───────────────────────────────────────────────
 if (-not $alreadyRunning) {
     Write-Step "Waiting for Open WebUI to become ready"
 
@@ -188,12 +256,12 @@ if (-not $alreadyRunning) {
     Write-Ok "Open WebUI is ready"
 }
 
-# ── 5. Open browser ──────────────────────────────────────────────────────
+# ── 7. Open browser ──────────────────────────────────────────────────────
 Write-Step "Opening browser"
 Start-Process $openWebuiUrl
 Write-Ok "Launched $openWebuiUrl in default browser"
 
-# ── 6. Tailscale remote access check ─────────────────────────────────────
+# ── 8. Tailscale remote access check ─────────────────────────────────────
 Write-Step "Checking Tailscale (remote access)"
 
 $tailscaleIp = $null

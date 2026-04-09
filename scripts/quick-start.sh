@@ -3,9 +3,10 @@
 #  Local AI Agent - Quick Start (Git Bash / WSL on Windows)
 #
 #  1. Starts Docker Desktop if not already running
-#  2. Launches open-webui serve in a new terminal (via conda)
-#  3. Brings up local-ai-agent Docker containers
-#  4. Polls Open WebUI until responsive, then opens the browser
+#  2. Checks Ollama and starts it if not running
+#  3. Launches open-webui serve in a new terminal (via conda)
+#  4. Brings up local-ai-agent Docker containers
+#  5. Polls Open WebUI until responsive, then opens the browser
 # ──────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -40,6 +41,7 @@ wait_until() {
 
 docker_ready() { docker info &>/dev/null; }
 webui_ready()  { curl -sf --max-time 3 "$OPEN_WEBUI_URL" >/dev/null 2>&1; }
+ollama_ready() { curl -sf --max-time 3 "http://localhost:11434" >/dev/null 2>&1; }
 
 # ══════════════════════════════════════════════════════════════════════════
 echo ""
@@ -66,7 +68,42 @@ else
     ok "Docker daemon is ready"
 fi
 
-# ── 2. Open WebUI (conda) ────────────────────────────────────────────────
+# ── 2. Ollama ─────────────────────────────────────────────────────────────
+step "Checking Ollama"
+
+OLLAMA_URL="http://localhost:11434"
+
+if ollama_ready; then
+    ok "Ollama already running at $OLLAMA_URL"
+else
+    if ! command -v ollama &>/dev/null; then
+        fail "Ollama not found. Install from https://ollama.com/download"
+        exit 1
+    fi
+
+    wait_ "Starting Ollama serve ..."
+    ollama serve &>/dev/null &
+    OLLAMA_PID=$!
+    disown "$OLLAMA_PID" 2>/dev/null
+
+    if ! wait_until 60 "Waiting for Ollama" 3 ollama_ready; then
+        fail "Ollama did not start within 60 seconds"
+        exit 1
+    fi
+    ok "Ollama is ready"
+fi
+
+# Check configured model availability
+OLLAMA_MODEL=$(grep -oP 'OLLAMA_MODEL=\K.+' "$PROJECT_ROOT/.env" 2>/dev/null || echo "")
+if [[ -n "$OLLAMA_MODEL" ]]; then
+    if ollama list 2>/dev/null | grep -qF "$OLLAMA_MODEL"; then
+        ok "Model '$OLLAMA_MODEL' is available"
+    else
+        printf '   \033[33m[WARN]\033[0m Model '\''%s'\'' not found locally. You may need to run: ollama pull %s\n' "$OLLAMA_MODEL" "$OLLAMA_MODEL"
+    fi
+fi
+
+# ── 3. Open WebUI (conda) ────────────────────────────────────────────────
 step "Launching Open WebUI (conda env: $CONDA_ENV)"
 
 if webui_ready; then
@@ -88,7 +125,7 @@ else
     ok "Open WebUI launched in new Anaconda Prompt window"
 fi
 
-# ── 3. Web Search option ──────────────────────────────────────────────────
+# ── 4. Web Search option ──────────────────────────────────────────────────
 step "Web Search (SearXNG)"
 
 ENABLE_WEBSEARCH=0
@@ -103,7 +140,7 @@ else
     sed -i 's/ENABLE_WEBSEARCH=.*/ENABLE_WEBSEARCH=false/' "$PROJECT_ROOT/.env"
 fi
 
-# ── 4. Docker Compose ────────────────────────────────────────────────────
+# ── 5. Docker Compose ────────────────────────────────────────────────────
 step "Starting local-ai-agent containers"
 
 cd "$PROJECT_ROOT"
@@ -119,7 +156,7 @@ if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
 fi
 ok "Containers are up"
 
-# ── 4. Wait for Open WebUI ───────────────────────────────────────────────
+# ── 6. Wait for Open WebUI ───────────────────────────────────────────────
 if [[ "$ALREADY_RUNNING" -eq 0 ]]; then
     step "Waiting for Open WebUI to become ready"
     if ! wait_until "$TIMEOUT_SEC" "Polling $OPEN_WEBUI_URL" 3 webui_ready; then
@@ -130,7 +167,7 @@ if [[ "$ALREADY_RUNNING" -eq 0 ]]; then
     ok "Open WebUI is ready"
 fi
 
-# ── 5. Open browser ──────────────────────────────────────────────────────
+# ── 7. Open browser ──────────────────────────────────────────────────────
 step "Opening browser"
 start "" "$OPEN_WEBUI_URL" 2>/dev/null \
     || cmd.exe /c start "$OPEN_WEBUI_URL" 2>/dev/null \
