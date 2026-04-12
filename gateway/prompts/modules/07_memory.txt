@@ -5,15 +5,23 @@
 ### 记忆索引: MEMORY.md
 - `/workspace/.memory/MEMORY.md` 是记忆索引文件，每次对话开始时会自动注入。
 - 每条记忆用 `## [类型] 标题` 格式记录。
-- 类型: `[user]` 用户偏好 / `[project]` 项目笔记 / `[reference]` 参考信息。
+- workspace 类型以 `[project]` 项目笔记 / `[reference]` 参考信息为主。
+- **用户个人偏好优先交给 Open WebUI Memory 管理，不要重复写入 workspace memory。**
 - 索引最多 200 行，定期清理过旧条目。
+
+### 对话级记忆
+- 当前对话可使用 `/workspace/.memory/conversations/{conversation_key}.md` 存储阶段性摘要。
+- 如果该文件存在，gateway 会在该对话开始时自动读取并注入。
+- `/workspace/.memory/conversations/INDEX.md` 用于记录已知对话 key 与预留文件路径。
+- gateway 会在对话回复完成后尝试自动更新当前对话摘要；如无长期价值变化则可跳过写入。
 
 ### 何时写入记忆
 当用户明确要求记住某些信息，或你发现以下有价值的信息时，使用 `file_write` 更新 MEMORY.md:
-- 用户的偏好或习惯（如输出格式、语言风格）
 - 项目关键决策或进度节点
 - 常用的命令、路径、API 地址
+- 当前对话的重要阶段结论，可写入该对话自己的 `conversations/{conversation_key}.md`
 
 ### 何时读取记忆
 - 对话开始时 MEMORY.md 内容已自动注入，无需再次读取。
 - 如需查看某条记忆的详细内容（存储在 `.memory/` 子文件中），使用 `file_read`。
+- 除当前对话对应的记忆外，不要一次性全量读取整个 `.memory/conversations/` 目录。

@@ -6,15 +6,22 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from audit_logger import AuditLogger
+from conversation_memory import (
+    derive_conversation_title,
+    ensure_memory_scaffold,
+    resolve_conversation_key,
+)
 from context_manager import ContextManager
 from llm_client import LLMClient, strip_think_tags_from_history
+from memory_writeback import update_memory_after_turn
 from policy_engine import PolicyEngine
 from prompt_builder import PromptBuilder
 from session_store import SessionStore
@@ -162,11 +169,17 @@ class OAIMessage(BaseModel):
 
 
 class OAIChatRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     model: str = ""
     messages: list[OAIMessage]
     stream: bool = False
     temperature: float | None = None
     max_tokens: int | None = None
+    conversation_id: str | None = None
+    chat_id: str | None = None
+    session_id: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 # ── Agentic tool-call loop ───────────────────────────────────────────────────
@@ -447,7 +460,7 @@ async def _run_agent_loop(
     tool_definitions: list[dict],
     session_id: str = "default",
     context_mgr: ContextManager | None = None,
-) -> str:
+) -> tuple[str, list[dict]]:
     """Non-streaming: run all tool calls then return the full final text."""
     messages = await _inject_context_into_messages(messages, router, session_id)
     if context_mgr:
@@ -457,10 +470,13 @@ async def _run_agent_loop(
         messages, router, llm, audit, tool_definitions, session_id
     )
     if not any_tools:
-        return text
+        return text, messages
     # Tools were used — make one final sync call
     final = await llm.chat_raw(messages, None)
-    return final.get("content") or ""
+    content = final.get("content") or ""
+    if content:
+        messages.append({"role": "assistant", "content": content})
+    return content, messages
 
 
 async def _inject_context_into_messages(
@@ -530,32 +546,55 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
     registry: ToolRegistry = request.app.state.registry
     context_mgr: ContextManager = request.app.state.context_mgr
     prompt_builder: PromptBuilder = request.app.state.prompt
+    sessions: SessionStore = request.app.state.sessions
 
-    session_id = req.model or "oai"
+    messages: list[dict] = [
+        {"role": m.role, "content": m.content or ""} for m in req.messages
+    ]
+    messages = strip_think_tags_from_history(messages)
+
+    conversation_key, key_source = resolve_conversation_key(
+        req, messages, request.headers, sessions
+    )
+    session_id = conversation_key or req.model or "oai"
+    sessions.upsert(
+        session_id,
+        key_source=key_source,
+        title=derive_conversation_title(messages),
+        message_count=len(messages),
+    )
+
+    try:
+        await ensure_memory_scaffold(
+            router,
+            session_id,
+            session_id,
+            derive_conversation_title(messages),
+        )
+    except Exception as exc:
+        logger.debug("Memory scaffold ensure failed: %s", exc)
+
     tool_tier: str = request.app.state.tool_tier
     use_short = tool_tier == "core"
     tool_definitions = registry.get_definitions(tier=tool_tier, use_short_desc=use_short)
 
     # Fetch workspace context (D5): directory overview + memory index
     try:
-        ws_sections = await fetch_workspace_context(router, session_id)
+        ws_sections = await fetch_workspace_context(
+            router,
+            session_id,
+            conversation_key=session_id,
+        )
     except Exception as exc:
         logger.debug("Workspace context fetch failed: %s", exc)
         ws_sections = []
 
     # Build messages; inject system prompt if the caller didn't supply one
-    messages: list[dict] = [
-        {"role": m.role, "content": m.content or ""} for m in req.messages
-    ]
     if not messages or messages[0]["role"] != "system":
         messages.insert(0, {
             "role": "system",
             "content": _load_system_prompt(prompt_builder, extra_sections=ws_sections),
         })
-
-    # Strip <think> blocks from assistant messages in history to prevent
-    # the model from mimicking thinking patterns in subsequent turns.
-    messages = strip_think_tags_from_history(messages)
 
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
@@ -586,6 +625,7 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
         async def _sse_stream():
             nonlocal messages
             first = True
+            final_reply = ""
             try:
                 messages = await _inject_context_into_messages(
                     messages, router, session_id
@@ -630,6 +670,9 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
 
                     tool_calls = accumulated_msg.get("tool_calls")
                     if not tool_calls:
+                        final_reply = accumulated_msg.get("content") or ""
+                        if final_reply:
+                            messages.append({"role": "assistant", "content": final_reply})
                         break
 
                     # Per-call budget filtering: prevent multiple searches in one round
@@ -665,6 +708,18 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
 
                     # Phase 3: Next iteration streams model's answer with tool results
 
+                if final_reply:
+                    asyncio.create_task(
+                        update_memory_after_turn(
+                            router,
+                            llm,
+                            session_id,
+                            session_id,
+                            derive_conversation_title(messages),
+                            messages,
+                        )
+                    )
+
                 yield _make_chunk("", finish="stop")
                 yield "data: [DONE]\n\n"
             except Exception as exc:
@@ -677,12 +732,24 @@ async def oai_chat_completions(req: OAIChatRequest, request: Request):
 
     # ── Non-streaming path ──────────────────────────────────────────────────
     try:
-        reply = await _run_agent_loop(
+        reply, final_messages = await _run_agent_loop(
             messages, router, llm, audit, tool_definitions, session_id,
             context_mgr=context_mgr,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+
+    if reply:
+        asyncio.create_task(
+            update_memory_after_turn(
+                router,
+                llm,
+                session_id,
+                session_id,
+                derive_conversation_title(final_messages),
+                final_messages,
+            )
+        )
 
     return {
         "id": completion_id,

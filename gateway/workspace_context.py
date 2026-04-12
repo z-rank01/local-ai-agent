@@ -8,22 +8,28 @@ the LLM knows what files exist and what the user has stored in memory.
 import logging
 from typing import Any
 
+from conversation_memory import (
+    SHARED_MEMORY_INDEX,
+    conversation_memory_path,
+)
+
 logger = logging.getLogger("gateway.workspace_ctx")
 
 # Directories to list for workspace overview
 _OVERVIEW_DIRS = ["/workspace/data"]
 
-_MEMORY_INDEX = "/workspace/.memory/MEMORY.md"
-
 # Max chars for directory listing in the prompt
 _MAX_DIR_CHARS = 1500
 # Max chars for memory index in the prompt
 _MAX_MEMORY_CHARS = 2000
+_MAX_CONVERSATION_CHARS = 1200
 
 
 async def fetch_workspace_context(
     router: Any,
     session_id: str = "workspace-ctx",
+    *,
+    conversation_key: str | None = None,
 ) -> list[str]:
     """Fetch workspace directory overview and memory index.
 
@@ -41,6 +47,11 @@ async def fetch_workspace_context(
     mem_text = await _fetch_memory_index(router, session_id)
     if mem_text:
         sections.append(mem_text)
+
+    # 3. Current conversation memory
+    conv_text = await _fetch_conversation_memory(router, session_id, conversation_key)
+    if conv_text:
+        sections.append(conv_text)
 
     return sections
 
@@ -99,7 +110,7 @@ async def _fetch_memory_index(router: Any, session_id: str) -> str | None:
     """Read the workspace memory index file."""
     try:
         result = await router.dispatch(
-            "file_read", {"path": _MEMORY_INDEX}, session_id
+            "file_read", {"path": SHARED_MEMORY_INDEX}, session_id
         )
         if isinstance(result, dict):
             content = result.get("content", "")
@@ -108,8 +119,39 @@ async def _fetch_memory_index(router: Any, session_id: str) -> str | None:
                     content = content[:_MAX_MEMORY_CHARS] + "\n...(记忆索引已截断)"
                 return f"## Workspace 记忆\n\n{content}"
     except FileNotFoundError:
-        logger.debug("No memory index at %s", _MEMORY_INDEX)
+        logger.debug("No memory index at %s", SHARED_MEMORY_INDEX)
     except Exception as exc:
         logger.debug("Cannot read memory index: %s", exc)
+
+    return None
+
+
+async def _fetch_conversation_memory(
+    router: Any,
+    session_id: str,
+    conversation_key: str | None,
+) -> str | None:
+    if not conversation_key:
+        return None
+
+    try:
+        result = await router.dispatch(
+            "file_read",
+            {"path": conversation_memory_path(conversation_key)},
+            session_id,
+        )
+        if isinstance(result, dict):
+            content = result.get("content", "")
+            if content and not result.get("error"):
+                if len(content) > _MAX_CONVERSATION_CHARS:
+                    content = (
+                        content[:_MAX_CONVERSATION_CHARS]
+                        + "\n...(当前对话记忆已截断)"
+                    )
+                return f"## 当前对话记忆\n\n{content}"
+    except FileNotFoundError:
+        logger.debug("No conversation memory for %s", conversation_key)
+    except Exception as exc:
+        logger.debug("Cannot read conversation memory: %s", exc)
 
     return None

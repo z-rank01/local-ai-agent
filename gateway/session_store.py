@@ -31,10 +31,16 @@ class SessionStore:
     def fingerprint(messages: list[dict]) -> str:
         """Derive a stable session ID from early messages."""
         parts: list[str] = []
-        for m in messages[:3]:
+        for m in messages:
             role = m.get("role", "")
+            if role in {"system", "tool"}:
+                continue
             content = (m.get("content") or "")[:200]
+            if not content.strip():
+                continue
             parts.append(f"{role}:{content}")
+            if len(parts) >= 6:
+                break
         raw = "|".join(parts)
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
