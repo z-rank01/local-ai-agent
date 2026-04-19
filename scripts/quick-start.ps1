@@ -13,7 +13,7 @@
 .PARAMETER CondaEnv
     Name of the conda environment with open-webui. Default: open-webui
 .PARAMETER OpenWebuiPort
-    Port that open-webui listens on. Default: 8080
+    Port that open-webui listens on. Default: 8888
 .PARAMETER TimeoutSec
     Max seconds to wait for Open WebUI to become responsive. Default: 180
 .PARAMETER Build
@@ -23,7 +23,7 @@
 param(
     [string]$CondaRoot     = "C:\ProgramData\miniconda3",
     [string]$CondaEnv      = "open-webui",
-    [int]   $OpenWebuiPort = 8080,
+    [int]   $OpenWebuiPort = 8888,
     [int]   $TimeoutSec    = 180,
     [switch]$Build
 )
@@ -187,7 +187,8 @@ if ($alreadyRunning) {
     }
 
     # Launch open-webui serve in a new cmd.exe window (same as Anaconda Prompt)
-    $cmdArgs = "/K `"title Open WebUI Server && `"$activateBat`" $CondaRoot && conda activate $CondaEnv && echo. && echo Starting open-webui serve ... && echo. && open-webui serve`""
+    # Set CORS_ALLOW_ORIGIN and USER_AGENT to suppress warnings; use --port for safe port binding
+    $cmdArgs = "/K `"title Open WebUI Server && `"$activateBat`" $CondaRoot && conda activate $CondaEnv && set CORS_ALLOW_ORIGIN=http://localhost:$OpenWebuiPort && set USER_AGENT=local-ai-agent/1.0 && echo. && echo Starting open-webui serve on port $OpenWebuiPort ... && echo. && open-webui serve --port $OpenWebuiPort`""
     Start-Process cmd.exe -ArgumentList $cmdArgs
     Write-Ok "Open WebUI launched in new Anaconda Prompt window"
 }
@@ -283,7 +284,7 @@ if ($tailscaleCmd) {
 }
 
 # ── Summary ───────────────────────────────────────────────────────────────
-$gwPort = "8400"
+$gwPort = "8700"
 try {
     $envFile = Join-Path $projectRoot ".env"
     $match = Select-String -Path $envFile -Pattern 'GATEWAY_PORT=(\d+)' -ErrorAction SilentlyContinue
