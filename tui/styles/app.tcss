@@ -1,0 +1,178 @@
+/* Local AI Agent TUI — Textual CSS Theme */
+
+Screen {
+    background: $surface;
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────── */
+
+#main-container {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#sidebar {
+    width: 28;
+    min-width: 22;
+    border-right: solid $primary-darken-2;
+}
+
+#chat-area {
+    width: 1fr;
+    layout: vertical;
+}
+
+/* ── Conversation List (Sidebar) ─────────────────────────────────────── */
+
+#sidebar-title {
+    dock: top;
+    height: 3;
+    content-align: center middle;
+    background: $primary-darken-3;
+    color: $text;
+    text-style: bold;
+    padding: 0 1;
+    border-bottom: solid $primary-darken-2;
+}
+
+#conversation-list {
+    height: 1fr;
+}
+
+#conversation-list > .conversation-item {
+    height: 3;
+    padding: 0 1;
+}
+
+#conversation-list > .conversation-item:hover {
+    background: $primary-darken-2;
+}
+
+#conversation-list > .conversation-item.--highlight {
+    background: $primary-darken-1;
+}
+
+/* ── Chat View ───────────────────────────────────────────────────────── */
+
+#chat-scroll {
+    height: 1fr;
+    padding: 0 1;
+}
+
+.user-message {
+    margin: 1 0 0 4;
+    padding: 1 2;
+    background: $primary-darken-2;
+    border: round $primary;
+    text-align: left;
+}
+
+.user-message .msg-label {
+    color: $success;
+    text-style: bold;
+}
+
+.assistant-message {
+    margin: 1 4 0 0;
+    padding: 1 2;
+    background: $surface-darken-1;
+    border: round $secondary;
+}
+
+.assistant-message .msg-label {
+    color: $primary-lighten-2;
+    text-style: bold;
+}
+
+/* ── Thinking & Tool Widgets ─────────────────────────────────────────── */
+
+.thinking-block {
+    margin: 0 4 0 0;
+    padding: 0 2;
+    color: $text-muted;
+    border-left: tall $warning;
+}
+
+.tool-call-block {
+    margin: 0 4 0 0;
+    padding: 0 2;
+    border-left: tall $accent;
+}
+
+.tool-call-block .tool-status-ok {
+    color: $success;
+}
+
+.tool-call-block .tool-status-err {
+    color: $error;
+}
+
+/* ── Input Bar ───────────────────────────────────────────────────────── */
+
+#input-area {
+    dock: bottom;
+    height: auto;
+    min-height: 3;
+    max-height: 10;
+    padding: 0 1;
+    border-top: solid $primary-darken-2;
+}
+
+#input-area TextArea {
+    height: auto;
+    min-height: 1;
+    max-height: 8;
+}
+
+#input-area .input-hint {
+    dock: bottom;
+    height: 1;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+/* ── File Explorer ───────────────────────────────────────────────────── */
+
+#file-explorer-container {
+    height: 25%;
+    min-height: 5;
+    border-top: solid $primary-darken-2;
+    display: none;
+}
+
+#file-explorer-container.visible {
+    display: block;
+}
+
+#file-explorer-title {
+    dock: top;
+    height: 1;
+    background: $primary-darken-3;
+    color: $text;
+    padding: 0 1;
+}
+
+#file-explorer-tree {
+    height: 1fr;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+
+#app-header {
+    dock: top;
+    height: 1;
+    background: $primary-darken-3;
+    color: $text;
+    content-align: center middle;
+    text-style: bold;
+}
+
+/* ── Status Bar ──────────────────────────────────────────────────────── */
+
+#status-bar {
+    dock: bottom;
+    height: 1;
+    background: $primary-darken-3;
+    color: $text-muted;
+    padding: 0 1;
+}

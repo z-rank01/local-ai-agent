@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-ai-agent"
+version = "2.0.0"
+description = "Local AI Agent with Textual TUI interface"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=0.50.0",
+    "httpx>=0.27.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+local-ai-agent = "tui.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["core*", "tui*"]

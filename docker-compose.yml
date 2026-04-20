@@ -6,8 +6,8 @@ services:
       context: ./skills/runner
     container_name: skill-runner
     restart: unless-stopped
-    expose:
-      - "8200"
+    ports:
+      - "${SKILL_RUNNER_PORT:-9102}:8200"
     volumes:
       - ./data/workspace:/workspace
       - runner-packages:/packages
@@ -38,8 +38,8 @@ services:
       context: ./skills/files
     container_name: skill-files
     restart: unless-stopped
-    expose:
-      - "8100"
+    ports:
+      - "${SKILL_FILES_PORT:-9101}:8100"
     volumes:
       - ./data/workspace:/workspace
       - ./data/trash:/trash
@@ -56,44 +56,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
-
-  agent-gateway:
-    build:
-      context: ./gateway
-    container_name: agent-gateway
-    restart: unless-stopped
-    ports:
-      - "${GATEWAY_PORT:-8000}:8000"
-    volumes:
-      - ./data/logs:/logs
-      - ./config:/config:ro
-      - ./gateway/prompts:/app/prompts:ro
-    environment:
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
-      SKILL_FILES_URL: http://skill-files:8100
-      SKILL_RUNNER_URL: http://skill-runner:8200
-      SKILL_WEBSEARCH_URL: http://skill-websearch:8300
-      ENABLE_WEBSEARCH: ${ENABLE_WEBSEARCH:-false}
-      # Context management (E1) — tune for your model's context window
-      CONTEXT_WINDOW: ${CONTEXT_WINDOW:-32768}
-      COMPACT_THRESHOLD: ${COMPACT_THRESHOLD:-0.6}
-      # Tool tier (C1): "core" = 9 essential tools (saves context), "all" = all 19+
-      TOOL_TIER: ${TOOL_TIER:-core}
-    networks:
-      - agent-net
-    depends_on:
-      skill-files:
-        condition: service_healthy
-      skill-runner:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
 
   # ── Web Search (optional, controlled by ENABLE_WEBSEARCH) ──
 
@@ -125,8 +87,8 @@ services:
     restart: unless-stopped
     profiles:
       - websearch
-    expose:
-      - "8300"
+    ports:
+      - "${SKILL_WEBSEARCH_PORT:-9103}:8300"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SEARXNG_URL: http://searxng:8080

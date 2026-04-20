@@ -6,7 +6,7 @@
 - `/workspace/.memory/MEMORY.md` 是记忆索引文件，每次对话开始时会自动注入。
 - 每条记忆用 `## [类型] 标题` 格式记录。
 - workspace 类型以 `[project]` 项目笔记 / `[reference]` 参考信息为主。
-- **用户个人偏好优先交给 Open WebUI Memory 管理，不要重复写入 workspace memory。**
+- 所有偏好和项目记忆统一存储在 MEMORY.md，无需区分来源。
 - 索引最多 200 行，定期清理过旧条目。
 
 ### 对话级记忆
