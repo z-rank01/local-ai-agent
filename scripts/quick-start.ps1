@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     One-click startup: Local AI Agent TUI + Docker skill services.
@@ -245,10 +245,17 @@ Push-Location $projectRoot
 try {
     $composeArgs = @("compose")
     if ($enableWebSearch) { $composeArgs += @("--profile", "websearch") }
-    $composeArgs += @("up", "-d")
+    $composeArgs += @("up", "-d", "--remove-orphans")
     if ($Build) { $composeArgs += "--build" }
 
-    & docker @composeArgs 2>&1 | ForEach-Object { Write-Host "   $_" }
+    # docker writes progress to stderr; merge streams without treating as fatal
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & docker @composeArgs 2>&1 | ForEach-Object { Write-Host "   $_" }
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
 
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "docker compose up failed (exit code $LASTEXITCODE)"
@@ -278,7 +285,7 @@ $ready = Wait-Until -Condition {
         $r2 = Invoke-WebRequest -Uri "http://localhost:${srPort}/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         ($r1.StatusCode -eq 200) -and ($r2.StatusCode -eq 200)
     } catch { $false }
-} -Timeout $TimeoutSec -Label "Polling skill-files & skill-runner health"
+} -Timeout $TimeoutSec -Label "Polling skill-files and skill-runner health"
 
 if (-not $ready) {
     Write-Fail "Skill services did not become healthy within ${TimeoutSec}s"
