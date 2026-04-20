@@ -293,18 +293,9 @@ if (-not $SkipTUI) {
     python -m tui
     Pop-Location
 }
-if ($tailscaleIp) {
-    Write-Host "  Open WebUI (remote) :  http://${tailscaleIp}:$OpenWebuiPort" -ForegroundColor Cyan
-}
 if ($enableWebSearch) {
     Write-Host "  Web Search          :  Enabled (SearXNG)" -ForegroundColor White
 }
 Write-Host ""
-if ($tailscaleIp) {
-    Write-Host "  Remote: Use http://${tailscaleIp}:$OpenWebuiPort from any Tailscale device" -ForegroundColor Cyan
-} else {
-    Write-Host "  Remote: Install Tailscale for remote access from phone/other computers" -ForegroundColor DarkGray
-}
-Write-Host "  Tip: To stop everything, close the Open WebUI window" -ForegroundColor DarkGray
-Write-Host "       and run:  docker compose down  in the project root." -ForegroundColor DarkGray
+Write-Host "  Tip: To stop skill services, run:  docker compose down" -ForegroundColor DarkGray
 Write-Host ""
