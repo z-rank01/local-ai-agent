@@ -27,9 +27,9 @@ class ChatScreen(Screen):
     """The main chat interface screen."""
 
     BINDINGS = [
-        Binding("ctrl+e", "toggle_explorer", "文件管理器"),
-        Binding("ctrl+n", "new_conversation", "新对话"),
-        Binding("ctrl+d", "delete_conversation", "删除对话"),
+        Binding("ctrl+e", "toggle_explorer", "文件管理器", priority=True),
+        Binding("ctrl+n", "new_conversation", "新对话", priority=True),
+        Binding("ctrl+d", "delete_conversation", "删除对话", priority=True),
     ]
 
     def __init__(
