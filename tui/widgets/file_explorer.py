@@ -39,7 +39,7 @@ class FileExplorer(Vertical):
         self._workspace_path = Path(workspace_path)
 
     def compose(self) -> ComposeResult:
-        yield Static("📂 Workspace 文件", id="file-explorer-title")
+        yield Static("workspace", id="file-explorer-title")
         if self._workspace_path.is_dir():
             yield DirectoryTree(str(self._workspace_path), id="file-explorer-tree")
         else:

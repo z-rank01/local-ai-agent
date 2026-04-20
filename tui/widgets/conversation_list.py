@@ -33,7 +33,7 @@ class ConversationItem(ListItem):
     def compose(self) -> ComposeResult:
         display = truncate(self._title, 24)
         ago = time_ago(self._updated)
-        yield Static(f"{display}\n[dim]{ago}[/dim]", markup=True)
+        yield Static(f"{display}\n[dim]{ago}[/dim]", markup=True, classes="conversation-copy")
 
 
 class ConversationList(Vertical):
@@ -46,7 +46,7 @@ class ConversationList(Vertical):
         self._store = store
 
     def compose(self) -> ComposeResult:
-        yield Static("📋 对话列表", id="sidebar-title")
+        yield Static("对话", id="sidebar-title")
         yield ListView(id="conversation-list")
 
     def on_mount(self) -> None:

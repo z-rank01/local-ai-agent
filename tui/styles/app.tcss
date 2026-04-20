@@ -1,10 +1,9 @@
-/* Local AI Agent TUI — Textual CSS Theme */
+/* Local AI Agent TUI — minimalist CLI theme */
 
 Screen {
-    background: $surface;
+    background: #0f1115;
+    color: #eceff4;
 }
-
-/* ── Layout ──────────────────────────────────────────────────────────── */
 
 #main-container {
     layout: horizontal;
@@ -12,9 +11,19 @@ Screen {
 }
 
 #sidebar {
-    width: 28;
-    min-width: 22;
-    border-right: solid $primary-darken-2;
+    width: 24;
+    min-width: 18;
+    background: #12151a;
+    border-right: solid #232831;
+}
+
+#sidebar.narrow {
+    width: 18;
+    min-width: 16;
+}
+
+#sidebar.collapsed {
+    display: none;
 }
 
 #chat-area {
@@ -22,92 +31,50 @@ Screen {
     layout: vertical;
 }
 
-/* ── Conversation List (Sidebar) ─────────────────────────────────────── */
-
 #sidebar-title {
     dock: top;
-    height: 3;
-    content-align: center middle;
-    background: $primary-darken-3;
-    color: $text;
+    height: 1;
+    background: transparent;
+    color: #c6ccd3;
     text-style: bold;
     padding: 0 1;
-    border-bottom: solid $primary-darken-2;
+    border-bottom: solid #232831;
 }
 
 #conversation-list {
     height: 1fr;
+    background: transparent;
 }
 
 #conversation-list > .conversation-item {
     height: 3;
     padding: 0 1;
+    border-left: tall transparent;
+    border-bottom: solid #1b2027;
 }
 
 #conversation-list > .conversation-item:hover {
-    background: $primary-darken-2;
+    background: #171b21;
 }
 
 #conversation-list > .conversation-item.--highlight {
-    background: $primary-darken-1;
+    background: #171d24;
+    border-left: tall #6d8dad;
 }
 
-/* ── Chat View ───────────────────────────────────────────────────────── */
+#conversation-list .conversation-copy {
+    color: #d7dbe0;
+}
 
 #chat-scroll {
     height: 1fr;
     padding: 0 1;
+    background: #0f1115;
 }
-
-.user-message {
-    margin: 1 0 0 4;
-    padding: 1 2;
-    background: $primary-darken-2;
-    border: round $primary;
-    text-align: left;
-}
-
-.user-message .msg-label {
-    color: $success;
-    text-style: bold;
-}
-
-.assistant-message {
-    margin: 1 4 0 0;
-    padding: 1 2;
-    background: $surface-darken-1;
-    border: round $secondary;
-}
-
-.assistant-message .msg-label {
-    color: $primary-lighten-2;
-    text-style: bold;
-}
-
-/* ── Thinking & Tool Widgets ─────────────────────────────────────────── */
 
 .thinking-block {
-    margin: 0 4 0 0;
-    padding: 0 2;
-    color: $text-muted;
-    border-left: tall $warning;
+    margin: 0 0 0 0;
 }
-
-.tool-call-block {
-    margin: 0 4 0 0;
-    padding: 0 2;
-    border-left: tall $accent;
-}
-
-.tool-call-block .tool-status-ok {
-    color: $success;
-}
-
-.tool-call-block .tool-status-err {
-    color: $error;
-}
-
-/* ── Input Bar ───────────────────────────────────────────────────────── */
 
 #input-area {
     dock: bottom;
@@ -115,28 +82,31 @@ Screen {
     min-height: 3;
     max-height: 10;
     padding: 0 1;
-    border-top: solid $primary-darken-2;
+    background: #0f1115;
+    border-top: solid #232831;
 }
 
 #input-area TextArea {
     height: auto;
     min-height: 1;
     max-height: 8;
+    background: #151920;
+    border: round #2a313b;
+    color: #f2f4f7;
 }
 
 #input-area .input-hint {
     dock: bottom;
     height: 1;
-    color: $text-muted;
+    color: #7d858f;
     padding: 0 1;
 }
-
-/* ── File Explorer ───────────────────────────────────────────────────── */
 
 #file-explorer-container {
     height: 25%;
     min-height: 5;
-    border-top: solid $primary-darken-2;
+    background: #111419;
+    border-top: solid #232831;
     display: none;
 }
 
@@ -147,32 +117,46 @@ Screen {
 #file-explorer-title {
     dock: top;
     height: 1;
-    background: $primary-darken-3;
-    color: $text;
+    background: transparent;
+    color: #b7bec8;
     padding: 0 1;
+    border-bottom: solid #232831;
 }
 
 #file-explorer-tree {
     height: 1fr;
+    background: transparent;
 }
-
-/* ── Header ──────────────────────────────────────────────────────────── */
 
 #app-header {
     dock: top;
     height: 1;
-    background: $primary-darken-3;
-    color: $text;
+    background: #0f1115;
+    color: #aeb6c0;
     content-align: center middle;
     text-style: bold;
+    border-bottom: solid #232831;
 }
-
-/* ── Status Bar ──────────────────────────────────────────────────────── */
 
 #status-bar {
     dock: bottom;
     height: 1;
-    background: $primary-darken-3;
-    color: $text-muted;
+    background: #0f1115;
+    color: #7d858f;
     padding: 0 1;
+    border-top: solid #232831;
+}
+
+Footer {
+    background: #0f1115;
+    color: #6f7781;
+}
+
+Footer > .footer--key {
+    color: #99a5b3;
+    background: transparent;
+}
+
+Footer > .footer--description {
+    color: #6f7781;
 }

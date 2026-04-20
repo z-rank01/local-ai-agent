@@ -64,7 +64,7 @@ class InputBar(Vertical):
     def compose(self) -> ComposeResult:
         yield ChatTextArea(id="user-input")
         yield Static(
-            "[dim]Enter 发送 · Shift+Enter 换行 · Ctrl+E 文件管理器[/dim]",
+            "[dim]Enter 发送 · Shift+Enter 换行 · Ctrl+B 侧栏 · Ctrl+E 文件[/dim]",
             markup=True,
             classes="input-hint",
         )

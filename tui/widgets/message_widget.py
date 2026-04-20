@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Collapsible, Markdown, Static
+from textual.widgets import Markdown, Static
 
 
 class UserMessage(Static):
@@ -14,10 +15,24 @@ class UserMessage(Static):
 
     DEFAULT_CSS = """
     UserMessage {
-        margin: 1 0 0 4;
+        margin: 1 0 0 0;
         padding: 1 2;
-        background: $primary-darken-2;
-        border: round $primary;
+        background: #151a20;
+        border: round #2b3540;
+        height: auto;
+        width: 1fr;
+    }
+
+    UserMessage .msg-label {
+        color: #8cb4ff;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    UserMessage .msg-body {
+        color: #eef2f7;
+        height: auto;
+        width: 1fr;
     }
     """
 
@@ -26,8 +41,8 @@ class UserMessage(Static):
         self._content = content
 
     def compose(self) -> ComposeResult:
-        yield Static("[b green]👤 You[/b green]", markup=True, classes="msg-label")
-        yield Static(self._content)
+        yield Static("You", classes="msg-label")
+        yield Static(self._content, classes="msg-body")
 
 
 class AssistantMessage(Vertical):
@@ -35,10 +50,25 @@ class AssistantMessage(Vertical):
 
     DEFAULT_CSS = """
     AssistantMessage {
-        margin: 1 4 0 0;
+        margin: 1 0 0 0;
         padding: 1 2;
-        background: $surface-darken-1;
-        border: round $secondary;
+        background: #101317;
+        border: round #242c36;
+        height: auto;
+        width: 1fr;
+    }
+
+    AssistantMessage .msg-label {
+        color: #d3d7de;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    AssistantMessage Markdown {
+        color: #f1f3f5;
+        background: transparent;
+        width: 1fr;
+        height: auto;
     }
     """
 
@@ -48,7 +78,7 @@ class AssistantMessage(Vertical):
         self._md_widget: Markdown | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static("[b cyan]🤖 Assistant[/b cyan]", markup=True, classes="msg-label")
+        yield Static("Assistant", classes="msg-label")
         self._md_widget = Markdown(self._content)
         yield self._md_widget
 
@@ -63,41 +93,70 @@ class AssistantMessage(Vertical):
         return self._content
 
 
-class ThinkingWidget(Collapsible):
-    """Collapsible widget showing the model's thinking process."""
+class ThinkingWidget(Static):
+    """Compact foldable widget showing the model's thinking process."""
 
     DEFAULT_CSS = """
     ThinkingWidget {
-        margin: 0 4 0 0;
-        padding: 0 1;
-        border-left: tall $warning;
+        margin: 0 0 0 0;
+        padding: 0 0 0 2;
+        border-left: tall #3a4048;
+        height: auto;
+        width: 1fr;
+        color: #9aa3ad;
     }
     """
 
-    def __init__(self, content: str = "", **kwargs) -> None:
-        super().__init__(title="💭 思考过程", collapsed=True, **kwargs)
+    def __init__(self, content: str = "", collapsed: bool = False, **kwargs) -> None:
+        super().__init__(**kwargs)
         self._content = content
-        self._label: Static | None = None
+        self._collapsed = collapsed
+        self.add_class("thinking-block")
 
-    def compose(self) -> ComposeResult:
-        self._label = Static(self._content, classes="thinking-text")
-        yield self._label
+    def on_mount(self) -> None:
+        self._refresh_view()
+
+    def on_click(self, event: events.Click) -> None:
+        self._collapsed = not self._collapsed
+        self._refresh_view()
+        event.stop()
 
     def append_content(self, text: str) -> None:
         self._content += text
-        if self._label:
-            self._label.update(self._content)
+        self._refresh_view()
+
+    def _refresh_view(self) -> None:
+        marker = ">" if self._collapsed else "v"
+        body = self._content.strip()
+        if self._collapsed or not body:
+            self.update(f"{marker} thinking")
+        else:
+            self.update(f"{marker} thinking\n  {body}")
 
 
 class ToolCallWidget(Static):
-    """Displays a tool call with status."""
+    """Displays a foldable tool call with status."""
 
     DEFAULT_CSS = """
     ToolCallWidget {
-        margin: 0 4 0 0;
-        padding: 0 2;
-        border-left: tall $accent;
+        margin: 0 0 0 0;
+        padding: 0 0 0 2;
+        border-left: tall #3a4048;
         height: auto;
+        width: 1fr;
+        color: #c4cad1;
+    }
+
+    ToolCallWidget.tool-running {
+        color: #9aa3ad;
+    }
+
+    ToolCallWidget.tool-ok {
+        color: #8fbf8f;
+    }
+
+    ToolCallWidget.tool-error {
+        color: #d28b8b;
     }
     """
 
@@ -107,6 +166,7 @@ class ToolCallWidget(Static):
         params_brief: str = "",
         status: str = "running",
         status_text: str = "",
+        collapsed: bool = True,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -114,23 +174,52 @@ class ToolCallWidget(Static):
         self._params_brief = params_brief
         self._status = status
         self._status_text = status_text
-        self._render()
+        self._collapsed = collapsed
+        self.add_class("tool-call-block")
 
-    def _render(self) -> None:
+    def on_mount(self) -> None:
+        self._refresh_view()
+
+    def on_click(self, event: events.Click) -> None:
+        if not self._detail_text():
+            return
+        self._collapsed = not self._collapsed
+        self._refresh_view()
+        event.stop()
+
+    def _refresh_view(self) -> None:
         if self._status == "running":
-            icon = "⏳"
-            status = "运行中..."
+            status = "running"
+            status_class = "tool-running"
         elif self._status == "ok":
-            icon = "✅"
-            status = self._status_text or "成功"
+            status = "ok"
+            status_class = "tool-ok"
         else:
-            icon = "❌"
-            status = self._status_text or "失败"
+            status = "error"
+            status_class = "tool-error"
 
-        text = f"🔧 [b]{self._tool_name}[/b] {self._params_brief} — {icon} {status}"
-        self.update(text)
+        self.remove_class("tool-running")
+        self.remove_class("tool-ok")
+        self.remove_class("tool-error")
+        self.add_class(status_class)
+
+        details = self._detail_text()
+        marker = ">" if self._collapsed and details else "v"
+        if self._collapsed or not details:
+            self.update(f"{marker} {self._tool_name} {status}" if details else f"· {self._tool_name} {status}")
+        else:
+            self.update(f"{marker} {self._tool_name} {status}\n  {details}")
+
+    def _detail_text(self) -> str:
+        details = self._params_brief.strip()
+        if self._status_text:
+            details = self._status_text.strip()
+        details = re.sub(r"\s+", " ", details).strip()
+        if len(details) > 240:
+            details = details[:237] + "..."
+        return details
 
     def set_status(self, status: str, text: str = "") -> None:
         self._status = status
         self._status_text = text
-        self._render()
+        self._refresh_view()
