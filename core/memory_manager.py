@@ -27,7 +27,7 @@ logger = logging.getLogger("core.memory")
 SHARED_MEMORY_INDEX = config.SHARED_MEMORY_INDEX
 CONVERSATION_MEMORY_DIR = config.CONVERSATION_MEMORY_DIR
 CONVERSATION_MEMORY_INDEX = config.CONVERSATION_MEMORY_INDEX
-ACTIVE_CONVERSATION_LIMIT = config.MEMORY_ACTIVE_LIMIT
+ACTIVE_CONVERSATION_LIMIT = config.ACTIVE_CONVERSATION_LIMIT
 
 # ── Size limits ─────────────────────────────────────────────────────────────
 

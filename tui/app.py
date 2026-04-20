@@ -44,7 +44,7 @@ class AgentApp(App):
         # ── Core services ───────────────────────────────────────────
         enable_websearch = config.ENABLE_WEBSEARCH
 
-        self._registry = ToolRegistry(
+        self._tool_registry = ToolRegistry(
             config.TOOLS_DIR, enable_websearch=enable_websearch
         )
         self._policy = PolicyEngine(config.POLICY_PATH)
@@ -55,7 +55,7 @@ class AgentApp(App):
             config.SKILL_WEBSEARCH_URL,
             self._policy,
             self._audit,
-            self._registry,
+            self._tool_registry,
             enable_websearch=enable_websearch,
         )
         self._llm = LLMClient(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
@@ -74,7 +74,7 @@ class AgentApp(App):
         self._agent = Agent(
             llm=self._llm,
             router=self._router,
-            registry=self._registry,
+            registry=self._tool_registry,
             audit=self._audit,
             context_mgr=self._context_mgr,
             prompt_builder=self._prompt_builder,
@@ -85,7 +85,7 @@ class AgentApp(App):
         logger.info(
             "AgentApp initialized — model=%s tools=%d tier=%s websearch=%s",
             config.OLLAMA_MODEL,
-            len(self._registry.known_tools),
+            len(self._tool_registry.known_tools),
             config.TOOL_TIER,
             enable_websearch,
         )

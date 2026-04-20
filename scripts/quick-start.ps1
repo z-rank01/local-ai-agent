@@ -163,11 +163,40 @@ if ($ollamaModel -ne "unknown") {
 # ── 3. Python & Textual check ────────────────────────────────────────────
 Write-Step "Checking Python environment"
 
+# Try to activate conda if python is not usable (e.g. Windows Store stub)
+$pythonUsable = $false
+try {
+    $testVer = python -c "import sys; print(sys.version)" 2>&1
+    if ($LASTEXITCODE -eq 0 -and $testVer -match '\d+\.\d+') { $pythonUsable = $true }
+} catch {}
+
+if (-not $pythonUsable) {
+    # Auto-detect and activate conda
+    $condaHooks = @(
+        "$env:USERPROFILE\miniconda3\shell\condabin\conda-hook.ps1",
+        "$env:USERPROFILE\anaconda3\shell\condabin\conda-hook.ps1",
+        "C:\ProgramData\miniconda3\shell\condabin\conda-hook.ps1",
+        "C:\ProgramData\anaconda3\shell\condabin\conda-hook.ps1"
+    )
+    foreach ($hook in $condaHooks) {
+        if (Test-Path $hook) {
+            Write-Wait "Activating conda from $hook"
+            . $hook
+            conda activate base
+            break
+        }
+    }
+}
+
 $pythonOk = $false
 try {
-    $pyVer = python --version 2>&1
-    Write-Ok "Python: $pyVer"
-    $pythonOk = $true
+    $pyVer = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>&1
+    if ($LASTEXITCODE -eq 0 -and $pyVer -match '^\d+\.\d+') {
+        Write-Ok "Python: $pyVer"
+        $pythonOk = $true
+    } else {
+        throw "not usable"
+    }
 } catch {
     Write-Fail "Python not found. Install Python 3.11+ from https://python.org"
     exit 1
@@ -287,15 +316,9 @@ Write-Host ""
 Write-Host "  Stop services: docker compose down" -ForegroundColor DarkGray
 Write-Host ""
 
-# Launch TUI in current console (replaces this script process)
+# Launch TUI in current console
 if (-not $SkipTUI) {
     Push-Location $projectRoot
     python -m tui
     Pop-Location
 }
-if ($enableWebSearch) {
-    Write-Host "  Web Search          :  Enabled (SearXNG)" -ForegroundColor White
-}
-Write-Host ""
-Write-Host "  Tip: To stop skill services, run:  docker compose down" -ForegroundColor DarkGray
-Write-Host ""

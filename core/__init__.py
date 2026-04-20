@@ -6,7 +6,7 @@ package that can be embedded directly in the TUI process.
 
 from .agent import Agent, AgentEvent, MemoryHooks
 from .audit_logger import AuditLogger
-from .config import config
+from . import config
 from .context_manager import ContextManager
 from .llm_client import LLMClient
 from .memory_manager import MemoryManager
