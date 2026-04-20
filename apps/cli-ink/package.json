@@ -1,0 +1,22 @@
+{
+  "name": "@local-ai-agent/cli-ink",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Ink-based shell for Local AI Agent",
+  "scripts": {
+    "dev": "tsx src/index.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ink": "^5.2.1",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@types/react": "^18.3.12",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3"
+  }
+}

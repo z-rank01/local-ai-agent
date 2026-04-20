@@ -67,6 +67,11 @@ TOOL_TIER = _env("TOOL_TIER", "core")
 
 LOG_LEVEL = _env("LOG_LEVEL", "INFO")
 
+# ── BFF / Frontend adapter ───────────────────────────────────────────────
+
+BFF_HOST = _env("BFF_HOST", "127.0.0.1")
+BFF_PORT = _env_int("BFF_PORT", 9510)
+
 # ── Memory ───────────────────────────────────────────────────────────────
 
 SHARED_MEMORY_INDEX = "/workspace/.memory/MEMORY.md"

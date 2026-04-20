@@ -12,16 +12,7 @@ from pathlib import Path
 from textual.app import App
 
 from core import config
-from core.agent import Agent
-from core.audit_logger import AuditLogger
-from core.context_manager import ContextManager
-from core.conversation_store import ConversationStore
-from core.llm_client import LLMClient
-from core.memory_manager import MemoryManager
-from core.policy_engine import PolicyEngine
-from core.prompt_builder import PromptBuilder
-from core.tool_registry import ToolRegistry
-from core.tool_router import ToolRouter
+from core.runtime import RuntimeServices, build_runtime
 
 from tui.screens.chat_screen import ChatScreen
 
@@ -41,53 +32,16 @@ class AgentApp(App):
         super().__init__()
         self._setup_logging()
 
-        # ── Core services ───────────────────────────────────────────
-        enable_websearch = config.ENABLE_WEBSEARCH
-
-        self._tool_registry = ToolRegistry(
-            config.TOOLS_DIR, enable_websearch=enable_websearch
-        )
-        self._policy = PolicyEngine(config.POLICY_PATH)
-        self._audit = AuditLogger(config.LOG_PATH)
-        self._router = ToolRouter(
-            config.SKILL_FILES_URL,
-            config.SKILL_RUNNER_URL,
-            config.SKILL_WEBSEARCH_URL,
-            self._policy,
-            self._audit,
-            self._tool_registry,
-            enable_websearch=enable_websearch,
-        )
-        self._llm = LLMClient(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
-        self._context_mgr = ContextManager(
-            context_window=config.CONTEXT_WINDOW,
-            compact_threshold=config.COMPACT_THRESHOLD,
-            llm=self._llm,
-        )
-        self._prompt_builder = PromptBuilder(
-            modules_dir=config.PROMPTS_DIR / "modules",
-            legacy_path=config.PROMPTS_DIR / "system.txt",
-        )
-        self._memory = MemoryManager(self._router, self._llm)
-        self._store = ConversationStore(config.DB_PATH)
-
-        self._agent = Agent(
-            llm=self._llm,
-            router=self._router,
-            registry=self._tool_registry,
-            audit=self._audit,
-            context_mgr=self._context_mgr,
-            prompt_builder=self._prompt_builder,
-            memory=self._memory,
-            tool_tier=config.TOOL_TIER,
-        )
+        self._runtime: RuntimeServices = build_runtime()
+        self._agent = self._runtime.agent
+        self._store = self._runtime.store
 
         logger.info(
             "AgentApp initialized — model=%s tools=%d tier=%s websearch=%s",
             config.OLLAMA_MODEL,
-            len(self._tool_registry.known_tools),
+            len(self._runtime.tool_registry.known_tools),
             config.TOOL_TIER,
-            enable_websearch,
+            config.ENABLE_WEBSEARCH,
         )
 
     def on_mount(self) -> None:
@@ -100,8 +54,7 @@ class AgentApp(App):
         )
 
     async def on_unmount(self) -> None:
-        await self._router.close()
-        await self._llm.close()
+        await self._runtime.close()
 
     def _setup_logging(self) -> None:
         log_level = os.environ.get("LOG_LEVEL", "WARNING")

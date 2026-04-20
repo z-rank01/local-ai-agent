@@ -14,6 +14,12 @@ build/
 # Data — runtime user data, managed separately (workspace has its own git)
 data/
 
+# Node / Ink frontend artefacts
+apps/cli-ink/node_modules/
+apps/cli-ink/dist/
+apps/cli-ink/.turbo/
+apps/cli-ink/*.tsbuildinfo
+
 # SearXNG runtime generated files
 config/searxng/uwsgi.ini
 

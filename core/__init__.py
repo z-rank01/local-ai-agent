@@ -12,6 +12,7 @@ from .llm_client import LLMClient
 from .memory_manager import MemoryManager
 from .policy_engine import PolicyEngine
 from .prompt_builder import PromptBuilder
+from .runtime import RuntimeServices, build_runtime
 from .tool_registry import ToolRegistry
 from .tool_router import ToolRouter
 
@@ -26,6 +27,8 @@ __all__ = [
     "MemoryManager",
     "PolicyEngine",
     "PromptBuilder",
+    "RuntimeServices",
     "ToolRegistry",
     "ToolRouter",
+    "build_runtime",
 ]

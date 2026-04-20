@@ -130,7 +130,7 @@ class ChatScreen(Screen):
         input_bar = self.query_one("#input-area", InputBar)
         user_text, imported = ingest_local_file_paths(event.text, self._workspace_path)
         if imported:
-            imported_names = ", ".join(__import__("pathlib").Path(path).name for path in imported)
+            imported_names = ", ".join(item.display_name for item in imported)
             self._update_status(f"已导入文件: {imported_names}")
         else:
             user_text = event.text
