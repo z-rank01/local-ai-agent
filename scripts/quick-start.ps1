@@ -1,38 +1,32 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    One-click startup: Open WebUI + local-ai-agent Docker services.
+    One-click startup: Local AI Agent TUI + Docker skill services.
 .DESCRIPTION
     1. Starts Docker Desktop if it is not already running
     2. Checks Ollama and starts it if not running
-    3. Launches "open-webui serve" in a new terminal window (via conda)
-    4. Waits for the Docker daemon, then brings up local-ai-agent containers
-    5. Polls Open WebUI until it responds, then opens the default browser
-.PARAMETER CondaRoot
-    Path to the conda installation directory. Default: C:\ProgramData\miniconda3
-.PARAMETER CondaEnv
-    Name of the conda environment with open-webui. Default: open-webui
-.PARAMETER OpenWebuiPort
-    Port that open-webui listens on. Default: 8888
+    3. Asks whether to enable web search
+    4. Brings up Docker skill containers (skill-files, skill-runner, optionally websearch)
+    5. Waits for skill services to become healthy
+    6. Launches TUI (python -m tui)
 .PARAMETER TimeoutSec
-    Max seconds to wait for Open WebUI to become responsive. Default: 180
+    Max seconds to wait for skill services to become healthy. Default: 120
 .PARAMETER Build
     If set, forces a rebuild of Docker images (docker compose up --build).
+.PARAMETER SkipTUI
+    If set, only starts Docker services without launching TUI.
 #>
 
 param(
-    [string]$CondaRoot     = "C:\ProgramData\miniconda3",
-    [string]$CondaEnv      = "open-webui",
-    [int]   $OpenWebuiPort = 8888,
-    [int]   $TimeoutSec    = 180,
-    [switch]$Build
+    [int]   $TimeoutSec = 120,
+    [switch]$Build,
+    [switch]$SkipTUI
 )
 
 $ErrorActionPreference = "Stop"
 
-$scriptRoot   = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot  = Split-Path -Parent $scriptRoot
-$openWebuiUrl = "http://localhost:$OpenWebuiPort"
+$scriptRoot  = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectRoot = Split-Path -Parent $scriptRoot
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -61,7 +55,7 @@ function Wait-Until {
 # ══════════════════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Local AI Agent - Quick Start" -ForegroundColor Cyan
+Write-Host "  Local AI Agent v2.0 - Quick Start" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 # ── 0. Ensure data/ directory exists ──────────────────────────────────────
@@ -166,31 +160,29 @@ if ($ollamaModel -ne "unknown") {
     }
 }
 
-# ── 3. Open WebUI (conda) ────────────────────────────────────────────────
-Write-Step "Launching Open WebUI (conda env: $CondaEnv)"
+# ── 3. Python & Textual check ────────────────────────────────────────────
+Write-Step "Checking Python environment"
 
-$alreadyRunning = $false
+$pythonOk = $false
 try {
-    $resp = Invoke-WebRequest -Uri $openWebuiUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
-    if ($resp.StatusCode -eq 200) { $alreadyRunning = $true }
-} catch {}
+    $pyVer = python --version 2>&1
+    Write-Ok "Python: $pyVer"
+    $pythonOk = $true
+} catch {
+    Write-Fail "Python not found. Install Python 3.11+ from https://python.org"
+    exit 1
+}
 
-if ($alreadyRunning) {
-    Write-Ok "Open WebUI already running at $openWebuiUrl"
-} else {
-    # Anaconda Prompt = cmd.exe /K activate.bat — avoids PowerShell execution-policy issues
-    $activateBat = Join-Path $CondaRoot "Scripts\activate.bat"
-    if (-not (Test-Path $activateBat)) {
-        Write-Fail "Conda activate.bat not found: $activateBat"
-        Write-Host "   Set -CondaRoot to your conda installation path." -ForegroundColor Yellow
-        exit 1
+# Check if textual is installed
+try {
+    $textualVer = python -c "import textual; print(textual.__version__)" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Textual: v$textualVer"
+    } else {
+        Write-Host "   [WARN] Textual not installed. Run: pip install -r requirements.txt" -ForegroundColor Yellow
     }
-
-    # Launch open-webui serve in a new cmd.exe window (same as Anaconda Prompt)
-    # Set CORS_ALLOW_ORIGIN and USER_AGENT to suppress warnings; use --port for safe port binding
-    $cmdArgs = "/K `"title Open WebUI Server && `"$activateBat`" $CondaRoot && conda activate $CondaEnv && set CORS_ALLOW_ORIGIN=http://localhost:$OpenWebuiPort && set USER_AGENT=local-ai-agent/1.0 && echo. && echo Starting open-webui serve on port $OpenWebuiPort ... && echo. && open-webui serve --port $OpenWebuiPort`""
-    Start-Process cmd.exe -ArgumentList $cmdArgs
-    Write-Ok "Open WebUI launched in new Anaconda Prompt window"
+} catch {
+    Write-Host "   [WARN] Textual not installed. Run: pip install -r requirements.txt" -ForegroundColor Yellow
 }
 
 # ── 4. Web Search option ──────────────────────────────────────────────────
@@ -217,8 +209,8 @@ if (Test-Path $envFile) {
     Set-Content -Path $envFile -Value $envContent -NoNewline
 }
 
-# ── 5. Docker Compose ────────────────────────────────────────────────────
-Write-Step "Starting local-ai-agent containers"
+# ── 5. Docker Compose (skill services only) ──────────────────────────────
+Write-Step "Starting skill service containers"
 
 Push-Location $projectRoot
 try {
@@ -238,66 +230,69 @@ try {
 }
 Write-Ok "Containers are up"
 
-# ── 6. Wait for Open WebUI ───────────────────────────────────────────────
-if (-not $alreadyRunning) {
-    Write-Step "Waiting for Open WebUI to become ready"
+# ── 6. Wait for skill services to become healthy ─────────────────────────
+Write-Step "Waiting for skill services to become healthy"
 
-    $ready = Wait-Until -Condition {
-        try {
-            $r = Invoke-WebRequest -Uri $openWebuiUrl -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-            $r.StatusCode -eq 200
-        } catch { $false }
-    } -Timeout $TimeoutSec -Label "Polling $openWebuiUrl"
+$sfPort = "9101"
+$srPort = "9102"
+try {
+    $envFile = Join-Path $projectRoot ".env"
+    $m1 = Select-String -Path $envFile -Pattern 'SKILL_FILES_PORT=(\d+)' -ErrorAction SilentlyContinue
+    if ($m1) { $sfPort = $m1.Matches.Groups[1].Value }
+    $m2 = Select-String -Path $envFile -Pattern 'SKILL_RUNNER_PORT=(\d+)' -ErrorAction SilentlyContinue
+    if ($m2) { $srPort = $m2.Matches.Groups[1].Value }
+} catch {}
 
-    if (-not $ready) {
-        Write-Fail "Open WebUI did not respond within ${TimeoutSec}s"
-        Write-Host "   It may still be loading. Try opening $openWebuiUrl manually." -ForegroundColor Yellow
-        exit 1
-    }
-    Write-Ok "Open WebUI is ready"
-}
-
-# ── 7. Open browser ──────────────────────────────────────────────────────
-Write-Step "Opening browser"
-Start-Process $openWebuiUrl
-Write-Ok "Launched $openWebuiUrl in default browser"
-
-# ── 8. Tailscale remote access check ─────────────────────────────────────
-Write-Step "Checking Tailscale (remote access)"
-
-$tailscaleIp = $null
-$tailscaleCmd = Get-Command tailscale -ErrorAction SilentlyContinue
-if ($tailscaleCmd) {
+$ready = Wait-Until -Condition {
     try {
-        $tsStatus = tailscale status --json 2>$null | ConvertFrom-Json
-        if ($tsStatus.Self.Online -eq $true) {
-            $tailscaleIp = ($tsStatus.Self.TailscaleIPs | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)
-            Write-Ok "Tailscale connected (IP: $tailscaleIp)"
-        } else {
-            Write-Host "   [WARN] Tailscale installed but not connected. Run 'tailscale up' to enable remote access." -ForegroundColor Yellow
-        }
-    } catch {
-        Write-Host "   [WARN] Tailscale installed but status check failed." -ForegroundColor Yellow
-    }
+        $r1 = Invoke-WebRequest -Uri "http://localhost:${sfPort}/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        $r2 = Invoke-WebRequest -Uri "http://localhost:${srPort}/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        ($r1.StatusCode -eq 200) -and ($r2.StatusCode -eq 200)
+    } catch { $false }
+} -Timeout $TimeoutSec -Label "Polling skill-files & skill-runner health"
+
+if (-not $ready) {
+    Write-Fail "Skill services did not become healthy within ${TimeoutSec}s"
+    Write-Host "   Check: docker compose ps / docker compose logs" -ForegroundColor Yellow
+    exit 1
+}
+Write-Ok "All skill services are healthy"
+
+# ── 7. Launch TUI ─────────────────────────────────────────────────────────
+if ($SkipTUI) {
+    Write-Step "Skipping TUI launch (-SkipTUI)"
 } else {
-    Write-Host "   [INFO] Tailscale not installed. Install from https://tailscale.com/download for remote access." -ForegroundColor DarkGray
+    Write-Step "Launching TUI"
+    Write-Ok "Starting python -m tui ..."
 }
 
 # ── Summary ───────────────────────────────────────────────────────────────
-$gwPort = "8700"
-try {
-    $envFile = Join-Path $projectRoot ".env"
-    $match = Select-String -Path $envFile -Pattern 'GATEWAY_PORT=(\d+)' -ErrorAction SilentlyContinue
-    if ($match) { $gwPort = $match.Matches.Groups[1].Value }
-} catch {}
-
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  All services started successfully!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Open WebUI (local)  :  $openWebuiUrl" -ForegroundColor White
-Write-Host "  AI Gateway          :  http://localhost:$gwPort" -ForegroundColor White
+Write-Host "  skill-files   :  http://localhost:$sfPort" -ForegroundColor White
+Write-Host "  skill-runner  :  http://localhost:$srPort" -ForegroundColor White
+if ($enableWebSearch) {
+    $swPort = "9103"
+    try {
+        $m3 = Select-String -Path $envFile -Pattern 'SKILL_WEBSEARCH_PORT=(\d+)' -ErrorAction SilentlyContinue
+        if ($m3) { $swPort = $m3.Matches.Groups[1].Value }
+    } catch {}
+    Write-Host "  skill-websearch: http://localhost:$swPort" -ForegroundColor White
+}
+Write-Host "  Ollama        :  http://localhost:11434" -ForegroundColor White
+Write-Host ""
+Write-Host "  Stop services: docker compose down" -ForegroundColor DarkGray
+Write-Host ""
+
+# Launch TUI in current console (replaces this script process)
+if (-not $SkipTUI) {
+    Push-Location $projectRoot
+    python -m tui
+    Pop-Location
+}
 if ($tailscaleIp) {
     Write-Host "  Open WebUI (remote) :  http://${tailscaleIp}:$OpenWebuiPort" -ForegroundColor Cyan
 }

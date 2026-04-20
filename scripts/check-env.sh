@@ -18,6 +18,18 @@ check_tool() {
     fi
 }
 
+check_python_pkg() {
+    local label="$1"
+    local module="$2"
+    local python_cmd="${3:-python}"
+    local ver
+    if ver=$($python_cmd -c "import $module; print($module.__version__)" 2>/dev/null); then
+        printf "  [PASS] %-18s v%s\n" "$label:" "$ver"
+    else
+        printf "  \033[33m[WARN]\033[0m %-18s not installed (run: pip install -r requirements.txt)\n" "$label:"
+    fi
+}
+
 echo ""
 echo "=== Environment Check ==="
 
@@ -25,6 +37,16 @@ check_tool "Docker"         docker  --version
 check_tool "Docker Compose" docker  compose version
 check_tool "Git"            git     --version
 check_tool "Ollama"         ollama  list
+
+# Python check
+PYTHON_CMD="python"
+command -v python &>/dev/null || PYTHON_CMD="python3"
+check_tool "Python"         "$PYTHON_CMD" --version
+
+# Python package checks (non-fatal warnings)
+echo ""
+check_python_pkg "Textual" "textual" "$PYTHON_CMD"
+check_python_pkg "httpx"   "httpx"   "$PYTHON_CMD"
 
 echo ""
 if [ "$all_ok" = "true" ]; then
