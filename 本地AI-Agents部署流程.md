@@ -1,8 +1,8 @@
 ﻿# 本地 AI Agent 部署与使用文档
 
-> 适用环境：Windows + Docker Desktop + Ollama（本机运行）+ Textual TUI 终端界面
+> 适用环境：Windows + Docker Desktop + Ollama（本机运行）+ Python 3.11+ + Node.js LTS + Ink CLI 终端界面
 >
-> 最终架构：TUI（本地 Python 进程）→ Ollama（localhost:11434）+ skill-files（:9101）+ skill-runner（:9102）+ SearXNG + skill-websearch（:9103，可选）
+> 最终架构：Ink CLI（本地 Node.js 进程）→ Python BFF（localhost:9510）→ core/ → Ollama（localhost:11434）+ skill-files（:9101）+ skill-runner（:9102）+ SearXNG + skill-websearch（:9103，可选）
 >
 > 对话存储：SQLite（data/conversations.db）
 
@@ -40,7 +40,7 @@ docker compose up -d
 docker compose --profile websearch up -d
 ```
 
-> 也可使用一键启动脚本 `scripts/quick-start.ps1`，会自动检查环境、启动服务并启动 TUI。
+> 也可使用一键启动脚本 `scripts/quick-start.ps1`，会自动检查 Python、Node.js、Docker、Ollama，启动 skill 服务、Python BFF，并启动 Ink CLI。
 
 ### 3. 确认容器健康
 
@@ -70,25 +70,27 @@ Invoke-RestMethod http://localhost:9102/health
 
 返回 `{"status":"ok"}` 即正常。
 
-### 4. 启动 TUI 界面
+### 4. 启动 Ink CLI 界面
 
 ```powershell
 cd C:\Users\Administrator\local-ai-agent
-python -m tui
+python -m bff
+
+# 另开一个终端
+cd C:\Users\Administrator\local-ai-agent\apps\cli-ink
+npm run dev
 ```
 
-TUI 会在终端中启动多面板界面：左侧对话列表、中间聊天区域、底部文件浏览器。
+Ink CLI 会在终端中启动新的命令行界面；其前端通过本机的 Python BFF 调用现有 core/ 能力，而不是直接嵌入 Python UI 框架。
 
-> 也可直接运行 `scripts/quick-start.ps1`，脚本会在启动所有服务后自动启动 TUI。
+> 也可直接运行 `scripts/quick-start.ps1`，脚本会在启动所有服务后自动启动 Ink CLI。若只想启动后端链路，可使用 `-SkipCLI`。
 
-### 5. 在 TUI 中对话
+### 5. 在 Ink CLI 中对话
 
-- 直接在底部输入栏输入消息，按 Enter 发送
-- Shift+Enter 换行
-- 可拖入文件路径或粘贴 URL，TUI 会自动检测
-- 若粘贴的是 Windows 本地绝对路径，例如 `C:\Users\Administrator\Desktop\report.pptx`，TUI 会先自动复制到 `data/workspace/data/`，再在提交给模型前改写成 `/workspace/data/report.pptx` 这类工作区路径
-- 按 `n` 新建对话，`d` 删除对话
-- 按 `Ctrl+E` 切换文件浏览器显示
+- 在提示框中输入消息，按 Enter 发送
+- 当前最小原型已经支持连接 Python BFF、展示流式 assistant 输出、thinking 日志块和 tool 日志块
+- 若消息里包含 Windows 本地绝对路径，例如 `C:\Users\Administrator\Desktop\report.pptx`，后端会自动导入到 `data/workspace/data/` 并改写成 `/workspace/data/report.pptx`
+- `scripts/quick-start.ps1 -SkipCLI` 可只启动 skill 服务和 BFF，便于单独调试前端
 
 ### 6. 停止服务
 
@@ -111,27 +113,33 @@ data/logs/audit.jsonl
 ## 二、系统架构说明
 
 ```
-TUI (终端界面, Textual)
-      │  直接调用 core/ 模块
-      ├── core/agent.py         ← Agentic loop（最多6轮工具调用）
-      │   ├── core/llm_client   → Ollama (localhost:11434)
-      │   ├── core/tool_router  → skill services (HTTP)
-      │   ├── core/policy_engine  策略检查
-      │   └── core/audit_logger   审计日志
-      │
-      ├── core/conversation_store → SQLite (data/conversations.db)
-      ├── core/memory_manager     → MEMORY.md + 对话记忆
-      │
-      └── Docker skill services (沙箱)
-          ├── skill-files   :9101  文件 I/O
-          ├── skill-runner  :9102  代码执行 + 技能管理
-          └── skill-websearch :9103 (可选) 联网搜索
-                │
-                └── SearXNG :8080 (内部)
+Ink CLI (终端界面, Node.js + Ink)
+  │  通过 HTTP 调用前端适配层
+  ├── Python BFF (localhost:9510)
+  │   ├── bff/app.py             ← 前端协议层
+  │   ├── bff/service.py         ← 会话 / 工作区 / 流式事件规范化
+  │   └── core/runtime.py        ← 共享后端装配
+  │
+  ├── core/agent.py              ← Agentic loop（最多6轮工具调用）
+  │   ├── core/llm_client         → Ollama (localhost:11434)
+  │   ├── core/tool_router        → skill services (HTTP)
+  │   ├── core/policy_engine      策略检查
+  │   └── core/audit_logger       审计日志
+  │
+  ├── core/conversation_store     → SQLite (data/conversations.db)
+  ├── core/memory_manager         → MEMORY.md + 对话记忆
+  │
+  └── Docker skill services (沙箱)
+      ├── skill-files      :9101  文件 I/O
+      ├── skill-runner     :9102  代码执行 + 技能管理
+      └── skill-websearch  :9103 (可选) 联网搜索
+        │
+        └── SearXNG :8080 (内部)
 ```
 
-- **TUI**：基于 Textual 框架的终端界面，多面板布局（对话列表 + 聊天区 + 文件浏览器），直接嵌入 `core/` 业务逻辑，无需中间 HTTP 层。
-- **core/**：从原 `gateway/` 提取的纯 Python 包，包含 Agent（agentic loop）、LLM 客户端、工具路由、策略引擎、审计日志、记忆管理、上下文管理、Prompt 构建等模块。TUI 直接 import 使用。
+- **Ink CLI**：基于 Node.js + Ink 的终端前端，负责终端交互、流式转录区、输入区以及后续的抽屉/弹窗体验。
+- **Python BFF**：新的前端适配层，负责会话 CRUD、流式聊天、事件规范化、工作区浏览和本地路径导入，不让前端直接碰 `core/` 内部对象或技能服务。
+- **core/**：保留为纯 Python 业务内核，包含 Agent（agentic loop）、LLM 客户端、工具路由、策略引擎、审计日志、记忆管理、上下文管理、Prompt 构建等模块，由 BFF 统一装配和调用。
 - **SQLite 对话存储**：替代 Open WebUI 的对话管理，支持对话列表、消息历史、搜索。WAL 模式确保并发安全。
 - **skill-files**：文件 I/O 工具服务，所有路径通过 `PathGuard` 强制限制在 `/workspace` 下，支持读写、列目录、软删除（trash）、重命名、git 提交。内置 Excel（pandas）和 PDF（pymupdf）快速解析。端口 9101 对宿主机暴露，TUI 直连。
 - **skill-runner**：代码执行沙箱 + 技能管理中心 + 文件转换器插件宿主，提供 `code_exec`、`shell_exec`、`pip_install`、技能 CRUD 管理、`file_convert`。容器级安全加固：`read_only` 文件系统、`cap_drop: ALL`、`mem_limit: 2048m`、`cpus: 2.0`。端口 9102 对宿主机暴露。

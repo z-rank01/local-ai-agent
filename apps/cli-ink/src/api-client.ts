@@ -1,4 +1,10 @@
-import type {AppStatus, ChatRequest, UIStreamEvent} from './types.js';
+import type {
+  AppStatus,
+  ChatRequest,
+  ConversationSummary,
+  MessageRecord,
+  UIStreamEvent,
+} from './types.js';
 
 const DEFAULT_BASE_URL = process.env.LOCAL_AI_AGENT_API_URL ?? 'http://127.0.0.1:9510';
 
@@ -8,6 +14,27 @@ export async function fetchStatus(baseUrl = DEFAULT_BASE_URL): Promise<AppStatus
     throw new Error(`status request failed: ${response.status}`);
   }
   return (await response.json()) as AppStatus;
+}
+
+export async function fetchConversations(
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<ConversationSummary[]> {
+  const response = await fetch(`${baseUrl}/api/conversations`);
+  if (!response.ok) {
+    throw new Error(`conversation list failed: ${response.status}`);
+  }
+  return (await response.json()) as ConversationSummary[];
+}
+
+export async function fetchMessages(
+  conversationId: string,
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<MessageRecord[]> {
+  const response = await fetch(`${baseUrl}/api/conversations/${conversationId}/messages`);
+  if (!response.ok) {
+    throw new Error(`message list failed: ${response.status}`);
+  }
+  return (await response.json()) as MessageRecord[];
 }
 
 export async function streamChat(

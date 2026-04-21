@@ -1,36 +1,47 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────────────────
-#  Local AI Agent v2.0 - Quick Start (Git Bash / WSL on Windows)
+# ---------------------------------------------------------------------------
+# Local AI Agent v2.1 - Quick Start (Git Bash / WSL)
 #
-#  1. Starts Docker Desktop if not already running
-#  2. Checks Ollama and starts it if not running
-#  3. Checks Python & Textual
-#  4. Asks whether to enable web search
-#  5. Brings up Docker skill containers
-#  6. Waits for skill services to become healthy
-#  7. Launches TUI (python -m tui)
-# ──────────────────────────────────────────────────────────────────────────
+# 1. Starts Docker Desktop if not already running
+# 2. Checks Ollama and starts it if not running
+# 3. Checks Python, BFF dependencies, Node.js, and npm
+# 4. Asks whether to enable web search
+# 5. Brings up Docker skill containers
+# 6. Waits for skill services to become healthy
+# 7. Starts the Python BFF adapter if needed
+# 8. Installs Ink frontend dependencies if missing
+# 9. Launches the Ink CLI frontend
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
-# ── Configuration ─────────────────────────────────────────────────────────
 TIMEOUT_SEC="${TIMEOUT_SEC:-120}"
 DO_BUILD="${BUILD:-0}"
-SKIP_TUI="${SKIP_TUI:-0}"
+SKIP_CLI="${SKIP_CLI:-${SKIP_TUI:-0}}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$PROJECT_ROOT/.env"
+STARTED_BFF=0
+STOP_BFF_ON_EXIT=0
+BFF_PID=""
 
-# ── Helpers ───────────────────────────────────────────────────────────────
-step()  { printf '\n\033[36m:: %s\033[0m\n' "$1"; }
-ok()    { printf '   \033[32m[OK]\033[0m %s\n' "$1"; }
-wait_()  { printf '   \033[90m... %s\033[0m\n' "$1"; }
-fail()  { printf '   \033[31m[FAIL]\033[0m %s\n' "$1"; }
+step() { printf '\n\033[36m:: %s\033[0m\n' "$1"; }
+ok() { printf '   \033[32m[OK]\033[0m %s\n' "$1"; }
+wait_() { printf '   \033[90m... %s\033[0m\n' "$1"; }
+fail() { printf '   \033[31m[FAIL]\033[0m %s\n' "$1"; }
+
+cleanup() {
+    if [[ "$STARTED_BFF" == "1" && "$STOP_BFF_ON_EXIT" == "1" && -n "$BFF_PID" ]]; then
+        kill "$BFF_PID" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT
 
 wait_until() {
     local timeout=$1 label=$2 interval=${3:-3} elapsed=0
-    shift 3 || shift $#
+    shift 3 || true
     while (( elapsed < timeout )); do
-        if "$@" 2>/dev/null; then return 0; fi
+        if "$@" >/dev/null 2>&1; then return 0; fi
         wait_ "$label (${elapsed}s / ${timeout}s)"
         sleep "$interval"
         elapsed=$(( elapsed + interval ))
@@ -38,73 +49,82 @@ wait_until() {
     return 1
 }
 
-docker_ready() { docker info &>/dev/null; }
-ollama_ready() { curl -sf --max-time 3 "http://localhost:11434" >/dev/null 2>&1; }
-
-# Read port from .env, with fallback
-read_env_port() {
+read_env_value() {
     local key="$1" default="$2"
-    grep -oP "${key}=\K\d+" "$PROJECT_ROOT/.env" 2>/dev/null || echo "$default"
+    grep -oP "^${key}=\K.+" "$ENV_FILE" 2>/dev/null | head -n 1 || echo "$default"
 }
+
+prepend_path() {
+    local dir="$1"
+    [[ -z "$dir" ]] && return 0
+    case ":$PATH:" in
+        *":$dir:"*) ;;
+        *) PATH="$dir:$PATH" ;;
+    esac
+}
+
+docker_ready() { docker info >/dev/null 2>&1; }
+ollama_ready() { curl -sf --max-time 3 "http://localhost:11434" >/dev/null 2>&1; }
 
 skill_files_healthy() {
     local port
-    port=$(read_env_port SKILL_FILES_PORT 9101)
+    port=$(read_env_value SKILL_FILES_PORT 9101)
     curl -sf --max-time 3 "http://localhost:${port}/health" >/dev/null 2>&1
 }
+
 skill_runner_healthy() {
     local port
-    port=$(read_env_port SKILL_RUNNER_PORT 9102)
+    port=$(read_env_value SKILL_RUNNER_PORT 9102)
     curl -sf --max-time 3 "http://localhost:${port}/health" >/dev/null 2>&1
 }
 
-# ══════════════════════════════════════════════════════════════════════════
+bff_ready() {
+    local host port
+    host=$(read_env_value BFF_HOST 127.0.0.1)
+    port=$(read_env_value BFF_PORT 9510)
+    [[ "$host" == "0.0.0.0" ]] && host="127.0.0.1"
+    curl -sf --max-time 3 "http://${host}:${port}/health" >/dev/null 2>&1
+}
+
 echo ""
 echo "========================================"
-echo "  Local AI Agent v2.0 - Quick Start"
+echo "  Local AI Agent v2.1 - Quick Start"
 echo "========================================"
 
-# ── 0. Ensure data/ directory exists ──────────────────────────────────────
-if [ ! -d "$PROJECT_ROOT/data/workspace" ]; then
-    step "Initializing data directory (first run)"
+if [[ ! -d "$PROJECT_ROOT/data/workspace" ]]; then
+    step "Initializing workspace data directory"
     bash "$SCRIPT_DIR/init-workspace.sh"
 fi
 
-# ── 1. Docker Desktop ────────────────────────────────────────────────────
 step "Checking Docker Desktop"
-
 if docker_ready; then
     ok "Docker daemon already running"
 else
     DD_PATH="/c/Program Files/Docker/Docker/Docker Desktop.exe"
     if [[ ! -f "$DD_PATH" ]]; then
-        fail "Docker Desktop not found at $DD_PATH"; exit 1
+        fail "Docker Desktop not found at $DD_PATH"
+        exit 1
     fi
-    wait_ "Starting Docker Desktop ..."
+    wait_ "Starting Docker Desktop"
     start "" "$DD_PATH" 2>/dev/null || "$DD_PATH" &
-
     if ! wait_until 120 "Waiting for Docker daemon" 3 docker_ready; then
-        fail "Docker daemon did not start within 120 seconds"; exit 1
+        fail "Docker daemon did not start within 120 seconds"
+        exit 1
     fi
     ok "Docker daemon is ready"
 fi
 
-# ── 2. Ollama ─────────────────────────────────────────────────────────────
 step "Checking Ollama"
-
 if ollama_ready; then
     ok "Ollama already running at http://localhost:11434"
 else
-    if ! command -v ollama &>/dev/null; then
-        fail "Ollama not found. Install from https://ollama.com/download"
+    if ! command -v ollama >/dev/null 2>&1; then
+        fail "Ollama not found. Install it from https://ollama.com/download"
         exit 1
     fi
-
-    wait_ "Starting Ollama serve ..."
-    ollama serve &>/dev/null &
-    OLLAMA_PID=$!
-    disown "$OLLAMA_PID" 2>/dev/null
-
+    wait_ "Starting Ollama serve"
+    ollama serve >/dev/null 2>&1 &
+    disown "$!" 2>/dev/null || true
     if ! wait_until 60 "Waiting for Ollama" 3 ollama_ready; then
         fail "Ollama did not start within 60 seconds"
         exit 1
@@ -112,86 +132,148 @@ else
     ok "Ollama is ready"
 fi
 
-# Check configured model availability
-OLLAMA_MODEL=$(grep -oP 'OLLAMA_MODEL=\K.+' "$PROJECT_ROOT/.env" 2>/dev/null || echo "")
+OLLAMA_MODEL=$(read_env_value OLLAMA_MODEL "")
 if [[ -n "$OLLAMA_MODEL" ]]; then
     if ollama list 2>/dev/null | grep -qF "$OLLAMA_MODEL"; then
         ok "Model '$OLLAMA_MODEL' is available"
     else
-        printf '   \033[33m[WARN]\033[0m Model '\''%s'\'' not found locally. You may need to run: ollama pull %s\n' "$OLLAMA_MODEL" "$OLLAMA_MODEL"
+        printf '   \033[33m[WARN]\033[0m Model '\''%s'\'' not found locally. You may need: ollama pull %s\n' "$OLLAMA_MODEL" "$OLLAMA_MODEL"
     fi
 fi
 
-# ── 3. Python & Textual check ────────────────────────────────────────────
 step "Checking Python environment"
-
-if ! command -v python &>/dev/null && ! command -v python3 &>/dev/null; then
-    fail "Python not found. Install Python 3.11+ from https://python.org"
+if command -v python >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_CMD="python3"
+else
+    fail "Python not found. Install Python 3.11+"
     exit 1
 fi
 
-PYTHON_CMD="python"
-command -v python &>/dev/null || PYTHON_CMD="python3"
-
-PY_VER=$($PYTHON_CMD --version 2>&1)
+PY_VER=$($PYTHON_CMD -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>&1 || true)
+if [[ -z "$PY_VER" ]]; then
+    fail "Python is not usable in the current shell"
+    exit 1
+fi
 ok "Python: $PY_VER"
 
-TEXTUAL_VER=$($PYTHON_CMD -c "import textual; print(textual.__version__)" 2>/dev/null || echo "")
-if [[ -n "$TEXTUAL_VER" ]]; then
-    ok "Textual: v$TEXTUAL_VER"
-else
-    printf '   \033[33m[WARN]\033[0m Textual not installed. Run: pip install -r requirements.txt\n'
+BFF_DEPS=$($PYTHON_CMD -c "import fastapi, uvicorn; print(f'fastapi {fastapi.__version__}, uvicorn {uvicorn.__version__}')" 2>&1 || true)
+if [[ -z "$BFF_DEPS" ]]; then
+    fail "Required BFF packages are missing. Run: python -m pip install -r requirements.txt"
+    exit 1
+fi
+ok "BFF deps: $BFF_DEPS"
+
+step "Checking Node.js environment"
+if ! command -v node >/dev/null 2>&1; then
+    if [[ -d "/c/Program Files/nodejs" ]]; then
+        prepend_path "/c/Program Files/nodejs"
+    elif [[ -d "/mnt/c/Program Files/nodejs" ]]; then
+        prepend_path "/mnt/c/Program Files/nodejs"
+    fi
 fi
 
-# ── 4. Web Search option ──────────────────────────────────────────────────
-step "Web Search (SearXNG)"
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+    fail "Node.js or npm not found. Install Node.js LTS on the host system"
+    exit 1
+fi
 
-ENABLE_WEBSEARCH=0
-printf "   是否启用联网搜索功能? (Y/N, 默认 N): "
+NODE_VER=$(node -p "process.version" 2>&1 || true)
+NPM_VER=$(npm -v 2>&1 || true)
+if [[ -z "$NODE_VER" || -z "$NPM_VER" ]]; then
+    fail "Node.js exists but is not runnable in the current shell"
+    exit 1
+fi
+ok "Node.js: $NODE_VER"
+ok "npm: $NPM_VER"
+
+step "Web search (SearXNG)"
+printf "   Enable web search? (Y/N, default N): "
 read -r ws_choice
+ENABLE_WEBSEARCH=0
 if [[ "$ws_choice" =~ ^[Yy] ]]; then
     ENABLE_WEBSEARCH=1
-    ok "Web Search 已启用"
-    sed -i 's/ENABLE_WEBSEARCH=.*/ENABLE_WEBSEARCH=true/' "$PROJECT_ROOT/.env"
+    ok "Web search enabled"
+    sed -i 's/ENABLE_WEBSEARCH=.*/ENABLE_WEBSEARCH=true/' "$ENV_FILE"
 else
-    ok "Web Search 已跳过 (可稍后在 .env 中设置 ENABLE_WEBSEARCH=true)"
-    sed -i 's/ENABLE_WEBSEARCH=.*/ENABLE_WEBSEARCH=false/' "$PROJECT_ROOT/.env"
+    ok "Web search disabled"
+    sed -i 's/ENABLE_WEBSEARCH=.*/ENABLE_WEBSEARCH=false/' "$ENV_FILE"
 fi
 
-# ── 5. Docker Compose (skill services only) ──────────────────────────────
 step "Starting skill service containers"
-
 cd "$PROJECT_ROOT"
-COMPOSE_ARGS=""
-[[ "$ENABLE_WEBSEARCH" -eq 1 ]] && COMPOSE_ARGS="--profile websearch"
-COMPOSE_UP_ARGS="up -d"
-[[ "$DO_BUILD" == "1" ]] && COMPOSE_UP_ARGS="up -d --build"
+COMPOSE_ARGS=(compose)
+if [[ "$ENABLE_WEBSEARCH" == "1" ]]; then
+    COMPOSE_ARGS+=(--profile websearch)
+fi
+COMPOSE_ARGS+=(up -d --remove-orphans)
+if [[ "$DO_BUILD" == "1" ]]; then
+    COMPOSE_ARGS+=(--build)
+fi
 
-docker compose $COMPOSE_ARGS $COMPOSE_UP_ARGS 2>&1 | sed 's/^/   /'
-
+docker "${COMPOSE_ARGS[@]}" 2>&1 | sed 's/^/   /'
 if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-    fail "docker compose up failed"; exit 1
+    fail "docker compose up failed"
+    exit 1
 fi
 ok "Containers are up"
 
-# ── 6. Wait for skill services to become healthy ─────────────────────────
 step "Waiting for skill services to become healthy"
-
 check_skills_healthy() {
     skill_files_healthy && skill_runner_healthy
 }
 
-if ! wait_until "$TIMEOUT_SEC" "Polling skill-files & skill-runner health" 3 check_skills_healthy; then
+if ! wait_until "$TIMEOUT_SEC" "Polling skill-files and skill-runner health" 3 check_skills_healthy; then
     fail "Skill services did not become healthy within ${TIMEOUT_SEC}s"
     echo "   Check: docker compose ps / docker compose logs"
     exit 1
 fi
 ok "All skill services are healthy"
 
-# ── 7. Summary ────────────────────────────────────────────────────────────
-SF_PORT=$(read_env_port SKILL_FILES_PORT 9101)
-SR_PORT=$(read_env_port SKILL_RUNNER_PORT 9102)
-SW_PORT=$(read_env_port SKILL_WEBSEARCH_PORT 9103)
+step "Checking Python frontend adapter (BFF)"
+BFF_HOST=$(read_env_value BFF_HOST 127.0.0.1)
+BFF_PORT=$(read_env_value BFF_PORT 9510)
+[[ "$BFF_HOST" == "0.0.0.0" ]] && BFF_HOST="127.0.0.1"
+BFF_URL="http://${BFF_HOST}:${BFF_PORT}"
+
+if bff_ready; then
+    ok "BFF already running at $BFF_URL"
+else
+    wait_ "Starting Python BFF"
+    (cd "$PROJECT_ROOT" && "$PYTHON_CMD" -m bff >/dev/null 2>&1) &
+    BFF_PID=$!
+    STARTED_BFF=1
+    STOP_BFF_ON_EXIT=1
+    if ! wait_until 30 "Waiting for BFF health" 3 bff_ready; then
+        fail "BFF did not become healthy within 30 seconds"
+        exit 1
+    fi
+    ok "BFF is ready at $BFF_URL"
+fi
+
+step "Checking Ink CLI dependencies"
+INK_DIR="$PROJECT_ROOT/apps/cli-ink"
+if [[ ! -d "$INK_DIR" ]]; then
+    fail "Ink frontend directory not found: $INK_DIR"
+    exit 1
+fi
+
+if [[ ! -d "$INK_DIR/node_modules/ink" ]]; then
+    wait_ "Installing Ink frontend dependencies"
+    (cd "$INK_DIR" && npm install) 2>&1 | sed 's/^/   /'
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+        fail "npm install failed"
+        exit 1
+    fi
+    ok "Ink frontend dependencies installed"
+else
+    ok "Ink frontend dependencies already installed"
+fi
+
+SF_PORT=$(read_env_value SKILL_FILES_PORT 9101)
+SR_PORT=$(read_env_value SKILL_RUNNER_PORT 9102)
+SW_PORT=$(read_env_value SKILL_WEBSEARCH_PORT 9103)
 
 echo ""
 echo "========================================"
@@ -200,17 +282,18 @@ echo "========================================"
 echo ""
 echo "  skill-files   :  http://localhost:$SF_PORT"
 echo "  skill-runner  :  http://localhost:$SR_PORT"
-[[ "$ENABLE_WEBSEARCH" -eq 1 ]] && echo "  skill-websearch: http://localhost:$SW_PORT"
+[[ "$ENABLE_WEBSEARCH" == "1" ]] && echo "  skill-websearch: http://localhost:$SW_PORT"
 echo "  Ollama        :  http://localhost:11434"
+echo "  BFF           :  $BFF_URL"
 echo ""
 echo "  Stop services: docker compose down"
 echo ""
 
-# ── 8. Launch TUI ─────────────────────────────────────────────────────────
-if [[ "$SKIP_TUI" -eq 1 ]]; then
-    step "Skipping TUI launch (SKIP_TUI=1)"
+if [[ "$SKIP_CLI" == "1" ]]; then
+    STOP_BFF_ON_EXIT=0
+    step "Skipping Ink CLI launch (SKIP_CLI=1)"
 else
-    step "Launching TUI"
-    cd "$PROJECT_ROOT"
-    $PYTHON_CMD -m tui
+    step "Launching Ink CLI"
+    cd "$INK_DIR"
+    LOCAL_AI_AGENT_API_URL="$BFF_URL" npm run dev
 fi
