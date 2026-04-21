@@ -51,12 +51,12 @@ const PALETTE = {
   assistantLabel: '#ddd6cf',
   assistantDot: '#d1c8bf',
   assistantAccent: '#e4d5c5',
-  userText: '#b7d3dc',
-  userLabel: '#a8c6d1',
-  userDot: '#a8c6d1',
+  userText: '#c4ddcb',
+  userLabel: '#9dcdab',
+  userDot: '#78b68b',
   reasoningText: '#707783',
   reasoningLabel: '#808894',
-  reasoningDot: '#8d95a2',
+  reasoningDot: '#a99bc2',
   toolText: '#7f8794',
   toolIdle: '#bda9d0',
   toolOk: '#adc7a0',
@@ -198,6 +198,14 @@ function plainEntryText(entry: TranscriptEntry): string {
   return entry.text;
 }
 
+function gapBeforeEntry(entry: TranscriptEntry, previousEntry?: TranscriptEntry): number {
+  if (!previousEntry) {
+    return 0;
+  }
+
+  return entry.kind === 'user' ? 2 : 1;
+}
+
 function countWrappedLines(text: string, width: number, maxLines: number): number {
   const safeWidth = Math.max(18, width);
   const lines = (text || ' ').split('\n');
@@ -214,7 +222,7 @@ function countWrappedLines(text: string, width: number, maxLines: number): numbe
 }
 
 function estimateEntryHeight(entry: TranscriptEntry, contentWidth: number): number {
-  const content = sanitizeSingleLine(plainEntryText(entry));
+  const content = plainEntryText(entry);
   const budget = entry.collapsible && !entry.collapsed ? 8 : 3;
   return 1 + countWrappedLines(content, contentWidth, budget);
 }
@@ -223,27 +231,51 @@ function buildTranscriptViewport(
   entries: TranscriptEntry[],
   contentWidth: number,
   rowBudget: number,
-): {visibleEntries: TranscriptEntry[]; hiddenCount: number} {
+  scrollOffset: number,
+): {visibleEntries: TranscriptEntry[]; hiddenAbove: number; hiddenBelow: number} {
   if (!entries.length) {
-    return {visibleEntries: [], hiddenCount: 0};
+    return {visibleEntries: [], hiddenAbove: 0, hiddenBelow: 0};
   }
 
+  const safeOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, entries.length - 1)));
+  const endIndex = Math.max(0, entries.length - 1 - safeOffset);
   const visibleEntries: TranscriptEntry[] = [];
   let usedRows = 0;
+  let afterEntry: TranscriptEntry | undefined;
 
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
+  for (let index = endIndex; index >= 0; index -= 1) {
     const entry = entries[index];
-    const nextHeight = estimateEntryHeight(entry, contentWidth);
+    const nextHeight = estimateEntryHeight(entry, contentWidth) + (afterEntry ? gapBeforeEntry(afterEntry, entry) : 0);
     if (visibleEntries.length > 0 && usedRows + nextHeight > rowBudget) {
       break;
     }
     visibleEntries.unshift(entry);
     usedRows += nextHeight;
+    afterEntry = entry;
   }
+
+  let lastVisibleIndex = visibleEntries.length ? entries.indexOf(visibleEntries[visibleEntries.length - 1]) : endIndex;
+
+  for (let index = lastVisibleIndex + 1; index < entries.length; index += 1) {
+    const previousEntry = visibleEntries[visibleEntries.length - 1];
+    const entry = entries[index];
+    const nextHeight = estimateEntryHeight(entry, contentWidth) + gapBeforeEntry(entry, previousEntry);
+    if (visibleEntries.length > 0 && usedRows + nextHeight > rowBudget) {
+      break;
+    }
+    visibleEntries.push(entry);
+    usedRows += nextHeight;
+    lastVisibleIndex = index;
+  }
+
+  const firstVisibleIndex = visibleEntries.length ? entries.indexOf(visibleEntries[0]) : 0;
+  const hiddenAbove = Math.max(0, firstVisibleIndex);
+  const hiddenBelow = Math.max(0, entries.length - lastVisibleIndex - 1);
 
   return {
     visibleEntries,
-    hiddenCount: Math.max(0, entries.length - visibleEntries.length),
+    hiddenAbove,
+    hiddenBelow,
   };
 }
 
@@ -367,7 +399,7 @@ function entryPalette(entry: TranscriptEntry): EntryPalette {
     case 'user':
       return {
         dotColor: PALETTE.userDot,
-        guideColor: '#92b5c2',
+        guideColor: '#6ea884',
         labelColor: PALETTE.userLabel,
         textColor: PALETTE.userText,
       };
@@ -375,7 +407,7 @@ function entryPalette(entry: TranscriptEntry): EntryPalette {
     case 'reasoning':
       return {
         dotColor: PALETTE.reasoningDot,
-        guideColor: '#7b838f',
+        guideColor: '#9386ab',
         labelColor: PALETTE.reasoningLabel,
         textColor: PALETTE.reasoningText,
       };
@@ -417,10 +449,12 @@ function TranscriptEntryView({
   entry,
   isSelected,
   contentWidth,
+  gapTop,
 }: {
   entry: TranscriptEntry;
   isSelected: boolean;
   contentWidth: number;
+  gapTop: number;
 }) {
   const palette = entryPalette(entry);
   const preview = plainEntryText(entry);
@@ -428,7 +462,7 @@ function TranscriptEntryView({
     entry.status === 'running' ? 'live' : entry.collapsible ? (entry.collapsed ? 'folded' : 'open') : '';
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" marginTop={gapTop}>
       <Box>
         <Text color={isSelected ? PALETTE.focus : palette.dotColor}>●</Text>
         <Text color={palette.labelColor}>{` ${entry.label}`}</Text>
@@ -437,7 +471,7 @@ function TranscriptEntryView({
         ) : null}
       </Box>
 
-      <Box marginLeft={2}>
+      <Box marginLeft={2} marginTop={1}>
         <Text color={isSelected ? PALETTE.focus : palette.guideColor}>╰─</Text>
         <Box marginLeft={1} flexDirection="column" width={contentWidth} minWidth={20}>
         {entry.collapsible && entry.collapsed ? (
@@ -532,6 +566,7 @@ export function ShellApp() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [transcriptScrollOffset, setTranscriptScrollOffset] = useState(0);
   const deltaBufferRef = useRef<Record<string, BufferedDelta>>({});
   const deltaTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -620,6 +655,7 @@ export function ShellApp() {
 
     setConversationId(targetId);
     setEntries(buildEntriesFromMessages(messages));
+    setTranscriptScrollOffset(0);
     setSelectedEntryId(null);
     setHistoryOpen(false);
 
@@ -632,6 +668,7 @@ export function ShellApp() {
   const resetConversation = () => {
     setConversationId(null);
     setEntries(buildBlankEntries(conversations.length > 0));
+    setTranscriptScrollOffset(0);
     setSelectedEntryId(null);
     setHistoryOpen(false);
     setInput('');
@@ -761,6 +798,26 @@ export function ShellApp() {
       return;
     }
 
+    if (!historyOpen && key.upArrow) {
+      setTranscriptScrollOffset((current) => Math.min(current + 1, Math.max(0, entries.length - 1)));
+      return;
+    }
+
+    if (!historyOpen && key.downArrow) {
+      setTranscriptScrollOffset((current) => Math.max(0, current - 1));
+      return;
+    }
+
+    if (!historyOpen && key.pageUp) {
+      setTranscriptScrollOffset((current) => Math.min(current + 5, Math.max(0, entries.length - 1)));
+      return;
+    }
+
+    if (!historyOpen && key.pageDown) {
+      setTranscriptScrollOffset((current) => Math.max(0, current - 5));
+      return;
+    }
+
     if (!historyOpen && key.ctrl && inputValue.toLowerCase() === 'e') {
       toggleSelectedEntry();
       return;
@@ -876,6 +933,7 @@ export function ShellApp() {
       }
 
       case 'user.accepted':
+        setTranscriptScrollOffset(0);
         setEntries((current) => [
           ...stripPlaceholder(current),
           {
@@ -1027,6 +1085,7 @@ export function ShellApp() {
 
     setBusy(true);
     setInput('');
+    setTranscriptScrollOffset(0);
     try {
       await streamChat({message: prompt, conversation_id: conversationId}, applyEvent);
     } catch (error) {
@@ -1052,14 +1111,15 @@ export function ShellApp() {
     columns - (historyOpen ? HISTORY_DRAWER_WIDTH + 8 : 6),
   );
   const transcriptRowBudget = Math.max(10, rows - 12);
-  const {visibleEntries, hiddenCount} = buildTranscriptViewport(
+  const {visibleEntries, hiddenAbove, hiddenBelow} = buildTranscriptViewport(
     entries,
     Math.max(32, transcriptWidth - 4),
     transcriptRowBudget,
+    transcriptScrollOffset,
   );
   const footerText = historyOpen
     ? 'Enter load · Up/Down move · Del remove · Ctrl+N new · Esc close'
-    : 'Enter submit · Ctrl+O history · Ctrl+N new · Tab select fold · Ctrl+E toggle · Esc exit';
+    : 'Enter submit · Ctrl+O history · Ctrl+N new · Up/Down scroll · Tab select fold · Ctrl+E toggle · Esc exit';
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -1102,18 +1162,23 @@ export function ShellApp() {
           paddingX={1}
           minWidth={0}
         >
-          {hiddenCount > 0 ? (
-            <Text color={PALETTE.metaText}>{`${hiddenCount} earlier blocks hidden above`}</Text>
+          {hiddenAbove > 0 ? (
+            <Text color={PALETTE.metaText}>{`${hiddenAbove} earlier blocks above · Up to review`}</Text>
           ) : null}
 
-          {visibleEntries.map((entry) => (
+          {visibleEntries.map((entry, index) => (
             <TranscriptEntryView
               key={entry.id}
               entry={entry}
               isSelected={entry.id === selectedEntryId}
               contentWidth={Math.max(28, transcriptWidth - 6)}
+              gapTop={gapBeforeEntry(entry, visibleEntries[index - 1])}
             />
           ))}
+
+          {hiddenBelow > 0 ? (
+            <Text color={PALETTE.metaText}>{`${hiddenBelow} newer blocks below · Down to follow latest`}</Text>
+          ) : null}
         </Box>
 
         {historyOpen ? (
