@@ -211,38 +211,40 @@ function renderBlockTokens(
 
     switch (token.type) {
       case 'space':
-        return [];
+        return [<Text key={key}>{' '}</Text>];
 
       case 'paragraph':
       case 'text': {
         const inlineTokens = token.tokens?.length ? token.tokens : textToken(token.text ?? '');
         return [
-          <Text key={key} color={palette.text}>
-            {renderInlineTokens(inlineTokens, palette)}
-          </Text>,
+          <Box key={key} marginBottom={1}>
+            <Text color={palette.text}>{renderInlineTokens(inlineTokens, palette)}</Text>
+          </Box>,
         ];
       }
 
       case 'heading': {
         const inlineTokens = token.tokens?.length ? token.tokens : textToken(token.text ?? '');
         return [
-          <Text key={key} color={palette.accent} bold>
-            {`${'#'.repeat(token.depth ?? 1)} `}
-            {renderInlineTokens(inlineTokens, palette)}
-          </Text>,
+          <Box key={key} marginBottom={1}>
+            <Text color={palette.accent} bold>
+              {`${'#'.repeat(token.depth ?? 1)} `}
+              {renderInlineTokens(inlineTokens, palette)}
+            </Text>
+          </Box>,
         ];
       }
 
       case 'list':
         return [
-          <Box key={key} flexDirection="column">
+          <Box key={key} flexDirection="column" marginBottom={1}>
             {(token.items ?? []).map((item, itemIndex) => renderListItem(item, itemIndex, Boolean(token.ordered), palette))}
           </Box>,
         ];
 
       case 'code':
         return [
-          <Box key={key} borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+          <Box key={key} borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column" marginBottom={1}>
             {token.lang ? (
               <Text color={palette.muted}>{token.lang}</Text>
             ) : null}
@@ -252,7 +254,7 @@ function renderBlockTokens(
 
       case 'blockquote':
         return [
-          <Box key={key} marginLeft={1}>
+          <Box key={key} marginLeft={1} marginBottom={1}>
             <Text color={palette.quote}>{`> ${flattenBlockTokens(token.tokens ?? [])}`}</Text>
           </Box>,
         ];

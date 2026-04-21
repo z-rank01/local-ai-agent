@@ -40,6 +40,8 @@ type EntryPalette = {
 };
 
 const HISTORY_DRAWER_WIDTH = 44;
+const HISTORY_DRAWER_MIN_WIDTH = 18;
+const TRANSCRIPT_MIN_WIDTH = 28;
 const DELTA_FLUSH_MS = 48;
 
 const PALETTE = {
@@ -224,7 +226,8 @@ function countWrappedLines(text: string, width: number, maxLines: number): numbe
 function estimateEntryHeight(entry: TranscriptEntry, contentWidth: number): number {
   const content = plainEntryText(entry);
   const budget = entry.collapsible && !entry.collapsed ? 8 : 3;
-  return 1 + countWrappedLines(content, contentWidth, budget);
+  // +1 for header row, +1 for explicit spacer line between header and guide line
+  return 2 + countWrappedLines(content, contentWidth, budget);
 }
 
 function buildTranscriptViewport(
@@ -471,7 +474,9 @@ function TranscriptEntryView({
         ) : null}
       </Box>
 
-      <Box marginLeft={2} marginTop={1}>
+      <Text> </Text>
+
+      <Box marginLeft={2}>
         <Text color={isSelected ? PALETTE.focus : palette.guideColor}>╰─</Text>
         <Box marginLeft={1} flexDirection="column" width={contentWidth} minWidth={20}>
         {entry.collapsible && entry.collapsed ? (
@@ -503,23 +508,31 @@ function HistoryDrawer({
   conversations,
   currentConversationId,
   selectedIndex,
+  drawerWidth,
+  drawerHeight,
+  maxVisible,
 }: {
   conversations: ConversationSummary[];
   currentConversationId: string | null;
   selectedIndex: number;
+  drawerWidth: number;
+  drawerHeight: number;
+  maxVisible: number;
 }) {
-  const maxVisible = 10;
   const start = Math.max(0, Math.min(selectedIndex - 4, Math.max(0, conversations.length - maxVisible)));
   const visible = conversations.slice(start, start + maxVisible);
 
   return (
     <Box
-      width={HISTORY_DRAWER_WIDTH}
+      width={drawerWidth}
+      height={drawerHeight}
+      minHeight={drawerHeight}
       marginLeft={1}
       borderStyle="round"
       borderColor={PALETTE.drawerBorder}
       paddingX={1}
       flexDirection="column"
+      overflow="hidden"
     >
       <Text color={PALETTE.title}>Recent Conversations</Text>
       <Text color={PALETTE.metaText}>Up/Down move · Enter load · Del remove · Ctrl+N new</Text>
@@ -564,11 +577,13 @@ export function ShellApp() {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [entries, setEntries] = useState<TranscriptEntry[]>(buildBlankEntries(false));
   const [input, setInput] = useState('');
+  const [cursorPosition, setCursorPosition] = useState(0);
   const [busy, setBusy] = useState(false);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [transcriptScrollOffset, setTranscriptScrollOffset] = useState(0);
   const deltaBufferRef = useRef<Record<string, BufferedDelta>>({});
   const deltaTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingPromptRef = useRef<string>('');
 
   const flushDeltaBuffer = () => {
     const buffered = Object.values(deltaBufferRef.current);
@@ -672,6 +687,7 @@ export function ShellApp() {
     setSelectedEntryId(null);
     setHistoryOpen(false);
     setInput('');
+    setCursorPosition(0);
   };
 
   const removeConversationById = async (targetId: string) => {
@@ -728,8 +744,21 @@ export function ShellApp() {
       return;
     }
 
+    if (key.leftArrow) {
+      setCursorPosition((p) => Math.max(0, p - 1));
+      return;
+    }
+
+    if (key.rightArrow) {
+      setCursorPosition((p) => Math.min(input.length, p + 1));
+      return;
+    }
+
     if (key.backspace || key.delete) {
-      setInput((current) => current.slice(0, -1));
+      if (cursorPosition > 0) {
+        setInput(input.slice(0, cursorPosition - 1) + input.slice(cursorPosition));
+        setCursorPosition((p) => p - 1);
+      }
       return;
     }
 
@@ -739,15 +768,14 @@ export function ShellApp() {
       key.tab ||
       key.escape ||
       key.upArrow ||
-      key.downArrow ||
-      key.leftArrow ||
-      key.rightArrow
+      key.downArrow
     ) {
       return;
     }
 
     if (inputValue) {
-      setInput((current) => `${current}${inputValue}`);
+      setInput(input.slice(0, cursorPosition) + inputValue + input.slice(cursorPosition));
+      setCursorPosition((p) => p + inputValue.length);
     }
   };
 
@@ -889,6 +917,14 @@ export function ShellApp() {
     }
   }, [conversationId, conversations]);
 
+  useEffect(() => {
+    setTranscriptScrollOffset((current) => Math.min(current, Math.max(0, entries.length - 1)));
+  }, [entries.length, columns, rows]);
+
+  useEffect(() => {
+    setHistorySelection((current) => Math.min(current, Math.max(0, conversations.length - 1)));
+  }, [conversations.length, columns, rows]);
+
   const applyEvent = (event: UIStreamEvent) => {
     if (event.event !== 'assistant.delta' && event.event !== 'reasoning.delta') {
       flushDeltaBuffer();
@@ -940,9 +976,10 @@ export function ShellApp() {
             id: event.message_id ?? `user-${Date.now()}`,
             kind: 'user',
             label: 'you',
-            text: eventText(event, 'content'),
+            text: eventText(event, 'content') || pendingPromptRef.current,
           },
         ]);
+        pendingPromptRef.current = '';
         break;
 
       case 'assistant.delta': {
@@ -1085,6 +1122,8 @@ export function ShellApp() {
 
     setBusy(true);
     setInput('');
+    setCursorPosition(0);
+    pendingPromptRef.current = prompt;
     setTranscriptScrollOffset(0);
     try {
       await streamChat({message: prompt, conversation_id: conversationId}, applyEvent);
@@ -1106,11 +1145,22 @@ export function ShellApp() {
 
   const currentConversation = conversations.find((item) => item.id === conversationId) ?? null;
   const activityLabel = busy ? 'streaming' : historyOpen ? 'history' : 'idle';
-  const transcriptWidth = Math.max(
-    48,
-    columns - (historyOpen ? HISTORY_DRAWER_WIDTH + 8 : 6),
+  const historyDrawerMaxWidth = Math.max(
+    HISTORY_DRAWER_MIN_WIDTH,
+    columns - TRANSCRIPT_MIN_WIDTH - 8,
   );
-  const transcriptRowBudget = Math.max(10, rows - 12);
+  const historyDrawerWidth = historyOpen
+    ? Math.max(
+        HISTORY_DRAWER_MIN_WIDTH,
+        Math.min(HISTORY_DRAWER_WIDTH, Math.floor(columns * 0.32), historyDrawerMaxWidth),
+      )
+    : 0;
+  const transcriptWidth = historyOpen
+    ? Math.max(TRANSCRIPT_MIN_WIDTH, columns - historyDrawerWidth - 8)
+    : Math.max(TRANSCRIPT_MIN_WIDTH, columns - 6);
+  const transcriptPanelHeight = Math.max(8, rows - 16);
+  const transcriptRowBudget = Math.max(6, transcriptPanelHeight - 4);
+  const historyMaxVisible = Math.max(4, transcriptPanelHeight - 5);
   const {visibleEntries, hiddenAbove, hiddenBelow} = buildTranscriptViewport(
     entries,
     Math.max(32, transcriptWidth - 4),
@@ -1122,7 +1172,7 @@ export function ShellApp() {
     : 'Enter submit · Ctrl+O history · Ctrl+N new · Up/Down scroll · Tab select fold · Ctrl+E toggle · Esc exit';
 
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" padding={1} height={rows} overflow="hidden">
       <Box
         borderStyle="round"
         borderColor={busy ? PALETTE.headerBusy : PALETTE.headerIdle}
@@ -1152,15 +1202,18 @@ export function ShellApp() {
         </Box>
       </Box>
 
-      <Box marginTop={1}>
+      <Box marginTop={1} height={transcriptPanelHeight} minHeight={transcriptPanelHeight} overflow="hidden">
         <Box
           flexDirection="column"
           flexGrow={1}
           width={transcriptWidth}
+          height={transcriptPanelHeight}
+          minHeight={transcriptPanelHeight}
           borderStyle="round"
           borderColor={historyOpen ? PALETTE.headerIdle : 'gray'}
           paddingX={1}
           minWidth={0}
+          overflow="hidden"
         >
           {hiddenAbove > 0 ? (
             <Text color={PALETTE.metaText}>{`${hiddenAbove} earlier blocks above · Up to review`}</Text>
@@ -1186,6 +1239,9 @@ export function ShellApp() {
             conversations={conversations}
             currentConversationId={conversationId}
             selectedIndex={historySelection}
+            drawerWidth={historyDrawerWidth}
+            drawerHeight={transcriptPanelHeight}
+            maxVisible={historyMaxVisible}
           />
         ) : null}
       </Box>
@@ -1195,10 +1251,21 @@ export function ShellApp() {
         borderStyle="round"
         borderColor={busy ? PALETTE.headerBusy : PALETTE.headerIdle}
         paddingX={1}
+        minHeight={3}
       >
         <Text color={PALETTE.metaText}>prompt  </Text>
-        <Text color={input ? PALETTE.assistantText : PALETTE.metaText}>{input || 'type a message...'}</Text>
-        {!historyOpen ? <Text color={PALETTE.focus}>█</Text> : null}
+        {input ? (
+          <>
+            <Text color={PALETTE.assistantText}>{input.slice(0, cursorPosition)}</Text>
+            {!historyOpen ? <Text color={PALETTE.focus}>█</Text> : null}
+            <Text color={PALETTE.assistantText}>{input.slice(cursorPosition)}</Text>
+          </>
+        ) : (
+          <>
+            {!historyOpen ? <Text color={PALETTE.focus}>█</Text> : null}
+            <Text color={PALETTE.metaText}>{'type a message...'}</Text>
+          </>
+        )}
       </Box>
 
       <Box marginTop={1} flexDirection="column">
