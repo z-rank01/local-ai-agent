@@ -1,8 +1,8 @@
-import React, {useEffect, useState} from 'react';
-import {Box, Text, useApp, useInput} from 'ink';
-import TextInput from 'ink-text-input';
+import React, {useEffect, useRef, useState} from 'react';
+import {Box, Text, useApp, useInput, useStdout} from 'ink';
 
 import {
+  deleteConversation,
   fetchConversations,
   fetchMessages,
   fetchStatus,
@@ -26,12 +26,21 @@ type TranscriptEntry = {
   collapsed?: boolean;
 };
 
+type BufferedDelta = {
+  id: string;
+  kind: 'assistant' | 'reasoning';
+  text: string;
+};
+
 type EntryPalette = {
-  marker: string;
-  markerColor: string;
+  dotColor: string;
+  guideColor: string;
   labelColor: string;
   textColor: string;
 };
+
+const HISTORY_DRAWER_WIDTH = 44;
+const DELTA_FLUSH_MS = 48;
 
 const PALETTE = {
   title: '#9fc6d8',
@@ -57,6 +66,10 @@ const PALETTE = {
   focus: '#f2d6a2',
 } as const;
 
+function sanitizeSingleLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 function appendOrUpdate(
   entries: TranscriptEntry[],
   targetId: string,
@@ -81,7 +94,7 @@ function eventText(event: UIStreamEvent, key: string): string {
 }
 
 function summarizeText(text: string, limit = 132): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
+  const normalized = sanitizeSingleLine(text);
   if (!normalized) {
     return '';
   }
@@ -134,9 +147,130 @@ function formatConversationStamp(value: string): string {
   });
 }
 
+function isConversationSummary(value: unknown): value is ConversationSummary {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === 'string' &&
+    typeof record.title === 'string' &&
+    typeof record.model === 'string' &&
+    typeof record.created_at === 'string' &&
+    typeof record.updated_at === 'string'
+  );
+}
+
+function normalizeConversation(conversation: ConversationSummary): ConversationSummary {
+  return {
+    ...conversation,
+    title: sanitizeSingleLine(conversation.title),
+  };
+}
+
+function readConversationSummary(event: UIStreamEvent): ConversationSummary | null {
+  const candidate = event.data.conversation;
+  if (!isConversationSummary(candidate)) {
+    return null;
+  }
+
+  return normalizeConversation(candidate);
+}
+
+function upsertConversation(
+  conversations: ConversationSummary[],
+  summary: ConversationSummary,
+): ConversationSummary[] {
+  const normalized = normalizeConversation(summary);
+  return [normalized, ...conversations.filter((conversation) => conversation.id !== normalized.id)];
+}
+
 function inferToolStatus(text: string): 'ok' | 'error' {
   const normalized = text.trim().toLowerCase();
   return normalized.startsWith('[ok]') ? 'ok' : 'error';
+}
+
+function plainEntryText(entry: TranscriptEntry): string {
+  if (entry.collapsible && entry.collapsed) {
+    return summarizeText(entry.text);
+  }
+  return entry.text;
+}
+
+function countWrappedLines(text: string, width: number, maxLines: number): number {
+  const safeWidth = Math.max(18, width);
+  const lines = (text || ' ').split('\n');
+  let total = 0;
+
+  for (const line of lines) {
+    total += Math.max(1, Math.ceil(Math.max(1, line.length) / safeWidth));
+    if (total >= maxLines) {
+      return maxLines;
+    }
+  }
+
+  return total;
+}
+
+function estimateEntryHeight(entry: TranscriptEntry, contentWidth: number): number {
+  const content = sanitizeSingleLine(plainEntryText(entry));
+  const budget = entry.collapsible && !entry.collapsed ? 8 : 3;
+  return 1 + countWrappedLines(content, contentWidth, budget);
+}
+
+function buildTranscriptViewport(
+  entries: TranscriptEntry[],
+  contentWidth: number,
+  rowBudget: number,
+): {visibleEntries: TranscriptEntry[]; hiddenCount: number} {
+  if (!entries.length) {
+    return {visibleEntries: [], hiddenCount: 0};
+  }
+
+  const visibleEntries: TranscriptEntry[] = [];
+  let usedRows = 0;
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    const nextHeight = estimateEntryHeight(entry, contentWidth);
+    if (visibleEntries.length > 0 && usedRows + nextHeight > rowBudget) {
+      break;
+    }
+    visibleEntries.unshift(entry);
+    usedRows += nextHeight;
+  }
+
+  return {
+    visibleEntries,
+    hiddenCount: Math.max(0, entries.length - visibleEntries.length),
+  };
+}
+
+function useTerminalDimensions(): {columns: number; rows: number} {
+  const {stdout} = useStdout();
+  const [dimensions, setDimensions] = useState({
+    columns: stdout.columns ?? 120,
+    rows: stdout.rows ?? 40,
+  });
+
+  useEffect(() => {
+    const update = () => {
+      setDimensions({
+        columns: stdout.columns ?? 120,
+        rows: stdout.rows ?? 40,
+      });
+    };
+
+    update();
+    stdout.on('resize', update);
+
+    return () => {
+      stdout.off('resize', update);
+    };
+  }, [stdout]);
+
+  return dimensions;
 }
 
 function buildBlankEntries(hasHistory: boolean): TranscriptEntry[] {
@@ -224,24 +358,24 @@ function entryPalette(entry: TranscriptEntry): EntryPalette {
   switch (entry.kind) {
     case 'assistant':
       return {
-        marker: '◆',
-        markerColor: PALETTE.assistantDot,
+        dotColor: PALETTE.assistantDot,
+        guideColor: '#b8b0a8',
         labelColor: PALETTE.assistantLabel,
         textColor: PALETTE.assistantText,
       };
 
     case 'user':
       return {
-        marker: '◦',
-        markerColor: PALETTE.userDot,
+        dotColor: PALETTE.userDot,
+        guideColor: '#92b5c2',
         labelColor: PALETTE.userLabel,
         textColor: PALETTE.userText,
       };
 
     case 'reasoning':
       return {
-        marker: '●',
-        markerColor: PALETTE.reasoningDot,
+        dotColor: PALETTE.reasoningDot,
+        guideColor: '#7b838f',
         labelColor: PALETTE.reasoningLabel,
         textColor: PALETTE.reasoningText,
       };
@@ -254,8 +388,8 @@ function entryPalette(entry: TranscriptEntry): EntryPalette {
             ? PALETTE.toolOk
             : PALETTE.toolIdle;
       return {
-        marker: '●',
-        markerColor: color,
+        dotColor: color,
+        guideColor: color,
         labelColor: color,
         textColor: PALETTE.toolText,
       };
@@ -263,16 +397,16 @@ function entryPalette(entry: TranscriptEntry): EntryPalette {
 
     case 'error':
       return {
-        marker: '●',
-        markerColor: PALETTE.errorText,
+        dotColor: PALETTE.errorText,
+        guideColor: PALETTE.errorText,
         labelColor: PALETTE.errorText,
         textColor: PALETTE.errorText,
       };
 
     default:
       return {
-        marker: '·',
-        markerColor: PALETTE.metaText,
+        dotColor: PALETTE.metaText,
+        guideColor: PALETTE.metaText,
         labelColor: PALETTE.metaText,
         textColor: PALETTE.metaText,
       };
@@ -282,30 +416,34 @@ function entryPalette(entry: TranscriptEntry): EntryPalette {
 function TranscriptEntryView({
   entry,
   isSelected,
+  contentWidth,
 }: {
   entry: TranscriptEntry;
   isSelected: boolean;
+  contentWidth: number;
 }) {
   const palette = entryPalette(entry);
-  const preview = summarizeText(entry.text);
-  const toggleIcon = entry.collapsible ? (entry.collapsed ? '▸' : '▾') : ' ';
+  const preview = plainEntryText(entry);
+  const foldLabel =
+    entry.status === 'running' ? 'live' : entry.collapsible ? (entry.collapsed ? 'folded' : 'open') : '';
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column">
       <Box>
-        <Text color={isSelected ? PALETTE.focus : palette.markerColor}>{toggleIcon}</Text>
-        <Text color={palette.markerColor}>{` ${palette.marker}`}</Text>
+        <Text color={isSelected ? PALETTE.focus : palette.dotColor}>●</Text>
         <Text color={palette.labelColor}>{` ${entry.label}`}</Text>
-        {entry.status === 'running' ? (
-          <Text color={PALETTE.metaText}>  live</Text>
-        ) : entry.collapsible ? (
-          <Text color={PALETTE.metaText}>{entry.collapsed ? '  folded' : '  open'}</Text>
+        {foldLabel ? (
+          <Text color={PALETTE.metaText}>{` ${foldLabel}`}</Text>
         ) : null}
       </Box>
 
-      <Box marginLeft={4} flexDirection="column">
+      <Box marginLeft={2}>
+        <Text color={isSelected ? PALETTE.focus : palette.guideColor}>╰─</Text>
+        <Box marginLeft={1} flexDirection="column" width={contentWidth} minWidth={20}>
         {entry.collapsible && entry.collapsed ? (
-          <Text color={palette.textColor}>{preview || '...'}</Text>
+          <Text color={palette.textColor} wrap="truncate-end">
+            {preview || '...'}
+          </Text>
         ) : entry.kind === 'assistant' ? (
           <MarkdownMessage
             content={entry.text}
@@ -321,6 +459,7 @@ function TranscriptEntryView({
         ) : (
           <Text color={palette.textColor}>{entry.text || (entry.status === 'running' ? '...' : '')}</Text>
         )}
+        </Box>
       </Box>
     </Box>
   );
@@ -341,31 +480,33 @@ function HistoryDrawer({
 
   return (
     <Box
-      width={38}
+      width={HISTORY_DRAWER_WIDTH}
       marginLeft={1}
       borderStyle="round"
       borderColor={PALETTE.drawerBorder}
       paddingX={1}
       flexDirection="column"
     >
-      <Text color={PALETTE.title}>Conversation History</Text>
-      <Text color={PALETTE.metaText}>Up/Down move · Ctrl+L load · Ctrl+N new</Text>
+      <Text color={PALETTE.title}>Recent Conversations</Text>
+      <Text color={PALETTE.metaText}>Up/Down move · Enter load · Del remove · Ctrl+N new</Text>
 
       <Box flexDirection="column" marginTop={1}>
         {visible.map((conversation, offset) => {
           const absoluteIndex = start + offset;
           const selected = absoluteIndex === selectedIndex;
           const current = conversation.id === currentConversationId;
+          const prefix = selected ? '›' : ' ';
+          const currentDot = current ? '●' : '○';
+          const line = `${prefix} ${currentDot} ${formatConversationStamp(conversation.updated_at)} ${truncateText(conversation.title, 22)}`;
 
           return (
-            <Box key={conversation.id} justifyContent="space-between">
-              <Box>
-                <Text color={selected ? PALETTE.focus : PALETTE.metaText}>{selected ? '›' : ' '}</Text>
-                <Text color={current ? PALETTE.assistantDot : PALETTE.userDot}>{current ? '●' : '·'}</Text>
-                <Text color={selected || current ? PALETTE.assistantText : PALETTE.userText}>{` ${truncateText(conversation.title)}`}</Text>
-              </Box>
-              <Text color={PALETTE.metaText}>{formatConversationStamp(conversation.updated_at)}</Text>
-            </Box>
+            <Text
+              key={conversation.id}
+              color={selected ? PALETTE.focus : current ? PALETTE.assistantText : PALETTE.userText}
+              wrap="truncate-end"
+            >
+              {line}
+            </Text>
           );
         })}
       </Box>
@@ -379,6 +520,7 @@ function HistoryDrawer({
 
 export function ShellApp() {
   const {exit} = useApp();
+  const {columns, rows} = useTerminalDimensions();
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [statusError, setStatusError] = useState<string>('');
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -389,9 +531,70 @@ export function ShellApp() {
   const [entries, setEntries] = useState<TranscriptEntry[]>(buildBlankEntries(false));
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const deltaBufferRef = useRef<Record<string, BufferedDelta>>({});
+  const deltaTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const flushDeltaBuffer = () => {
+    const buffered = Object.values(deltaBufferRef.current);
+    if (!buffered.length) {
+      return;
+    }
+
+    deltaBufferRef.current = {};
+    setEntries((current) => {
+      let next = stripPlaceholder(current);
+
+      for (const item of buffered) {
+        next = appendOrUpdate(
+          next,
+          item.id,
+          {
+            id: item.id,
+            kind: item.kind === 'assistant' ? 'assistant' : 'reasoning',
+            label: item.kind === 'assistant' ? 'assistant' : 'thinking',
+            text: '',
+            status: item.kind === 'reasoning' ? 'running' : undefined,
+            collapsible: item.kind === 'reasoning',
+            collapsed: false,
+          },
+          (entry) => ({...entry, text: `${entry.text}${item.text}`}),
+        );
+      }
+
+      return next;
+    });
+  };
+
+  const scheduleDeltaFlush = () => {
+    if (deltaTimerRef.current) {
+      return;
+    }
+
+    deltaTimerRef.current = setTimeout(() => {
+      deltaTimerRef.current = null;
+      flushDeltaBuffer();
+    }, DELTA_FLUSH_MS);
+  };
+
+  const queueDelta = (kind: 'assistant' | 'reasoning', blockId: string, text: string) => {
+    const current = deltaBufferRef.current[blockId];
+    deltaBufferRef.current[blockId] = current
+      ? {...current, text: `${current.text}${text}`}
+      : {id: blockId, kind, text};
+    scheduleDeltaFlush();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (deltaTimerRef.current) {
+        clearTimeout(deltaTimerRef.current);
+      }
+    };
+  }, []);
 
   const refreshConversations = async (preferredId?: string | null): Promise<ConversationSummary[]> => {
-    const nextConversations = await fetchConversations();
+    const nextConversations = (await fetchConversations()).map(normalizeConversation);
     setConversations(nextConversations);
 
     if (!nextConversations.length) {
@@ -409,6 +612,7 @@ export function ShellApp() {
     targetId: string,
     knownConversations?: ConversationSummary[],
   ): Promise<void> => {
+    flushDeltaBuffer();
     const [messages, nextConversations] = await Promise.all([
       fetchMessages(targetId),
       knownConversations ? Promise.resolve(knownConversations) : refreshConversations(targetId),
@@ -433,6 +637,29 @@ export function ShellApp() {
     setInput('');
   };
 
+  const removeConversationById = async (targetId: string) => {
+    setHistoryBusy(true);
+    try {
+      await deleteConversation(targetId);
+      const nextConversations = await refreshConversations();
+
+      if (!nextConversations.length) {
+        resetConversation();
+        return;
+      }
+
+      const selectedConversation = nextConversations[Math.min(historySelection, nextConversations.length - 1)];
+      if (conversationId === targetId) {
+        await openConversation(selectedConversation.id, nextConversations);
+        return;
+      }
+
+      setHistorySelection(Math.min(historySelection, nextConversations.length - 1));
+    } finally {
+      setHistoryBusy(false);
+    }
+  };
+
   const toggleSelectedEntry = () => {
     if (!selectedEntryId) {
       return;
@@ -450,6 +677,43 @@ export function ShellApp() {
     );
   };
 
+  const handlePromptSubmit = () => {
+    void submitPrompt();
+  };
+
+  const handlePromptInput = (inputValue: string, key: {backspace: boolean; delete: boolean; return: boolean; ctrl: boolean; meta: boolean; tab: boolean; escape: boolean; upArrow: boolean; downArrow: boolean; leftArrow: boolean; rightArrow: boolean;}) => {
+    if (busy || historyOpen) {
+      return;
+    }
+
+    if (key.return) {
+      handlePromptSubmit();
+      return;
+    }
+
+    if (key.backspace || key.delete) {
+      setInput((current) => current.slice(0, -1));
+      return;
+    }
+
+    if (
+      key.ctrl ||
+      key.meta ||
+      key.tab ||
+      key.escape ||
+      key.upArrow ||
+      key.downArrow ||
+      key.leftArrow ||
+      key.rightArrow
+    ) {
+      return;
+    }
+
+    if (inputValue) {
+      setInput((current) => `${current}${inputValue}`);
+    }
+  };
+
   useInput((inputValue, key) => {
     if (historyOpen && key.escape) {
       setHistoryOpen(false);
@@ -461,19 +725,35 @@ export function ShellApp() {
       return;
     }
 
-    if (key.ctrl && inputValue.toLowerCase() === 'o' && !busy) {
+    if (key.ctrl && inputValue.toLowerCase() === 'o' && !busy && !historyBusy) {
       if (conversations.length) {
         setHistoryOpen((current) => !current);
       }
       return;
     }
 
-    if (key.ctrl && inputValue.toLowerCase() === 'n' && !busy) {
+    if (key.ctrl && inputValue.toLowerCase() === 'n' && !busy && !historyBusy) {
       resetConversation();
       return;
     }
 
-    if (key.tab) {
+    if (historyOpen && key.return && !busy && !historyBusy) {
+      const targetConversation = conversations[historySelection];
+      if (targetConversation) {
+        void openConversation(targetConversation.id, conversations);
+      }
+      return;
+    }
+
+    if (historyOpen && (key.delete || key.backspace) && !busy && !historyBusy) {
+      const targetConversation = conversations[historySelection];
+      if (targetConversation) {
+        void removeConversationById(targetConversation.id);
+      }
+      return;
+    }
+
+    if (!historyOpen && key.tab) {
       const nextId = nextCollapsibleId(selectedEntryId, entries);
       if (nextId) {
         setSelectedEntryId(nextId);
@@ -481,16 +761,8 @@ export function ShellApp() {
       return;
     }
 
-    if (key.ctrl && inputValue.toLowerCase() === 'e') {
+    if (!historyOpen && key.ctrl && inputValue.toLowerCase() === 'e') {
       toggleSelectedEntry();
-      return;
-    }
-
-    if (historyOpen && key.ctrl && inputValue.toLowerCase() === 'l' && !busy) {
-      const targetConversation = conversations[historySelection];
-      if (targetConversation) {
-        void openConversation(targetConversation.id, conversations);
-      }
       return;
     }
 
@@ -501,7 +773,10 @@ export function ShellApp() {
 
     if (historyOpen && key.downArrow) {
       setHistorySelection((current) => Math.min(conversations.length - 1, current + 1));
+      return;
     }
+
+    handlePromptInput(inputValue, key);
   });
 
   useEffect(() => {
@@ -558,14 +833,22 @@ export function ShellApp() {
   }, [conversationId, conversations]);
 
   const applyEvent = (event: UIStreamEvent) => {
+    if (event.event !== 'assistant.delta' && event.event !== 'reasoning.delta') {
+      flushDeltaBuffer();
+    }
+
     if (event.conversation_id) {
       setConversationId(event.conversation_id);
     }
 
     switch (event.event) {
-      case 'session.started':
-        void refreshConversations(event.conversation_id);
+      case 'session.started': {
+        const summary = readConversationSummary(event);
+        if (summary) {
+          setConversations((current) => upsertConversation(current, summary));
+        }
         break;
+      }
 
       case 'attachments.imported': {
         const attachments = event.data.attachments;
@@ -607,19 +890,7 @@ export function ShellApp() {
       case 'assistant.delta': {
         const blockId = event.block_id ?? `assistant-${Date.now()}`;
         const delta = eventText(event, 'text');
-        setEntries((current) =>
-          appendOrUpdate(
-            stripPlaceholder(current),
-            blockId,
-            {
-              id: blockId,
-              kind: 'assistant',
-              label: 'assistant',
-              text: '',
-            },
-            (entry) => ({...entry, text: `${entry.text}${delta}`}),
-          ),
-        );
+        queueDelta('assistant', blockId, delta);
         break;
       }
 
@@ -644,22 +915,7 @@ export function ShellApp() {
       case 'reasoning.delta': {
         const blockId = event.block_id ?? `reasoning-${Date.now()}`;
         const delta = eventText(event, 'text');
-        setEntries((current) =>
-          appendOrUpdate(
-            stripPlaceholder(current),
-            blockId,
-            {
-              id: blockId,
-              kind: 'reasoning',
-              label: 'thinking',
-              text: '',
-              status: 'running',
-              collapsible: true,
-              collapsed: false,
-            },
-            (entry) => ({...entry, text: `${entry.text}${delta}`}),
-          ),
-        );
+        queueDelta('reasoning', blockId, delta);
         break;
       }
 
@@ -733,10 +989,16 @@ export function ShellApp() {
         break;
       }
 
-      case 'conversation.updated':
+      case 'conversation.updated': {
+        const summary = readConversationSummary(event);
+        if (summary) {
+          setConversations((current) => upsertConversation(current, summary));
+        }
+        break;
+      }
+
       case 'assistant.completed':
       case 'session.completed':
-        void refreshConversations(event.conversation_id);
         break;
 
       case 'error':
@@ -785,8 +1047,18 @@ export function ShellApp() {
 
   const currentConversation = conversations.find((item) => item.id === conversationId) ?? null;
   const activityLabel = busy ? 'streaming' : historyOpen ? 'history' : 'idle';
+  const transcriptWidth = Math.max(
+    48,
+    columns - (historyOpen ? HISTORY_DRAWER_WIDTH + 8 : 6),
+  );
+  const transcriptRowBudget = Math.max(10, rows - 12);
+  const {visibleEntries, hiddenCount} = buildTranscriptViewport(
+    entries,
+    Math.max(32, transcriptWidth - 4),
+    transcriptRowBudget,
+  );
   const footerText = historyOpen
-    ? 'Enter submit · Up/Down move · Ctrl+L load · Ctrl+N new · Esc close'
+    ? 'Enter load · Up/Down move · Del remove · Ctrl+N new · Esc close'
     : 'Enter submit · Ctrl+O history · Ctrl+N new · Tab select fold · Ctrl+E toggle · Esc exit';
 
   return (
@@ -824,13 +1096,23 @@ export function ShellApp() {
         <Box
           flexDirection="column"
           flexGrow={1}
+          width={transcriptWidth}
           borderStyle="round"
           borderColor={historyOpen ? PALETTE.headerIdle : 'gray'}
           paddingX={1}
           minWidth={0}
         >
-          {entries.map((entry) => (
-            <TranscriptEntryView key={entry.id} entry={entry} isSelected={entry.id === selectedEntryId} />
+          {hiddenCount > 0 ? (
+            <Text color={PALETTE.metaText}>{`${hiddenCount} earlier blocks hidden above`}</Text>
+          ) : null}
+
+          {visibleEntries.map((entry) => (
+            <TranscriptEntryView
+              key={entry.id}
+              entry={entry}
+              isSelected={entry.id === selectedEntryId}
+              contentWidth={Math.max(28, transcriptWidth - 6)}
+            />
           ))}
         </Box>
 
@@ -850,7 +1132,8 @@ export function ShellApp() {
         paddingX={1}
       >
         <Text color={PALETTE.metaText}>prompt  </Text>
-        <TextInput value={input} onChange={setInput} onSubmit={submitPrompt} />
+        <Text color={input ? PALETTE.assistantText : PALETTE.metaText}>{input || 'type a message...'}</Text>
+        {!historyOpen ? <Text color={PALETTE.focus}>█</Text> : null}
       </Box>
 
       <Box marginTop={1} flexDirection="column">

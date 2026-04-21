@@ -37,6 +37,19 @@ export async function fetchMessages(
   return (await response.json()) as MessageRecord[];
 }
 
+export async function deleteConversation(
+  conversationId: string,
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<void> {
+  const response = await fetch(`${baseUrl}/api/conversations/${conversationId}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    throw new Error(`conversation delete failed: ${response.status}`);
+  }
+}
+
 export async function streamChat(
   request: ChatRequest,
   onEvent: (event: UIStreamEvent) => void,
