@@ -362,6 +362,7 @@ class Agent:
             try:
                 result = await self.router.dispatch(tool_name, params, session_id)
                 tool_content = json.dumps(result, ensure_ascii=False, default=str)
+                structured_result = json.loads(tool_content)
                 result_preview = _format_tool_result_preview(result)
                 elapsed = time.time() - t0
                 yield AgentEvent(
@@ -371,11 +372,13 @@ class Agent:
                         "name": tool_name,
                         "status": "ok",
                         "elapsed": elapsed,
+                        "result": structured_result,
                         "result_preview": result_preview,
                     },
                 )
             except (PermissionError, FileNotFoundError, ValueError) as exc:
                 tool_content = json.dumps({"error": str(exc)})
+                structured_result = json.loads(tool_content)
                 result_preview = str(exc)
                 elapsed = time.time() - t0
                 yield AgentEvent(
@@ -386,6 +389,7 @@ class Agent:
                         "status": "error",
                         "elapsed": elapsed,
                         "error": str(exc),
+                        "result": structured_result,
                         "result_preview": result_preview,
                     },
                 )

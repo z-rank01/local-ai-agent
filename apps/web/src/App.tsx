@@ -157,6 +157,13 @@ function parseToolJson<T>(text: string): T | null {
   }
 }
 
+function structuredToolPayload<T>(block: TranscriptBlock): T | null {
+  if (block.toolResult !== undefined && block.toolResult !== null) {
+    return block.toolResult as T;
+  }
+  return parseToolJson<T>(block.text);
+}
+
 function roleLabel(role?: string | null): string {
   if (role === 'user') {
     return '用户命中';
@@ -213,8 +220,11 @@ function ToolDetail({
 }) {
   const hasParams = Boolean(block.params && Object.keys(block.params).length);
   const hasOutput = Boolean(block.text);
-  const searchPayload = block.label === 'conversation_search' ? parseToolJson<ConversationSearchPayload>(block.text) : null;
-  const readPayload = block.label === 'conversation_read' ? parseToolJson<ConversationReadPayload>(block.text) : null;
+  const searchPayload = block.label === 'conversation_search' ? structuredToolPayload<ConversationSearchPayload>(block) : null;
+  const readPayload = block.label === 'conversation_read' ? structuredToolPayload<ConversationReadPayload>(block) : null;
+  const structuredResultText = block.toolResult !== undefined && block.toolResult !== null
+    ? formatToolParamValue(block.toolResult)
+    : '';
   const searchQuery = typeof block.params?.query === 'string'
     ? block.params.query
     : typeof searchPayload?.query === 'string'
@@ -289,8 +299,8 @@ function ToolDetail({
       );
     }
 
-    return hasOutput ? (
-      <pre className={looksStructuredToolOutput(block.text) ? 'tool-output structured' : 'tool-output'}>{block.text}</pre>
+    return hasOutput || structuredResultText ? (
+      <pre className={block.toolResult != null || looksStructuredToolOutput(block.text) ? 'tool-output structured' : 'tool-output'}>{structuredResultText || block.text}</pre>
     ) : (
       <LoadingDots label={loadingLabel} />
     );
@@ -500,6 +510,7 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
         text: detail,
         summary: headline,
         messageId: message.id,
+        toolResult: message.tool_result,
         status: message.content.startsWith('[ok]') ? 'ok' : message.content.startsWith('[error]') ? 'error' : undefined,
         collapsible: true,
         collapsed: true,
@@ -1064,6 +1075,7 @@ export default function App() {
         const blockId = event.block_id ?? `tool-${Date.now()}`;
         const detail = eventText(event, 'detail');
         const statusValue = event.data.status === 'ok' ? 'ok' : 'error';
+        const toolResult = Object.prototype.hasOwnProperty.call(event.data, 'result') ? event.data.result : undefined;
         setBlocks((current) => appendOrUpdate(
           current,
           blockId,
@@ -1073,6 +1085,7 @@ export default function App() {
             label: typeof event.data.name === 'string' ? event.data.name : 'tool',
             text: detail,
             summary: eventText(event, 'summary'),
+            toolResult,
             status: statusValue,
             collapsible: true,
             collapsed: true,
@@ -1082,6 +1095,7 @@ export default function App() {
             ...block,
             text: detail || block.text,
             summary: eventText(event, 'summary') || block.summary,
+            toolResult: toolResult ?? block.toolResult,
             status: statusValue,
             elapsed: typeof event.data.elapsed === 'number' ? event.data.elapsed : block.elapsed,
             collapsed: (detail || block.text).length > 120 || (detail || block.text).includes('\n'),

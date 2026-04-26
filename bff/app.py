@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from urllib.parse import quote
 
@@ -55,6 +56,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def _stream_ndjson(
+    events: AsyncGenerator[UIStreamEvent, None],
+    *,
+    conversation_id: str | None,
+) -> StreamingResponse:
+    first_event: UIStreamEvent | None = None
+    try:
+        first_event = await anext(events)
+    except StopAsyncIteration:
+        first_event = None
+
+    async def generate():
+        if first_event is not None:
+            yield first_event.model_dump_json() + "\n"
+        try:
+            async for event in events:
+                yield event.model_dump_json() + "\n"
+        except Exception as exc:
+            detail = exc.detail if hasattr(exc, "detail") else str(exc)
+            yield UIStreamEvent(
+                event="error",
+                conversation_id=conversation_id,
+                data={"message": str(detail)},
+            ).model_dump_json() + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 @app.get("/health")
@@ -128,24 +157,14 @@ async def edit_message(
     request: EditMessageRequest,
 ) -> StreamingResponse:
     service = get_chat_service()
-
-    async def generate():
-        try:
-            async for event in service.edit_message_and_regenerate(
-                conversation_id,
-                message_id=message_id,
-                content=request.content,
-            ):
-                yield event.model_dump_json() + "\n"
-        except Exception as exc:
-            detail = exc.detail if hasattr(exc, "detail") else str(exc)
-            yield UIStreamEvent(
-                event="error",
-                conversation_id=conversation_id,
-                data={"message": str(detail)},
-            ).model_dump_json() + "\n"
-
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
+    return await _stream_ndjson(
+        service.edit_message_and_regenerate(
+            conversation_id,
+            message_id=message_id,
+            content=request.content,
+        ),
+        conversation_id=conversation_id,
+    )
 
 
 @app.post("/api/conversations/{conversation_id}/regenerate")
@@ -154,20 +173,10 @@ async def regenerate_conversation(
 ) -> StreamingResponse:
     service = get_chat_service()
     payload = request or RegenerateRequest()
-
-    async def generate():
-        try:
-            async for event in service.regenerate_chat(conversation_id, message_id=payload.message_id):
-                yield event.model_dump_json() + "\n"
-        except Exception as exc:
-            detail = exc.detail if hasattr(exc, "detail") else str(exc)
-            yield UIStreamEvent(
-                event="error",
-                conversation_id=conversation_id,
-                data={"message": str(detail)},
-            ).model_dump_json() + "\n"
-
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
+    return await _stream_ndjson(
+        service.regenerate_chat(conversation_id, message_id=payload.message_id),
+        conversation_id=conversation_id,
+    )
 
 
 @app.get("/api/conversations/{conversation_id}/export")
@@ -225,20 +234,10 @@ async def workspace_file_raw(path: str) -> FileResponse:
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     service = get_chat_service()
-
-    async def generate():
-        try:
-            async for event in service.stream_chat(request):
-                yield event.model_dump_json() + "\n"
-        except Exception as exc:
-            detail = exc.detail if hasattr(exc, "detail") else str(exc)
-            yield UIStreamEvent(
-                event="error",
-                conversation_id=request.conversation_id,
-                data={"message": str(detail)},
-            ).model_dump_json() + "\n"
-
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
+    return await _stream_ndjson(
+        service.stream_chat(request),
+        conversation_id=request.conversation_id,
+    )
 
 
 @app.post("/api/conversations/{conversation_id}/messages/{message_id}/activate-version", response_model=list[MessageRecord])

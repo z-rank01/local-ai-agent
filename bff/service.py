@@ -627,6 +627,7 @@ class ChatSessionService:
                 status = "ok" if event.data.get("status") == "ok" else "error"
                 detail = str(event.data.get("result_preview") or event.text)
                 headline = str(event.text)
+                tool_result = event.data.get("result")
                 tool_content = f"[{status}] {headline}"
                 if detail and detail != headline:
                     tool_content = f"{tool_content}\n{detail}"
@@ -635,6 +636,7 @@ class ChatSessionService:
                     role="tool",
                     content=tool_content,
                     tool_name=tool_name,
+                    tool_result=tool_result,
                     response_to_message_id=response_to_message_id,
                     version_number=response_version_number,
                 )
@@ -649,6 +651,7 @@ class ChatSessionService:
                         "status": status,
                         "headline": headline,
                         "detail": detail,
+                        "result": tool_result,
                         "elapsed": event.data.get("elapsed"),
                     },
                 )
@@ -751,11 +754,17 @@ class ChatSessionService:
     @staticmethod
     def _export_message_payload(message: Message) -> dict[str, object]:
         tool_calls: object = []
+        tool_result: object | None = None
         if message.tool_calls:
             try:
                 tool_calls = json.loads(message.tool_calls)
             except json.JSONDecodeError:
                 tool_calls = message.tool_calls
+        if message.tool_result:
+            try:
+                tool_result = json.loads(message.tool_result)
+            except json.JSONDecodeError:
+                tool_result = message.tool_result
         return {
             "id": message.id,
             "conversation_id": message.conversation_id,
@@ -764,6 +773,7 @@ class ChatSessionService:
             "thinking": message.thinking,
             "tool_name": message.tool_name,
             "tool_calls": tool_calls,
+            "tool_result": tool_result,
             "response_to_message_id": message.response_to_message_id,
             "version_number": message.version_number,
             "active": message.active,
@@ -772,11 +782,17 @@ class ChatSessionService:
 
     def _message_record(self, message: Message, *, version_count: int = 1) -> MessageRecord:
         tool_calls: list[dict] = []
+        tool_result: Any | None = None
         if message.tool_calls:
             try:
                 tool_calls = json.loads(message.tool_calls)
             except json.JSONDecodeError:
                 tool_calls = []
+        if message.tool_result:
+            try:
+                tool_result = json.loads(message.tool_result)
+            except json.JSONDecodeError:
+                tool_result = message.tool_result
         return MessageRecord(
             id=message.id,
             conversation_id=message.conversation_id,
@@ -785,6 +801,7 @@ class ChatSessionService:
             thinking=message.thinking,
             tool_calls=tool_calls,
             tool_name=message.tool_name,
+            tool_result=tool_result,
             response_to_message_id=message.response_to_message_id,
             version_number=message.version_number,
             version_count=version_count,

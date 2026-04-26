@@ -30,6 +30,7 @@ class Message:
     thinking: str = ""
     tool_calls: str = ""   # JSON-serialised
     tool_name: str = ""
+    tool_result: str = ""
     response_to_message_id: str = ""
     version_number: int = 1
     active: bool = True
@@ -63,15 +64,10 @@ CREATE TABLE IF NOT EXISTS messages (
     thinking        TEXT NOT NULL DEFAULT '',
     tool_calls      TEXT NOT NULL DEFAULT '',
     tool_name       TEXT NOT NULL DEFAULT '',
-    response_to_message_id TEXT NOT NULL DEFAULT '',
-    version_number  INTEGER NOT NULL DEFAULT 1,
-    active          INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_messages_active ON messages(conversation_id, active, created_at);
-CREATE INDEX IF NOT EXISTS idx_messages_response_version ON messages(conversation_id, response_to_message_id, version_number);
 """
 
 # Migration steps applied incrementally based on PRAGMA user_version.
@@ -79,13 +75,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_response_version ON messages(conversatio
 _MIGRATIONS: list[str] = [
     # version 1: baseline (handled via _SCHEMA, kept as a no-op for clarity)
     "SELECT 1;",
-    """
-    ALTER TABLE messages ADD COLUMN response_to_message_id TEXT NOT NULL DEFAULT '';
-    ALTER TABLE messages ADD COLUMN version_number INTEGER NOT NULL DEFAULT 1;
-    ALTER TABLE messages ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
-    CREATE INDEX IF NOT EXISTS idx_messages_active ON messages(conversation_id, active, created_at);
-    CREATE INDEX IF NOT EXISTS idx_messages_response_version ON messages(conversation_id, response_to_message_id, version_number);
-    """,
+    "SELECT 1;",
+    "SELECT 1;",
 ]
 
 
@@ -103,9 +94,44 @@ class ConversationStore:
         current = conn.execute("PRAGMA user_version").fetchone()[0] or 0
         target = len(_MIGRATIONS)
         for index in range(current, target):
-            conn.executescript(_MIGRATIONS[index])
+            if index == 1:
+                self._migrate_message_versions(conn)
+            elif index == 2:
+                self._migrate_tool_result_storage(conn)
+            else:
+                conn.executescript(_MIGRATIONS[index])
         if current != target:
             conn.execute(f"PRAGMA user_version = {target}")
+
+    @staticmethod
+    def _migrate_message_versions(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(messages)").fetchall()
+        }
+        if not columns:
+            return
+        if "response_to_message_id" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN response_to_message_id TEXT NOT NULL DEFAULT ''")
+        if "version_number" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN version_number INTEGER NOT NULL DEFAULT 1")
+        if "active" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_active ON messages(conversation_id, active, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_response_version ON messages(conversation_id, response_to_message_id, version_number)"
+        )
+
+    @staticmethod
+    def _migrate_tool_result_storage(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(messages)").fetchall()
+        }
+        if columns and "tool_result" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN tool_result TEXT NOT NULL DEFAULT ''")
 
     @contextmanager
     def _connect(self):
@@ -165,6 +191,7 @@ class ConversationStore:
                     thinking=m["thinking"],
                     tool_calls=m["tool_calls"],
                     tool_name=m["tool_name"],
+                    tool_result=m["tool_result"],
                     response_to_message_id=m["response_to_message_id"],
                     version_number=m["version_number"],
                     active=bool(m["active"]),
@@ -235,6 +262,7 @@ class ConversationStore:
         thinking: str = "",
         tool_calls: list[dict[str, Any]] | None = None,
         tool_name: str = "",
+        tool_result: Any | None = None,
         response_to_message_id: str = "",
         version_number: int = 1,
         active: bool = True,
@@ -242,10 +270,11 @@ class ConversationStore:
         msg_id = uuid.uuid4().hex[:16]
         now = self._now()
         tc_json = json.dumps(tool_calls, ensure_ascii=False) if tool_calls else ""
+        tr_json = json.dumps(tool_result, ensure_ascii=False, default=str) if tool_result is not None else ""
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO messages (id, conversation_id, role, content, thinking, "
-                "tool_calls, tool_name, response_to_message_id, version_number, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "tool_calls, tool_name, tool_result, response_to_message_id, version_number, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     msg_id,
                     conv_id,
@@ -254,6 +283,7 @@ class ConversationStore:
                     thinking,
                     tc_json,
                     tool_name,
+                    tr_json,
                     response_to_message_id,
                     version_number,
                     1 if active else 0,
@@ -272,6 +302,7 @@ class ConversationStore:
             thinking=thinking,
             tool_calls=tc_json,
             tool_name=tool_name,
+            tool_result=tr_json,
             response_to_message_id=response_to_message_id,
             version_number=version_number,
             active=active,
@@ -298,6 +329,7 @@ class ConversationStore:
                     thinking=r["thinking"],
                     tool_calls=r["tool_calls"],
                     tool_name=r["tool_name"],
+                    tool_result=r["tool_result"],
                     response_to_message_id=r["response_to_message_id"],
                     version_number=r["version_number"],
                     active=bool(r["active"]),
@@ -337,6 +369,7 @@ class ConversationStore:
                 thinking=row["thinking"],
                 tool_calls=row["tool_calls"],
                 tool_name=row["tool_name"],
+                tool_result=row["tool_result"],
                 response_to_message_id=row["response_to_message_id"],
                 version_number=row["version_number"],
                 active=bool(row["active"]),
@@ -413,6 +446,7 @@ class ConversationStore:
                     thinking=row["thinking"],
                     tool_calls=row["tool_calls"],
                     tool_name=row["tool_name"],
+                    tool_result=row["tool_result"],
                     response_to_message_id=row["response_to_message_id"],
                     version_number=row["version_number"],
                     active=bool(row["active"]),

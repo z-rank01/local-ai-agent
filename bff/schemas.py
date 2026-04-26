@@ -23,6 +23,7 @@ class MessageRecord(BaseModel):
     thinking: str = ""
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     tool_name: str = ""
+    tool_result: Any | None = None
     response_to_message_id: str = ""
     version_number: int = 1
     version_count: int = 1
