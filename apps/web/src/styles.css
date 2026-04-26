@@ -1048,6 +1048,21 @@ body.is-resizing-layout {
   opacity: 0;
   transition: opacity 0.16s ease;
 }
+.message-version-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  padding: 2px;
+  border: 1px solid rgba(148, 201, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(148, 201, 255, 0.05);
+}
+.message-version-switch span {
+  color: #dbe8ff;
+  font-size: 12px;
+  white-space: nowrap;
+}
 .message:hover .message-actions,
 .message:focus-within .message-actions {
   opacity: 1;

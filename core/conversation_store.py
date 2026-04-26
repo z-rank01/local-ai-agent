@@ -30,6 +30,9 @@ class Message:
     thinking: str = ""
     tool_calls: str = ""   # JSON-serialised
     tool_name: str = ""
+    response_to_message_id: str = ""
+    version_number: int = 1
+    active: bool = True
     created_at: str = ""
 
 
@@ -60,10 +63,15 @@ CREATE TABLE IF NOT EXISTS messages (
     thinking        TEXT NOT NULL DEFAULT '',
     tool_calls      TEXT NOT NULL DEFAULT '',
     tool_name       TEXT NOT NULL DEFAULT '',
+    response_to_message_id TEXT NOT NULL DEFAULT '',
+    version_number  INTEGER NOT NULL DEFAULT 1,
+    active          INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_active ON messages(conversation_id, active, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_response_version ON messages(conversation_id, response_to_message_id, version_number);
 """
 
 # Migration steps applied incrementally based on PRAGMA user_version.
@@ -71,6 +79,13 @@ CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, create
 _MIGRATIONS: list[str] = [
     # version 1: baseline (handled via _SCHEMA, kept as a no-op for clarity)
     "SELECT 1;",
+    """
+    ALTER TABLE messages ADD COLUMN response_to_message_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE messages ADD COLUMN version_number INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE messages ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
+    CREATE INDEX IF NOT EXISTS idx_messages_active ON messages(conversation_id, active, created_at);
+    CREATE INDEX IF NOT EXISTS idx_messages_response_version ON messages(conversation_id, response_to_message_id, version_number);
+    """,
 ]
 
 
@@ -138,7 +153,7 @@ class ConversationStore:
                 updated_at=row["updated_at"],
             )
             msgs = conn.execute(
-                "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at",
+                "SELECT * FROM messages WHERE conversation_id = ? AND active = 1 ORDER BY created_at",
                 (conv_id,),
             ).fetchall()
             conv.messages = [
@@ -150,6 +165,9 @@ class ConversationStore:
                     thinking=m["thinking"],
                     tool_calls=m["tool_calls"],
                     tool_name=m["tool_name"],
+                    response_to_message_id=m["response_to_message_id"],
+                    version_number=m["version_number"],
+                    active=bool(m["active"]),
                     created_at=m["created_at"],
                 )
                 for m in msgs
@@ -173,6 +191,7 @@ class ConversationStore:
                     "   OR EXISTS ("
                     "       SELECT 1 FROM messages "
                     "       WHERE messages.conversation_id = conversations.id "
+                    "         AND messages.active = 1 "
                     "         AND messages.content LIKE ? COLLATE NOCASE"
                     "   ) "
                     "ORDER BY updated_at DESC LIMIT ? OFFSET ?",
@@ -216,6 +235,9 @@ class ConversationStore:
         thinking: str = "",
         tool_calls: list[dict[str, Any]] | None = None,
         tool_name: str = "",
+        response_to_message_id: str = "",
+        version_number: int = 1,
+        active: bool = True,
     ) -> Message:
         msg_id = uuid.uuid4().hex[:16]
         now = self._now()
@@ -223,8 +245,20 @@ class ConversationStore:
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO messages (id, conversation_id, role, content, thinking, "
-                "tool_calls, tool_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (msg_id, conv_id, role, content, thinking, tc_json, tool_name, now),
+                "tool_calls, tool_name, response_to_message_id, version_number, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    msg_id,
+                    conv_id,
+                    role,
+                    content,
+                    thinking,
+                    tc_json,
+                    tool_name,
+                    response_to_message_id,
+                    version_number,
+                    1 if active else 0,
+                    now,
+                ),
             )
             conn.execute(
                 "UPDATE conversations SET updated_at = ? WHERE id = ?",
@@ -238,14 +272,22 @@ class ConversationStore:
             thinking=thinking,
             tool_calls=tc_json,
             tool_name=tool_name,
+            response_to_message_id=response_to_message_id,
+            version_number=version_number,
+            active=active,
             created_at=now,
         )
 
-    def get_messages(self, conv_id: str) -> list[Message]:
+    def get_messages(self, conv_id: str, *, include_inactive: bool = False) -> list[Message]:
         with self._connect() as conn:
+            sql = "SELECT * FROM messages WHERE conversation_id = ?"
+            params: tuple[Any, ...] = (conv_id,)
+            if not include_inactive:
+                sql += " AND active = 1"
+            sql += " ORDER BY created_at"
             rows = conn.execute(
-                "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at",
-                (conv_id,),
+                sql,
+                params,
             ).fetchall()
             return [
                 Message(
@@ -256,6 +298,9 @@ class ConversationStore:
                     thinking=r["thinking"],
                     tool_calls=r["tool_calls"],
                     tool_name=r["tool_name"],
+                    response_to_message_id=r["response_to_message_id"],
+                    version_number=r["version_number"],
+                    active=bool(r["active"]),
                     created_at=r["created_at"],
                 )
                 for r in rows
@@ -292,6 +337,9 @@ class ConversationStore:
                 thinking=row["thinking"],
                 tool_calls=row["tool_calls"],
                 tool_name=row["tool_name"],
+                response_to_message_id=row["response_to_message_id"],
+                version_number=row["version_number"],
+                active=bool(row["active"]),
                 created_at=row["created_at"],
             )
 
@@ -349,3 +397,78 @@ class ConversationStore:
             if message.role == "user":
                 return message
         return None
+
+    def list_response_versions(self, conv_id: str, response_to_message_id: str) -> list[Message]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM messages WHERE conversation_id = ? AND response_to_message_id = ? AND role = 'assistant' ORDER BY version_number, created_at",
+                (conv_id, response_to_message_id),
+            ).fetchall()
+            return [
+                Message(
+                    id=row["id"],
+                    conversation_id=row["conversation_id"],
+                    role=row["role"],
+                    content=row["content"],
+                    thinking=row["thinking"],
+                    tool_calls=row["tool_calls"],
+                    tool_name=row["tool_name"],
+                    response_to_message_id=row["response_to_message_id"],
+                    version_number=row["version_number"],
+                    active=bool(row["active"]),
+                    created_at=row["created_at"],
+                )
+                for row in rows
+            ]
+
+    def next_response_version_number(self, conv_id: str, response_to_message_id: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(version_number), 0) AS max_version FROM messages WHERE conversation_id = ? AND response_to_message_id = ? AND role = 'assistant'",
+                (conv_id, response_to_message_id),
+            ).fetchone()
+            return int((row["max_version"] if row else 0) or 0) + 1
+
+    def set_response_version_active(self, conv_id: str, response_to_message_id: str, version_number: int) -> bool:
+        with self._connect() as conn:
+            target = conn.execute(
+                "SELECT 1 FROM messages WHERE conversation_id = ? AND response_to_message_id = ? AND version_number = ? AND role = 'assistant'",
+                (conv_id, response_to_message_id, version_number),
+            ).fetchone()
+            if not target:
+                return False
+            conn.execute(
+                "UPDATE messages SET active = CASE WHEN version_number = ? THEN 1 ELSE 0 END WHERE conversation_id = ? AND response_to_message_id = ?",
+                (version_number, conv_id, response_to_message_id),
+            )
+            conn.execute(
+                "UPDATE conversations SET updated_at = ? WHERE id = ?",
+                (self._now(), conv_id),
+            )
+            return True
+
+    def deactivate_response_versions(self, conv_id: str, response_to_message_id: str) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE messages SET active = 0 WHERE conversation_id = ? AND response_to_message_id = ?",
+                (conv_id, response_to_message_id),
+            )
+            if cursor.rowcount:
+                conn.execute(
+                    "UPDATE conversations SET updated_at = ? WHERE id = ?",
+                    (self._now(), conv_id),
+                )
+            return cursor.rowcount
+
+    def delete_response_versions(self, conv_id: str, response_to_message_id: str) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM messages WHERE conversation_id = ? AND response_to_message_id = ?",
+                (conv_id, response_to_message_id),
+            )
+            if cursor.rowcount:
+                conn.execute(
+                    "UPDATE conversations SET updated_at = ? WHERE id = ?",
+                    (self._now(), conv_id),
+                )
+            return cursor.rowcount

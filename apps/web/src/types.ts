@@ -22,6 +22,10 @@ export type MessageRecord = {
   thinking: string;
   tool_calls: Array<Record<string, unknown>>;
   tool_name: string;
+  response_to_message_id: string;
+  version_number: number;
+  version_count: number;
+  active: boolean;
   created_at: string;
 };
 
@@ -118,4 +122,7 @@ export type TranscriptBlock = {
   params?: Record<string, unknown>;
   elapsed?: number;
   createdAt?: string;
+  responseToMessageId?: string;
+  versionNumber?: number;
+  versionCount?: number;
 };

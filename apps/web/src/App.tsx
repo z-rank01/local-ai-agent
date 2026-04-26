@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode} from 'react';
 import {
+  activateMessageVersion,
   deleteConversation,
   deleteMessage,
   downloadConversation,
@@ -483,6 +484,9 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
         text: message.content,
         messageId: message.id,
         createdAt: message.created_at,
+        responseToMessageId: message.response_to_message_id,
+        versionNumber: message.version_number,
+        versionCount: message.version_count,
       });
       return blocks;
     }
@@ -571,6 +575,7 @@ function AssistantTranscriptItem({
   onToggle,
   onCopy,
   onRegenerate,
+  onSwitchVersion,
   onDeleteMessage,
   onOpenConversation,
   busy,
@@ -579,6 +584,7 @@ function AssistantTranscriptItem({
   onToggle: (id: string) => void;
   onCopy: (text: string) => void;
   onRegenerate: () => void;
+  onSwitchVersion: (messageId: string, versionNumber: number) => void;
   onDeleteMessage: (messageId: string) => void;
   onOpenConversation: (conversationId: string) => void | Promise<void>;
   busy: boolean;
@@ -590,6 +596,9 @@ function AssistantTranscriptItem({
   const answerBlock = ordered.find((block) => block.kind === 'assistant');
   const answerText = answerBlock?.text ?? '';
   const answerMessageId = answerBlock?.messageId ?? null;
+  const versionNumber = answerBlock?.versionNumber ?? 1;
+  const versionCount = answerBlock?.versionCount ?? 1;
+  const canSwitchVersion = Boolean(answerMessageId) && versionCount > 1;
   const isRunning = status === 'running';
 
   return (
@@ -606,6 +615,25 @@ function AssistantTranscriptItem({
           {!hasAnswer && status === 'running' ? <LoadingDots label="正在等待模型输出..." /> : null}
         </div>
         <footer className="message-actions">
+          {canSwitchVersion && answerMessageId ? (
+            <div className="message-version-switch" aria-label="回答版本切换">
+              <button
+                type="button"
+                className="ghost-button tiny"
+                disabled={busy || isRunning || versionNumber <= 1}
+                onClick={() => onSwitchVersion(answerMessageId, versionNumber - 1)}
+                title="切换到上一版"
+              >上一版</button>
+              <span>版本 {versionNumber} / {versionCount}</span>
+              <button
+                type="button"
+                className="ghost-button tiny"
+                disabled={busy || isRunning || versionNumber >= versionCount}
+                onClick={() => onSwitchVersion(answerMessageId, versionNumber + 1)}
+                title="切换到下一版"
+              >下一版</button>
+            </div>
+          ) : null}
           <button
             type="button"
             className="ghost-button tiny"
@@ -1357,6 +1385,25 @@ export default function App() {
     }
   }, [applyEvent, blocks, busy, conversationId, flushDeltaBuffer, showToast]);
 
+  const switchAssistantVersion = useCallback(async (messageId: string, versionNumber: number) => {
+    if (!conversationId || busy) {
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const messages = await activateMessageVersion(conversationId, messageId, versionNumber);
+      setBlocks(buildBlocksFromMessages(messages));
+      await refreshConversations(conversationId, conversationFilter);
+      showToast(`已切换到版本 ${versionNumber}`);
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : String(err);
+      setError(messageText);
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, conversationFilter, conversationId, refreshConversations, showToast]);
+
   const exportConversation = useCallback(async (conversation: ConversationSummary, format: ExportFormat = 'markdown') => {
     try {
       const {filename, blob} = await downloadConversation(conversation.id, format);
@@ -1583,6 +1630,7 @@ export default function App() {
                   onToggle={toggleBlock}
                   onCopy={(text) => void handleCopy(text)}
                   onRegenerate={() => void regenerateLast()}
+                  onSwitchVersion={(messageId, versionNumber) => void switchAssistantVersion(messageId, versionNumber)}
                   onDeleteMessage={(messageId) => void removeMessage(messageId)}
                   onOpenConversation={(targetId) => void openConversation(targetId)}
                   busy={busy}

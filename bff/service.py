@@ -115,8 +115,9 @@ class ChatSessionService:
 
     def get_messages(self, conversation_id: str) -> list[MessageRecord]:
         self._require_conversation(conversation_id)
+        version_counts = self._response_version_counts(conversation_id)
         return [
-            self._message_record(message)
+            self._message_record(message, version_count=version_counts.get(message.response_to_message_id, 1))
             for message in self._store.get_messages(conversation_id)
         ]
 
@@ -247,7 +248,12 @@ class ChatSessionService:
         )
 
         self._retitle_if_needed(conversation.id, rewritten_text)
-        async for event in self._run_assistant_turn(conversation, run_id):
+        async for event in self._run_assistant_turn(
+            conversation,
+            run_id,
+            response_to_message_id=user_message.id,
+            response_version_number=1,
+        ):
             yield event
 
     async def regenerate_chat(
@@ -275,8 +281,15 @@ class ChatSessionService:
         if target is None:
             raise HTTPException(status_code=422, detail="no user message to regenerate from")
 
-        # Drop everything created strictly after the target user message.
-        self._store.delete_messages_from(conversation_id, target.id, inclusive=False)
+        latest_user = self._store.find_last_user_message(conversation_id)
+        preserve_versions = latest_user is not None and latest_user.id == target.id
+        response_version_number = 1
+        if preserve_versions:
+            response_version_number = self._store.next_response_version_number(conversation_id, target.id)
+            self._store.deactivate_response_versions(conversation_id, target.id)
+        else:
+            # Earlier-turn regenerate still rewrites later history to avoid branching the conversation tree.
+            self._store.delete_messages_from(conversation_id, target.id, inclusive=False)
         conversation = self._require_conversation(conversation_id)
 
         run_id = uuid.uuid4().hex[:12]
@@ -296,7 +309,12 @@ class ChatSessionService:
             message_id=target.id,
             data={"content": target.content, "regenerated": True},
         )
-        async for event in self._run_assistant_turn(conversation, run_id):
+        async for event in self._run_assistant_turn(
+            conversation,
+            run_id,
+            response_to_message_id=target.id,
+            response_version_number=response_version_number,
+        ):
             yield event
 
     async def edit_message_and_regenerate(
@@ -348,8 +366,35 @@ class ChatSessionService:
             message_id=message_id,
             data={"content": rewritten_text, "edited": True},
         )
-        async for event in self._run_assistant_turn(conversation, run_id):
+        async for event in self._run_assistant_turn(
+            conversation,
+            run_id,
+            response_to_message_id=message_id,
+            response_version_number=1,
+        ):
             yield event
+
+    def activate_message_version(
+        self,
+        conversation_id: str,
+        *,
+        message_id: str,
+        version_number: int,
+    ) -> list[MessageRecord]:
+        self._require_conversation(conversation_id)
+        target = self._store.get_message(message_id)
+        if target is None or target.conversation_id != conversation_id:
+            raise HTTPException(status_code=404, detail="message not found")
+        if target.role != "assistant":
+            raise HTTPException(status_code=422, detail="only assistant messages support version switching")
+        response_to_message_id = target.response_to_message_id
+        if not response_to_message_id:
+            raise HTTPException(status_code=422, detail="message has no alternate versions")
+        if version_number < 1:
+            raise HTTPException(status_code=422, detail="version_number must be >= 1")
+        if not self._store.set_response_version_active(conversation_id, response_to_message_id, version_number):
+            raise HTTPException(status_code=404, detail="version not found")
+        return self.get_messages(conversation_id)
 
     def delete_message(self, conversation_id: str, message_id: str) -> None:
         self._require_conversation(conversation_id)
@@ -469,7 +514,12 @@ class ChatSessionService:
         return content, filename
 
     async def _run_assistant_turn(
-        self, conversation: Conversation, run_id: str
+        self,
+        conversation: Conversation,
+        run_id: str,
+        *,
+        response_to_message_id: str,
+        response_version_number: int,
     ) -> AsyncGenerator[UIStreamEvent, None]:
         messages = self._store.messages_as_dicts(conversation.id)
 
@@ -585,6 +635,8 @@ class ChatSessionService:
                     role="tool",
                     content=tool_content,
                     tool_name=tool_name,
+                    response_to_message_id=response_to_message_id,
+                    version_number=response_version_number,
                 )
                 yield UIStreamEvent(
                     event="tool.completed",
@@ -631,6 +683,8 @@ class ChatSessionService:
                         role="assistant",
                         content=assistant_text,
                         thinking=thinking_text,
+                        response_to_message_id=response_to_message_id,
+                        version_number=response_version_number,
                     )
                     assistant_message_id = assistant_message.id
 
@@ -710,10 +764,13 @@ class ChatSessionService:
             "thinking": message.thinking,
             "tool_name": message.tool_name,
             "tool_calls": tool_calls,
+            "response_to_message_id": message.response_to_message_id,
+            "version_number": message.version_number,
+            "active": message.active,
             "created_at": message.created_at,
         }
 
-    def _message_record(self, message: Message) -> MessageRecord:
+    def _message_record(self, message: Message, *, version_count: int = 1) -> MessageRecord:
         tool_calls: list[dict] = []
         if message.tool_calls:
             try:
@@ -728,8 +785,20 @@ class ChatSessionService:
             thinking=message.thinking,
             tool_calls=tool_calls,
             tool_name=message.tool_name,
+            response_to_message_id=message.response_to_message_id,
+            version_number=message.version_number,
+            version_count=version_count,
+            active=message.active,
             created_at=message.created_at,
         )
+
+    def _response_version_counts(self, conversation_id: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for message in self._store.get_messages(conversation_id, include_inactive=True):
+            if message.role != "assistant" or not message.response_to_message_id:
+                continue
+            counts[message.response_to_message_id] = counts.get(message.response_to_message_id, 0) + 1
+        return counts
 
     def _attachment(self, item: ImportedFile) -> ImportedAttachment:
         return ImportedAttachment(

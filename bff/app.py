@@ -13,6 +13,7 @@ from core import config
 
 from .deps import get_chat_service, get_runtime, shutdown_runtime
 from .schemas import (
+    ActivateMessageVersionRequest,
     AppStatus,
     ChatRequest,
     ConversationSummary,
@@ -238,3 +239,16 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             ).model_dump_json() + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+@app.post("/api/conversations/{conversation_id}/messages/{message_id}/activate-version", response_model=list[MessageRecord])
+async def activate_message_version(
+    conversation_id: str,
+    message_id: str,
+    request: ActivateMessageVersionRequest,
+) -> list[MessageRecord]:
+    return get_chat_service().activate_message_version(
+        conversation_id,
+        message_id=message_id,
+        version_number=request.version_number,
+    )

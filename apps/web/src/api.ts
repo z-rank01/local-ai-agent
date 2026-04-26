@@ -110,6 +110,23 @@ export async function deleteMessage(
   }
 }
 
+export function activateMessageVersion(
+  conversationId: string,
+  messageId: string,
+  versionNumber: number,
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<MessageRecord[]> {
+  return requestJson<MessageRecord[]>(
+    `/api/conversations/${conversationId}/messages/${messageId}/activate-version`,
+    {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({version_number: versionNumber}),
+    },
+    baseUrl,
+  );
+}
+
 export function exportConversationUrl(
   conversationId: string,
   format = 'markdown',

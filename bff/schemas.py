@@ -23,6 +23,10 @@ class MessageRecord(BaseModel):
     thinking: str = ""
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     tool_name: str = ""
+    response_to_message_id: str = ""
+    version_number: int = 1
+    version_count: int = 1
+    active: bool = True
     created_at: str
 
 
@@ -103,6 +107,10 @@ class RegenerateRequest(BaseModel):
 
 class EditMessageRequest(BaseModel):
     content: str = Field(min_length=1)
+
+
+class ActivateMessageVersionRequest(BaseModel):
+    version_number: int = Field(ge=1)
 
 
 class ChatRequest(BaseModel):
