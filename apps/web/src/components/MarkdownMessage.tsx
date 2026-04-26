@@ -17,12 +17,13 @@ function getCodeText(children: React.ReactNode): string {
     .replace(/\n$/, '');
 }
 
-function CodeBlock({className, children, inline, ...props}: any) {
+function CodeBlock({className, children, inline, node, ...props}: any) {
   const [copied, setCopied] = useState(false);
   const code = getCodeText(children);
   const language = /language-(\w+)/.exec(className ?? '')?.[1] ?? '';
+  const isInline = inline ?? (!className && node?.position?.start?.line === node?.position?.end?.line);
 
-  if (inline) {
+  if (isInline) {
     return (
       <code className="inline-code" {...props}>
         {children}

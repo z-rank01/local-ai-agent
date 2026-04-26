@@ -68,6 +68,7 @@ type AppearanceSettings = {
   contentFontSize: number;
   codeFontSize: number;
   readingWidth: number;
+  lineHeight: number;
   density: DensityMode;
 };
 
@@ -82,6 +83,7 @@ const DEFAULT_APPEARANCE: AppearanceSettings = {
   contentFontSize: 15,
   codeFontSize: 13,
   readingWidth: 880,
+  lineHeight: 1.75,
   density: 'comfortable',
 };
 
@@ -149,7 +151,8 @@ function normalizeAppearanceSettings(value: Partial<AppearanceSettings> | null |
     codeFont: typeof value?.codeFont === 'string' && value.codeFont.trim() ? value.codeFont.trim() : DEFAULT_APPEARANCE.codeFont,
     contentFontSize: clamp(Number(value?.contentFontSize) || DEFAULT_APPEARANCE.contentFontSize, 13, 19),
     codeFontSize: clamp(Number(value?.codeFontSize) || DEFAULT_APPEARANCE.codeFontSize, 12, 17),
-    readingWidth: clamp(Number(value?.readingWidth) || DEFAULT_APPEARANCE.readingWidth, 680, 1120),
+    readingWidth: clamp(Number(value?.readingWidth) || DEFAULT_APPEARANCE.readingWidth, 420, 1120),
+    lineHeight: clamp(Number(value?.lineHeight) || DEFAULT_APPEARANCE.lineHeight, 1.45, 2.05),
     density: value?.density === 'compact' || value?.density === 'spacious' ? value.density : DEFAULT_APPEARANCE.density,
   };
 }
@@ -1082,11 +1085,23 @@ function AppearanceSettingsPanel({
         <span>阅读宽度 <em>{value.readingWidth}px</em></span>
         <input
           type="range"
-          min="680"
+          min="420"
           max="1120"
           step="40"
           value={value.readingWidth}
           onChange={(event) => update({readingWidth: Number(event.target.value)})}
+        />
+      </label>
+
+      <label className="appearance-field appearance-field-range">
+        <span>上下行间距 <em>{value.lineHeight.toFixed(2)}</em></span>
+        <input
+          type="range"
+          min="1.45"
+          max="2.05"
+          step="0.05"
+          value={value.lineHeight}
+          onChange={(event) => update({lineHeight: Number(event.target.value)})}
         />
       </label>
 
@@ -1144,6 +1159,7 @@ export default function App() {
   );
 
   const transcriptItems = useMemo(() => buildTranscriptViewItems(blocks), [blocks]);
+  const effectiveAppearance = useMemo(() => normalizeAppearanceSettings(appearance), [appearance]);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -1158,13 +1174,14 @@ export default function App() {
   const shellStyle = useMemo(() => ({
     '--sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`,
     '--inspector-width': inspectorCollapsed ? '0px' : `${inspectorWidth}px`,
-    '--font-ui': appearance.uiFont,
-    '--font-code': appearance.codeFont,
-    '--content-font-size': `${appearance.contentFontSize}px`,
-    '--code-font-size': `${appearance.codeFontSize}px`,
-    '--reading-width': `${appearance.readingWidth}px`,
-    '--density-scale': String(densityScale(appearance.density)),
-  }) as CSSProperties, [appearance, inspectorCollapsed, inspectorWidth, sidebarCollapsed, sidebarWidth]);
+    '--font-ui': effectiveAppearance.uiFont,
+    '--font-code': effectiveAppearance.codeFont,
+    '--content-font-size': `${effectiveAppearance.contentFontSize}px`,
+    '--code-font-size': `${effectiveAppearance.codeFontSize}px`,
+    '--reading-width': `${effectiveAppearance.readingWidth}px`,
+    '--content-line-height': String(effectiveAppearance.lineHeight),
+    '--density-scale': String(densityScale(effectiveAppearance.density)),
+  }) as CSSProperties, [effectiveAppearance, inspectorCollapsed, inspectorWidth, sidebarCollapsed, sidebarWidth]);
 
   const updateAppearance = useCallback((next: AppearanceSettings) => {
     setAppearance(normalizeAppearanceSettings(next));
@@ -1775,8 +1792,8 @@ export default function App() {
   }, [showToast]);
 
   useEffect(() => {
-    window.localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(appearance));
-  }, [appearance]);
+    window.localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(effectiveAppearance));
+  }, [effectiveAppearance]);
 
   useEffect(() => {
     if (!exportMenuOpen) {
@@ -2061,7 +2078,7 @@ export default function App() {
           onDetach={detachWorkspacePath}
           onError={setError}
         />
-        <AppearanceSettingsPanel value={appearance} onChange={updateAppearance} onReset={resetAppearance} />
+        <AppearanceSettingsPanel value={effectiveAppearance} onChange={updateAppearance} onReset={resetAppearance} />
         <section>
           <h2>模型</h2>
           {selectedModel ? (
