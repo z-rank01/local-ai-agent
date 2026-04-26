@@ -838,7 +838,13 @@ export default function App() {
       }
       case 'session.completed':
         setBusy(false);
-        void refreshConversations(event.conversation_id);
+        void (async () => {
+          await refreshConversations(event.conversation_id);
+          if (event.conversation_id && event.conversation_id === conversationId) {
+            const messages = await fetchMessages(event.conversation_id);
+            setBlocks(buildBlocksFromMessages(messages));
+          }
+        })();
         break;
       case 'error':
         if (pendingAssistantBlockIdRef.current) {

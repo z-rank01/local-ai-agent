@@ -98,6 +98,27 @@ bff_websearch_enabled() {
     curl -sf --max-time 3 "${url}/api/status" | grep -q '"websearch_enabled"[[:space:]]*:[[:space:]]*true'
 }
 
+bff_has_route() {
+    local url="$1" route="$2"
+    curl -sf --max-time 3 "${url}/openapi.json" | grep -Fq "\"${route}\""
+}
+
+get_listening_process_id() {
+    local port="$1"
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell.exe -NoProfile -Command "\$c=Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess; if (\$c) { Write-Output \$c }" 2>/dev/null | tr -d '\r'
+        return 0
+    fi
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1
+        return 0
+    fi
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltnp "( sport = :$port )" 2>/dev/null | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1
+        return 0
+    fi
+}
+
 web_ready() { curl -sf --max-time 3 "$WEB_URL" >/dev/null 2>&1; }
 
 web_ready_on_port() {
@@ -349,15 +370,39 @@ BFF_HOST=$(read_env_value BFF_HOST 127.0.0.1)
 BFF_PORT=$(read_env_value BFF_PORT 9510)
 [[ "$BFF_HOST" == "0.0.0.0" ]] && BFF_HOST="127.0.0.1"
 BFF_URL="http://${BFF_HOST}:${BFF_PORT}"
+REQUIRED_BFF_ROUTE="/api/conversations/{conversation_id}/messages/{message_id}/edit"
 
 if bff_ready; then
+    NEED_BFF_RESTART=0
     if [[ "$ENABLE_WEBSEARCH" == "1" ]] && ! bff_websearch_enabled "$BFF_URL"; then
-        warn "BFF is already running but WebSearch is disabled there. Restart the BFF process or use the PowerShell quick-start to auto-restart it."
+        warn "BFF is already running but WebSearch is disabled there. Restarting stale BFF."
+        NEED_BFF_RESTART=1
     elif [[ "$ENABLE_WEBSEARCH" != "1" ]] && bff_websearch_enabled "$BFF_URL"; then
-        warn "BFF is already running with WebSearch enabled while this run selected disabled. Restart BFF if you need the new state."
+        warn "BFF is already running with WebSearch enabled while this run selected disabled. Restarting stale BFF."
+        NEED_BFF_RESTART=1
     fi
-    ok "BFF already running at $BFF_URL"
-else
+
+    if ! bff_has_route "$BFF_URL" "$REQUIRED_BFF_ROUTE"; then
+        warn "BFF is healthy but missing route $REQUIRED_BFF_ROUTE. Restarting stale BFF."
+        NEED_BFF_RESTART=1
+    fi
+
+    if [[ "$NEED_BFF_RESTART" == "1" ]]; then
+        EXISTING_BFF_PID="$(get_listening_process_id "$BFF_PORT")"
+        if [[ -n "$EXISTING_BFF_PID" ]]; then
+            if command -v powershell.exe >/dev/null 2>&1; then
+                powershell.exe -NoProfile -Command "Stop-Process -Id $EXISTING_BFF_PID -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1 || true
+            else
+                kill "$EXISTING_BFF_PID" >/dev/null 2>&1 || true
+            fi
+            sleep 1
+        fi
+    else
+        ok "BFF already running at $BFF_URL"
+    fi
+fi
+
+if ! bff_ready; then
     wait_ "Starting Python BFF"
     (cd "$PROJECT_ROOT" && "$PYTHON_CMD" -m bff >/dev/null 2>&1) &
     BFF_PID=$!

@@ -137,6 +137,19 @@ function Get-BffWebSearchEnabled {
     }
 }
 
+function Test-BffRouteExists {
+    param(
+        [string]$BaseUrl,
+        [string]$RoutePath
+    )
+    try {
+        $spec = Invoke-RestMethod -Uri "$BaseUrl/openapi.json" -TimeoutSec 3 -ErrorAction Stop
+        return $spec.paths.PSObject.Properties.Name -contains $RoutePath
+    } catch {
+        return $false
+    }
+}
+
 function Get-ListeningProcessId {
     param([int]$Port)
     try {
@@ -474,6 +487,7 @@ $bffPort = Get-EnvValue -FilePath $envFile -Key "BFF_PORT" -Default "9510"
 $bffHealthHost = if ($bffHost -eq "0.0.0.0") { "127.0.0.1" } else { $bffHost }
 $bffUrl = "http://${bffHealthHost}:${bffPort}"
 $bffHealthUrl = "$bffUrl/health"
+$requiredBffRoute = "/api/conversations/{conversation_id}/messages/{message_id}/edit"
 
 $bffHealthy = $false
 try {
@@ -482,9 +496,19 @@ try {
 } catch {}
 
 if ($bffHealthy) {
+    $needsRestart = $false
     $runningWebSearch = Get-BffWebSearchEnabled -BaseUrl $bffUrl
     if ($null -ne $runningWebSearch -and $runningWebSearch -ne $enableWebSearch) {
         Write-Warn "BFF WebSearch state is $runningWebSearch but this run selected $enableWebSearch; restarting BFF."
+        $needsRestart = $true
+    }
+
+    if (-not (Test-BffRouteExists -BaseUrl $bffUrl -RoutePath $requiredBffRoute)) {
+        Write-Warn "BFF is healthy but missing route $requiredBffRoute; restarting stale process."
+        $needsRestart = $true
+    }
+
+    if ($needsRestart) {
         $bffPid = Get-ListeningProcessId -Port ([int]$bffPort)
         if ($bffPid) {
             Stop-Process -Id $bffPid -Force -ErrorAction SilentlyContinue

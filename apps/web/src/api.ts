@@ -275,7 +275,8 @@ export async function streamEditMessage(
   );
 
   if (!response.ok || !response.body) {
-    throw new Error(`edit message failed: ${response.status}`);
+    const detail = await response.text().catch(() => '');
+    throw new Error(`edit message failed: ${response.status}${detail ? ` ${detail}` : ''}`);
   }
 
   const reader = response.body.getReader();
