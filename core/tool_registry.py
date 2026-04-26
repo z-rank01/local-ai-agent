@@ -25,6 +25,8 @@ _DEFAULT_MAX_RESULT_CHARS: dict[str, int] = {
     "file_convert": 8000,
     "git_status": 2000,
     "skill_run": 6000,
+    "conversation_search": 5000,
+    "conversation_read": 7000,
 }
 
 

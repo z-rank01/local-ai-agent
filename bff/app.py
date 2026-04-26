@@ -21,6 +21,7 @@ from .schemas import (
     ModelInfo,
     ProviderInfo,
     RegenerateRequest,
+    UIStreamEvent,
     UpdateConversationRequest,
     WorkspaceFilePreview,
     WorkspaceImportRequest,
@@ -75,8 +76,12 @@ async def list_providers() -> list[ProviderInfo]:
 
 
 @app.get("/api/conversations", response_model=list[ConversationSummary])
-async def list_conversations(limit: int = 50, offset: int = 0) -> list[ConversationSummary]:
-    return get_chat_service().list_conversations(limit=limit, offset=offset)
+async def list_conversations(
+    limit: int = 50,
+    offset: int = 0,
+    query: str | None = None,
+) -> list[ConversationSummary]:
+    return get_chat_service().list_conversations(limit=limit, offset=offset, query=query)
 
 
 @app.post("/api/conversations", response_model=ConversationSummary, status_code=201)
@@ -123,12 +128,20 @@ async def edit_message(
     service = get_chat_service()
 
     async def generate():
-        async for event in service.edit_message_and_regenerate(
-            conversation_id,
-            message_id=message_id,
-            content=request.content,
-        ):
-            yield event.model_dump_json() + "\n"
+        try:
+            async for event in service.edit_message_and_regenerate(
+                conversation_id,
+                message_id=message_id,
+                content=request.content,
+            ):
+                yield event.model_dump_json() + "\n"
+        except Exception as exc:
+            detail = exc.detail if hasattr(exc, "detail") else str(exc)
+            yield UIStreamEvent(
+                event="error",
+                conversation_id=conversation_id,
+                data={"message": str(detail)},
+            ).model_dump_json() + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
@@ -141,8 +154,16 @@ async def regenerate_conversation(
     payload = request or RegenerateRequest()
 
     async def generate():
-        async for event in service.regenerate_chat(conversation_id, message_id=payload.message_id):
-            yield event.model_dump_json() + "\n"
+        try:
+            async for event in service.regenerate_chat(conversation_id, message_id=payload.message_id):
+                yield event.model_dump_json() + "\n"
+        except Exception as exc:
+            detail = exc.detail if hasattr(exc, "detail") else str(exc)
+            yield UIStreamEvent(
+                event="error",
+                conversation_id=conversation_id,
+                data={"message": str(detail)},
+            ).model_dump_json() + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
@@ -200,7 +221,15 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
     service = get_chat_service()
 
     async def generate():
-        async for event in service.stream_chat(request):
-            yield event.model_dump_json() + "\n"
+        try:
+            async for event in service.stream_chat(request):
+                yield event.model_dump_json() + "\n"
+        except Exception as exc:
+            detail = exc.detail if hasattr(exc, "detail") else str(exc)
+            yield UIStreamEvent(
+                event="error",
+                conversation_id=request.conversation_id,
+                data={"message": str(detail)},
+            ).model_dump_json() + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")

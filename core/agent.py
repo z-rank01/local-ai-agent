@@ -111,6 +111,16 @@ def _format_prefetch_content(fname: str, content: str, max_chars: int = 10_000) 
     return f"【文件: {fname}】\n{text}"
 
 
+def _format_tool_result_preview(result: Any, max_chars: int = 1600) -> str:
+    try:
+        text = json.dumps(result, ensure_ascii=False, default=str, indent=2)
+    except Exception:
+        text = str(result)
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"\n...[已截断，仅显示前 {max_chars} 字符，共 {len(text)} 字符]"
+
+
 # ── Agent ───────────────────────────────────────────────────────────────────
 
 
@@ -352,29 +362,49 @@ class Agent:
             try:
                 result = await self.router.dispatch(tool_name, params, session_id)
                 tool_content = json.dumps(result, ensure_ascii=False, default=str)
+                result_preview = _format_tool_result_preview(result)
                 elapsed = time.time() - t0
                 yield AgentEvent(
                     "tool_end",
                     text=f"✅ 成功 ({elapsed:.1f}s)",
-                    data={"name": tool_name, "status": "ok", "elapsed": elapsed},
+                    data={
+                        "name": tool_name,
+                        "status": "ok",
+                        "elapsed": elapsed,
+                        "result_preview": result_preview,
+                    },
                 )
             except (PermissionError, FileNotFoundError, ValueError) as exc:
                 tool_content = json.dumps({"error": str(exc)})
+                result_preview = str(exc)
                 elapsed = time.time() - t0
                 yield AgentEvent(
                     "tool_end",
                     text=f"❌ 失败: {exc} ({elapsed:.1f}s)",
-                    data={"name": tool_name, "status": "error", "elapsed": elapsed, "error": str(exc)},
+                    data={
+                        "name": tool_name,
+                        "status": "error",
+                        "elapsed": elapsed,
+                        "error": str(exc),
+                        "result_preview": result_preview,
+                    },
                 )
             except Exception as exc:
                 logger.error("Tool %s failed: %s", tool_name, exc)
                 err_brief = str(exc)[:200]
                 tool_content = json.dumps({"error": err_brief})
+                result_preview = err_brief
                 elapsed = time.time() - t0
                 yield AgentEvent(
                     "tool_end",
                     text=f"❌ 异常: {err_brief} ({elapsed:.1f}s)",
-                    data={"name": tool_name, "status": "exception", "elapsed": elapsed, "error": err_brief},
+                    data={
+                        "name": tool_name,
+                        "status": "exception",
+                        "elapsed": elapsed,
+                        "error": err_brief,
+                        "result_preview": result_preview,
+                    },
                 )
 
             messages.append({"role": "tool", "content": tool_content})

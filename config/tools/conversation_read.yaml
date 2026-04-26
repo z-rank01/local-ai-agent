@@ -1,0 +1,19 @@
+name: conversation_read
+backend: local-runtime
+tier: core
+short_description: "Read messages from a previous conversation."
+description: >
+  读取指定历史会话的最近若干条消息，便于基于旧对话内容继续回答。
+  通常先配合 conversation_search 找到目标会话，再读取具体内容。
+parameters:
+  type: object
+  properties:
+    conversation_id:
+      type: string
+      description: "历史会话 ID"
+    max_messages:
+      type: integer
+      description: "最多返回最近多少条消息，默认 12，最大 30"
+  required:
+    - conversation_id
+max_result_chars: 7000

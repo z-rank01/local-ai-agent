@@ -13,6 +13,8 @@
 - shell_exec   — 运行 shell 命令（仅诊断用）。参数：command。
 - git_status   — 工作区 git 状态。无参数。
 - git_commit   — 提交所有更改。参数：message。
+- conversation_search — 搜索其他历史会话。参数：query。可选：limit（默认 5，最大 10）。
+- conversation_read   — 读取某个历史会话的最近消息。参数：conversation_id。可选：max_messages（默认 12，最大 30）。
 
 技能管理（Skill CRUD）:
 - skill_list      — 列出所有已注册技能。无参数。
@@ -36,6 +38,13 @@
     - 搜索 1 次后必须先分析结果，禁止一次性发起多个 web_search 调用。
     - 即使搜索结果不够理想，也必须利用已有结果给出最佳回答，而非继续搜索。
     - 不要反复用不同关键词搜索同一个问题！
+
+历史会话搜索工作流：
+  当用户提到“之前聊过”“上次说过”“在别的对话里”“帮我回忆历史记录”等跨会话需求时：
+  步骤1 — 用 conversation_search(query="用户关注的主题") 找到相关会话。
+  步骤2 — 如果需要细节，再用 conversation_read(conversation_id="...") 读取命中的会话内容。
+  步骤3 — 明确说明答案来自历史会话，并区分历史内容与当前结论。
+  ⚠ 不要用 file_list / file_read 去猜测会话历史，跨会话检索应优先使用 conversation_search / conversation_read。
 
 路径规则：所有路径必须以 /workspace 开头。禁止访问 /workspace 之外的内容。
 安全规则：所有操作都有审计记录。禁止访问系统文件、凭据或私钥。

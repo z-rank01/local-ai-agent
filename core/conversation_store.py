@@ -156,12 +156,33 @@ class ConversationStore:
             ]
             return conv
 
-    def list_conversations(self, *, limit: int = 50, offset: int = 0) -> list[Conversation]:
+    def list_conversations(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        query: str | None = None,
+    ) -> list[Conversation]:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM conversations ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                (limit, offset),
-            ).fetchall()
+            search = (query or "").strip()
+            if search:
+                pattern = f"%{search}%"
+                rows = conn.execute(
+                    "SELECT * FROM conversations "
+                    "WHERE title LIKE ? COLLATE NOCASE "
+                    "   OR EXISTS ("
+                    "       SELECT 1 FROM messages "
+                    "       WHERE messages.conversation_id = conversations.id "
+                    "         AND messages.content LIKE ? COLLATE NOCASE"
+                    "   ) "
+                    "ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                    (pattern, pattern, limit, offset),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM conversations ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                    (limit, offset),
+                ).fetchall()
             return [
                 Conversation(
                     id=r["id"],

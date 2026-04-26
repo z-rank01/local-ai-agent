@@ -44,6 +44,7 @@ def build_runtime() -> RuntimeServices:
     )
     policy = PolicyEngine(config.POLICY_PATH)
     audit = AuditLogger(config.LOG_PATH)
+    store = ConversationStore(config.DB_PATH)
     router = ToolRouter(
         config.SKILL_FILES_URL,
         config.SKILL_RUNNER_URL,
@@ -51,6 +52,7 @@ def build_runtime() -> RuntimeServices:
         policy,
         audit,
         tool_registry,
+        store=store,
         enable_websearch=enable_websearch,
     )
     llm = LLMClient(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
@@ -64,7 +66,6 @@ def build_runtime() -> RuntimeServices:
         legacy_path=config.PROMPTS_DIR / "system.txt",
     )
     memory = MemoryManager(router, llm)
-    store = ConversationStore(config.DB_PATH)
     agent = Agent(
         llm=llm,
         router=router,

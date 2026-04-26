@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode} from 'react';
 import {
   deleteConversation,
   deleteMessage,
@@ -44,6 +44,40 @@ type EditingState = {
   originalText: string;
 };
 
+type ConversationSearchResult = {
+  conversation_id: string;
+  title: string;
+  model?: string;
+  updated_at?: string;
+  matched_message_id?: string | null;
+  matched_role?: string | null;
+  snippet: string;
+};
+
+type ConversationSearchPayload = {
+  query?: string;
+  count?: number;
+  results?: ConversationSearchResult[];
+};
+
+type ConversationReadMessage = {
+  id: string;
+  role: string;
+  created_at?: string;
+  content?: string;
+};
+
+type ConversationReadPayload = {
+  conversation?: {
+    id: string;
+    title: string;
+    model?: string;
+    updated_at?: string;
+  };
+  message_count?: number;
+  messages?: ConversationReadMessage[];
+};
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -62,6 +96,227 @@ function formatTime(value?: string): string {
 function eventText(event: UIStreamEvent, key: string): string {
   const value = event.data[key];
   return typeof value === 'string' ? value : '';
+}
+
+function formatToolElapsed(value?: number): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '';
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)}s`;
+}
+
+function formatToolParamValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (value == null) {
+    return 'null';
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function looksStructuredToolOutput(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.startsWith('{') || trimmed.startsWith('[');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function splitStoredToolContent(text: string): {headline: string; detail: string} {
+  const normalized = text.replace(/^\[(ok|error)\]\s*/i, '').trim();
+  const newlineIndex = normalized.indexOf('\n');
+  if (newlineIndex < 0) {
+    return {headline: normalized, detail: normalized};
+  }
+  const headline = normalized.slice(0, newlineIndex).trim();
+  const detail = normalized.slice(newlineIndex + 1).trim();
+  return {headline, detail: detail || headline};
+}
+
+function parseToolJson<T>(text: string): T | null {
+  const detail = splitStoredToolContent(text).detail;
+  if (!looksStructuredToolOutput(detail)) {
+    return null;
+  }
+  try {
+    return JSON.parse(detail) as T;
+  } catch {
+    return null;
+  }
+}
+
+function roleLabel(role?: string | null): string {
+  if (role === 'user') {
+    return '用户命中';
+  }
+  if (role === 'assistant') {
+    return '回答命中';
+  }
+  if (role === 'tool') {
+    return '工具命中';
+  }
+  return '内容命中';
+}
+
+function highlightText(text: string, query: string): ReactNode {
+  const needle = query.trim();
+  if (!needle) {
+    return text;
+  }
+  const pattern = new RegExp(escapeRegExp(needle), 'ig');
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match = pattern.exec(text);
+  while (match) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<mark key={`${match.index}-${match[0]}`}>{match[0]}</mark>);
+    lastIndex = match.index + match[0].length;
+    match = pattern.exec(text);
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts.length ? parts : text;
+}
+
+function ToolDetailSection({title, children}: {title: string; children: ReactNode}) {
+  return (
+    <section className="tool-section">
+      <div className="tool-section-title">{title}</div>
+      <div className="tool-section-body">{children}</div>
+    </section>
+  );
+}
+
+function ToolDetail({
+  block,
+  loadingLabel,
+  onOpenConversation,
+}: {
+  block: TranscriptBlock;
+  loadingLabel: string;
+  onOpenConversation?: (conversationId: string) => void | Promise<void>;
+}) {
+  const hasParams = Boolean(block.params && Object.keys(block.params).length);
+  const hasOutput = Boolean(block.text);
+  const searchPayload = block.label === 'conversation_search' ? parseToolJson<ConversationSearchPayload>(block.text) : null;
+  const readPayload = block.label === 'conversation_read' ? parseToolJson<ConversationReadPayload>(block.text) : null;
+  const searchQuery = typeof block.params?.query === 'string'
+    ? block.params.query
+    : typeof searchPayload?.query === 'string'
+      ? searchPayload.query
+      : '';
+
+  const renderToolResult = () => {
+    if (searchPayload?.results) {
+      return (
+        <div className="history-search-results">
+          {searchPayload.results.map((result) => (
+            <article key={result.conversation_id} className="history-hit-card">
+              <div className="history-hit-card-header">
+                <div>
+                  <h4>{highlightText(result.title, searchQuery)}</h4>
+                  <div className="history-hit-meta">
+                    <span>{roleLabel(result.matched_role)}</span>
+                    {result.updated_at ? <span>{formatTime(result.updated_at)}</span> : null}
+                    {result.model ? <span>{result.model}</span> : null}
+                  </div>
+                </div>
+                {onOpenConversation ? (
+                  <button
+                    type="button"
+                    className="ghost-button tiny"
+                    onClick={() => { void onOpenConversation(result.conversation_id); }}
+                  >打开会话</button>
+                ) : null}
+              </div>
+              <p className="history-hit-snippet">{highlightText(result.snippet, searchQuery)}</p>
+            </article>
+          ))}
+        </div>
+      );
+    }
+
+    if (readPayload?.conversation) {
+      return (
+        <div className="history-read-view">
+          <article className="history-hit-card history-hit-card-primary">
+            <div className="history-hit-card-header">
+              <div>
+                <h4>{readPayload.conversation.title}</h4>
+                <div className="history-hit-meta">
+                  <span>来源会话</span>
+                  {readPayload.conversation.updated_at ? <span>{formatTime(readPayload.conversation.updated_at)}</span> : null}
+                  {readPayload.conversation.model ? <span>{readPayload.conversation.model}</span> : null}
+                  {typeof readPayload.message_count === 'number' ? <span>{readPayload.message_count} 条消息</span> : null}
+                </div>
+              </div>
+              {onOpenConversation && readPayload.conversation.id ? (
+                <button
+                  type="button"
+                  className="ghost-button tiny"
+                  onClick={() => { void onOpenConversation(readPayload.conversation?.id ?? ''); }}
+                >打开会话</button>
+              ) : null}
+            </div>
+          </article>
+          <div className="history-read-messages">
+            {(readPayload.messages ?? []).map((message) => (
+              <article key={message.id} className="history-read-message">
+                <div className="history-read-message-header">
+                  <span>{roleLabel(message.role).replace('命中', '')}</span>
+                  {message.created_at ? <span>{formatTime(message.created_at)}</span> : null}
+                </div>
+                <p>{message.content?.trim() || '(空)'}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return hasOutput ? (
+      <pre className={looksStructuredToolOutput(block.text) ? 'tool-output structured' : 'tool-output'}>{block.text}</pre>
+    ) : (
+      <LoadingDots label={loadingLabel} />
+    );
+  };
+
+  return (
+    <div className="tool-detail">
+      {block.summary ? (
+        <ToolDetailSection title="摘要">
+          <p className="tool-summary">{block.summary}</p>
+        </ToolDetailSection>
+      ) : null}
+      {hasParams ? (
+        <ToolDetailSection title="参数">
+          <dl className="tool-params-list">
+            {Object.entries(block.params ?? {}).map(([key, value]) => (
+              <div key={key} className="tool-param-row">
+                <dt>{key}</dt>
+                <dd><pre>{formatToolParamValue(value)}</pre></dd>
+              </div>
+            ))}
+          </dl>
+        </ToolDetailSection>
+      ) : null}
+      <ToolDetailSection title={block.status === 'running' ? '执行中' : '结果'}>
+        {renderToolResult()}
+      </ToolDetailSection>
+    </div>
+  );
 }
 
 function readConversationSummary(event: UIStreamEvent): ConversationSummary | null {
@@ -231,11 +486,13 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
     }
 
     if (message.role === 'tool') {
+      const {headline, detail} = splitStoredToolContent(message.content);
       return [{
         id: message.id,
         kind: 'tool' as const,
         label: message.tool_name || 'tool',
-        text: message.content,
+        text: detail,
+        summary: headline,
         messageId: message.id,
         status: message.content.startsWith('[ok]') ? 'ok' : message.content.startsWith('[error]') ? 'error' : undefined,
         collapsible: true,
@@ -271,7 +528,7 @@ function EmptyState() {
   );
 }
 
-function AssistantSection({block, onToggle}: {block: TranscriptBlock; onToggle: (id: string) => void}) {
+function AssistantSection({block, onToggle, onOpenConversation}: {block: TranscriptBlock; onToggle: (id: string) => void; onOpenConversation?: (conversationId: string) => void | Promise<void>}) {
   if (block.kind === 'assistant') {
     return (
       <div className="assistant-answer-section">
@@ -283,10 +540,7 @@ function AssistantSection({block, onToggle}: {block: TranscriptBlock; onToggle: 
   const title = block.kind === 'reasoning' ? '思考过程' : `工具调用 · ${block.label}`;
   const collapsed = Boolean(block.collapsible && block.collapsed);
   const content = collapsed ? null : block.kind === 'tool' ? (
-    <div className="tool-detail">
-      {block.params ? <pre>{JSON.stringify(block.params, null, 2)}</pre> : null}
-      {block.text ? <pre>{block.text}</pre> : <LoadingDots label="正在调用工具..." />}
-    </div>
+    <ToolDetail block={block} loadingLabel="正在调用工具..." onOpenConversation={onOpenConversation} />
   ) : block.text ? (
     <pre className="plain-pre">{block.text}</pre>
   ) : (
@@ -298,6 +552,7 @@ function AssistantSection({block, onToggle}: {block: TranscriptBlock; onToggle: 
       <header className="assistant-subblock-header">
         <span>{title}</span>
         {block.status ? <span className={`status-pill status-${block.status}`}>{block.status}</span> : null}
+        {block.elapsed ? <span className="tool-elapsed">{formatToolElapsed(block.elapsed)}</span> : null}
         {block.collapsible ? (
           <button type="button" className="ghost-button tiny" onClick={() => onToggle(block.id)}>
             {collapsed ? '展开' : '折叠'}
@@ -315,6 +570,7 @@ function AssistantTranscriptItem({
   onCopy,
   onRegenerate,
   onDeleteMessage,
+  onOpenConversation,
   busy,
 }: {
   group: AssistantTranscriptGroup;
@@ -322,6 +578,7 @@ function AssistantTranscriptItem({
   onCopy: (text: string) => void;
   onRegenerate: () => void;
   onDeleteMessage: (messageId: string) => void;
+  onOpenConversation: (conversationId: string) => void | Promise<void>;
   busy: boolean;
 }) {
   const status = assistantGroupStatus(group.blocks);
@@ -343,7 +600,7 @@ function AssistantTranscriptItem({
           {createdAt ? <time>{formatTime(createdAt)}</time> : null}
         </header>
         <div className="assistant-sections">
-          {ordered.map((block) => <AssistantSection key={block.id} block={block} onToggle={onToggle} />)}
+          {ordered.map((block) => <AssistantSection key={block.id} block={block} onToggle={onToggle} onOpenConversation={onOpenConversation} />)}
           {!hasAnswer && status === 'running' ? <LoadingDots label="正在等待模型输出..." /> : null}
         </div>
         <footer className="message-actions">
@@ -382,6 +639,7 @@ function TranscriptItem({
   onCopy,
   onEditMessage,
   onDeleteMessage,
+  onOpenConversation,
   busy,
 }: {
   block: TranscriptBlock;
@@ -389,6 +647,7 @@ function TranscriptItem({
   onCopy: (text: string) => void;
   onEditMessage: (block: TranscriptBlock) => void;
   onDeleteMessage: (messageId: string) => void;
+  onOpenConversation: (conversationId: string) => void | Promise<void>;
   busy: boolean;
 }) {
   const icon = {
@@ -405,10 +664,7 @@ function TranscriptItem({
   ) : block.kind === 'user' ? (
     <p className="plain-text">{block.text}</p>
   ) : block.kind === 'tool' ? (
-    <div className="tool-detail">
-      {block.params ? <pre>{JSON.stringify(block.params, null, 2)}</pre> : null}
-      <pre>{block.text}</pre>
-    </div>
+    <ToolDetail block={block} loadingLabel="正在调用工具..." onOpenConversation={onOpenConversation} />
   ) : (
     <pre className="plain-pre">{block.text}</pre>
   );
@@ -524,14 +780,6 @@ export default function App() {
 
   const transcriptItems = useMemo(() => buildTranscriptViewItems(blocks), [blocks]);
 
-  const filteredConversations = useMemo(() => {
-    const term = conversationFilter.trim().toLowerCase();
-    if (!term) {
-      return conversations;
-    }
-    return conversations.filter((item) => item.title.toLowerCase().includes(term));
-  }, [conversations, conversationFilter]);
-
   const showToast = useCallback((message: string) => {
     setToast(message);
     window.setTimeout(() => setToast((current) => (current === message ? '' : current)), 2200);
@@ -608,8 +856,8 @@ export default function App() {
     }, DELTA_FLUSH_MS);
   }, [flushDeltaBuffer]);
 
-  const refreshConversations = useCallback(async (preferredId?: string | null) => {
-    const next = await fetchConversations();
+  const refreshConversations = useCallback(async (preferredId?: string | null, query?: string) => {
+    const next = await fetchConversations(query);
     setConversations(next);
     if (preferredId && next.some((item) => item.id === preferredId)) {
       setConversationId(preferredId);
@@ -773,6 +1021,7 @@ export default function App() {
           kind: 'tool',
           label: typeof event.data.name === 'string' ? event.data.name : 'tool',
           text: eventText(event, 'summary'),
+          summary: eventText(event, 'summary'),
           status: 'running',
           collapsible: true,
           collapsed: false,
@@ -791,14 +1040,18 @@ export default function App() {
             kind: 'tool',
             label: typeof event.data.name === 'string' ? event.data.name : 'tool',
             text: detail,
+            summary: eventText(event, 'summary'),
             status: statusValue,
             collapsible: true,
             collapsed: true,
+            elapsed: typeof event.data.elapsed === 'number' ? event.data.elapsed : undefined,
           },
           (block) => ({
             ...block,
             text: detail || block.text,
+            summary: eventText(event, 'summary') || block.summary,
             status: statusValue,
+            elapsed: typeof event.data.elapsed === 'number' ? event.data.elapsed : block.elapsed,
             collapsed: (detail || block.text).length > 120 || (detail || block.text).includes('\n'),
           }),
         ));
@@ -839,7 +1092,7 @@ export default function App() {
       case 'session.completed':
         setBusy(false);
         void (async () => {
-          await refreshConversations(event.conversation_id);
+          await refreshConversations(event.conversation_id, conversationFilter);
           if (event.conversation_id && event.conversation_id === conversationId) {
             const messages = await fetchMessages(event.conversation_id);
             setBlocks(buildBlocksFromMessages(messages));
@@ -864,7 +1117,7 @@ export default function App() {
       default:
         break;
     }
-  }, [flushDeltaBuffer, queueDelta, refreshConversations]);
+  }, [conversationFilter, conversationId, flushDeltaBuffer, queueDelta, refreshConversations]);
 
   const sendMessage = async () => {
     const prompt = input.trim() || (attachedPaths.length ? '请分析这些附件。' : '');
@@ -999,7 +1252,7 @@ export default function App() {
       return;
     }
     await deleteConversation(item.id);
-    const next = await refreshConversations();
+    const next = await refreshConversations(undefined, conversationFilter);
     if (conversationId === item.id) {
       const first = next.find((conversation) => conversation.id !== item.id) ?? next[0];
       if (first) {
@@ -1125,7 +1378,7 @@ export default function App() {
           fetchStatus(),
           fetchModels(),
           fetchProviders(),
-          fetchConversations(),
+          fetchConversations(conversationFilter),
         ]);
         setStatus(nextStatus);
         setModels(nextModels);
@@ -1141,7 +1394,17 @@ export default function App() {
         setLoading(false);
       }
     })();
-  }, [openConversation]);
+  }, [conversationFilter, openConversation]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      void refreshConversations(conversationId, conversationFilter);
+    }, 180);
+    return () => window.clearTimeout(handle);
+  }, [conversationFilter, conversationId, loading, refreshConversations]);
 
   useEffect(() => {
     return () => {
@@ -1178,12 +1441,12 @@ export default function App() {
         <input
           type="search"
           className="conversation-search"
-          placeholder="搜索会话..."
+          placeholder="搜索会话或消息..."
           value={conversationFilter}
           onChange={(event) => setConversationFilter(event.target.value)}
         />
         <div className="conversation-list">
-          {filteredConversations.map((item) => (
+          {conversations.map((item) => (
             <ConversationItem
               key={item.id}
               item={item}
@@ -1194,8 +1457,8 @@ export default function App() {
               onExport={() => void exportConversation(item)}
             />
           ))}
-          {filteredConversations.length === 0 ? (
-            <div className="conversation-empty">{conversationFilter ? '没有匹配的会话' : '尚未创建会话'}</div>
+          {conversations.length === 0 ? (
+            <div className="conversation-empty">{conversationFilter ? '没有匹配的会话或消息' : '尚未创建会话'}</div>
           ) : null}
         </div>
       </aside>
@@ -1260,6 +1523,7 @@ export default function App() {
                   onCopy={(text) => void handleCopy(text)}
                   onRegenerate={() => void regenerateLast()}
                   onDeleteMessage={(messageId) => void removeMessage(messageId)}
+                  onOpenConversation={(targetId) => void openConversation(targetId)}
                   busy={busy}
                 />
               : <TranscriptItem
@@ -1269,6 +1533,7 @@ export default function App() {
                   onCopy={(text) => void handleCopy(text)}
                   onEditMessage={beginEditMessage}
                   onDeleteMessage={(messageId) => void removeMessage(messageId)}
+                  onOpenConversation={(targetId) => void openConversation(targetId)}
                   busy={busy}
                 />
           ))}

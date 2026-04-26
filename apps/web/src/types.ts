@@ -109,11 +109,13 @@ export type TranscriptBlock = {
   kind: TranscriptKind;
   label: string;
   text: string;
+  summary?: string;
   messageId?: string | null;
   status?: 'running' | 'ok' | 'error';
   collapsible?: boolean;
   collapsed?: boolean;
   placeholder?: boolean;
   params?: Record<string, unknown>;
+  elapsed?: number;
   createdAt?: string;
 };

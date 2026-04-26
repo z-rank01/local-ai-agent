@@ -81,10 +81,16 @@ class ChatSessionService:
             )
         ]
 
-    def list_conversations(self, *, limit: int = 50, offset: int = 0) -> list[ConversationSummary]:
+    def list_conversations(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        query: str | None = None,
+    ) -> list[ConversationSummary]:
         return [
             self._conversation_summary(conv)
-            for conv in self._store.list_conversations(limit=limit, offset=offset)
+            for conv in self._store.list_conversations(limit=limit, offset=offset, query=query)
         ]
 
     def create_conversation(self, title: str, model: str | None = None) -> ConversationSummary:
@@ -503,10 +509,15 @@ class ChatSessionService:
             elif event.kind == "tool_end":
                 tool_name = event.data.get("name") or active_tool_name or "tool"
                 status = "ok" if event.data.get("status") == "ok" else "error"
+                detail = str(event.data.get("result_preview") or event.text)
+                headline = str(event.text)
+                tool_content = f"[{status}] {headline}"
+                if detail and detail != headline:
+                    tool_content = f"{tool_content}\n{detail}"
                 tool_message = self._store.add_message(
                     conversation.id,
                     role="tool",
-                    content=f"[{status}] {event.text}",
+                    content=tool_content,
                     tool_name=tool_name,
                 )
                 yield UIStreamEvent(
@@ -518,7 +529,8 @@ class ChatSessionService:
                     data={
                         "name": tool_name,
                         "status": status,
-                        "detail": event.text,
+                        "headline": headline,
+                        "detail": detail,
                         "elapsed": event.data.get("elapsed"),
                     },
                 )

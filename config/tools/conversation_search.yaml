@@ -1,0 +1,19 @@
+name: conversation_search
+backend: local-runtime
+tier: core
+short_description: "Search previous conversations by topic."
+description: >
+  搜索其他历史会话，按会话标题和消息内容匹配关键词。
+  适合用户提到“之前聊过什么”“帮我回忆历史里关于 X 的内容”这类跨会话问题。
+parameters:
+  type: object
+  properties:
+    query:
+      type: string
+      description: "要搜索的主题、关键词或问题"
+    limit:
+      type: integer
+      description: "最大返回会话数，默认 5，最大 10"
+  required:
+    - query
+max_result_chars: 5000

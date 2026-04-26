@@ -35,8 +35,16 @@ export function fetchProviders(baseUrl = DEFAULT_BASE_URL): Promise<ProviderInfo
   return requestJson<ProviderInfo[]>('/api/providers', undefined, baseUrl);
 }
 
-export function fetchConversations(baseUrl = DEFAULT_BASE_URL): Promise<ConversationSummary[]> {
-  return requestJson<ConversationSummary[]>('/api/conversations', undefined, baseUrl);
+export function fetchConversations(
+  query?: string,
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<ConversationSummary[]> {
+  const params = new URLSearchParams();
+  if (query?.trim()) {
+    params.set('query', query.trim());
+  }
+  const suffix = params.size ? `?${params.toString()}` : '';
+  return requestJson<ConversationSummary[]>(`/api/conversations${suffix}`, undefined, baseUrl);
 }
 
 export function createConversation(
