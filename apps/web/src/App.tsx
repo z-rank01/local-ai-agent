@@ -1121,6 +1121,79 @@ function AppearanceSettingsPanel({
   );
 }
 
+function ModelPicker({
+  models,
+  value,
+  onChange,
+}: {
+  models: ModelInfo[];
+  value: string;
+  onChange: (modelId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const selectedModel = models.find((model) => model.id === value) ?? models[0];
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (pickerRef.current && target && !pickerRef.current.contains(target)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="model-picker" ref={pickerRef}>
+      <button
+        type="button"
+        className="model-picker-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={!models.length}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{selectedModel ? `${selectedModel.provider_name} / ${selectedModel.name}` : '未选择模型'}</span>
+        <span aria-hidden="true" className="model-picker-chevron">⌄</span>
+      </button>
+      {open ? (
+        <div className="model-picker-menu" role="listbox" aria-label="选择模型">
+          {models.map((model) => (
+            <button
+              type="button"
+              key={model.id}
+              role="option"
+              aria-selected={model.id === selectedModel?.id}
+              className={model.id === selectedModel?.id ? 'active' : ''}
+              onClick={() => {
+                onChange(model.id);
+                setOpen(false);
+              }}
+            >
+              <span>{model.provider_name} / {model.name}</span>
+              {model.id === selectedModel?.id ? <em>当前</em> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -1937,11 +2010,7 @@ export default function App() {
             <span>{status ? `BFF ${status.status} · ${status.workspace_path}` : '正在连接后端...'}</span>
           </div>
           <div className="topbar-actions">
-            <select value={selectedModelId} onChange={(event) => setSelectedModelId(event.target.value)}>
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>{model.provider_name} / {model.name}</option>
-              ))}
-            </select>
+            <ModelPicker models={models} value={selectedModelId} onChange={setSelectedModelId} />
             {conversationId ? (
               <div className="export-menu" ref={exportMenuRef}>
                 <button
