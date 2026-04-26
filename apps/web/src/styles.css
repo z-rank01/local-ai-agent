@@ -225,15 +225,22 @@ body.is-resizing-layout {
 }
 
 .conversation-item {
-  position: relative;
   width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title actions"
+    "meta actions";
+  align-items: start;
+  column-gap: 10px;
   text-align: left;
   border: 1px solid transparent;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.045);
   color: var(--text);
-  padding: 12px 72px 12px 12px;
+  padding: 12px;
   min-height: 70px;
+  overflow: hidden;
 }
 
 .conversation-item:hover,
@@ -243,6 +250,7 @@ body.is-resizing-layout {
 }
 
 .conversation-title {
+  grid-area: title;
   display: block;
   font-weight: 700;
   overflow: hidden;
@@ -251,6 +259,7 @@ body.is-resizing-layout {
 }
 
 .conversation-meta {
+  grid-area: meta;
   display: block;
   margin-top: 7px;
   color: var(--muted);
@@ -261,11 +270,12 @@ body.is-resizing-layout {
 }
 
 .conversation-actions {
-  position: absolute;
-  right: 8px;
-  top: 10px;
+  grid-area: actions;
   display: flex;
   gap: 4px;
+  justify-self: end;
+  align-self: start;
+  margin-left: 6px;
 }
 
 .conversation-actions button {
