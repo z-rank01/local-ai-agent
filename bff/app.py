@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Query, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
+
+from core import config
 
 from .deps import get_chat_service, get_runtime, shutdown_runtime
 from .schemas import (
@@ -14,10 +17,14 @@ from .schemas import (
     ConversationSummary,
     CreateConversationRequest,
     MessageRecord,
+    ModelInfo,
+    ProviderInfo,
     UpdateConversationRequest,
+    WorkspaceFilePreview,
     WorkspaceImportRequest,
     WorkspaceImportResponse,
     WorkspaceTreeResponse,
+    WorkspaceUploadResponse,
 )
 
 
@@ -36,6 +43,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.WEB_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/health")
 async def health() -> dict[str, str]:
@@ -45,6 +60,16 @@ async def health() -> dict[str, str]:
 @app.get("/api/status", response_model=AppStatus)
 async def status() -> AppStatus:
     return get_chat_service().app_status()
+
+
+@app.get("/api/models", response_model=list[ModelInfo])
+async def list_models() -> list[ModelInfo]:
+    return get_chat_service().list_models()
+
+
+@app.get("/api/providers", response_model=list[ProviderInfo])
+async def list_providers() -> list[ProviderInfo]:
+    return get_chat_service().list_providers()
 
 
 @app.get("/api/conversations", response_model=list[ConversationSummary])
@@ -89,6 +114,34 @@ async def import_local_paths(request: WorkspaceImportRequest) -> WorkspaceImport
 @app.get("/api/workspace/tree", response_model=WorkspaceTreeResponse)
 async def workspace_tree(path: str = "/workspace") -> WorkspaceTreeResponse:
     return get_chat_service().list_workspace(path)
+
+
+@app.post("/api/workspace/upload", response_model=WorkspaceUploadResponse, status_code=201)
+async def upload_workspace_file(
+    request: Request,
+    filename: str = Query(min_length=1),
+    target_dir: str = "/workspace/data/uploads",
+) -> WorkspaceUploadResponse:
+    return await get_chat_service().upload_workspace_file(
+        filename=filename,
+        content_type=request.headers.get("content-type"),
+        target_dir=target_dir,
+        chunks=request.stream(),
+    )
+
+
+@app.get("/api/workspace/preview", response_model=WorkspaceFilePreview)
+async def workspace_file_preview(
+    path: str,
+    max_bytes: int = Query(200_000, ge=1024, le=1_000_000),
+) -> WorkspaceFilePreview:
+    return get_chat_service().preview_workspace_file(path, max_bytes=max_bytes)
+
+
+@app.get("/api/workspace/raw")
+async def workspace_file_raw(path: str) -> FileResponse:
+    target = get_chat_service().resolve_workspace_file(path)
+    return FileResponse(target, filename=target.name)
 
 
 @app.post("/api/chat/stream")

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import mimetypes
+import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, AsyncIterable
 
 from fastapi import HTTPException
 
@@ -20,11 +23,18 @@ from .schemas import (
     ConversationSummary,
     ImportedAttachment,
     MessageRecord,
+    ModelInfo,
+    ProviderInfo,
     UIStreamEvent,
     WorkspaceEntry,
+    WorkspaceFilePreview,
     WorkspaceImportResponse,
     WorkspaceTreeResponse,
+    WorkspaceUploadResponse,
 )
+
+
+_PREVIEW_ENCODINGS = ("utf-8", "gbk", "gb2312", "gb18030", "big5", "latin-1")
 
 
 class ChatSessionService:
@@ -43,6 +53,32 @@ class ChatSessionService:
             tools=sorted(self._runtime.tool_registry.known_tools),
             websearch_enabled=config.ENABLE_WEBSEARCH,
         )
+
+    def list_models(self) -> list[ModelInfo]:
+        return [
+            ModelInfo(
+                id=f"ollama:{self._runtime.llm.model}",
+                name=self._runtime.llm.model,
+                provider_id="ollama",
+                provider_name="Ollama",
+                default=True,
+                capabilities=["text", "tools", "streaming", "reasoning"],
+                context_window=config.CONTEXT_WINDOW,
+                status="available",
+            )
+        ]
+
+    def list_providers(self) -> list[ProviderInfo]:
+        return [
+            ProviderInfo(
+                id="ollama",
+                name="Ollama",
+                kind="local",
+                enabled=True,
+                base_url=config.OLLAMA_BASE_URL,
+                models=self.list_models(),
+            )
+        ]
 
     def list_conversations(self, *, limit: int = 50, offset: int = 0) -> list[ConversationSummary]:
         return [
@@ -88,17 +124,83 @@ class ChatSessionService:
         target = self._resolve_workspace_path(requested_path)
         entries: list[WorkspaceEntry] = []
         for child in sorted(target.iterdir(), key=lambda item: (item.is_file(), item.name.lower())):
-            stat = child.stat()
-            entries.append(
-                WorkspaceEntry(
-                    name=child.name,
-                    path=self._to_workspace_path(child),
-                    kind="directory" if child.is_dir() else "file",
-                    size=None if child.is_dir() else stat.st_size,
-                    modified_at=str(stat.st_mtime),
-                )
-            )
+            entries.append(self._workspace_entry(child))
         return WorkspaceTreeResponse(root=self._to_workspace_path(target), entries=entries)
+
+    async def upload_workspace_file(
+        self,
+        *,
+        filename: str,
+        content_type: str | None,
+        target_dir: str,
+        chunks: AsyncIterable[bytes],
+    ) -> WorkspaceUploadResponse:
+        target_directory = self._resolve_workspace_directory(target_dir, create=True)
+        target = self._deduplicate_file_path(target_directory / self._safe_filename(filename))
+
+        size = 0
+        with target.open("wb") as handle:
+            async for chunk in chunks:
+                if not chunk:
+                    continue
+                size += len(chunk)
+                handle.write(chunk)
+
+        workspace_path = self._to_workspace_path(target)
+        attachment = ImportedAttachment(
+            source_path=f"browser-upload:{filename}",
+            local_path=str(target),
+            workspace_path=workspace_path,
+            display_name=target.name,
+        )
+        entry = self._workspace_entry(target, size=size, mime_type=content_type)
+        return WorkspaceUploadResponse(attachment=attachment, entry=entry)
+
+    def preview_workspace_file(self, requested_path: str, max_bytes: int = 200_000) -> WorkspaceFilePreview:
+        max_bytes = max(1024, min(max_bytes, 1_000_000))
+        target = self.resolve_workspace_file(requested_path)
+        stat = target.stat()
+        mime_type = self._guess_mime_type(target)
+        with target.open("rb") as handle:
+            raw = handle.read(max_bytes + 1)
+        payload = raw[:max_bytes]
+        truncated = stat.st_size > max_bytes or len(raw) > max_bytes
+        is_binary = self._looks_binary(payload)
+        if mime_type and (mime_type.startswith("image/") or mime_type in {"application/pdf", "application/zip"}):
+            is_binary = True
+
+        content: str | None = None
+        encoding: str | None = None
+        if not is_binary:
+            for candidate in _PREVIEW_ENCODINGS:
+                try:
+                    content = payload.decode(candidate)
+                    encoding = candidate
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if content is None:
+                content = payload.decode("utf-8", errors="replace")
+                encoding = "utf-8+replace"
+
+        return WorkspaceFilePreview(
+            name=target.name,
+            path=self._to_workspace_path(target),
+            size=stat.st_size,
+            modified_at=self._format_mtime(stat.st_mtime),
+            mime_type=mime_type,
+            encoding=encoding,
+            content=content,
+            is_binary=is_binary,
+            truncated=truncated,
+            max_bytes=max_bytes,
+        )
+
+    def resolve_workspace_file(self, requested_path: str) -> Path:
+        target = self._resolve_workspace_target(requested_path)
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="workspace file not found")
+        return target
 
     async def stream_chat(self, request: ChatRequest) -> AsyncGenerator[UIStreamEvent, None]:
         message = request.message.strip()
@@ -382,6 +484,17 @@ class ChatSessionService:
         )
 
     def _resolve_workspace_path(self, requested_path: str) -> Path:
+        return self._resolve_workspace_directory(requested_path)
+
+    def _resolve_workspace_directory(self, requested_path: str, *, create: bool = False) -> Path:
+        target = self._resolve_workspace_target(requested_path)
+        if create and not target.exists():
+            target.mkdir(parents=True, exist_ok=True)
+        if not target.exists() or not target.is_dir():
+            raise HTTPException(status_code=404, detail="workspace path not found")
+        return target
+
+    def _resolve_workspace_target(self, requested_path: str) -> Path:
         normalized = (requested_path or "/workspace").replace("\\", "/")
         if normalized in {"", "/", "/workspace"}:
             return self._workspace_root
@@ -395,11 +508,64 @@ class ChatSessionService:
         candidate = (self._workspace_root / relative).resolve()
         if candidate != self._workspace_root and self._workspace_root not in candidate.parents:
             raise HTTPException(status_code=403, detail="workspace path escapes root")
-        if not candidate.exists() or not candidate.is_dir():
-            raise HTTPException(status_code=404, detail="workspace path not found")
         return candidate
 
     def _to_workspace_path(self, target: Path) -> str:
         if target == self._workspace_root:
             return "/workspace"
         return f"/workspace/{target.relative_to(self._workspace_root).as_posix()}"
+
+    def _workspace_entry(
+        self,
+        target: Path,
+        *,
+        size: int | None = None,
+        mime_type: str | None = None,
+    ) -> WorkspaceEntry:
+        stat = target.stat()
+        is_directory = target.is_dir()
+        return WorkspaceEntry(
+            name=target.name,
+            path=self._to_workspace_path(target),
+            kind="directory" if is_directory else "file",
+            size=None if is_directory else size if size is not None else stat.st_size,
+            modified_at=self._format_mtime(stat.st_mtime),
+            mime_type=None if is_directory else mime_type or self._guess_mime_type(target),
+        )
+
+    @staticmethod
+    def _format_mtime(timestamp: float) -> str:
+        return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+
+    @staticmethod
+    def _safe_filename(filename: str) -> str:
+        safe = Path(filename or "upload.bin").name.strip()
+        safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", safe).strip(" .")
+        return safe or "upload.bin"
+
+    @staticmethod
+    def _deduplicate_file_path(target: Path) -> Path:
+        if not target.exists():
+            return target
+        stem = target.stem or "upload"
+        suffix = target.suffix
+        index = 1
+        while True:
+            candidate = target.with_name(f"{stem}_{index}{suffix}")
+            if not candidate.exists():
+                return candidate
+            index += 1
+
+    @staticmethod
+    def _guess_mime_type(target: Path) -> str | None:
+        return mimetypes.guess_type(target.name)[0]
+
+    @staticmethod
+    def _looks_binary(data: bytes) -> bool:
+        if not data:
+            return False
+        if b"\x00" in data:
+            return True
+        sample = data[:8192]
+        control = sum(1 for byte in sample if byte < 8 or 14 <= byte < 32)
+        return control / len(sample) > 0.10

@@ -1,10 +1,25 @@
 ﻿# 本地 AI Agent 部署与使用文档
 
-> 适用环境：Windows + Docker Desktop + Ollama（本机运行）+ Python 3.11+ + Node.js LTS + Ink CLI 终端界面
+> 适用环境：Windows + Docker Desktop + Ollama（本机运行）+ Python 3.11+ + Node.js LTS + React/Vite Web 界面
 >
-> 最终架构：Ink CLI（本地 Node.js 进程）→ Python BFF（localhost:9510）→ core/ → Ollama（localhost:11434）+ skill-files（:9101）+ skill-runner（:9102）+ SearXNG + skill-websearch（:9103，可选）
+> 当前主架构：Web UI（React + Vite，本地 Node.js dev server）→ Python BFF（localhost:9510）→ core/ → Ollama（localhost:11434）+ skill-files（:9101）+ skill-runner（:9102）+ SearXNG + skill-websearch（:9103，可选）
 >
 > 对话存储：SQLite（data/conversations.db）
+
+> 说明：`apps/cli-ink` 和 `tui/` 仍保留作 legacy/调试入口；后续主体验优先走 `apps/web`。
+
+---
+
+## Web 重构实施进度（2026-04-26）
+
+| Phase | 状态 | 说明 |
+|---|---|---|
+| Phase 0：Web 协议与工程底座 | ✅ 已完成 | BFF 已支持 Web CORS；新增模型/Provider 只读接口；新增 `apps/web` React + Vite 工程。 |
+| Phase 1：Web Chat Shell | ✅ 已完成 MVP | 三栏布局、会话列表、会话 CRUD、模型/工具状态面板已实现。 |
+| Phase 2：流式 Chat 体验 | ✅ 已完成 MVP | Web 端已消费 `/api/chat/stream` NDJSON；支持停止生成、reasoning/tool 折叠、Markdown/代码块/LaTeX。 |
+| Phase 3：会话/消息产品化 | ⏳ 未开始 | 消息编辑、重新生成、搜索、导出、版本管理待做。 |
+| Phase 4：文件上传/预览 | ✅ 已完成 MVP | Web 右侧工作区支持目录浏览、raw 文件上传、文本/图片预览、打开原文件、附加到本轮对话。 |
+| Phase 5：多 Provider/远端 API Key | 🧱 已预留 | 当前接口只返回 Ollama；未来接 OpenAI-compatible/Anthropic/Gemini/OpenRouter。 |
 
 ---
 
@@ -70,7 +85,39 @@ Invoke-RestMethod http://localhost:9102/health
 
 返回 `{"status":"ok"}` 即正常。
 
-### 4. 启动 Ink CLI 界面
+### 4. 启动 Web Chat 界面（推荐）
+
+```powershell
+cd C:\Users\Administrator\local-ai-agent
+python -m bff
+
+# 另开一个终端
+cd C:\Users\Administrator\local-ai-agent\apps\web
+npm install
+npm run dev
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:5173
+```
+
+Web UI 通过本机 Python BFF 调用现有 `core/` 能力；BFF 默认监听 `http://127.0.0.1:9510`，Vite dev server 默认监听 `http://127.0.0.1:5173`。
+
+如需自定义 BFF 地址，可在 `apps/web/.env.local` 中设置：
+
+```dotenv
+VITE_LOCAL_AI_AGENT_API_URL=http://127.0.0.1:9510
+```
+
+如需自定义允许访问 BFF 的 Web origin，可在项目根目录 `.env` 中设置：
+
+```dotenv
+WEB_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+```
+
+### 4.1 启动 Ink CLI 界面（legacy）
 
 ```powershell
 cd C:\Users\Administrator\local-ai-agent
@@ -81,16 +128,22 @@ cd C:\Users\Administrator\local-ai-agent\apps\cli-ink
 npm run dev
 ```
 
-Ink CLI 会在终端中启动新的命令行界面；其前端通过本机的 Python BFF 调用现有 core/ 能力，而不是直接嵌入 Python UI 框架。
+Ink CLI 会在终端中启动命令行界面；适合调试 BFF 流式协议，但后续主体验优先维护 Web UI。
 
 > 也可直接运行 `scripts/quick-start.ps1`，脚本会在启动所有服务后自动启动 Ink CLI。若只想启动后端链路，可使用 `-SkipCLI`。
 
-### 5. 在 Ink CLI 中对话
+### 5. 在 Web UI 中对话
 
-- 在提示框中输入消息，按 Enter 发送
-- 当前最小原型已经支持连接 Python BFF、展示流式 assistant 输出、thinking 日志块和 tool 日志块
+- 在浏览器输入框中输入消息，按 Enter 发送；Shift+Enter 换行
+- 支持停止生成、流式 assistant 输出、thinking 折叠块和 tool 折叠块
+- 支持 Markdown、GFM 表格、LaTeX、代码高亮和代码块复制
+- 左侧支持会话切换、新建、重命名、删除
+- 右侧显示工作区、当前模型、Provider、工具列表和 WebSearch 状态
+- 在右侧 **工作区** 面板点击“上传文件”可把本机文件保存到 `data/workspace/...`；支持多文件选择
+- 点击目录可进入子目录；点击文件可预览文本/图片，或点击“打开”查看原文件
+- 点击“附加到对话”后，发送时会自动把 `/workspace/...` 路径追加到本轮提示词，Agent 可继续调用文件读取/转换工具处理该附件
 - 若消息里包含 Windows 本地绝对路径，例如 `C:\Users\Administrator\Desktop\report.pptx`，后端会自动导入到 `data/workspace/data/` 并改写成 `/workspace/data/report.pptx`
-- `scripts/quick-start.ps1 -SkipCLI` 可只启动 skill 服务和 BFF，便于单独调试前端
+- `scripts/quick-start.ps1 -SkipCLI` 可只启动 skill 服务和 BFF，便于单独调试 Web 前端
 
 ### 6. 停止服务
 
@@ -113,11 +166,11 @@ data/logs/audit.jsonl
 ## 二、系统架构说明
 
 ```
-Ink CLI (终端界面, Node.js + Ink)
+Web UI (React + Vite, apps/web, http://127.0.0.1:5173)
   │  通过 HTTP 调用前端适配层
   ├── Python BFF (localhost:9510)
   │   ├── bff/app.py             ← 前端协议层
-  │   ├── bff/service.py         ← 会话 / 工作区 / 流式事件规范化
+  │   ├── bff/service.py         ← 会话 / 模型 / 工作区 / 流式事件规范化
   │   └── core/runtime.py        ← 共享后端装配
   │
   ├── core/agent.py              ← Agentic loop（最多6轮工具调用）
@@ -135,17 +188,22 @@ Ink CLI (终端界面, Node.js + Ink)
       └── skill-websearch  :9103 (可选) 联网搜索
         │
         └── SearXNG :8080 (内部)
+
+Legacy UI:
+  ├── apps/cli-ink               ← Ink CLI，保留用于协议调试
+  └── tui/                       ← Textual TUI，保留用于旧入口兼容
 ```
 
-- **Ink CLI**：基于 Node.js + Ink 的终端前端，负责终端交互、流式转录区、输入区以及后续的抽屉/弹窗体验。
-- **Python BFF**：新的前端适配层，负责会话 CRUD、流式聊天、事件规范化、工作区浏览和本地路径导入，不让前端直接碰 `core/` 内部对象或技能服务。
+- **Web UI**：基于 React + Vite 的主前端，负责 Open-WebUI 风格三栏布局、会话列表、流式聊天、Markdown/代码块渲染、模型选择器、工作区上传/预览、thinking/tool 折叠块和状态面板。
+- **Ink CLI / TUI（legacy）**：保留作协议调试和旧入口兼容，后续主体验优先维护 Web UI。
+- **Python BFF**：前端适配层，负责会话 CRUD、模型/Provider 只读接口、流式聊天、事件规范化、工作区浏览、raw 文件上传、文件预览、原始文件访问和本地路径导入，不让前端直接碰 `core/` 内部对象或技能服务。
 - **core/**：保留为纯 Python 业务内核，包含 Agent（agentic loop）、LLM 客户端、工具路由、策略引擎、审计日志、记忆管理、上下文管理、Prompt 构建等模块，由 BFF 统一装配和调用。
 - **SQLite 对话存储**：替代 Open WebUI 的对话管理，支持对话列表、消息历史、搜索。WAL 模式确保并发安全。
-- **skill-files**：文件 I/O 工具服务，所有路径通过 `PathGuard` 强制限制在 `/workspace` 下，支持读写、列目录、软删除（trash）、重命名、git 提交。内置 Excel（pandas）和 PDF（pymupdf）快速解析。端口 9101 对宿主机暴露，TUI 直连。
+- **skill-files**：文件 I/O 工具服务，所有路径通过 `PathGuard` 强制限制在 `/workspace` 下，支持读写、列目录、软删除（trash）、重命名、git 提交。内置 Excel（pandas）和 PDF（pymupdf）快速解析。端口 9101 对宿主机暴露，由 BFF/core 统一路由。
 - **skill-runner**：代码执行沙箱 + 技能管理中心 + 文件转换器插件宿主，提供 `code_exec`、`shell_exec`、`pip_install`、技能 CRUD 管理、`file_convert`。容器级安全加固：`read_only` 文件系统、`cap_drop: ALL`、`mem_limit: 2048m`、`cpus: 2.0`。端口 9102 对宿主机暴露。
 - **skill-websearch**（可选）：联网搜索工具服务，封装 SearXNG API。通过 `ENABLE_WEBSEARCH` 环境变量和 Docker Compose `profiles: websearch` 控制。端口 9103 对宿主机暴露。
 - **SearXNG**（可选）：自托管元搜索引擎，聚合多个搜索引擎结果（Bing、DuckDuckGo、Wikipedia 等），无需 API key。
-- **Ollama**：在宿主机本地运行，TUI 通过 `localhost:11434` 直连。
+- **Ollama**：在宿主机本地运行，core 通过 `localhost:11434` 访问；Web 前端不直接访问模型服务。
 
 ---
 
@@ -158,6 +216,18 @@ local-ai-agent/
 ├── docker-compose.yml
 ├── requirements.txt            # TUI + core 顶层依赖
 ├── pyproject.toml              # pip install -e . + python -m tui
+├── apps/
+│   ├── web/                    # ← React + Vite Web 主界面
+│   │   ├── package.json
+│   │   ├── vite.config.ts
+│   │   └── src/
+│   │       ├── App.tsx          # Web Chat 主界面与流式事件 reducer
+│   │       ├── api.ts           # BFF API client + NDJSON parser
+│   │       ├── types.ts         # 前端 API 类型契约
+│   │       └── components/
+│   │           ├── MarkdownMessage.tsx
+│   │           └── WorkspacePanel.tsx # 工作区浏览/上传/预览/附件绑定
+│   └── cli-ink/                # ← legacy Ink CLI
 ├── config/
 │   ├── policy.yaml             # 路径白名单/黑名单、write-only 保护、代码执行黑名单
 │   ├── runtime.yaml            # 运行时参数

@@ -19,6 +19,9 @@ apps/cli-ink/node_modules/
 apps/cli-ink/dist/
 apps/cli-ink/.turbo/
 apps/cli-ink/*.tsbuildinfo
+apps/web/node_modules/
+apps/web/dist/
+apps/web/*.tsbuildinfo
 
 # SearXNG runtime generated files
 config/searxng/uwsgi.ini

@@ -29,6 +29,11 @@ def _env_bool(key: str, default: bool) -> bool:
     return os.environ.get(key, str(default)).lower() in ("true", "1", "yes")
 
 
+def _env_list(key: str, default: str) -> list[str]:
+    value = os.environ.get(key, default)
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 # ── Paths ────────────────────────────────────────────────────────────────
 
 PROJECT_ROOT = _PROJECT_ROOT
@@ -71,6 +76,10 @@ LOG_LEVEL = _env("LOG_LEVEL", "INFO")
 
 BFF_HOST = _env("BFF_HOST", "127.0.0.1")
 BFF_PORT = _env_int("BFF_PORT", 9510)
+WEB_ORIGINS = _env_list(
+    "WEB_ORIGINS",
+    "http://127.0.0.1:5173,http://localhost:5173",
+)
 
 # ── Memory ───────────────────────────────────────────────────────────────
 
