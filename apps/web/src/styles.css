@@ -575,13 +575,28 @@ body.is-resizing-layout {
     linear-gradient(180deg, rgba(148, 201, 255, 0.09), rgba(148, 201, 255, 0.02)),
     rgba(8, 12, 20, 0.72);
 }
-.assistant-timeline-title {
+.assistant-timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 10px;
+}
+.assistant-timeline-title {
   color: #dbe8ff;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+.assistant-timeline-version {
+  border: 1px solid rgba(148, 201, 255, 0.2);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: rgba(219, 232, 255, 0.86);
+  background: rgba(148, 201, 255, 0.08);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .assistant-timeline-list {
   list-style: none;
@@ -621,6 +636,13 @@ body.is-resizing-layout {
 .assistant-timeline-item.is-collapsed::after {
   border-color: rgba(96, 211, 148, 0.3);
 }
+.assistant-timeline-item.is-retry::after {
+  border-color: rgba(246, 193, 119, 0.45);
+}
+.assistant-timeline-item.is-error::after {
+  border-color: rgba(255, 123, 138, 0.6);
+  box-shadow: 0 0 0 4px rgba(255, 123, 138, 0.08);
+}
 .assistant-timeline-button {
   width: 100%;
   display: flex;
@@ -645,6 +667,28 @@ body.is-resizing-layout {
   align-items: flex-start;
   gap: 3px;
 }
+.assistant-timeline-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.assistant-timeline-step,
+.assistant-timeline-badge {
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+.assistant-timeline-step {
+  color: rgba(219, 232, 255, 0.92);
+  background: rgba(148, 201, 255, 0.14);
+}
+.assistant-timeline-badge {
+  color: rgba(246, 193, 119, 0.96);
+  background: rgba(246, 193, 119, 0.12);
+}
 .assistant-timeline-main strong {
   color: #eef5ff;
   font-size: 13px;
@@ -667,6 +711,13 @@ body.is-resizing-layout {
 .assistant-timeline-button:hover .assistant-timeline-main strong,
 .assistant-timeline-button:focus-visible .assistant-timeline-main strong {
   color: #ffffff;
+}
+.assistant-timeline-item.is-error .assistant-timeline-main strong {
+  color: #ffd7dc;
+}
+.assistant-timeline-item.is-error .assistant-timeline-badge {
+  color: #ffd7dc;
+  background: rgba(255, 123, 138, 0.14);
 }
 .assistant-answer-section { min-width: 0; }
 .assistant-subblock {

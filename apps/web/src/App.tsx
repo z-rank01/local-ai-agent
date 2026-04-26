@@ -40,12 +40,15 @@ type AssistantTranscriptGroup = {
 
 type AssistantTimelineEntry = {
   id: string;
+  stepNumber: number;
+  kind: 'reasoning' | 'tool' | 'assistant';
   title: string;
   subtitle: string;
   status?: TranscriptBlock['status'];
   elapsed?: number;
   collapsible: boolean;
   collapsed: boolean;
+  badges: string[];
 };
 
 type TranscriptViewItem = TranscriptBlock | AssistantTranscriptGroup;
@@ -444,38 +447,74 @@ function orderedAssistantBlocks(blocks: TranscriptBlock[]): TranscriptBlock[] {
   ];
 }
 
-function buildAssistantTimeline(blocks: TranscriptBlock[], groupStatus: TranscriptBlock['status'] | undefined): AssistantTimelineEntry[] {
-  return blocks.map((block) => {
+function buildAssistantTimeline(
+  blocks: TranscriptBlock[],
+  groupStatus: TranscriptBlock['status'] | undefined,
+  versionNumber: number,
+  versionCount: number,
+): AssistantTimelineEntry[] {
+  const toolAttempts = new Map<string, number>();
+
+  return blocks.map((block, index) => {
+    const stepNumber = index + 1;
+
     if (block.kind === 'assistant') {
+      const badges = versionCount > 1 ? [`版本 ${versionNumber}/${versionCount}`] : [];
+      if ((block.status ?? groupStatus) === 'error') {
+        badges.push('失败');
+      }
       return {
         id: block.id,
-        title: '生成回答',
-        subtitle: block.text ? `${block.text.length} 字输出` : '等待输出',
+        stepNumber,
+        kind: 'assistant',
+        title: block.text ? '生成回答' : '等待回答',
+        subtitle: block.text ? `${block.text.length} 字输出` : '模型仍在生成本版本回答',
         status: block.status ?? groupStatus ?? 'ok',
         collapsible: false,
         collapsed: false,
+        badges,
       } satisfies AssistantTimelineEntry;
     }
 
     if (block.kind === 'reasoning') {
+      const badges: string[] = [];
+      if ((block.status ?? groupStatus) === 'error') {
+        badges.push('失败');
+      }
       return {
         id: block.id,
+        stepNumber,
+        kind: 'reasoning',
         title: '思考过程',
-        subtitle: block.text ? `${block.text.length} 字推理` : '推理中',
+        subtitle: block.text ? `${block.text.length} 字推理` : '模型正在分析问题',
         status: block.status ?? groupStatus,
         collapsible: Boolean(block.collapsible),
         collapsed: Boolean(block.collapsed),
+        badges,
       } satisfies AssistantTimelineEntry;
     }
 
+    const toolKey = block.label || 'tool';
+    const attempt = (toolAttempts.get(toolKey) ?? 0) + 1;
+    toolAttempts.set(toolKey, attempt);
+    const badges: string[] = [];
+    if (attempt > 1) {
+      badges.push(`重试 ${attempt - 1}`);
+    }
+    if ((block.status ?? groupStatus) === 'error') {
+      badges.push('失败节点');
+    }
     return {
       id: block.id,
-      title: block.label,
+      stepNumber,
+      kind: 'tool',
+      title: `调用 ${block.label}`,
       subtitle: block.summary || (block.toolResult != null ? '结构化结果已保存' : block.text ? '已返回结果' : '等待结果'),
       status: block.status ?? groupStatus,
       elapsed: block.elapsed,
       collapsible: Boolean(block.collapsible),
       collapsed: Boolean(block.collapsed),
+      badges,
     } satisfies AssistantTimelineEntry;
   });
 }
@@ -657,7 +696,7 @@ function AssistantTranscriptItem({
   const versionCount = answerBlock?.versionCount ?? 1;
   const canSwitchVersion = Boolean(answerMessageId) && versionCount > 1;
   const isRunning = status === 'running';
-  const timeline = buildAssistantTimeline(ordered, status);
+  const timeline = buildAssistantTimeline(ordered, status, versionNumber, versionCount);
   const showTimeline = timeline.length > 1;
 
   return (
@@ -671,14 +710,21 @@ function AssistantTranscriptItem({
         </header>
         {showTimeline ? (
           <section className="assistant-timeline-card" aria-label="工具执行时间线">
-            <div className="assistant-timeline-title">执行时间线</div>
+            <div className="assistant-timeline-header">
+              <div className="assistant-timeline-title">工具时间线聚合</div>
+              {canSwitchVersion ? <div className="assistant-timeline-version">联动版本 {versionNumber} / {versionCount}</div> : null}
+            </div>
             <ol className="assistant-timeline-list">
               {timeline.map((entry) => (
-                <li key={entry.id} className={`assistant-timeline-item${entry.collapsible && entry.collapsed ? ' is-collapsed' : ''}`}>
+                <li key={entry.id} className={`assistant-timeline-item assistant-timeline-item-${entry.kind}${entry.collapsible && entry.collapsed ? ' is-collapsed' : ''}${entry.status === 'error' ? ' is-error' : ''}${entry.badges.some((badge) => badge.startsWith('重试')) ? ' is-retry' : ''}`}>
                   {entry.collapsible ? (
                     <button type="button" className="assistant-timeline-button" onClick={() => onToggle(entry.id)}>
                       <span className="assistant-timeline-main">
-                        <strong>{entry.title}</strong>
+                        <span className="assistant-timeline-heading">
+                          <span className="assistant-timeline-step">Step {entry.stepNumber}</span>
+                          <strong>{entry.title}</strong>
+                          {entry.badges.map((badge) => <span key={badge} className="assistant-timeline-badge">{badge}</span>)}
+                        </span>
                         <span>{entry.subtitle}</span>
                       </span>
                       <span className="assistant-timeline-meta">
@@ -690,7 +736,11 @@ function AssistantTranscriptItem({
                   ) : (
                     <div className="assistant-timeline-button assistant-timeline-static">
                       <span className="assistant-timeline-main">
-                        <strong>{entry.title}</strong>
+                        <span className="assistant-timeline-heading">
+                          <span className="assistant-timeline-step">Step {entry.stepNumber}</span>
+                          <strong>{entry.title}</strong>
+                          {entry.badges.map((badge) => <span key={badge} className="assistant-timeline-badge">{badge}</span>)}
+                        </span>
                         <span>{entry.subtitle}</span>
                       </span>
                       <span className="assistant-timeline-meta">
