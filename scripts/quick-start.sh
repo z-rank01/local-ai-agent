@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Local AI Agent v2.1 - Quick Start (Git Bash / WSL)
+# Local AI Agent v2.2 - Quick Start (Git Bash / WSL)
 #
 # 1. Starts Docker Desktop if not already running
 # 2. Checks Ollama and starts it if not running
@@ -9,14 +9,15 @@
 # 5. Brings up Docker skill containers
 # 6. Waits for skill services to become healthy
 # 7. Starts the Python BFF adapter if needed
-# 8. Installs Ink frontend dependencies if missing
-# 9. Launches the Ink CLI frontend
+# 8. Installs Web frontend dependencies if missing
+# 9. Launches the React/Vite Web UI and opens the browser
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
 TIMEOUT_SEC="${TIMEOUT_SEC:-120}"
 DO_BUILD="${BUILD:-0}"
-SKIP_CLI="${SKIP_CLI:-${SKIP_TUI:-0}}"
+SKIP_FRONTEND="${SKIP_FRONTEND:-${SKIP_CLI:-${SKIP_TUI:-${SKIP_UI:-0}}}}"
+LAUNCH_CLI="${LAUNCH_CLI:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -24,6 +25,9 @@ ENV_FILE="$PROJECT_ROOT/.env"
 STARTED_BFF=0
 STOP_BFF_ON_EXIT=0
 BFF_PID=""
+STARTED_WEB=0
+WEB_PID=""
+WEB_URL="http://127.0.0.1:5173"
 
 step() { printf '\n\033[36m:: %s\033[0m\n' "$1"; }
 ok() { printf '   \033[32m[OK]\033[0m %s\n' "$1"; }
@@ -86,9 +90,21 @@ bff_ready() {
     curl -sf --max-time 3 "http://${host}:${port}/health" >/dev/null 2>&1
 }
 
+web_ready() { curl -sf --max-time 3 "$WEB_URL" >/dev/null 2>&1; }
+
+open_browser() {
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell.exe -NoProfile -Command "Start-Process '$WEB_URL'" >/dev/null 2>&1 || true
+    elif command -v cmd.exe >/dev/null 2>&1; then
+        cmd.exe /c start "" "$WEB_URL" >/dev/null 2>&1 || true
+    elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$WEB_URL" >/dev/null 2>&1 || true
+    fi
+}
+
 echo ""
 echo "========================================"
-echo "  Local AI Agent v2.1 - Quick Start"
+echo "  Local AI Agent v2.2 - Quick Start"
 echo "========================================"
 
 if [[ ! -d "$PROJECT_ROOT/data/workspace" ]]; then
@@ -252,23 +268,47 @@ else
     ok "BFF is ready at $BFF_URL"
 fi
 
-step "Checking Ink CLI dependencies"
+WEB_DIR="$PROJECT_ROOT/apps/web"
 INK_DIR="$PROJECT_ROOT/apps/cli-ink"
-if [[ ! -d "$INK_DIR" ]]; then
-    fail "Ink frontend directory not found: $INK_DIR"
-    exit 1
-fi
 
-if [[ ! -d "$INK_DIR/node_modules/ink" ]]; then
-    wait_ "Installing Ink frontend dependencies"
-    (cd "$INK_DIR" && npm install) 2>&1 | sed 's/^/   /'
-    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-        fail "npm install failed"
-        exit 1
+if [[ "$SKIP_FRONTEND" != "1" ]]; then
+    if [[ "$LAUNCH_CLI" == "1" ]]; then
+        step "Checking legacy Ink CLI dependencies"
+        if [[ ! -d "$INK_DIR" ]]; then
+            fail "Ink frontend directory not found: $INK_DIR"
+            exit 1
+        fi
+
+        if [[ ! -d "$INK_DIR/node_modules/ink" ]]; then
+            wait_ "Installing Ink frontend dependencies"
+            (cd "$INK_DIR" && npm install) 2>&1 | sed 's/^/   /'
+            if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+                fail "npm install failed"
+                exit 1
+            fi
+            ok "Ink frontend dependencies installed"
+        else
+            ok "Ink frontend dependencies already installed"
+        fi
+    else
+        step "Checking Web UI dependencies"
+        if [[ ! -d "$WEB_DIR" ]]; then
+            fail "Web frontend directory not found: $WEB_DIR"
+            exit 1
+        fi
+
+        if [[ ! -d "$WEB_DIR/node_modules/vite" ]]; then
+            wait_ "Installing Web frontend dependencies"
+            (cd "$WEB_DIR" && npm install) 2>&1 | sed 's/^/   /'
+            if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+                fail "npm install failed"
+                exit 1
+            fi
+            ok "Web frontend dependencies installed"
+        else
+            ok "Web frontend dependencies already installed"
+        fi
     fi
-    ok "Ink frontend dependencies installed"
-else
-    ok "Ink frontend dependencies already installed"
 fi
 
 SF_PORT=$(read_env_value SKILL_FILES_PORT 9101)
@@ -285,15 +325,48 @@ echo "  skill-runner  :  http://localhost:$SR_PORT"
 [[ "$ENABLE_WEBSEARCH" == "1" ]] && echo "  skill-websearch: http://localhost:$SW_PORT"
 echo "  Ollama        :  http://localhost:11434"
 echo "  BFF           :  $BFF_URL"
+if [[ "$SKIP_FRONTEND" != "1" && "$LAUNCH_CLI" != "1" ]]; then
+    echo "  Web UI        :  $WEB_URL"
+fi
 echo ""
 echo "  Stop services: docker compose down"
+echo "  Backend-only : SKIP_FRONTEND=1 scripts/quick-start.sh"
+echo "  Legacy CLI   : LAUNCH_CLI=1 scripts/quick-start.sh"
 echo ""
 
-if [[ "$SKIP_CLI" == "1" ]]; then
+if [[ "$SKIP_FRONTEND" == "1" ]]; then
     STOP_BFF_ON_EXIT=0
-    step "Skipping Ink CLI launch (SKIP_CLI=1)"
-else
-    step "Launching Ink CLI"
+    [[ -n "$BFF_PID" ]] && disown "$BFF_PID" 2>/dev/null || true
+    step "Skipping frontend launch (SKIP_FRONTEND=1 / legacy SKIP_CLI=1)"
+elif [[ "$LAUNCH_CLI" == "1" ]]; then
+    step "Launching legacy Ink CLI"
     cd "$INK_DIR"
     LOCAL_AI_AGENT_API_URL="$BFF_URL" npm run dev
+else
+    step "Launching Web UI"
+    mkdir -p "$PROJECT_ROOT/data/logs"
+    if web_ready; then
+        ok "Web UI already running at $WEB_URL"
+    else
+        wait_ "Starting Vite dev server"
+        (cd "$WEB_DIR" && VITE_LOCAL_AI_AGENT_API_URL="$BFF_URL" npm run dev > "$PROJECT_ROOT/data/logs/web-ui.log" 2>&1) &
+        WEB_PID=$!
+        STARTED_WEB=1
+        disown "$WEB_PID" 2>/dev/null || true
+
+        if ! wait_until 45 "Waiting for Web UI" 3 web_ready; then
+            [[ -n "$WEB_PID" ]] && kill "$WEB_PID" >/dev/null 2>&1 || true
+            fail "Web UI did not become ready within 45 seconds"
+            echo "   Check log: $PROJECT_ROOT/data/logs/web-ui.log"
+            exit 1
+        fi
+        ok "Web UI is ready at $WEB_URL"
+    fi
+
+    STOP_BFF_ON_EXIT=0
+    [[ -n "$BFF_PID" ]] && disown "$BFF_PID" 2>/dev/null || true
+    open_browser
+    ok "Browser opened: $WEB_URL"
+    [[ -n "$BFF_PID" ]] && echo "   BFF process id: $BFF_PID"
+    [[ -n "$WEB_PID" ]] && echo "   Web process id: $WEB_PID"
 fi

@@ -42,11 +42,24 @@ check_tool "Ollama"         ollama  list
 PYTHON_CMD="python"
 command -v python &>/dev/null || PYTHON_CMD="python3"
 check_tool "Python"         "$PYTHON_CMD" --version
+check_tool "Node.js"        node --version
+check_tool "npm"            npm --version
 
 # Python package checks (non-fatal warnings)
 echo ""
 check_python_pkg "Textual" "textual" "$PYTHON_CMD"
 check_python_pkg "httpx"   "httpx"   "$PYTHON_CMD"
+if bff_deps=$($PYTHON_CMD -c "import fastapi, uvicorn; print(f'fastapi {fastapi.__version__}, uvicorn {uvicorn.__version__}')" 2>/dev/null); then
+    printf "  [PASS] %-18s %s\n" "BFF deps:" "$bff_deps"
+else
+    printf "  \033[33m[WARN]\033[0m %-18s not installed (run: pip install -r requirements.txt)\n" "BFF deps:"
+fi
+
+if [ -f "$(cd "$(dirname "$0")/.." && pwd)/apps/web/package.json" ]; then
+    printf "  [PASS] %-18s apps/web\n" "Web package:"
+else
+    printf "  \033[33m[WARN]\033[0m %-18s apps/web/package.json not found\n" "Web package:"
+fi
 
 echo ""
 if [ "$all_ok" = "true" ]; then

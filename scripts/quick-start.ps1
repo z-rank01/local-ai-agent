@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    One-click startup: Local AI Agent Ink CLI + Python BFF + Docker skill services.
+    One-click startup: Local AI Agent Web UI + Python BFF + Docker skill services.
 .DESCRIPTION
     1. Starts Docker Desktop if it is not already running
     2. Checks Ollama and starts it if not running
@@ -10,22 +10,25 @@
     5. Brings up Docker skill containers (skill-files, skill-runner, optionally websearch)
     6. Waits for skill services to become healthy
     7. Starts the Python BFF adapter if needed
-    8. Installs Ink frontend dependencies if missing
-    9. Launches the Ink CLI frontend
+    8. Installs Web frontend dependencies if missing
+    9. Launches the React/Vite Web UI and opens the browser
 .PARAMETER TimeoutSec
     Max seconds to wait for skill services and BFF to become healthy. Default: 120
 .PARAMETER Build
     If set, forces a rebuild of Docker images (docker compose up --build).
-.PARAMETER SkipCLI
-    If set, starts backend services and the Python BFF but does not launch the Ink CLI.
-    The old -SkipTUI and -SkipUI flags are still accepted for compatibility.
+.PARAMETER SkipFrontend
+    If set, starts backend services and the Python BFF but does not launch Web UI or Ink CLI.
+    The old -SkipCLI, -SkipTUI and -SkipUI flags are still accepted for compatibility.
+.PARAMETER LaunchCLI
+    If set, launches the legacy Ink CLI instead of the Web UI.
 #>
 
 param(
     [int]$TimeoutSec = 120,
     [switch]$Build,
-    [Alias("SkipTUI", "SkipUI")]
-    [switch]$SkipCLI
+    [Alias("SkipCLI", "SkipTUI", "SkipUI")]
+    [switch]$SkipFrontend,
+    [switch]$LaunchCLI
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,6 +38,8 @@ $projectRoot = Split-Path -Parent $scriptRoot
 $envFile = Join-Path $projectRoot ".env"
 $bffProcess = $null
 $startedBff = $false
+$webProcess = $null
+$startedWeb = $false
 
 function Write-Step([string]$msg) { Write-Host "`n:: $msg" -ForegroundColor Cyan }
 function Write-Ok([string]$msg) { Write-Host "   [OK] $msg" -ForegroundColor Green }
@@ -111,9 +116,19 @@ function Stop-BffProcess {
     }
 }
 
+function Test-HttpOk {
+    param([string]$Url)
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500)
+    } catch {
+        return $false
+    }
+}
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Local AI Agent v2.1 - Quick Start" -ForegroundColor Cyan
+Write-Host "  Local AI Agent v2.2 - Quick Start" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 # 0. Ensure workspace data exists
@@ -400,33 +415,65 @@ if ($bffHealthy) {
     Write-Ok "BFF is ready at $bffUrl"
 }
 
-# 8. Ensure Ink frontend dependencies
+# 8. Ensure selected frontend dependencies
+$webDir = Join-Path $projectRoot "apps\web"
+$webNodeModules = Join-Path $webDir "node_modules\vite"
+$webUrl = "http://127.0.0.1:5173"
 $inkDir = Join-Path $projectRoot "apps\cli-ink"
 $inkNodeModules = Join-Path $inkDir "node_modules\ink"
 
-Write-Step "Checking Ink CLI dependencies"
-if (-not (Test-Path $inkDir)) {
-    if ($startedBff) { Stop-BffProcess -Process $bffProcess }
-    Write-Fail "Ink frontend directory not found: $inkDir"
-    exit 1
-}
-
-if (-not (Test-Path $inkNodeModules)) {
-    Write-Wait "Installing Ink frontend dependencies"
-    Push-Location $inkDir
-    try {
-        & $npmCmd install 2>&1 | ForEach-Object { Write-Host "   $_" }
-        if ($LASTEXITCODE -ne 0) {
+if (-not $SkipFrontend) {
+    if ($LaunchCLI) {
+        Write-Step "Checking legacy Ink CLI dependencies"
+        if (-not (Test-Path $inkDir)) {
             if ($startedBff) { Stop-BffProcess -Process $bffProcess }
-            Write-Fail "npm install failed (exit code $LASTEXITCODE)"
+            Write-Fail "Ink frontend directory not found: $inkDir"
             exit 1
         }
-    } finally {
-        Pop-Location
+
+        if (-not (Test-Path $inkNodeModules)) {
+            Write-Wait "Installing Ink frontend dependencies"
+            Push-Location $inkDir
+            try {
+                & $npmCmd install 2>&1 | ForEach-Object { Write-Host "   $_" }
+                if ($LASTEXITCODE -ne 0) {
+                    if ($startedBff) { Stop-BffProcess -Process $bffProcess }
+                    Write-Fail "npm install failed (exit code $LASTEXITCODE)"
+                    exit 1
+                }
+            } finally {
+                Pop-Location
+            }
+            Write-Ok "Ink frontend dependencies installed"
+        } else {
+            Write-Ok "Ink frontend dependencies already installed"
+        }
+    } else {
+        Write-Step "Checking Web UI dependencies"
+        if (-not (Test-Path $webDir)) {
+            if ($startedBff) { Stop-BffProcess -Process $bffProcess }
+            Write-Fail "Web frontend directory not found: $webDir"
+            exit 1
+        }
+
+        if (-not (Test-Path $webNodeModules)) {
+            Write-Wait "Installing Web frontend dependencies"
+            Push-Location $webDir
+            try {
+                & $npmCmd install 2>&1 | ForEach-Object { Write-Host "   $_" }
+                if ($LASTEXITCODE -ne 0) {
+                    if ($startedBff) { Stop-BffProcess -Process $bffProcess }
+                    Write-Fail "npm install failed (exit code $LASTEXITCODE)"
+                    exit 1
+                }
+            } finally {
+                Pop-Location
+            }
+            Write-Ok "Web frontend dependencies installed"
+        } else {
+            Write-Ok "Web frontend dependencies already installed"
+        }
     }
-    Write-Ok "Ink frontend dependencies installed"
-} else {
-    Write-Ok "Ink frontend dependencies already installed"
 }
 
 # Summary
@@ -443,15 +490,20 @@ if ($enableWebSearch) {
 }
 Write-Host "  Ollama        :  http://localhost:11434" -ForegroundColor White
 Write-Host "  BFF           :  $bffUrl" -ForegroundColor White
+if (-not $SkipFrontend -and -not $LaunchCLI) {
+    Write-Host "  Web UI        :  $webUrl" -ForegroundColor White
+}
 Write-Host ""
 Write-Host "  Stop services: docker compose down" -ForegroundColor DarkGray
+Write-Host "  Backend-only : .\scripts\quick-start.ps1 -SkipFrontend" -ForegroundColor DarkGray
+Write-Host "  Legacy CLI   : .\scripts\quick-start.ps1 -LaunchCLI" -ForegroundColor DarkGray
 Write-Host ""
 
-# 9. Launch Ink CLI
-if ($SkipCLI) {
-    Write-Step "Skipping Ink CLI launch (-SkipCLI)"
-} else {
-    Write-Step "Launching Ink CLI"
+# 9. Launch selected frontend
+if ($SkipFrontend) {
+    Write-Step "Skipping frontend launch (-SkipFrontend / legacy -SkipCLI)"
+} elseif ($LaunchCLI) {
+    Write-Step "Launching legacy Ink CLI"
     $env:LOCAL_AI_AGENT_API_URL = $bffUrl
     Push-Location $inkDir
     try {
@@ -467,5 +519,40 @@ if ($SkipCLI) {
     if ($cliExitCode -ne 0) {
         Write-Fail "Ink CLI exited with code $cliExitCode"
         exit $cliExitCode
+    }
+} else {
+    Write-Step "Launching Web UI"
+    $env:VITE_LOCAL_AI_AGENT_API_URL = $bffUrl
+
+    if (Test-HttpOk -Url $webUrl) {
+        Write-Ok "Web UI already running at $webUrl"
+    } else {
+        Write-Wait "Starting Vite dev server"
+        $webProcess = Start-Process -FilePath $npmCmd -ArgumentList @("run", "dev") -WorkingDirectory $webDir -PassThru
+        $startedWeb = $true
+
+        $ready = Wait-Until -Condition {
+            Test-HttpOk -Url $webUrl
+        } -Timeout 45 -Label "Waiting for Web UI"
+
+        if (-not $ready) {
+            if ($startedWeb -and $webProcess -and -not $webProcess.HasExited) {
+                Stop-Process -Id $webProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+            if ($startedBff) { Stop-BffProcess -Process $bffProcess }
+            Write-Fail "Web UI did not become ready within 45 seconds"
+            exit 1
+        }
+
+        Write-Ok "Web UI is ready at $webUrl"
+    }
+
+    Start-Process $webUrl
+    Write-Ok "Browser opened: $webUrl"
+    if ($startedBff -and $bffProcess) {
+        Write-Host "   BFF process id: $($bffProcess.Id)" -ForegroundColor DarkGray
+    }
+    if ($startedWeb -and $webProcess) {
+        Write-Host "   Web process id: $($webProcess.Id)" -ForegroundColor DarkGray
     }
 }

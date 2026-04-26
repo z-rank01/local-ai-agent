@@ -3,7 +3,7 @@
 .SYNOPSIS
     Check that all required tools are installed for local-ai-agent.
 .DESCRIPTION
-    Verifies Docker, Docker Compose, Git, Ollama, Python, and Textual are reachable.
+    Verifies Docker, Docker Compose, Git, Ollama, Python, BFF packages, Node.js, and npm are reachable.
     Exits 0 if all pass, 1 if any fail.
 #>
 
@@ -33,7 +33,9 @@ $results = @(
     (Test-Tool -Label "Docker Compose" -Command "docker" -Arguments @("compose", "version")),
     (Test-Tool -Label "Git"            -Command "git"    -Arguments @("--version")),
     (Test-Tool -Label "Ollama"         -Command "ollama" -Arguments @("list")),
-    (Test-Tool -Label "Python"         -Command "python" -Arguments @("--version"))
+    (Test-Tool -Label "Python"         -Command "python" -Arguments @("--version")),
+    (Test-Tool -Label "Node.js"        -Command "node"   -Arguments @("--version")),
+    (Test-Tool -Label "npm"            -Command "npm"    -Arguments @("--version"))
 )
 
 # Textual check (non-fatal warning)
@@ -59,6 +61,26 @@ try {
     }
 } catch {
     Write-Host ("  [WARN] {0,-18} not installed (run: pip install -r requirements.txt)" -f "httpx:") -ForegroundColor Yellow
+}
+
+# BFF package checks (non-fatal warning)
+try {
+    $bffDeps = python -c "import fastapi, uvicorn; print(f'fastapi {fastapi.__version__}, uvicorn {uvicorn.__version__}')" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host ("  [PASS] {0,-18} {1}" -f "BFF deps:", $bffDeps.Trim()) -ForegroundColor Green
+    } else {
+        Write-Host ("  [WARN] {0,-18} not installed (run: pip install -r requirements.txt)" -f "BFF deps:") -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host ("  [WARN] {0,-18} not installed (run: pip install -r requirements.txt)" -f "BFF deps:") -ForegroundColor Yellow
+}
+
+# Web frontend dependency check (non-fatal warning)
+$webPackage = Join-Path (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)) "apps\web\package.json"
+if (Test-Path $webPackage) {
+    Write-Host ("  [PASS] {0,-18} {1}" -f "Web package:", "apps/web") -ForegroundColor Green
+} else {
+    Write-Host ("  [WARN] {0,-18} apps/web/package.json not found" -f "Web package:") -ForegroundColor Yellow
 }
 
 Write-Host ""
