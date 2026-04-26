@@ -88,6 +88,42 @@ export async function deleteConversation(
   }
 }
 
+export async function deleteMessage(
+  conversationId: string,
+  messageId: string,
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<void> {
+  const response = await fetch(
+    `${baseUrl}/api/conversations/${conversationId}/messages/${messageId}`,
+    {method: 'DELETE'},
+  );
+  if (!response.ok) {
+    throw new Error(`message delete failed: ${response.status}`);
+  }
+}
+
+export function exportConversationUrl(
+  conversationId: string,
+  format = 'markdown',
+  baseUrl = DEFAULT_BASE_URL,
+): string {
+  return `${baseUrl}/api/conversations/${conversationId}/export?format=${encodeURIComponent(format)}`;
+}
+
+export async function downloadConversationMarkdown(
+  conversationId: string,
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<{filename: string; blob: Blob}> {
+  const response = await fetch(exportConversationUrl(conversationId, 'markdown', baseUrl));
+  if (!response.ok) {
+    throw new Error(`conversation export failed: ${response.status}`);
+  }
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const match = /filename="?([^";]+)"?/i.exec(disposition);
+  const filename = match ? match[1] : `${conversationId}.md`;
+  return {filename, blob: await response.blob()};
+}
+
 export function fetchWorkspaceTree(
   path = '/workspace',
   baseUrl = DEFAULT_BASE_URL,
@@ -159,6 +195,51 @@ export async function streamChat(
       break;
     }
 
+    buffer += decoder.decode(value, {stream: true});
+    let newlineIndex = buffer.indexOf('\n');
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line) {
+        onEvent(JSON.parse(line) as UIStreamEvent);
+      }
+      newlineIndex = buffer.indexOf('\n');
+    }
+  }
+
+  if (buffer.trim()) {
+    onEvent(JSON.parse(buffer) as UIStreamEvent);
+  }
+}
+
+export async function streamRegenerate(
+  conversationId: string,
+  options: {messageId?: string | null; signal?: AbortSignal; baseUrl?: string},
+  onEvent: (event: UIStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(
+    `${options.baseUrl ?? DEFAULT_BASE_URL}/api/conversations/${conversationId}/regenerate`,
+    {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({message_id: options.messageId ?? null}),
+      signal: options.signal,
+    },
+  );
+
+  if (!response.ok || !response.body) {
+    throw new Error(`regenerate failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) {
+      break;
+    }
     buffer += decoder.decode(value, {stream: true});
     let newlineIndex = buffer.indexOf('\n');
     while (newlineIndex >= 0) {

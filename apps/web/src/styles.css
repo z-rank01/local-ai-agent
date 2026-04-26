@@ -830,3 +830,58 @@ body.is-resizing-layout {
   .message { grid-template-columns: 1fr; }
   .avatar { display: none; }
 }
+
+/* Phase 3: search/actions/toast */
+.conversation-search {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+.conversation-search:focus {
+  border-color: rgba(148, 201, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+}
+.conversation-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+.message:hover .message-actions,
+.message:focus-within .message-actions {
+  opacity: 1;
+}
+
+.toast {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(20, 28, 44, 0.95);
+  border: 1px solid rgba(148, 201, 255, 0.35);
+  color: #f7efe6;
+  font-size: 13px;
+  z-index: 80;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}

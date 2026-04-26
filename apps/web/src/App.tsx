@@ -1,12 +1,15 @@
 import {useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent} from 'react';
 import {
   deleteConversation,
+  deleteMessage,
+  downloadConversationMarkdown,
   fetchConversations,
   fetchMessages,
   fetchModels,
   fetchProviders,
   fetchStatus,
   streamChat,
+  streamRegenerate,
   updateConversationTitle,
 } from './api';
 import {MarkdownMessage} from './components/MarkdownMessage';
@@ -157,6 +160,34 @@ function orderedAssistantBlocks(blocks: TranscriptBlock[]): TranscriptBlock[] {
   ];
 }
 
+async function copyText(text: string): Promise<boolean> {
+  if (!text) {
+    return false;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to legacy path
+  }
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function LoadingDots({label}: {label: string}) {
   return (
     <div className="stream-placeholder">
@@ -272,11 +303,29 @@ function AssistantSection({block, onToggle}: {block: TranscriptBlock; onToggle: 
   );
 }
 
-function AssistantTranscriptItem({group, onToggle}: {group: AssistantTranscriptGroup; onToggle: (id: string) => void}) {
+function AssistantTranscriptItem({
+  group,
+  onToggle,
+  onCopy,
+  onRegenerate,
+  onDeleteMessage,
+  busy,
+}: {
+  group: AssistantTranscriptGroup;
+  onToggle: (id: string) => void;
+  onCopy: (text: string) => void;
+  onRegenerate: () => void;
+  onDeleteMessage: (messageId: string) => void;
+  busy: boolean;
+}) {
   const status = assistantGroupStatus(group.blocks);
   const createdAt = group.blocks.find((block) => block.createdAt)?.createdAt;
   const ordered = orderedAssistantBlocks(group.blocks);
   const hasAnswer = ordered.some((block) => block.kind === 'assistant');
+  const answerBlock = ordered.find((block) => block.kind === 'assistant');
+  const answerText = answerBlock?.text ?? '';
+  const answerMessageId = answerBlock?.messageId ?? null;
+  const isRunning = status === 'running';
 
   return (
     <article className="message message-assistant message-assistant-group">
@@ -291,12 +340,49 @@ function AssistantTranscriptItem({group, onToggle}: {group: AssistantTranscriptG
           {ordered.map((block) => <AssistantSection key={block.id} block={block} onToggle={onToggle} />)}
           {!hasAnswer && status === 'running' ? <LoadingDots label="正在等待模型输出..." /> : null}
         </div>
+        <footer className="message-actions">
+          <button
+            type="button"
+            className="ghost-button tiny"
+            disabled={!answerText}
+            onClick={() => onCopy(answerText)}
+            title="复制回答"
+          >复制</button>
+          <button
+            type="button"
+            className="ghost-button tiny"
+            disabled={busy}
+            onClick={onRegenerate}
+            title="重新生成"
+          >重新生成</button>
+          {answerMessageId ? (
+            <button
+              type="button"
+              className="ghost-button tiny"
+              disabled={busy || isRunning}
+              onClick={() => onDeleteMessage(answerMessageId)}
+              title="删除此回答"
+            >删除</button>
+          ) : null}
+        </footer>
       </div>
     </article>
   );
 }
 
-function TranscriptItem({block, onToggle}: {block: TranscriptBlock; onToggle: (id: string) => void}) {
+function TranscriptItem({
+  block,
+  onToggle,
+  onCopy,
+  onDeleteMessage,
+  busy,
+}: {
+  block: TranscriptBlock;
+  onToggle: (id: string) => void;
+  onCopy: (text: string) => void;
+  onDeleteMessage: (messageId: string) => void;
+  busy: boolean;
+}) {
   const icon = {
     user: '你',
     assistant: 'AI',
@@ -319,6 +405,8 @@ function TranscriptItem({block, onToggle}: {block: TranscriptBlock; onToggle: (i
     <pre className="plain-pre">{block.text}</pre>
   );
 
+  const showActions = block.kind === 'user' && Boolean(block.messageId);
+
   return (
     <article className={`message message-${block.kind}`}>
       <div className="avatar">{icon}</div>
@@ -334,6 +422,24 @@ function TranscriptItem({block, onToggle}: {block: TranscriptBlock; onToggle: (i
           ) : null}
         </header>
         {content}
+        {showActions ? (
+          <footer className="message-actions">
+            <button
+              type="button"
+              className="ghost-button tiny"
+              disabled={!block.text}
+              onClick={() => onCopy(block.text)}
+              title="复制内容"
+            >复制</button>
+            <button
+              type="button"
+              className="ghost-button tiny"
+              disabled={busy}
+              onClick={() => block.messageId && onDeleteMessage(block.messageId)}
+              title="删除此消息"
+            >删除</button>
+          </footer>
+        ) : null}
       </div>
     </article>
   );
@@ -345,18 +451,21 @@ function ConversationItem({
   onOpen,
   onRename,
   onDelete,
+  onExport,
 }: {
   item: ConversationSummary;
   active: boolean;
   onOpen: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onExport: () => void;
 }) {
   return (
     <button type="button" className={`conversation-item${active ? ' active' : ''}`} onClick={onOpen}>
       <span className="conversation-title">{item.title}</span>
       <span className="conversation-meta">{item.model || 'default'} · {formatTime(item.updated_at)}</span>
       <span className="conversation-actions" onClick={(event) => event.stopPropagation()}>
+        <button type="button" title="导出 Markdown" onClick={onExport}>↓</button>
         <button type="button" title="重命名" onClick={onRename}>✎</button>
         <button type="button" title="删除" onClick={onDelete}>×</button>
       </span>
@@ -374,6 +483,8 @@ export default function App() {
   const [blocks, setBlocks] = useState<TranscriptBlock[]>([]);
   const [input, setInput] = useState('');
   const [attachedPaths, setAttachedPaths] = useState<string[]>([]);
+  const [conversationFilter, setConversationFilter] = useState('');
+  const [toast, setToast] = useState<string>('');
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [inspectorWidth, setInspectorWidth] = useState(360);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -396,6 +507,24 @@ export default function App() {
   );
 
   const transcriptItems = useMemo(() => buildTranscriptViewItems(blocks), [blocks]);
+
+  const filteredConversations = useMemo(() => {
+    const term = conversationFilter.trim().toLowerCase();
+    if (!term) {
+      return conversations;
+    }
+    return conversations.filter((item) => item.title.toLowerCase().includes(term));
+  }, [conversations, conversationFilter]);
+
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast((current) => (current === message ? '' : current)), 2200);
+  }, []);
+
+  const handleCopy = useCallback(async (text: string) => {
+    const ok = await copyText(text);
+    showToast(ok ? '已复制到剪贴板' : '复制失败');
+  }, [showToast]);
 
   const shellStyle = useMemo(() => ({
     '--sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`,
@@ -807,6 +936,113 @@ export default function App() {
     }
   };
 
+  const removeMessage = useCallback(async (messageId: string) => {
+    if (!conversationId) {
+      return;
+    }
+    if (!window.confirm('删除此消息？')) {
+      return;
+    }
+    try {
+      await deleteMessage(conversationId, messageId);
+      setBlocks((current) => current.filter((block) => block.messageId !== messageId));
+      showToast('已删除消息');
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : String(err);
+      setError(messageText);
+    }
+  }, [conversationId, showToast]);
+
+  const regenerateLast = useCallback(async () => {
+    if (!conversationId || busy) {
+      return;
+    }
+    // Find the most recent user block with a real messageId.
+    const lastUserBlock = [...blocks].reverse().find(
+      (block) => block.kind === 'user' && block.messageId,
+    );
+    if (!lastUserBlock) {
+      showToast('没有可重新生成的消息');
+      return;
+    }
+    flushDeltaBuffer();
+    // Drop everything visually after that user block.
+    const userIndex = blocks.findIndex((block) => block.id === lastUserBlock.id);
+    const trimmed = userIndex >= 0 ? blocks.slice(0, userIndex + 1) : blocks;
+    const localId = Date.now();
+    const pendingAssistantId = `pending-assistant-${localId}`;
+    pendingAssistantBlockIdRef.current = pendingAssistantId;
+    setBlocks([
+      ...trimmed,
+      {
+        id: pendingAssistantId,
+        kind: 'assistant',
+        label: 'assistant',
+        text: '',
+        status: 'running',
+        placeholder: true,
+      },
+    ]);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setBusy(true);
+    setError('');
+    try {
+      await streamRegenerate(
+        conversationId,
+        {messageId: lastUserBlock.messageId, signal: controller.signal},
+        applyEvent,
+      );
+    } catch (err) {
+      const pendingId = pendingAssistantBlockIdRef.current;
+      if (pendingId) {
+        setBlocks((current) => current.filter((block) => block.id !== pendingId));
+        pendingAssistantBlockIdRef.current = null;
+      }
+      if ((err as DOMException).name === 'AbortError') {
+        setBlocks((current) => [...current, {
+          id: `abort-${Date.now()}`,
+          kind: 'meta',
+          label: '已中止',
+          text: '本次生成已停止。',
+        }]);
+      } else {
+        const messageText = err instanceof Error ? err.message : String(err);
+        setError(messageText);
+        setBlocks((current) => [...current, {
+          id: `error-${Date.now()}`,
+          kind: 'error',
+          label: '错误',
+          text: messageText,
+          status: 'error',
+        }]);
+      }
+    } finally {
+      flushDeltaBuffer();
+      setBusy(false);
+      abortRef.current = null;
+    }
+  }, [applyEvent, blocks, busy, conversationId, flushDeltaBuffer, showToast]);
+
+  const exportConversation = useCallback(async (conversation: ConversationSummary) => {
+    try {
+      const {filename, blob} = await downloadConversationMarkdown(conversation.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast(`已导出 ${filename}`);
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : String(err);
+      setError(messageText);
+    }
+  }, [showToast]);
+
   useEffect(() => {
     void (async () => {
       try {
@@ -864,8 +1100,15 @@ export default function App() {
           <button type="button" className="ghost-button tiny panel-collapse-button" onClick={() => setSidebarCollapsed(true)}>收起</button>
         </div>
         <button type="button" className="primary-button" onClick={resetConversation}>+ 新建会话</button>
+        <input
+          type="search"
+          className="conversation-search"
+          placeholder="搜索会话..."
+          value={conversationFilter}
+          onChange={(event) => setConversationFilter(event.target.value)}
+        />
         <div className="conversation-list">
-          {conversations.map((item) => (
+          {filteredConversations.map((item) => (
             <ConversationItem
               key={item.id}
               item={item}
@@ -873,8 +1116,12 @@ export default function App() {
               onOpen={() => void openConversation(item.id)}
               onRename={() => void renameConversation(item)}
               onDelete={() => void removeConversation(item)}
+              onExport={() => void exportConversation(item)}
             />
           ))}
+          {filteredConversations.length === 0 ? (
+            <div className="conversation-empty">{conversationFilter ? '没有匹配的会话' : '尚未创建会话'}</div>
+          ) : null}
         </div>
       </aside>
 
@@ -904,11 +1151,26 @@ export default function App() {
             <strong>{conversationId ? conversations.find((item) => item.id === conversationId)?.title ?? '当前会话' : '新对话'}</strong>
             <span>{status ? `BFF ${status.status} · ${status.workspace_path}` : '正在连接后端...'}</span>
           </div>
-          <select value={selectedModelId} onChange={(event) => setSelectedModelId(event.target.value)}>
-            {models.map((model) => (
-              <option key={model.id} value={model.id}>{model.provider_name} / {model.name}</option>
-            ))}
-          </select>
+          <div className="topbar-actions">
+            <select value={selectedModelId} onChange={(event) => setSelectedModelId(event.target.value)}>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>{model.provider_name} / {model.name}</option>
+              ))}
+            </select>
+            {conversationId ? (
+              <button
+                type="button"
+                className="ghost-button tiny"
+                title="导出当前会话为 Markdown"
+                onClick={() => {
+                  const current = conversations.find((item) => item.id === conversationId);
+                  if (current) {
+                    void exportConversation(current);
+                  }
+                }}
+              >导出</button>
+            ) : null}
+          </div>
         </header>
 
         <section className="transcript" ref={transcriptRef}>
@@ -916,8 +1178,23 @@ export default function App() {
           {!loading && blocks.length === 0 ? <EmptyState /> : null}
           {transcriptItems.map((item) => (
             item.kind === 'assistant-group'
-              ? <AssistantTranscriptItem key={item.id} group={item} onToggle={toggleBlock} />
-              : <TranscriptItem key={item.id} block={item} onToggle={toggleBlock} />
+              ? <AssistantTranscriptItem
+                  key={item.id}
+                  group={item}
+                  onToggle={toggleBlock}
+                  onCopy={(text) => void handleCopy(text)}
+                  onRegenerate={() => void regenerateLast()}
+                  onDeleteMessage={(messageId) => void removeMessage(messageId)}
+                  busy={busy}
+                />
+              : <TranscriptItem
+                  key={item.id}
+                  block={item}
+                  onToggle={toggleBlock}
+                  onCopy={(text) => void handleCopy(text)}
+                  onDeleteMessage={(messageId) => void removeMessage(messageId)}
+                  busy={busy}
+                />
           ))}
         </section>
 
@@ -1021,6 +1298,8 @@ export default function App() {
           onPointerDown={(event) => startResize('inspector', event)}
         />
       ) : null}
+
+      {toast ? <div className="toast" role="status">{toast}</div> : null}
     </div>
   );
 }

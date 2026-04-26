@@ -17,7 +17,7 @@
 | Phase 0：Web 协议与工程底座 | ✅ 已完成 | BFF 已支持 Web CORS；新增模型/Provider 只读接口；新增 `apps/web` React + Vite 工程。 |
 | Phase 1：Web Chat Shell | ✅ 已完成 MVP | 三栏布局、会话列表、会话 CRUD、模型/工具状态面板已实现。 |
 | Phase 2：流式 Chat 体验 | ✅ 已完成 MVP | Web 端已消费 `/api/chat/stream` NDJSON；支持停止生成、reasoning/tool 折叠、Markdown/代码块/LaTeX。 |
-| Phase 3：会话/消息产品化 | ⏳ 未开始 | 消息编辑、重新生成、搜索、导出、版本管理待做。 |
+| Phase 3：会话/消息产品化 | 🚧 部分实现 | 已实现：消息复制、单条删除、重新生成、会话搜索、Markdown 导出、SQLite migration 框架。后续：消息编辑、回复多版本、跨会话搜索。 |
 | Phase 4：文件上传/预览 | ✅ 已完成 MVP | Web 右侧工作区支持目录浏览、raw 文件上传、文本/图片预览、打开原文件、附加到本轮对话。 |
 | Phase 5：多 Provider/远端 API Key | 🧱 已预留 | 当前接口只返回 Ollama；未来接 OpenAI-compatible/Anthropic/Gemini/OpenRouter。 |
 

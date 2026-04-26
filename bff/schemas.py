@@ -97,6 +97,10 @@ class UpdateConversationRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
 
 
+class RegenerateRequest(BaseModel):
+    message_id: str | None = None
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     conversation_id: str | None = None

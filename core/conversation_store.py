@@ -66,6 +66,13 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
 """
 
+# Migration steps applied incrementally based on PRAGMA user_version.
+# Append new entries here; never edit a released migration.
+_MIGRATIONS: list[str] = [
+    # version 1: baseline (handled via _SCHEMA, kept as a no-op for clarity)
+    "SELECT 1;",
+]
+
 
 class ConversationStore:
     """Thread-safe SQLite store for conversations and messages."""
@@ -75,6 +82,15 @@ class ConversationStore:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        current = conn.execute("PRAGMA user_version").fetchone()[0] or 0
+        target = len(_MIGRATIONS)
+        for index in range(current, target):
+            conn.executescript(_MIGRATIONS[index])
+        if current != target:
+            conn.execute(f"PRAGMA user_version = {target}")
 
     @contextmanager
     def _connect(self):
@@ -239,3 +255,62 @@ class ConversationStore:
                 d["tool_name"] = m.tool_name
             result.append(d)
         return result
+
+    def get_message(self, message_id: str) -> Message | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM messages WHERE id = ?", (message_id,)
+            ).fetchone()
+            if not row:
+                return None
+            return Message(
+                id=row["id"],
+                conversation_id=row["conversation_id"],
+                role=row["role"],
+                content=row["content"],
+                thinking=row["thinking"],
+                tool_calls=row["tool_calls"],
+                tool_name=row["tool_name"],
+                created_at=row["created_at"],
+            )
+
+    def delete_message(self, conv_id: str, message_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM messages WHERE id = ? AND conversation_id = ?",
+                (message_id, conv_id),
+            )
+            if cursor.rowcount:
+                conn.execute(
+                    "UPDATE conversations SET updated_at = ? WHERE id = ?",
+                    (self._now(), conv_id),
+                )
+                return True
+            return False
+
+    def delete_messages_from(self, conv_id: str, message_id: str, *, inclusive: bool = True) -> int:
+        """Delete the message and everything created after it (inclusive by default)."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT created_at FROM messages WHERE id = ? AND conversation_id = ?",
+                (message_id, conv_id),
+            ).fetchone()
+            if not row:
+                return 0
+            op = ">=" if inclusive else ">"
+            cursor = conn.execute(
+                f"DELETE FROM messages WHERE conversation_id = ? AND created_at {op} ?",
+                (conv_id, row["created_at"]),
+            )
+            if cursor.rowcount:
+                conn.execute(
+                    "UPDATE conversations SET updated_at = ? WHERE id = ?",
+                    (self._now(), conv_id),
+                )
+            return cursor.rowcount
+
+    def find_last_user_message(self, conv_id: str) -> Message | None:
+        for message in reversed(self.get_messages(conv_id)):
+            if message.role == "user":
+                return message
+        return None

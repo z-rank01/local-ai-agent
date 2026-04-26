@@ -19,6 +19,7 @@ from .schemas import (
     MessageRecord,
     ModelInfo,
     ProviderInfo,
+    RegenerateRequest,
     UpdateConversationRequest,
     WorkspaceFilePreview,
     WorkspaceImportRequest,
@@ -104,6 +105,36 @@ async def delete_conversation(conversation_id: str) -> Response:
 @app.get("/api/conversations/{conversation_id}/messages", response_model=list[MessageRecord])
 async def list_messages(conversation_id: str) -> list[MessageRecord]:
     return get_chat_service().get_messages(conversation_id)
+
+
+@app.delete("/api/conversations/{conversation_id}/messages/{message_id}", status_code=204)
+async def delete_message(conversation_id: str, message_id: str) -> Response:
+    get_chat_service().delete_message(conversation_id, message_id)
+    return Response(status_code=204)
+
+
+@app.post("/api/conversations/{conversation_id}/regenerate")
+async def regenerate_conversation(
+    conversation_id: str, request: RegenerateRequest | None = None
+) -> StreamingResponse:
+    service = get_chat_service()
+    payload = request or RegenerateRequest()
+
+    async def generate():
+        async for event in service.regenerate_chat(conversation_id, message_id=payload.message_id):
+            yield event.model_dump_json() + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+@app.get("/api/conversations/{conversation_id}/export")
+async def export_conversation(conversation_id: str, format: str = "markdown") -> Response:
+    if format != "markdown":
+        return Response(content=f"unsupported format: {format}", status_code=400)
+    markdown, filename = get_chat_service().export_conversation_markdown(conversation_id)
+    quoted = filename.replace('"', '')
+    headers = {"content-disposition": f'attachment; filename="{quoted}"'}
+    return Response(content=markdown, media_type="text/markdown; charset=utf-8", headers=headers)
 
 
 @app.post("/api/workspace/import-local-paths", response_model=WorkspaceImportResponse)

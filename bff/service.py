@@ -241,6 +241,112 @@ class ChatSessionService:
         )
 
         self._retitle_if_needed(conversation.id, rewritten_text)
+        async for event in self._run_assistant_turn(conversation, run_id):
+            yield event
+
+    async def regenerate_chat(
+        self, conversation_id: str, *, message_id: str | None = None
+    ) -> AsyncGenerator[UIStreamEvent, None]:
+        conversation = self._require_conversation(conversation_id)
+        messages = self._store.get_messages(conversation_id)
+
+        # Locate the user message we will regenerate from. Default: most recent.
+        target: Message | None = None
+        if message_id:
+            for item in messages:
+                if item.id == message_id:
+                    if item.role != "user":
+                        raise HTTPException(status_code=422, detail="regenerate target must be a user message")
+                    target = item
+                    break
+            if target is None:
+                raise HTTPException(status_code=404, detail="message not found")
+        else:
+            for item in reversed(messages):
+                if item.role == "user":
+                    target = item
+                    break
+        if target is None:
+            raise HTTPException(status_code=422, detail="no user message to regenerate from")
+
+        # Drop everything created strictly after the target user message.
+        self._store.delete_messages_from(conversation_id, target.id, inclusive=False)
+        conversation = self._require_conversation(conversation_id)
+
+        run_id = uuid.uuid4().hex[:12]
+        yield UIStreamEvent(
+            event="session.started",
+            conversation_id=conversation.id,
+            run_id=run_id,
+            data={
+                "conversation": self._conversation_summary(conversation).model_dump(),
+                "regenerated_from": target.id,
+            },
+        )
+        yield UIStreamEvent(
+            event="user.accepted",
+            conversation_id=conversation.id,
+            run_id=run_id,
+            message_id=target.id,
+            data={"content": target.content, "regenerated": True},
+        )
+        async for event in self._run_assistant_turn(conversation, run_id):
+            yield event
+
+    def delete_message(self, conversation_id: str, message_id: str) -> None:
+        self._require_conversation(conversation_id)
+        if not self._store.delete_message(conversation_id, message_id):
+            raise HTTPException(status_code=404, detail="message not found")
+
+    def export_conversation_markdown(self, conversation_id: str) -> tuple[str, str]:
+        conversation = self._require_conversation(conversation_id)
+        lines: list[str] = [
+            f"# {conversation.title}",
+            "",
+            f"- 会话 ID：`{conversation.id}`",
+            f"- 模型：`{conversation.model or 'default'}`",
+            f"- 创建于：{conversation.created_at}",
+            f"- 更新于：{conversation.updated_at}",
+            "",
+            "---",
+            "",
+        ]
+        role_labels = {
+            "user": "🧑 用户",
+            "assistant": "🤖 助手",
+            "tool": "🛠 工具",
+            "system": "⚙️ 系统",
+        }
+        for message in conversation.messages:
+            label = role_labels.get(message.role, message.role)
+            lines.append(f"## {label} · {message.created_at}")
+            lines.append("")
+            if message.role == "tool":
+                lines.append(f"**工具**：`{message.tool_name or 'tool'}`")
+                lines.append("")
+                lines.append("```text")
+                lines.append(message.content)
+                lines.append("```")
+            else:
+                if message.thinking:
+                    lines.append("<details><summary>思考过程</summary>")
+                    lines.append("")
+                    lines.append("```text")
+                    lines.append(message.thinking)
+                    lines.append("```")
+                    lines.append("")
+                    lines.append("</details>")
+                    lines.append("")
+                lines.append(message.content or "_(空)_")
+            lines.append("")
+        markdown = "\n".join(lines).rstrip() + "\n"
+        safe_title = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "_", conversation.title).strip(" .") or "conversation"
+        filename = f"{safe_title}-{conversation.id}.md"
+        return markdown, filename
+
+    async def _run_assistant_turn(
+        self, conversation: Conversation, run_id: str
+    ) -> AsyncGenerator[UIStreamEvent, None]:
         messages = self._store.messages_as_dicts(conversation.id)
 
         assistant_text = ""
