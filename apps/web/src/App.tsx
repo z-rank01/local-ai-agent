@@ -388,6 +388,7 @@ export default function App() {
   const pendingAssistantBlockIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const suppressNextAutoScrollRef = useRef(false);
 
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId) ?? models.find((model) => model.default) ?? models[0],
@@ -493,6 +494,7 @@ export default function App() {
   };
 
   const toggleBlock = (id: string) => {
+    suppressNextAutoScrollRef.current = true;
     setBlocks((current) => current.map((block) => (
       block.id === id ? {...block, collapsed: !block.collapsed} : block
     )));
@@ -840,6 +842,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (suppressNextAutoScrollRef.current) {
+      suppressNextAutoScrollRef.current = false;
+      return;
+    }
     transcriptRef.current?.scrollTo({top: transcriptRef.current.scrollHeight, behavior: 'smooth'});
   }, [blocks, busy]);
 
@@ -872,6 +878,17 @@ export default function App() {
         </div>
       </aside>
 
+      {sidebarCollapsed ? (
+        <button
+          type="button"
+          className="panel-restore panel-restore-left"
+          onClick={() => setSidebarCollapsed(false)}
+          aria-label="展开会话侧栏"
+        >
+          会话
+        </button>
+      ) : null}
+
       {!sidebarCollapsed ? (
         <button
           type="button"
@@ -883,14 +900,6 @@ export default function App() {
 
       <main className="chat-panel">
         <header className="topbar">
-          <div className="layout-toggle-row">
-            <button type="button" className="ghost-button tiny" onClick={() => setSidebarCollapsed((value) => !value)}>
-              {sidebarCollapsed ? '展开会话' : '收起会话'}
-            </button>
-            <button type="button" className="ghost-button tiny" onClick={() => setInspectorCollapsed((value) => !value)}>
-              {inspectorCollapsed ? '展开工作区' : '收起工作区'}
-            </button>
-          </div>
           <div>
             <strong>{conversationId ? conversations.find((item) => item.id === conversationId)?.title ?? '当前会话' : '新对话'}</strong>
             <span>{status ? `BFF ${status.status} · ${status.workspace_path}` : '正在连接后端...'}</span>
@@ -992,6 +1001,17 @@ export default function App() {
           <p>工具数：{status?.tools.length ?? 0}</p>
         </section>
       </aside>
+
+      {inspectorCollapsed ? (
+        <button
+          type="button"
+          className="panel-restore panel-restore-right"
+          onClick={() => setInspectorCollapsed(false)}
+          aria-label="展开工作区侧栏"
+        >
+          工作区
+        </button>
+      ) : null}
 
       {!inspectorCollapsed ? (
         <button
