@@ -27,11 +27,14 @@ STOP_BFF_ON_EXIT=0
 BFF_PID=""
 STARTED_WEB=0
 WEB_PID=""
-WEB_URL="http://127.0.0.1:5173"
+WEB_HOST="127.0.0.1"
+WEB_PORT="${WEB_PORT:-5173}"
+WEB_URL="http://${WEB_HOST}:${WEB_PORT}"
 
 step() { printf '\n\033[36m:: %s\033[0m\n' "$1"; }
 ok() { printf '   \033[32m[OK]\033[0m %s\n' "$1"; }
 wait_() { printf '   \033[90m... %s\033[0m\n' "$1"; }
+warn() { printf '   \033[33m[WARN]\033[0m %s\n' "$1"; }
 fail() { printf '   \033[31m[FAIL]\033[0m %s\n' "$1"; }
 
 cleanup() {
@@ -91,6 +94,62 @@ bff_ready() {
 }
 
 web_ready() { curl -sf --max-time 3 "$WEB_URL" >/dev/null 2>&1; }
+
+web_ready_on_port() {
+    local port="$1"
+    curl -sf --max-time 3 "http://${WEB_HOST}:${port}" >/dev/null 2>&1
+}
+
+port_available() {
+    local port="$1"
+    "$PYTHON_CMD" - "$WEB_HOST" "$port" <<'PY' >/dev/null 2>&1
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    sock.bind((host, port))
+except OSError:
+    sys.exit(1)
+finally:
+    sock.close()
+PY
+}
+
+choose_web_port() {
+    local preferred="$1"
+    local seen="" port
+    for port in "$preferred" {5173..5300} {3000..3020}; do
+        case " $seen " in
+            *" $port "*) continue ;;
+        esac
+        seen="${seen} ${port}"
+        if port_available "$port"; then
+            printf '%s\n' "$port"
+            return 0
+        fi
+    done
+    return 1
+}
+
+join_unique_origins() {
+    local result="" value part trimmed
+    for value in "$@"; do
+        IFS=',' read -ra parts <<< "$value"
+        for part in "${parts[@]}"; do
+            trimmed="$(printf '%s' "$part" | sed 's/^ *//;s/ *$//')"
+            [[ -z "$trimmed" ]] && continue
+            case ",$result," in
+                *",$trimmed,"*) ;;
+                *) result="${result:+$result,}$trimmed" ;;
+            esac
+        done
+    done
+    printf '%s\n' "$result"
+}
 
 open_browser() {
     if command -v powershell.exe >/dev/null 2>&1; then
@@ -203,6 +262,29 @@ if [[ -z "$NODE_VER" || -z "$NPM_VER" ]]; then
 fi
 ok "Node.js: $NODE_VER"
 ok "npm: $NPM_VER"
+
+PREFERRED_WEB_PORT=$(read_env_value WEB_PORT "$WEB_PORT")
+if [[ ! "$PREFERRED_WEB_PORT" =~ ^[0-9]+$ ]]; then
+    PREFERRED_WEB_PORT=5173
+fi
+
+if ! WEB_PORT=$(choose_web_port "$PREFERRED_WEB_PORT"); then
+    fail "No available Web UI port found in 5173..5300 or 3000..3020"
+    exit 1
+fi
+WEB_URL="http://${WEB_HOST}:${WEB_PORT}"
+if [[ "$WEB_PORT" != "$PREFERRED_WEB_PORT" ]]; then
+    warn "Preferred Web UI port $PREFERRED_WEB_PORT is unavailable; using $WEB_PORT instead."
+fi
+
+CONFIGURED_WEB_ORIGINS=$(read_env_value WEB_ORIGINS "")
+export WEB_ORIGINS
+WEB_ORIGINS=$(join_unique_origins \
+    "$CONFIGURED_WEB_ORIGINS" \
+    "http://127.0.0.1:${WEB_PORT}" \
+    "http://localhost:${WEB_PORT}" \
+    "http://127.0.0.1:5173" \
+    "http://localhost:5173")
 
 step "Web search (SearXNG)"
 printf "   Enable web search? (Y/N, default N): "
@@ -349,7 +431,7 @@ else
         ok "Web UI already running at $WEB_URL"
     else
         wait_ "Starting Vite dev server"
-        (cd "$WEB_DIR" && VITE_LOCAL_AI_AGENT_API_URL="$BFF_URL" npm run dev > "$PROJECT_ROOT/data/logs/web-ui.log" 2>&1) &
+        (cd "$WEB_DIR" && WEB_PORT="$WEB_PORT" VITE_LOCAL_AI_AGENT_API_URL="$BFF_URL" npm run dev -- --host "$WEB_HOST" --port "$WEB_PORT" > "$PROJECT_ROOT/data/logs/web-ui.log" 2>&1) &
         WEB_PID=$!
         STARTED_WEB=1
         disown "$WEB_PID" 2>/dev/null || true

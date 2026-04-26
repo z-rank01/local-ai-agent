@@ -34,6 +34,15 @@ def _env_list(key: str, default: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _default_web_origins() -> str:
+    ports = list(dict.fromkeys([*range(5173, 5301), *range(3000, 3021)]))
+    origins: list[str] = []
+    for port in ports:
+        origins.append(f"http://127.0.0.1:{port}")
+        origins.append(f"http://localhost:{port}")
+    return ",".join(origins)
+
+
 # ── Paths ────────────────────────────────────────────────────────────────
 
 PROJECT_ROOT = _PROJECT_ROOT
@@ -78,7 +87,7 @@ BFF_HOST = _env("BFF_HOST", "127.0.0.1")
 BFF_PORT = _env_int("BFF_PORT", 9510)
 WEB_ORIGINS = _env_list(
     "WEB_ORIGINS",
-    "http://127.0.0.1:5173,http://localhost:5173",
+    _default_web_origins(),
 )
 
 # ── Memory ───────────────────────────────────────────────────────────────

@@ -44,6 +44,7 @@ $startedWeb = $false
 function Write-Step([string]$msg) { Write-Host "`n:: $msg" -ForegroundColor Cyan }
 function Write-Ok([string]$msg) { Write-Host "   [OK] $msg" -ForegroundColor Green }
 function Write-Wait([string]$msg) { Write-Host "   ... $msg" -ForegroundColor DarkGray }
+function Write-Warn([string]$msg) { Write-Host "   [WARN] $msg" -ForegroundColor Yellow }
 function Write-Fail([string]$msg) { Write-Host "   [FAIL] $msg" -ForegroundColor Red }
 
 function Wait-Until {
@@ -124,6 +125,44 @@ function Test-HttpOk {
     } catch {
         return $false
     }
+}
+
+function Test-TcpPortAvailable {
+    param(
+        [int]$Port,
+        [string]$HostName = "127.0.0.1"
+    )
+
+    $listener = $null
+    try {
+        $address = [System.Net.IPAddress]::Parse($HostName)
+        $listener = [System.Net.Sockets.TcpListener]::new($address, $Port)
+        $listener.Start()
+        return $true
+    } catch {
+        return $false
+    } finally {
+        if ($listener) { $listener.Stop() }
+    }
+}
+
+function Get-AvailableWebPort {
+    param(
+        [int]$PreferredPort,
+        [string]$HostName = "127.0.0.1"
+    )
+
+    $candidates = @($PreferredPort) + (5173..5300) + (3000..3020)
+    foreach ($port in ($candidates | Select-Object -Unique)) {
+        if (Test-TcpPortAvailable -Port $port -HostName $HostName) { return $port }
+    }
+
+    throw "No available Web UI port found in 5173..5300 or 3000..3020."
+}
+
+function Add-OriginList {
+    param([string[]]$Origins)
+    return (($Origins | Where-Object { $_ } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique) -join ",")
 }
 
 Write-Host ""
@@ -307,6 +346,30 @@ if ($LASTEXITCODE -ne 0 -or -not $npmVer) {
 }
 Write-Ok "npm: $npmVer"
 
+# Pick a Web UI port before starting BFF so CORS can include the actual origin.
+$webHost = "127.0.0.1"
+$preferredWebPortText = Get-EnvValue -FilePath $envFile -Key "WEB_PORT" -Default "5173"
+$preferredWebPort = 5173
+if (-not [int]::TryParse($preferredWebPortText, [ref]$preferredWebPort)) {
+    $preferredWebPort = 5173
+}
+$webPort = Get-AvailableWebPort -PreferredPort $preferredWebPort -HostName $webHost
+$webUrl = "http://${webHost}:$webPort"
+if ($webPort -ne $preferredWebPort) {
+    Write-Warn "Preferred Web UI port $preferredWebPort is unavailable; using $webPort instead."
+}
+
+$configuredOrigins = Get-EnvValue -FilePath $envFile -Key "WEB_ORIGINS" -Default ""
+$originCandidates = @()
+if ($configuredOrigins) { $originCandidates += ($configuredOrigins -split ",") }
+$originCandidates += @(
+    "http://127.0.0.1:$webPort",
+    "http://localhost:$webPort",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173"
+)
+$env:WEB_ORIGINS = Add-OriginList -Origins $originCandidates
+
 # 4. Web Search option
 Write-Step "Web search (SearXNG)"
 
@@ -418,7 +481,6 @@ if ($bffHealthy) {
 # 8. Ensure selected frontend dependencies
 $webDir = Join-Path $projectRoot "apps\web"
 $webNodeModules = Join-Path $webDir "node_modules\vite"
-$webUrl = "http://127.0.0.1:5173"
 $inkDir = Join-Path $projectRoot "apps\cli-ink"
 $inkNodeModules = Join-Path $inkDir "node_modules\ink"
 
@@ -523,12 +585,17 @@ if ($SkipFrontend) {
 } else {
     Write-Step "Launching Web UI"
     $env:VITE_LOCAL_AI_AGENT_API_URL = $bffUrl
+    $env:WEB_PORT = [string]$webPort
 
     if (Test-HttpOk -Url $webUrl) {
         Write-Ok "Web UI already running at $webUrl"
     } else {
         Write-Wait "Starting Vite dev server"
-        $webProcess = Start-Process -FilePath $npmCmd -ArgumentList @("run", "dev") -WorkingDirectory $webDir -PassThru
+        $logDir = Join-Path $projectRoot "data\logs"
+        New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+        $webLog = Join-Path $logDir "web-ui.log"
+        $webErrLog = Join-Path $logDir "web-ui.err.log"
+        $webProcess = Start-Process -FilePath $npmCmd -ArgumentList @("run", "dev", "--", "--host", $webHost, "--port", [string]$webPort) -WorkingDirectory $webDir -RedirectStandardOutput $webLog -RedirectStandardError $webErrLog -PassThru
         $startedWeb = $true
 
         $ready = Wait-Until -Condition {
@@ -541,10 +608,15 @@ if ($SkipFrontend) {
             }
             if ($startedBff) { Stop-BffProcess -Process $bffProcess }
             Write-Fail "Web UI did not become ready within 45 seconds"
+            Write-Host "   Check logs: $webLog / $webErrLog" -ForegroundColor Yellow
+            if (Test-Path $webErrLog) {
+                Get-Content $webErrLog -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "   $_" -ForegroundColor Yellow }
+            }
             exit 1
         }
 
         Write-Ok "Web UI is ready at $webUrl"
+        Write-Host "   Log: $webLog" -ForegroundColor DarkGray
     }
 
     Start-Process $webUrl

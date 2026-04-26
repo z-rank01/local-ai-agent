@@ -130,7 +130,7 @@ npm run dev
 
 Ink CLI 会在终端中启动命令行界面；适合调试 BFF 流式协议，但后续主体验优先维护 Web UI。
 
-> 也可直接运行 `scripts/quick-start.ps1`，脚本会在启动所有服务后自动启动 Web UI 并打开浏览器。若只想启动后端链路，可使用 `-SkipFrontend`（旧参数 `-SkipCLI` 仍兼容）；若要启动 legacy Ink CLI，可使用 `-LaunchCLI`。Git Bash / WSL 可使用 `./scripts/quick-start.sh`，并通过 `SKIP_FRONTEND=1 ./scripts/quick-start.sh` 或 `LAUNCH_CLI=1 ./scripts/quick-start.sh` 切换模式。
+> 也可直接运行 `scripts/quick-start.ps1`，脚本会在启动所有服务后自动启动 Web UI 并打开浏览器。若 `5173` 被 Windows/WSL 保留，脚本会自动选择 `5214+` 等可用端口并同步 BFF CORS。若只想启动后端链路，可使用 `-SkipFrontend`（旧参数 `-SkipCLI` 仍兼容）；若要启动 legacy Ink CLI，可使用 `-LaunchCLI`。Git Bash / WSL 可使用 `./scripts/quick-start.sh`，并通过 `SKIP_FRONTEND=1 ./scripts/quick-start.sh` 或 `LAUNCH_CLI=1 ./scripts/quick-start.sh` 切换模式。
 
 ### 5. 在 Web UI 中对话
 
