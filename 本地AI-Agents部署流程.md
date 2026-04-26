@@ -17,10 +17,10 @@
 | Phase 0：Web 协议与工程底座 | ✅ 已完成 | BFF 已支持 Web CORS；新增模型/Provider 只读接口；新增 `apps/web` React + Vite 工程。 |
 | Phase 1：Web Chat Shell | ✅ 已完成 MVP | 三栏布局、会话列表、会话 CRUD、模型/工具状态面板已实现。 |
 | Phase 2：流式 Chat 体验 | ✅ 已完成 MVP | Web 端已消费 `/api/chat/stream` NDJSON；支持停止生成、reasoning/tool 折叠、Markdown/代码块/LaTeX。 |
-| Phase 3：会话/消息产品化 | ✅ 已完成 | 已实现：消息复制、单条删除、重新生成、用户消息编辑重发、跨会话搜索（标题 + 消息内容）、Markdown / JSON / 纯文本导出、回复多版本切换、SQLite migration 框架。 |
+| Phase 3：会话/消息产品化 | ✅ 已完成 | 已实现：消息复制、单条删除、重新生成、用户消息编辑重发、跨会话搜索（标题 + 消息内容）、Markdown / JSON / 纯文本导出（含可读工具结果段落）、回复多版本切换、SQLite migration 框架。 |
 | Phase 4：文件上传/预览 | ✅ 已完成 MVP | Web 右侧工作区支持目录浏览、raw 文件上传、文本/图片预览、打开原文件、附加到本轮对话。 |
 | Phase 5：多 Provider/远端 API Key | 🧱 已预留 | 当前接口只返回 Ollama；未来接 OpenAI-compatible/Anthropic/Gemini/OpenRouter。 |
-| Phase 6：工具/Agent Web 适配 | 🧱 部分完成 | 已支持工具状态/参数展示与结构化工具结果持久化；刷新会话后仍能恢复历史搜索来源卡片；后续补工具时间线与 Agent 模式。 |
+| Phase 6：工具/Agent Web 适配 | 🧱 部分完成 | 已支持工具状态/参数展示、结构化工具结果持久化与执行时间线；刷新会话后仍能恢复历史搜索来源卡片；后续补更完整的工具时间线聚合与 Agent 模式。 |
 
 ---
 

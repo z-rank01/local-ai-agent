@@ -566,6 +566,108 @@ body.is-resizing-layout {
   display: grid;
   gap: 12px;
 }
+.assistant-timeline-card {
+  margin-bottom: 14px;
+  border: 1px solid rgba(148, 201, 255, 0.14);
+  border-radius: 14px;
+  padding: 12px;
+  background:
+    linear-gradient(180deg, rgba(148, 201, 255, 0.09), rgba(148, 201, 255, 0.02)),
+    rgba(8, 12, 20, 0.72);
+}
+.assistant-timeline-title {
+  margin-bottom: 10px;
+  color: #dbe8ff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.assistant-timeline-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+.assistant-timeline-item {
+  position: relative;
+  padding-left: 18px;
+}
+.assistant-timeline-item::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  bottom: -12px;
+  width: 1px;
+  background: rgba(148, 201, 255, 0.18);
+}
+.assistant-timeline-item:last-child::before {
+  bottom: 8px;
+}
+.assistant-timeline-item::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  border: 2px solid rgba(148, 201, 255, 0.32);
+  background: rgba(7, 11, 18, 0.95);
+  box-shadow: 0 0 0 4px rgba(148, 201, 255, 0.05);
+}
+.assistant-timeline-item.is-collapsed::after {
+  border-color: rgba(96, 211, 148, 0.3);
+}
+.assistant-timeline-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+.assistant-timeline-main,
+.assistant-timeline-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.assistant-timeline-main {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.assistant-timeline-main strong {
+  color: #eef5ff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.assistant-timeline-main span {
+  color: rgba(189, 202, 221, 0.78);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.assistant-timeline-meta {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  color: rgba(145, 160, 184, 0.86);
+  font-size: 11px;
+}
+.assistant-timeline-static {
+  cursor: default;
+}
+.assistant-timeline-button:hover .assistant-timeline-main strong,
+.assistant-timeline-button:focus-visible .assistant-timeline-main strong {
+  color: #ffffff;
+}
 .assistant-answer-section { min-width: 0; }
 .assistant-subblock {
   min-width: 0;

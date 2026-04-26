@@ -438,11 +438,25 @@ class ChatSessionService:
             lines.append(f"## {label} · {message.created_at}")
             lines.append("")
             if message.role == "tool":
+                status, headline, detail = self._tool_message_parts(message)
                 lines.append(f"**工具**：`{message.tool_name or 'tool'}`")
+                lines.append(f"**状态**：{status}")
+                if headline:
+                    lines.append(f"**摘要**：{headline}")
                 lines.append("")
-                lines.append("```text")
-                lines.append(message.content)
-                lines.append("```")
+                tool_result = self._parse_tool_result(message)
+                if tool_result is not None:
+                    lines.append("<details><summary>结构化结果</summary>")
+                    lines.append("")
+                    lines.append("```json")
+                    lines.append(json.dumps(tool_result, ensure_ascii=False, indent=2))
+                    lines.append("```")
+                    lines.append("")
+                    lines.append("</details>")
+                elif detail:
+                    lines.append("```text")
+                    lines.append(detail)
+                    lines.append("```")
             else:
                 if message.thinking:
                     lines.append("<details><summary>思考过程</summary>")
@@ -500,6 +514,22 @@ class ChatSessionService:
             lines.append(f"[{label}] {message.created_at}")
             if message.tool_name:
                 lines.append(f"工具名: {message.tool_name}")
+            if message.role == "tool":
+                status, headline, detail = self._tool_message_parts(message)
+                lines.append(f"状态: {status}")
+                if headline:
+                    lines.append(f"摘要: {headline}")
+                tool_result = self._parse_tool_result(message)
+                if tool_result is not None:
+                    lines.append("结构化结果:")
+                    lines.append(json.dumps(tool_result, ensure_ascii=False, indent=2))
+                elif detail:
+                    lines.append("结果详情:")
+                    lines.append(detail)
+                lines.append("")
+                lines.append("-" * 72)
+                lines.append("")
+                continue
             if message.thinking:
                 lines.append("思考过程:")
                 lines.append(message.thinking)
@@ -779,6 +809,28 @@ class ChatSessionService:
             "active": message.active,
             "created_at": message.created_at,
         }
+
+    @staticmethod
+    def _parse_tool_result(message: Message) -> object | None:
+        if not message.tool_result:
+            return None
+        try:
+            return json.loads(message.tool_result)
+        except json.JSONDecodeError:
+            return message.tool_result
+
+    @staticmethod
+    def _tool_message_parts(message: Message) -> tuple[str, str, str]:
+        normalized = re.sub(r"^\[(ok|error)\]\s*", "", message.content or "").strip()
+        newline_index = normalized.find("\n")
+        if newline_index < 0:
+            headline = normalized
+            detail = normalized
+        else:
+            headline = normalized[:newline_index].strip()
+            detail = normalized[newline_index + 1 :].strip() or headline
+        status = "成功" if (message.content or "").startswith("[ok]") else "失败" if (message.content or "").startswith("[error]") else "完成"
+        return status, headline, detail
 
     def _message_record(self, message: Message, *, version_count: int = 1) -> MessageRecord:
         tool_calls: list[dict] = []

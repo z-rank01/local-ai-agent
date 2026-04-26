@@ -38,6 +38,16 @@ type AssistantTranscriptGroup = {
   blocks: TranscriptBlock[];
 };
 
+type AssistantTimelineEntry = {
+  id: string;
+  title: string;
+  subtitle: string;
+  status?: TranscriptBlock['status'];
+  elapsed?: number;
+  collapsible: boolean;
+  collapsed: boolean;
+};
+
 type TranscriptViewItem = TranscriptBlock | AssistantTranscriptGroup;
 
 type EditingState = {
@@ -434,6 +444,42 @@ function orderedAssistantBlocks(blocks: TranscriptBlock[]): TranscriptBlock[] {
   ];
 }
 
+function buildAssistantTimeline(blocks: TranscriptBlock[], groupStatus: TranscriptBlock['status'] | undefined): AssistantTimelineEntry[] {
+  return blocks.map((block) => {
+    if (block.kind === 'assistant') {
+      return {
+        id: block.id,
+        title: '生成回答',
+        subtitle: block.text ? `${block.text.length} 字输出` : '等待输出',
+        status: block.status ?? groupStatus ?? 'ok',
+        collapsible: false,
+        collapsed: false,
+      } satisfies AssistantTimelineEntry;
+    }
+
+    if (block.kind === 'reasoning') {
+      return {
+        id: block.id,
+        title: '思考过程',
+        subtitle: block.text ? `${block.text.length} 字推理` : '推理中',
+        status: block.status ?? groupStatus,
+        collapsible: Boolean(block.collapsible),
+        collapsed: Boolean(block.collapsed),
+      } satisfies AssistantTimelineEntry;
+    }
+
+    return {
+      id: block.id,
+      title: block.label,
+      subtitle: block.summary || (block.toolResult != null ? '结构化结果已保存' : block.text ? '已返回结果' : '等待结果'),
+      status: block.status ?? groupStatus,
+      elapsed: block.elapsed,
+      collapsible: Boolean(block.collapsible),
+      collapsed: Boolean(block.collapsed),
+    } satisfies AssistantTimelineEntry;
+  });
+}
+
 async function copyText(text: string): Promise<boolean> {
   if (!text) {
     return false;
@@ -611,6 +657,8 @@ function AssistantTranscriptItem({
   const versionCount = answerBlock?.versionCount ?? 1;
   const canSwitchVersion = Boolean(answerMessageId) && versionCount > 1;
   const isRunning = status === 'running';
+  const timeline = buildAssistantTimeline(ordered, status);
+  const showTimeline = timeline.length > 1;
 
   return (
     <article className="message message-assistant message-assistant-group">
@@ -621,6 +669,41 @@ function AssistantTranscriptItem({
           {status ? <span className={`status-pill status-${status}`}>{status === 'running' ? '生成中' : status}</span> : null}
           {createdAt ? <time>{formatTime(createdAt)}</time> : null}
         </header>
+        {showTimeline ? (
+          <section className="assistant-timeline-card" aria-label="工具执行时间线">
+            <div className="assistant-timeline-title">执行时间线</div>
+            <ol className="assistant-timeline-list">
+              {timeline.map((entry) => (
+                <li key={entry.id} className={`assistant-timeline-item${entry.collapsible && entry.collapsed ? ' is-collapsed' : ''}`}>
+                  {entry.collapsible ? (
+                    <button type="button" className="assistant-timeline-button" onClick={() => onToggle(entry.id)}>
+                      <span className="assistant-timeline-main">
+                        <strong>{entry.title}</strong>
+                        <span>{entry.subtitle}</span>
+                      </span>
+                      <span className="assistant-timeline-meta">
+                        {entry.elapsed ? <span>{formatToolElapsed(entry.elapsed)}</span> : null}
+                        {entry.status ? <span className={`status-pill status-${entry.status}`}>{entry.status}</span> : null}
+                        <span>{entry.collapsed ? '展开' : '查看'}</span>
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="assistant-timeline-button assistant-timeline-static">
+                      <span className="assistant-timeline-main">
+                        <strong>{entry.title}</strong>
+                        <span>{entry.subtitle}</span>
+                      </span>
+                      <span className="assistant-timeline-meta">
+                        {entry.elapsed ? <span>{formatToolElapsed(entry.elapsed)}</span> : null}
+                        {entry.status ? <span className={`status-pill status-${entry.status}`}>{entry.status}</span> : null}
+                      </span>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
         <div className="assistant-sections">
           {ordered.map((block) => <AssistantSection key={block.id} block={block} onToggle={onToggle} onOpenConversation={onOpenConversation} />)}
           {!hasAnswer && status === 'running' ? <LoadingDots label="正在等待模型输出..." /> : null}
