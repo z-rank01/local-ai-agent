@@ -905,8 +905,22 @@ function ConversationItem({
   onDelete: () => void;
   onExport: () => void;
 }) {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onOpen();
+    }
+  };
+
   return (
-    <button type="button" className={`conversation-item${active ? ' active' : ''}`} onClick={onOpen}>
+    <div
+      role="button"
+      tabIndex={0}
+      className={`conversation-item${active ? ' active' : ''}`}
+      onClick={onOpen}
+      onKeyDown={handleKeyDown}
+    >
       <span className="conversation-title">{item.title}</span>
       <span className="conversation-meta">{item.model || 'default'} · {formatTime(item.updated_at)}</span>
       <span className="conversation-actions" onClick={(event) => event.stopPropagation()}>
@@ -914,7 +928,7 @@ function ConversationItem({
         <button type="button" title="重命名" onClick={onRename}>✎</button>
         <button type="button" title="删除" onClick={onDelete}>×</button>
       </span>
-    </button>
+    </div>
   );
 }
 
