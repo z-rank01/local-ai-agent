@@ -80,6 +80,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
   const [loadingTree, setLoadingTree] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [navigationMotion, setNavigationMotion] = useState<'forward' | 'back' | 'refresh'>('refresh');
 
   const selectedAttached = useMemo(
     () => (selectedPath ? attachedPaths.includes(selectedPath) : false),
@@ -120,6 +121,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
 
   const openEntry = (entry: WorkspaceEntry) => {
     if (entry.kind === 'directory') {
+      setNavigationMotion('forward');
       setPreview(null);
       setSelectedPath('');
       setCurrentPath(entry.path);
@@ -142,6 +144,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
         lastUploadedPath = result.attachment.workspace_path;
         onAttach(result.attachment.workspace_path);
       }
+      setNavigationMotion('refresh');
       await loadTree(root);
       if (lastUploadedPath) {
         await previewFile(lastUploadedPath);
@@ -156,6 +159,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
   const goParent = () => {
     const next = parentPath(root);
     if (next) {
+      setNavigationMotion('back');
       setPreview(null);
       setSelectedPath('');
       setCurrentPath(next);
@@ -184,7 +188,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
           <h2>工作区</h2>
           <span title={root}>{pathLabel(root)}</span>
         </div>
-        <button type="button" className="ghost-button tiny" onClick={() => void loadTree(root)} disabled={loadingTree}>
+        <button type="button" className="ghost-button tiny" onClick={() => { setNavigationMotion('refresh'); void loadTree(root); }} disabled={loadingTree}>
           刷新
         </button>
       </div>
@@ -207,7 +211,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
         </label>
       </div>
 
-      <div className="workspace-list" aria-busy={loadingTree}>
+      <div key={`${root}:${navigationMotion}`} className={`workspace-list workspace-list-${navigationMotion}`} aria-busy={loadingTree}>
         {loadingTree ? <div className="workspace-empty">正在读取目录...</div> : null}
         {!loadingTree && entries.length === 0 ? <div className="workspace-empty">目录为空</div> : null}
         {entries.map((entry) => {
@@ -253,7 +257,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
         {loadingPreview ? <div className="workspace-empty">正在加载预览...</div> : null}
         {!loadingPreview && !preview ? <div className="workspace-empty">选择文件查看内容</div> : null}
         {!loadingPreview && preview ? (
-          <div className="preview-card">
+          <div key={preview.path} className="preview-card">
             <div className="preview-title">
               <strong title={preview.path}>{preview.name}</strong>
               <span>{preview.mime_type ?? 'unknown'}{preview.encoding ? ` · ${preview.encoding}` : ''}</span>

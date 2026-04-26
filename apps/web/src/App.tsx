@@ -656,12 +656,12 @@ function AssistantSection({block, onToggle, onOpenConversation}: {block: Transcr
         {block.status ? <span className={`status-pill status-${block.status}`}>{block.status}</span> : null}
         {block.elapsed ? <span className="tool-elapsed">{formatToolElapsed(block.elapsed)}</span> : null}
         {block.collapsible ? (
-          <button type="button" className="ghost-button tiny" onClick={() => onToggle(block.id)}>
+          <button type="button" className="ghost-button tiny" aria-expanded={!collapsed} onClick={() => onToggle(block.id)}>
             {collapsed ? '展开' : '折叠'}
           </button>
         ) : null}
       </header>
-      {content}
+      {content ? <div className="assistant-subblock-content">{content}</div> : null}
     </section>
   );
 }
@@ -718,7 +718,7 @@ function AssistantTranscriptItem({
               {timeline.map((entry) => (
                 <li key={entry.id} className={`assistant-timeline-item assistant-timeline-item-${entry.kind}${entry.collapsible && entry.collapsed ? ' is-collapsed' : ''}${entry.status === 'error' ? ' is-error' : ''}${entry.badges.some((badge) => badge.startsWith('重试')) ? ' is-retry' : ''}`}>
                   {entry.collapsible ? (
-                    <button type="button" className="assistant-timeline-button" onClick={() => onToggle(entry.id)}>
+                    <button type="button" className="assistant-timeline-button" aria-expanded={!entry.collapsed} onClick={() => onToggle(entry.id)}>
                       <span className="assistant-timeline-main">
                         <span className="assistant-timeline-heading">
                           <span className="assistant-timeline-step">Step {entry.stepNumber}</span>
@@ -768,7 +768,7 @@ function AssistantTranscriptItem({
                 onClick={() => onSwitchVersion(answerMessageId, versionNumber - 1)}
                 title="切换到上一版"
               >上一版</button>
-              <span>版本 {versionNumber} / {versionCount}</span>
+              <span key={versionNumber}>版本 {versionNumber} / {versionCount}</span>
               <button
                 type="button"
                 className="ghost-button tiny"
@@ -854,7 +854,7 @@ function TranscriptItem({
           {block.status ? <span className={`status-pill status-${block.status}`}>{block.status}</span> : null}
           {block.createdAt ? <time>{formatTime(block.createdAt)}</time> : null}
           {block.collapsible ? (
-            <button type="button" className="ghost-button tiny" onClick={() => onToggle(block.id)}>
+            <button type="button" className="ghost-button tiny" aria-expanded={!block.collapsed} onClick={() => onToggle(block.id)}>
               {block.collapsed ? '展开' : '折叠'}
             </button>
           ) : null}
