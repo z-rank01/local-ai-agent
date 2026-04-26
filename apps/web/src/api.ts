@@ -256,3 +256,50 @@ export async function streamRegenerate(
     onEvent(JSON.parse(buffer) as UIStreamEvent);
   }
 }
+
+export async function streamEditMessage(
+  conversationId: string,
+  messageId: string,
+  content: string,
+  options: {signal?: AbortSignal; baseUrl?: string} = {},
+  onEvent: (event: UIStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(
+    `${options.baseUrl ?? DEFAULT_BASE_URL}/api/conversations/${conversationId}/messages/${messageId}/edit`,
+    {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({content}),
+      signal: options.signal,
+    },
+  );
+
+  if (!response.ok || !response.body) {
+    throw new Error(`edit message failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, {stream: true});
+    let newlineIndex = buffer.indexOf('\n');
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line) {
+        onEvent(JSON.parse(line) as UIStreamEvent);
+      }
+      newlineIndex = buffer.indexOf('\n');
+    }
+  }
+
+  if (buffer.trim()) {
+    onEvent(JSON.parse(buffer) as UIStreamEvent);
+  }
+}

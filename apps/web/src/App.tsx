@@ -9,6 +9,7 @@ import {
   fetchProviders,
   fetchStatus,
   streamChat,
+  streamEditMessage,
   streamRegenerate,
   updateConversationTitle,
 } from './api';
@@ -37,6 +38,11 @@ type AssistantTranscriptGroup = {
 };
 
 type TranscriptViewItem = TranscriptBlock | AssistantTranscriptGroup;
+
+type EditingState = {
+  messageId: string;
+  originalText: string;
+};
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -374,12 +380,14 @@ function TranscriptItem({
   block,
   onToggle,
   onCopy,
+  onEditMessage,
   onDeleteMessage,
   busy,
 }: {
   block: TranscriptBlock;
   onToggle: (id: string) => void;
   onCopy: (text: string) => void;
+  onEditMessage: (block: TranscriptBlock) => void;
   onDeleteMessage: (messageId: string) => void;
   busy: boolean;
 }) {
@@ -435,6 +443,13 @@ function TranscriptItem({
               type="button"
               className="ghost-button tiny"
               disabled={busy}
+              onClick={() => onEditMessage(block)}
+              title="编辑并重新发送"
+            >编辑</button>
+            <button
+              type="button"
+              className="ghost-button tiny"
+              disabled={busy}
               onClick={() => block.messageId && onDeleteMessage(block.messageId)}
               title="删除此消息"
             >删除</button>
@@ -483,6 +498,7 @@ export default function App() {
   const [blocks, setBlocks] = useState<TranscriptBlock[]>([]);
   const [input, setInput] = useState('');
   const [attachedPaths, setAttachedPaths] = useState<string[]>([]);
+  const [editingMessage, setEditingMessage] = useState<EditingState | null>(null);
   const [conversationFilter, setConversationFilter] = useState('');
   const [toast, setToast] = useState<string>('');
   const [sidebarWidth, setSidebarWidth] = useState(300);
@@ -608,6 +624,7 @@ export default function App() {
     const messages = await fetchMessages(targetId);
     setConversationId(targetId);
     setBlocks(buildBlocksFromMessages(messages));
+    setEditingMessage(null);
     setError('');
   }, [flushDeltaBuffer]);
 
@@ -619,6 +636,7 @@ export default function App() {
     setBlocks([]);
     setInput('');
     setAttachedPaths([]);
+    setEditingMessage(null);
     setError('');
   };
 
@@ -635,6 +653,21 @@ export default function App() {
 
   const detachWorkspacePath = useCallback((path: string) => {
     setAttachedPaths((current) => current.filter((item) => item !== path));
+  }, []);
+
+  const beginEditMessage = useCallback((block: TranscriptBlock) => {
+    if (block.kind !== 'user' || !block.messageId) {
+      return;
+    }
+    setEditingMessage({messageId: block.messageId, originalText: block.text});
+    setInput(block.text);
+    setError('');
+    showToast('已进入编辑模式');
+  }, [showToast]);
+
+  const cancelEditMessage = useCallback(() => {
+    setEditingMessage(null);
+    setInput('');
   }, []);
 
   const applyEvent = useCallback((event: UIStreamEvent) => {
@@ -678,14 +711,15 @@ export default function App() {
           kind: 'user',
           label: '你',
           text: eventText(event, 'content') || pendingPromptRef.current,
+          messageId: event.message_id ?? null,
         };
         const pendingUserId = pendingUserBlockIdRef.current;
         setBlocks((current) => {
           if (pendingUserId && current.some((block) => block.id === pendingUserId)) {
-            return current.map((block) => block.id === pendingUserId ? acceptedBlock : block);
+            return current.map((block) => block.id === pendingUserId ? {...block, ...acceptedBlock} : block);
           }
           if (current.some((block) => block.id === acceptedBlock.id)) {
-            return current;
+            return current.map((block) => block.id === acceptedBlock.id ? {...block, ...acceptedBlock} : block);
           }
           return insertBeforeBlock(current, pendingAssistantBlockIdRef.current, acceptedBlock);
         });
@@ -840,40 +874,70 @@ export default function App() {
     const localId = Date.now();
     const pendingUserId = `pending-user-${localId}`;
     const pendingAssistantId = `pending-assistant-${localId}`;
+    const activeEdit = editingMessage;
     abortRef.current = controller;
-    pendingUserBlockIdRef.current = pendingUserId;
+    pendingUserBlockIdRef.current = activeEdit?.messageId ?? pendingUserId;
     pendingAssistantBlockIdRef.current = pendingAssistantId;
     pendingPromptRef.current = message;
     setInput('');
     setAttachedPaths([]);
+    setEditingMessage(null);
     setBusy(true);
     setError('');
-    setBlocks((current) => [...current, {
-      id: pendingUserId,
-      kind: 'user',
-      label: '你',
-      text: message,
-    }, {
-      id: pendingAssistantId,
-      kind: 'assistant',
-      label: 'assistant',
-      text: '',
-      status: 'running',
-      placeholder: true,
-    }]);
+    if (activeEdit?.messageId) {
+      setBlocks((current) => {
+        const userIndex = current.findIndex((block) => block.id === activeEdit.messageId);
+        const trimmed = userIndex >= 0 ? current.slice(0, userIndex + 1) : current;
+        const next = trimmed.map((block) => (
+          block.id === activeEdit.messageId ? {...block, text: message} : block
+        ));
+        return [...next, {
+          id: pendingAssistantId,
+          kind: 'assistant',
+          label: 'assistant',
+          text: '',
+          status: 'running',
+          placeholder: true,
+        }];
+      });
+    } else {
+      setBlocks((current) => [...current, {
+        id: pendingUserId,
+        kind: 'user',
+        label: '你',
+        text: message,
+      }, {
+        id: pendingAssistantId,
+        kind: 'assistant',
+        label: 'assistant',
+        text: '',
+        status: 'running',
+        placeholder: true,
+      }]);
+    }
 
     try {
-      await streamChat(
-        {
+      if (activeEdit?.messageId && conversationId) {
+        await streamEditMessage(
+          conversationId,
+          activeEdit.messageId,
           message,
-          conversation_id: conversationId,
-          title: conversationId ? undefined : '新对话',
-          provider_id: selectedModel?.provider_id,
-          model: selectedModel?.name,
-        },
-        applyEvent,
-        {signal: controller.signal},
-      );
+          {signal: controller.signal},
+          applyEvent,
+        );
+      } else {
+        await streamChat(
+          {
+            message,
+            conversation_id: conversationId,
+            title: conversationId ? undefined : '新对话',
+            provider_id: selectedModel?.provider_id,
+            model: selectedModel?.name,
+          },
+          applyEvent,
+          {signal: controller.signal},
+        );
+      }
     } catch (err) {
       const pendingAssistantId = pendingAssistantBlockIdRef.current;
       if (pendingAssistantId) {
@@ -890,6 +954,10 @@ export default function App() {
       } else {
         const messageText = err instanceof Error ? err.message : String(err);
         setError(messageText);
+        if (activeEdit) {
+          setEditingMessage(activeEdit);
+          setInput(message);
+        }
         setBlocks((current) => [...current, {
           id: `error-${Date.now()}`,
           kind: 'error',
@@ -946,6 +1014,7 @@ export default function App() {
     try {
       await deleteMessage(conversationId, messageId);
       setBlocks((current) => current.filter((block) => block.messageId !== messageId));
+      setEditingMessage((current) => current?.messageId === messageId ? null : current);
       showToast('已删除消息');
     } catch (err) {
       const messageText = err instanceof Error ? err.message : String(err);
@@ -1192,6 +1261,7 @@ export default function App() {
                   block={item}
                   onToggle={toggleBlock}
                   onCopy={(text) => void handleCopy(text)}
+                  onEditMessage={beginEditMessage}
                   onDeleteMessage={(messageId) => void removeMessage(messageId)}
                   busy={busy}
                 />
@@ -1201,6 +1271,15 @@ export default function App() {
         {error ? <div className="error-banner">{error}</div> : null}
 
         <footer className="composer-card">
+          {editingMessage ? (
+            <div className="composer-mode">
+              <div>
+                <strong>编辑消息</strong>
+                <span>发送后将覆盖这条用户消息，并重新生成它后面的回答。</span>
+              </div>
+              <button type="button" className="ghost-button tiny" onClick={cancelEditMessage}>取消编辑</button>
+            </div>
+          ) : null}
           {attachedPaths.length ? (
             <div className="attached-files">
               <span>附件</span>
@@ -1213,7 +1292,9 @@ export default function App() {
           ) : null}
           <textarea
             value={input}
-            placeholder="输入消息。也可以从右侧工作区上传/附加文件。Enter 发送，Shift+Enter 换行。"
+            placeholder={editingMessage
+              ? '编辑这条用户消息。发送后会重新生成后续回答。'
+              : '输入消息。也可以从右侧工作区上传/附加文件。Enter 发送，Shift+Enter 换行。'}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -1230,7 +1311,7 @@ export default function App() {
                 <button type="button" className="secondary-button" onClick={stopGeneration}>停止</button>
               ) : null}
               <button type="button" className="primary-button" disabled={busy || (!input.trim() && attachedPaths.length === 0)} onClick={() => void sendMessage()}>
-                发送
+                {editingMessage ? '保存并重试' : '发送'}
               </button>
             </div>
           </div>

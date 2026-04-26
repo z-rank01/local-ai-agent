@@ -274,6 +274,20 @@ class ConversationStore:
                 created_at=row["created_at"],
             )
 
+    def update_message_content(self, conv_id: str, message_id: str, content: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE messages SET content = ? WHERE id = ? AND conversation_id = ?",
+                (content, message_id, conv_id),
+            )
+            if cursor.rowcount:
+                conn.execute(
+                    "UPDATE conversations SET updated_at = ? WHERE id = ?",
+                    (self._now(), conv_id),
+                )
+                return True
+            return False
+
     def delete_message(self, conv_id: str, message_id: str) -> bool:
         with self._connect() as conn:
             cursor = conn.execute(

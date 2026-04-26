@@ -16,6 +16,7 @@ from .schemas import (
     ChatRequest,
     ConversationSummary,
     CreateConversationRequest,
+    EditMessageRequest,
     MessageRecord,
     ModelInfo,
     ProviderInfo,
@@ -111,6 +112,25 @@ async def list_messages(conversation_id: str) -> list[MessageRecord]:
 async def delete_message(conversation_id: str, message_id: str) -> Response:
     get_chat_service().delete_message(conversation_id, message_id)
     return Response(status_code=204)
+
+
+@app.post("/api/conversations/{conversation_id}/messages/{message_id}/edit")
+async def edit_message(
+    conversation_id: str,
+    message_id: str,
+    request: EditMessageRequest,
+) -> StreamingResponse:
+    service = get_chat_service()
+
+    async def generate():
+        async for event in service.edit_message_and_regenerate(
+            conversation_id,
+            message_id=message_id,
+            content=request.content,
+        ):
+            yield event.model_dump_json() + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 @app.post("/api/conversations/{conversation_id}/regenerate")

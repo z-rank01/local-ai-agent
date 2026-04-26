@@ -101,6 +101,10 @@ class RegenerateRequest(BaseModel):
     message_id: str | None = None
 
 
+class EditMessageRequest(BaseModel):
+    content: str = Field(min_length=1)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     conversation_id: str | None = None

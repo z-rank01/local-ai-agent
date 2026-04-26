@@ -293,6 +293,58 @@ class ChatSessionService:
         async for event in self._run_assistant_turn(conversation, run_id):
             yield event
 
+    async def edit_message_and_regenerate(
+        self,
+        conversation_id: str,
+        *,
+        message_id: str,
+        content: str,
+    ) -> AsyncGenerator[UIStreamEvent, None]:
+        conversation = self._require_conversation(conversation_id)
+        target = self._store.get_message(message_id)
+        if target is None or target.conversation_id != conversation_id:
+            raise HTTPException(status_code=404, detail="message not found")
+        if target.role != "user":
+            raise HTTPException(status_code=422, detail="only user messages can be edited")
+
+        updated_text = content.strip()
+        if not updated_text:
+            raise HTTPException(status_code=422, detail="message cannot be empty")
+
+        import_result = self.import_local_paths(updated_text)
+        rewritten_text = import_result.rewritten_text
+        if not self._store.update_message_content(conversation_id, message_id, rewritten_text):
+            raise HTTPException(status_code=404, detail="message not found")
+        self._store.delete_messages_from(conversation_id, message_id, inclusive=False)
+        conversation = self._require_conversation(conversation_id)
+
+        run_id = uuid.uuid4().hex[:12]
+        yield UIStreamEvent(
+            event="session.started",
+            conversation_id=conversation.id,
+            run_id=run_id,
+            data={
+                "conversation": self._conversation_summary(conversation).model_dump(),
+                "edited_message_id": message_id,
+            },
+        )
+        if import_result.attachments:
+            yield UIStreamEvent(
+                event="attachments.imported",
+                conversation_id=conversation.id,
+                run_id=run_id,
+                data=import_result.model_dump(),
+            )
+        yield UIStreamEvent(
+            event="user.accepted",
+            conversation_id=conversation.id,
+            run_id=run_id,
+            message_id=message_id,
+            data={"content": rewritten_text, "edited": True},
+        )
+        async for event in self._run_assistant_turn(conversation, run_id):
+            yield event
+
     def delete_message(self, conversation_id: str, message_id: str) -> None:
         self._require_conversation(conversation_id)
         if not self._store.delete_message(conversation_id, message_id):
