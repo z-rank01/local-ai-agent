@@ -113,6 +113,7 @@ export type TranscriptBlock = {
   status?: 'running' | 'ok' | 'error';
   collapsible?: boolean;
   collapsed?: boolean;
+  placeholder?: boolean;
   params?: Record<string, unknown>;
   createdAt?: string;
 };

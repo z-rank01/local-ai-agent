@@ -93,6 +93,11 @@ bff_ready() {
     curl -sf --max-time 3 "http://${host}:${port}/health" >/dev/null 2>&1
 }
 
+bff_websearch_enabled() {
+    local url="$1"
+    curl -sf --max-time 3 "${url}/api/status" | grep -q '"websearch_enabled"[[:space:]]*:[[:space:]]*true'
+}
+
 web_ready() { curl -sf --max-time 3 "$WEB_URL" >/dev/null 2>&1; }
 
 web_ready_on_port() {
@@ -292,11 +297,21 @@ read -r ws_choice
 ENABLE_WEBSEARCH=0
 if [[ "$ws_choice" =~ ^[Yy] ]]; then
     ENABLE_WEBSEARCH=1
+    export ENABLE_WEBSEARCH=true
     ok "Web search enabled"
-    sed -i 's/ENABLE_WEBSEARCH=.*/ENABLE_WEBSEARCH=true/' "$ENV_FILE"
+    if grep -q '^ENABLE_WEBSEARCH=' "$ENV_FILE" 2>/dev/null; then
+        sed -i 's/^ENABLE_WEBSEARCH=.*/ENABLE_WEBSEARCH=true/' "$ENV_FILE"
+    else
+        printf '\nENABLE_WEBSEARCH=true\n' >> "$ENV_FILE"
+    fi
 else
+    export ENABLE_WEBSEARCH=false
     ok "Web search disabled"
-    sed -i 's/ENABLE_WEBSEARCH=.*/ENABLE_WEBSEARCH=false/' "$ENV_FILE"
+    if grep -q '^ENABLE_WEBSEARCH=' "$ENV_FILE" 2>/dev/null; then
+        sed -i 's/^ENABLE_WEBSEARCH=.*/ENABLE_WEBSEARCH=false/' "$ENV_FILE"
+    else
+        printf '\nENABLE_WEBSEARCH=false\n' >> "$ENV_FILE"
+    fi
 fi
 
 step "Starting skill service containers"
@@ -336,6 +351,11 @@ BFF_PORT=$(read_env_value BFF_PORT 9510)
 BFF_URL="http://${BFF_HOST}:${BFF_PORT}"
 
 if bff_ready; then
+    if [[ "$ENABLE_WEBSEARCH" == "1" ]] && ! bff_websearch_enabled "$BFF_URL"; then
+        warn "BFF is already running but WebSearch is disabled there. Restart the BFF process or use the PowerShell quick-start to auto-restart it."
+    elif [[ "$ENABLE_WEBSEARCH" != "1" ]] && bff_websearch_enabled "$BFF_URL"; then
+        warn "BFF is already running with WebSearch enabled while this run selected disabled. Restart BFF if you need the new state."
+    fi
     ok "BFF already running at $BFF_URL"
 else
     wait_ "Starting Python BFF"

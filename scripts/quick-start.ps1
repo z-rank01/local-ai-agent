@@ -127,6 +127,25 @@ function Test-HttpOk {
     }
 }
 
+function Get-BffWebSearchEnabled {
+    param([string]$BaseUrl)
+    try {
+        $status = Invoke-RestMethod -Uri "$BaseUrl/api/status" -TimeoutSec 3 -ErrorAction Stop
+        return [bool]$status.websearch_enabled
+    } catch {
+        return $null
+    }
+}
+
+function Get-ListeningProcessId {
+    param([int]$Port)
+    try {
+        $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($connection) { return [int]$connection.OwningProcess }
+    } catch {}
+    return $null
+}
+
 function Test-TcpPortAvailable {
     param(
         [int]$Port,
@@ -377,17 +396,24 @@ $enableWebSearch = $false
 $choice = Read-Host "   Enable web search? (Y/N, default N)"
 if ($choice -match "^[Yy]") {
     $enableWebSearch = $true
+    $env:ENABLE_WEBSEARCH = "true"
     Write-Ok "Web search enabled"
 } else {
+    $env:ENABLE_WEBSEARCH = "false"
     Write-Ok "Web search disabled"
 }
 
 if (Test-Path $envFile) {
     $envContent = Get-Content $envFile -Raw
+    $nextWebSearchValue = if ($enableWebSearch) { "true" } else { "false" }
     if ($enableWebSearch) {
-        $envContent = $envContent -replace "ENABLE_WEBSEARCH=\w+", "ENABLE_WEBSEARCH=true"
+        $envContent = $envContent -replace "(?m)^ENABLE_WEBSEARCH=.*$", "ENABLE_WEBSEARCH=true"
     } else {
-        $envContent = $envContent -replace "ENABLE_WEBSEARCH=\w+", "ENABLE_WEBSEARCH=false"
+        $envContent = $envContent -replace "(?m)^ENABLE_WEBSEARCH=.*$", "ENABLE_WEBSEARCH=false"
+    }
+    if ($envContent -notmatch "(?m)^ENABLE_WEBSEARCH=") {
+        $lineBreak = if ($envContent.EndsWith("`n")) { "" } else { "`r`n" }
+        $envContent = "$envContent${lineBreak}ENABLE_WEBSEARCH=$nextWebSearchValue`r`n"
     }
     Set-Content -Path $envFile -Value $envContent -NoNewline
 }
@@ -454,6 +480,19 @@ try {
     $health = Invoke-WebRequest -Uri $bffHealthUrl -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
     if ($health.StatusCode -eq 200) { $bffHealthy = $true }
 } catch {}
+
+if ($bffHealthy) {
+    $runningWebSearch = Get-BffWebSearchEnabled -BaseUrl $bffUrl
+    if ($null -ne $runningWebSearch -and $runningWebSearch -ne $enableWebSearch) {
+        Write-Warn "BFF WebSearch state is $runningWebSearch but this run selected $enableWebSearch; restarting BFF."
+        $bffPid = Get-ListeningProcessId -Port ([int]$bffPort)
+        if ($bffPid) {
+            Stop-Process -Id $bffPid -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 800
+        }
+        $bffHealthy = $false
+    }
+}
 
 if ($bffHealthy) {
     Write-Ok "BFF already running at $bffUrl"

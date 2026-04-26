@@ -47,11 +47,12 @@ class ChatSessionService:
         self._workspace_root.mkdir(parents=True, exist_ok=True)
 
     def app_status(self) -> AppStatus:
+        tools = sorted(self._runtime.tool_registry.known_tools)
         return AppStatus(
             model=self._runtime.llm.model,
             workspace_path=str(self._workspace_root),
-            tools=sorted(self._runtime.tool_registry.known_tools),
-            websearch_enabled=config.ENABLE_WEBSEARCH,
+            tools=tools,
+            websearch_enabled=config.ENABLE_WEBSEARCH and "web_search" in tools,
         )
 
     def list_models(self) -> list[ModelInfo]:

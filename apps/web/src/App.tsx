@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent} from 'react';
 import {
   deleteConversation,
   fetchConversations,
@@ -22,6 +22,22 @@ import type {
 } from './types';
 
 const DELTA_FLUSH_MS = 48;
+const SIDEBAR_MIN = 220;
+const SIDEBAR_MAX = 480;
+const INSPECTOR_MIN = 280;
+const INSPECTOR_MAX = 620;
+
+type AssistantTranscriptGroup = {
+  id: string;
+  kind: 'assistant-group';
+  blocks: TranscriptBlock[];
+};
+
+type TranscriptViewItem = TranscriptBlock | AssistantTranscriptGroup;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
 
 function formatTime(value?: string): string {
   if (!value) {
@@ -82,6 +98,72 @@ function appendOrUpdate(
     return updater(block);
   });
   return found ? updated : [...updated, updater(fallback)];
+}
+
+function insertBeforeBlock(
+  blocks: TranscriptBlock[],
+  beforeId: string | null,
+  block: TranscriptBlock,
+): TranscriptBlock[] {
+  if (!beforeId) {
+    return [...blocks, block];
+  }
+  const index = blocks.findIndex((item) => item.id === beforeId);
+  if (index < 0) {
+    return [...blocks, block];
+  }
+  return [...blocks.slice(0, index), block, ...blocks.slice(index)];
+}
+
+function isAssistantSideBlock(block: TranscriptBlock): boolean {
+  return block.kind === 'assistant' || block.kind === 'reasoning' || block.kind === 'tool';
+}
+
+function buildTranscriptViewItems(blocks: TranscriptBlock[]): TranscriptViewItem[] {
+  const items: TranscriptViewItem[] = [];
+  let group: AssistantTranscriptGroup | null = null;
+
+  for (const block of blocks) {
+    if (isAssistantSideBlock(block)) {
+      if (!group) {
+        group = {id: `assistant-group-${block.id}`, kind: 'assistant-group', blocks: []};
+        items.push(group);
+      }
+      group.blocks.push(block);
+      continue;
+    }
+
+    group = null;
+    items.push(block);
+  }
+
+  return items;
+}
+
+function assistantGroupStatus(blocks: TranscriptBlock[]): TranscriptBlock['status'] | undefined {
+  if (blocks.some((block) => block.status === 'running' || block.placeholder)) {
+    return 'running';
+  }
+  if (blocks.some((block) => block.status === 'error')) {
+    return 'error';
+  }
+  return undefined;
+}
+
+function orderedAssistantBlocks(blocks: TranscriptBlock[]): TranscriptBlock[] {
+  return [
+    ...blocks.filter((block) => block.kind !== 'assistant'),
+    ...blocks.filter((block) => block.kind === 'assistant'),
+  ];
+}
+
+function LoadingDots({label}: {label: string}) {
+  return (
+    <div className="stream-placeholder">
+      <span className="typing-dots" aria-hidden="true"><i /> <i /> <i /></span>
+      <span>{label}</span>
+    </div>
+  );
 }
 
 function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
@@ -149,6 +231,68 @@ function EmptyState() {
         <span>文件工作区</span>
       </div>
     </div>
+  );
+}
+
+function AssistantSection({block, onToggle}: {block: TranscriptBlock; onToggle: (id: string) => void}) {
+  if (block.kind === 'assistant') {
+    return (
+      <div className="assistant-answer-section">
+        {block.text ? <MarkdownMessage content={block.text} /> : <LoadingDots label="正在组织回答..." />}
+      </div>
+    );
+  }
+
+  const title = block.kind === 'reasoning' ? '思考过程' : `工具调用 · ${block.label}`;
+  const collapsed = Boolean(block.collapsible && block.collapsed);
+  const content = collapsed ? null : block.kind === 'tool' ? (
+    <div className="tool-detail">
+      {block.params ? <pre>{JSON.stringify(block.params, null, 2)}</pre> : null}
+      {block.text ? <pre>{block.text}</pre> : <LoadingDots label="正在调用工具..." />}
+    </div>
+  ) : block.text ? (
+    <pre className="plain-pre">{block.text}</pre>
+  ) : (
+    <LoadingDots label="正在思考..." />
+  );
+
+  return (
+    <section className={`assistant-subblock assistant-subblock-${block.kind}${collapsed ? ' is-collapsed' : ''}`}>
+      <header className="assistant-subblock-header">
+        <span>{title}</span>
+        {block.status ? <span className={`status-pill status-${block.status}`}>{block.status}</span> : null}
+        {block.collapsible ? (
+          <button type="button" className="ghost-button tiny" onClick={() => onToggle(block.id)}>
+            {collapsed ? '展开' : '折叠'}
+          </button>
+        ) : null}
+      </header>
+      {content}
+    </section>
+  );
+}
+
+function AssistantTranscriptItem({group, onToggle}: {group: AssistantTranscriptGroup; onToggle: (id: string) => void}) {
+  const status = assistantGroupStatus(group.blocks);
+  const createdAt = group.blocks.find((block) => block.createdAt)?.createdAt;
+  const ordered = orderedAssistantBlocks(group.blocks);
+  const hasAnswer = ordered.some((block) => block.kind === 'assistant');
+
+  return (
+    <article className="message message-assistant message-assistant-group">
+      <div className="avatar">AI</div>
+      <div className="message-body">
+        <header className="message-header">
+          <span>assistant</span>
+          {status ? <span className={`status-pill status-${status}`}>{status === 'running' ? '生成中' : status}</span> : null}
+          {createdAt ? <time>{formatTime(createdAt)}</time> : null}
+        </header>
+        <div className="assistant-sections">
+          {ordered.map((block) => <AssistantSection key={block.id} block={block} onToggle={onToggle} />)}
+          {!hasAnswer && status === 'running' ? <LoadingDots label="正在等待模型输出..." /> : null}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -230,12 +374,18 @@ export default function App() {
   const [blocks, setBlocks] = useState<TranscriptBlock[]>([]);
   const [input, setInput] = useState('');
   const [attachedPaths, setAttachedPaths] = useState<string[]>([]);
+  const [sidebarWidth, setSidebarWidth] = useState(300);
+  const [inspectorWidth, setInspectorWidth] = useState(360);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const deltaBufferRef = useRef<Record<string, {kind: 'assistant' | 'reasoning'; text: string}>>({});
   const deltaTimerRef = useRef<number | null>(null);
   const pendingPromptRef = useRef('');
+  const pendingUserBlockIdRef = useRef<string | null>(null);
+  const pendingAssistantBlockIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
 
@@ -243,6 +393,32 @@ export default function App() {
     () => models.find((model) => model.id === selectedModelId) ?? models.find((model) => model.default) ?? models[0],
     [models, selectedModelId],
   );
+
+  const transcriptItems = useMemo(() => buildTranscriptViewItems(blocks), [blocks]);
+
+  const shellStyle = useMemo(() => ({
+    '--sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`,
+    '--inspector-width': inspectorCollapsed ? '0px' : `${inspectorWidth}px`,
+  }) as CSSProperties, [inspectorCollapsed, inspectorWidth, sidebarCollapsed, sidebarWidth]);
+
+  const startResize = useCallback((panel: 'sidebar' | 'inspector', event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (panel === 'sidebar') {
+        setSidebarWidth(clamp(moveEvent.clientX, SIDEBAR_MIN, SIDEBAR_MAX));
+      } else {
+        setInspectorWidth(clamp(window.innerWidth - moveEvent.clientX, INSPECTOR_MIN, INSPECTOR_MAX));
+      }
+    };
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      document.body.classList.remove('is-resizing-layout');
+    };
+    document.body.classList.add('is-resizing-layout');
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp, {once: true});
+  }, []);
 
   const flushDeltaBuffer = useCallback(() => {
     const buffered = Object.entries(deltaBufferRef.current);
@@ -261,11 +437,11 @@ export default function App() {
             kind: item.kind,
             label: item.kind === 'assistant' ? 'assistant' : '思考过程',
             text: '',
-            status: item.kind === 'reasoning' ? 'running' : undefined,
+            status: 'running',
             collapsible: item.kind === 'reasoning',
             collapsed: false,
           },
-          (block) => ({...block, text: `${block.text}${item.text}`}),
+          (block) => ({...block, text: `${block.text}${item.text}`, status: 'running', placeholder: false}),
         );
       }
       return next;
@@ -297,6 +473,8 @@ export default function App() {
 
   const openConversation = useCallback(async (targetId: string) => {
     flushDeltaBuffer();
+    pendingUserBlockIdRef.current = null;
+    pendingAssistantBlockIdRef.current = null;
     const messages = await fetchMessages(targetId);
     setConversationId(targetId);
     setBlocks(buildBlocksFromMessages(messages));
@@ -305,6 +483,8 @@ export default function App() {
 
   const resetConversation = () => {
     flushDeltaBuffer();
+    pendingUserBlockIdRef.current = null;
+    pendingAssistantBlockIdRef.current = null;
     setConversationId(null);
     setBlocks([]);
     setInput('');
@@ -353,24 +533,41 @@ export default function App() {
               return '';
             }).filter(Boolean).join(', ')
           : '';
-        setBlocks((current) => [...current, {
+        setBlocks((current) => insertBeforeBlock(current, pendingAssistantBlockIdRef.current, {
           id: `attach-${event.run_id ?? Date.now()}`,
           kind: 'meta',
           label: '附件',
           text: names ? `已导入：${names}` : '已导入附件',
-        }]);
+        }));
         break;
       }
-      case 'user.accepted':
-        setBlocks((current) => [...current, {
+      case 'user.accepted': {
+        const acceptedBlock: TranscriptBlock = {
           id: event.message_id ?? `user-${Date.now()}`,
           kind: 'user',
           label: '你',
           text: eventText(event, 'content') || pendingPromptRef.current,
-        }]);
+        };
+        const pendingUserId = pendingUserBlockIdRef.current;
+        setBlocks((current) => {
+          if (pendingUserId && current.some((block) => block.id === pendingUserId)) {
+            return current.map((block) => block.id === pendingUserId ? acceptedBlock : block);
+          }
+          if (current.some((block) => block.id === acceptedBlock.id)) {
+            return current;
+          }
+          return insertBeforeBlock(current, pendingAssistantBlockIdRef.current, acceptedBlock);
+        });
+        pendingUserBlockIdRef.current = null;
         pendingPromptRef.current = '';
         break;
+      }
       case 'assistant.delta':
+        if (pendingAssistantBlockIdRef.current) {
+          const pendingId = pendingAssistantBlockIdRef.current;
+          setBlocks((current) => current.filter((block) => block.id !== pendingId));
+          pendingAssistantBlockIdRef.current = null;
+        }
         queueDelta('assistant', event.block_id ?? `assistant-${Date.now()}`, eventText(event, 'text'));
         break;
       case 'reasoning.started':
@@ -442,6 +639,31 @@ export default function App() {
         ));
         break;
       }
+      case 'assistant.completed': {
+        const blockId = event.block_id;
+        const text = eventText(event, 'text');
+        const pendingId = pendingAssistantBlockIdRef.current;
+        setBlocks((current) => {
+          let next = pendingId ? current.filter((block) => block.id !== pendingId || block.text) : current;
+          if (blockId && (text || next.some((block) => block.id === blockId))) {
+            next = appendOrUpdate(
+              next,
+              blockId,
+              {
+                id: blockId,
+                kind: 'assistant',
+                label: 'assistant',
+                text,
+                status: 'ok',
+              },
+              (block) => ({...block, text: text || block.text, status: 'ok', placeholder: false}),
+            );
+          }
+          return next;
+        });
+        pendingAssistantBlockIdRef.current = null;
+        break;
+      }
       case 'conversation.updated': {
         const summary = readConversationSummary(event);
         if (summary) {
@@ -454,6 +676,11 @@ export default function App() {
         void refreshConversations(event.conversation_id);
         break;
       case 'error':
+        if (pendingAssistantBlockIdRef.current) {
+          const pendingId = pendingAssistantBlockIdRef.current;
+          setBlocks((current) => current.filter((block) => block.id !== pendingId));
+          pendingAssistantBlockIdRef.current = null;
+        }
         setBlocks((current) => [...current, {
           id: `error-${Date.now()}`,
           kind: 'error',
@@ -479,12 +706,30 @@ export default function App() {
     const message = `${prompt}${attachmentBlock}`;
 
     const controller = new AbortController();
+    const localId = Date.now();
+    const pendingUserId = `pending-user-${localId}`;
+    const pendingAssistantId = `pending-assistant-${localId}`;
     abortRef.current = controller;
+    pendingUserBlockIdRef.current = pendingUserId;
+    pendingAssistantBlockIdRef.current = pendingAssistantId;
     pendingPromptRef.current = message;
     setInput('');
     setAttachedPaths([]);
     setBusy(true);
     setError('');
+    setBlocks((current) => [...current, {
+      id: pendingUserId,
+      kind: 'user',
+      label: '你',
+      text: message,
+    }, {
+      id: pendingAssistantId,
+      kind: 'assistant',
+      label: 'assistant',
+      text: '',
+      status: 'running',
+      placeholder: true,
+    }]);
 
     try {
       await streamChat(
@@ -499,6 +744,11 @@ export default function App() {
         {signal: controller.signal},
       );
     } catch (err) {
+      const pendingAssistantId = pendingAssistantBlockIdRef.current;
+      if (pendingAssistantId) {
+        setBlocks((current) => current.filter((block) => block.id !== pendingAssistantId));
+        pendingAssistantBlockIdRef.current = null;
+      }
       if ((err as DOMException).name === 'AbortError') {
         setBlocks((current) => [...current, {
           id: `abort-${Date.now()}`,
@@ -522,6 +772,7 @@ export default function App() {
       setBusy(false);
       abortRef.current = null;
       pendingPromptRef.current = '';
+      pendingUserBlockIdRef.current = null;
     }
   };
 
@@ -590,10 +841,13 @@ export default function App() {
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({top: transcriptRef.current.scrollHeight, behavior: 'smooth'});
-  }, [blocks.length, busy]);
+  }, [blocks, busy]);
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${inspectorCollapsed ? ' inspector-collapsed' : ''}`}
+      style={shellStyle}
+    >
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">LA</div>
@@ -601,6 +855,7 @@ export default function App() {
             <strong>Local AI Agent</strong>
             <span>Web Chat</span>
           </div>
+          <button type="button" className="ghost-button tiny panel-collapse-button" onClick={() => setSidebarCollapsed(true)}>收起</button>
         </div>
         <button type="button" className="primary-button" onClick={resetConversation}>+ 新建会话</button>
         <div className="conversation-list">
@@ -617,8 +872,25 @@ export default function App() {
         </div>
       </aside>
 
+      {!sidebarCollapsed ? (
+        <button
+          type="button"
+          className="layout-resizer sidebar-resizer"
+          aria-label="拖拽调整会话侧栏宽度"
+          onPointerDown={(event) => startResize('sidebar', event)}
+        />
+      ) : null}
+
       <main className="chat-panel">
         <header className="topbar">
+          <div className="layout-toggle-row">
+            <button type="button" className="ghost-button tiny" onClick={() => setSidebarCollapsed((value) => !value)}>
+              {sidebarCollapsed ? '展开会话' : '收起会话'}
+            </button>
+            <button type="button" className="ghost-button tiny" onClick={() => setInspectorCollapsed((value) => !value)}>
+              {inspectorCollapsed ? '展开工作区' : '收起工作区'}
+            </button>
+          </div>
           <div>
             <strong>{conversationId ? conversations.find((item) => item.id === conversationId)?.title ?? '当前会话' : '新对话'}</strong>
             <span>{status ? `BFF ${status.status} · ${status.workspace_path}` : '正在连接后端...'}</span>
@@ -633,7 +905,11 @@ export default function App() {
         <section className="transcript" ref={transcriptRef}>
           {loading ? <div className="loading-card">正在加载...</div> : null}
           {!loading && blocks.length === 0 ? <EmptyState /> : null}
-          {blocks.map((block) => <TranscriptItem key={block.id} block={block} onToggle={toggleBlock} />)}
+          {transcriptItems.map((item) => (
+            item.kind === 'assistant-group'
+              ? <AssistantTranscriptItem key={item.id} group={item} onToggle={toggleBlock} />
+              : <TranscriptItem key={item.id} block={item} onToggle={toggleBlock} />
+          ))}
         </section>
 
         {error ? <div className="error-banner">{error}</div> : null}
@@ -676,6 +952,7 @@ export default function App() {
       </main>
 
       <aside className="inspector">
+        <button type="button" className="ghost-button tiny inspector-collapse-button" onClick={() => setInspectorCollapsed(true)}>收起工作区</button>
         <WorkspacePanel
           attachedPaths={attachedPaths}
           onAttach={attachWorkspacePath}
@@ -715,6 +992,15 @@ export default function App() {
           <p>工具数：{status?.tools.length ?? 0}</p>
         </section>
       </aside>
+
+      {!inspectorCollapsed ? (
+        <button
+          type="button"
+          className="layout-resizer inspector-resizer"
+          aria-label="拖拽调整右侧工作区宽度"
+          onPointerDown={(event) => startResize('inspector', event)}
+        />
+      ) : null}
     </div>
   );
 }
