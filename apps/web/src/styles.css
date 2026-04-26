@@ -1751,6 +1751,20 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   background: #ffffff;
 }
 
+.message-user {
+  grid-template-columns: minmax(0, 1fr) 42px;
+}
+
+.message-user .avatar {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.message-user .message-body {
+  grid-column: 1;
+  grid-row: 1;
+}
+
 .message-body {
   border-radius: 12px;
   background: #ffffff;
