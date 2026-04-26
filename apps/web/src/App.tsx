@@ -60,6 +60,51 @@ type EditingState = {
 
 type ExportFormat = 'markdown' | 'json' | 'txt';
 
+type DensityMode = 'comfortable' | 'compact' | 'spacious';
+
+type AppearanceSettings = {
+  uiFont: string;
+  codeFont: string;
+  contentFontSize: number;
+  codeFontSize: number;
+  readingWidth: number;
+  density: DensityMode;
+};
+
+const APPEARANCE_STORAGE_KEY = 'local-ai-agent.appearance.v1';
+
+const DEFAULT_UI_FONT = 'Inter, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+const DEFAULT_CODE_FONT = '"Cascadia Code", "JetBrains Mono", "Sarasa Mono SC", "SFMono-Regular", Consolas, "Liberation Mono", monospace';
+
+const DEFAULT_APPEARANCE: AppearanceSettings = {
+  uiFont: DEFAULT_UI_FONT,
+  codeFont: DEFAULT_CODE_FONT,
+  contentFontSize: 15,
+  codeFontSize: 13,
+  readingWidth: 880,
+  density: 'comfortable',
+};
+
+const UI_FONT_PRESETS = [
+  {label: '系统默认', value: DEFAULT_UI_FONT},
+  {label: 'Segoe UI / 微软雅黑', value: '"Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif'},
+  {label: 'PingFang / Noto Sans', value: '"PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif'},
+  {label: 'Inter', value: 'Inter, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif'},
+];
+
+const CODE_FONT_PRESETS = [
+  {label: '系统默认', value: DEFAULT_CODE_FONT},
+  {label: 'Cascadia Code', value: '"Cascadia Code", "Sarasa Mono SC", Consolas, monospace'},
+  {label: 'JetBrains Mono', value: '"JetBrains Mono", "Sarasa Mono SC", Consolas, monospace'},
+  {label: 'Consolas', value: 'Consolas, "Courier New", monospace'},
+];
+
+const DENSITY_OPTIONS: Array<{label: string; value: DensityMode; scale: number}> = [
+  {label: '紧凑', value: 'compact', scale: 0.86},
+  {label: '标准', value: 'comfortable', scale: 1},
+  {label: '宽松', value: 'spacious', scale: 1.14},
+];
+
 type ConversationSearchResult = {
   conversation_id: string;
   title: string;
@@ -96,6 +141,30 @@ type ConversationReadPayload = {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function normalizeAppearanceSettings(value: Partial<AppearanceSettings> | null | undefined): AppearanceSettings {
+  return {
+    uiFont: typeof value?.uiFont === 'string' && value.uiFont.trim() ? value.uiFont.trim() : DEFAULT_APPEARANCE.uiFont,
+    codeFont: typeof value?.codeFont === 'string' && value.codeFont.trim() ? value.codeFont.trim() : DEFAULT_APPEARANCE.codeFont,
+    contentFontSize: clamp(Number(value?.contentFontSize) || DEFAULT_APPEARANCE.contentFontSize, 13, 19),
+    codeFontSize: clamp(Number(value?.codeFontSize) || DEFAULT_APPEARANCE.codeFontSize, 12, 17),
+    readingWidth: clamp(Number(value?.readingWidth) || DEFAULT_APPEARANCE.readingWidth, 680, 1120),
+    density: value?.density === 'compact' || value?.density === 'spacious' ? value.density : DEFAULT_APPEARANCE.density,
+  };
+}
+
+function loadAppearanceSettings(): AppearanceSettings {
+  try {
+    const raw = window.localStorage.getItem(APPEARANCE_STORAGE_KEY);
+    return normalizeAppearanceSettings(raw ? JSON.parse(raw) as Partial<AppearanceSettings> : null);
+  } catch {
+    return DEFAULT_APPEARANCE;
+  }
+}
+
+function densityScale(density: DensityMode): number {
+  return DENSITY_OPTIONS.find((item) => item.value === density)?.scale ?? 1;
 }
 
 function formatTime(value?: string): string {
@@ -932,6 +1001,111 @@ function ConversationItem({
   );
 }
 
+function AppearanceSettingsPanel({
+  value,
+  onChange,
+  onReset,
+}: {
+  value: AppearanceSettings;
+  onChange: (next: AppearanceSettings) => void;
+  onReset: () => void;
+}) {
+  const update = (patch: Partial<AppearanceSettings>) => {
+    onChange(normalizeAppearanceSettings({...value, ...patch}));
+  };
+
+  return (
+    <section className="appearance-panel">
+      <div className="appearance-panel-header">
+        <h2>外观</h2>
+        <button type="button" className="ghost-button tiny" onClick={onReset}>重置</button>
+      </div>
+
+      <label className="appearance-field">
+        <span>正文字体</span>
+        <select value={value.uiFont} onChange={(event) => update({uiFont: event.target.value})}>
+          {UI_FONT_PRESETS.map((preset) => <option key={preset.label} value={preset.value}>{preset.label}</option>)}
+          {!UI_FONT_PRESETS.some((preset) => preset.value === value.uiFont) ? <option value={value.uiFont}>自定义</option> : null}
+        </select>
+      </label>
+      <label className="appearance-field">
+        <span>自定义正文字体</span>
+        <input
+          value={value.uiFont}
+          onChange={(event) => update({uiFont: event.target.value})}
+          placeholder={'"Segoe UI", "Microsoft YaHei UI", sans-serif'}
+        />
+      </label>
+
+      <label className="appearance-field">
+        <span>代码字体</span>
+        <select value={value.codeFont} onChange={(event) => update({codeFont: event.target.value})}>
+          {CODE_FONT_PRESETS.map((preset) => <option key={preset.label} value={preset.value}>{preset.label}</option>)}
+          {!CODE_FONT_PRESETS.some((preset) => preset.value === value.codeFont) ? <option value={value.codeFont}>自定义</option> : null}
+        </select>
+      </label>
+      <label className="appearance-field">
+        <span>自定义代码字体</span>
+        <input
+          value={value.codeFont}
+          onChange={(event) => update({codeFont: event.target.value})}
+          placeholder={'"Cascadia Code", Consolas, monospace'}
+        />
+      </label>
+
+      <div className="appearance-grid">
+        <label className="appearance-field appearance-field-range">
+          <span>正文字号 <em>{value.contentFontSize}px</em></span>
+          <input
+            type="range"
+            min="13"
+            max="19"
+            step="1"
+            value={value.contentFontSize}
+            onChange={(event) => update({contentFontSize: Number(event.target.value)})}
+          />
+        </label>
+        <label className="appearance-field appearance-field-range">
+          <span>代码字号 <em>{value.codeFontSize}px</em></span>
+          <input
+            type="range"
+            min="12"
+            max="17"
+            step="1"
+            value={value.codeFontSize}
+            onChange={(event) => update({codeFontSize: Number(event.target.value)})}
+          />
+        </label>
+      </div>
+
+      <label className="appearance-field appearance-field-range">
+        <span>阅读宽度 <em>{value.readingWidth}px</em></span>
+        <input
+          type="range"
+          min="680"
+          max="1120"
+          step="40"
+          value={value.readingWidth}
+          onChange={(event) => update({readingWidth: Number(event.target.value)})}
+        />
+      </label>
+
+      <div className="appearance-density" role="group" aria-label="界面密度">
+        {DENSITY_OPTIONS.map((option) => (
+          <button
+            type="button"
+            key={option.value}
+            className={value.density === option.value ? 'active' : ''}
+            onClick={() => update({density: option.value})}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -950,6 +1124,7 @@ export default function App() {
   const [inspectorWidth, setInspectorWidth] = useState(360);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadAppearanceSettings());
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
@@ -983,7 +1158,22 @@ export default function App() {
   const shellStyle = useMemo(() => ({
     '--sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`,
     '--inspector-width': inspectorCollapsed ? '0px' : `${inspectorWidth}px`,
-  }) as CSSProperties, [inspectorCollapsed, inspectorWidth, sidebarCollapsed, sidebarWidth]);
+    '--font-ui': appearance.uiFont,
+    '--font-code': appearance.codeFont,
+    '--content-font-size': `${appearance.contentFontSize}px`,
+    '--code-font-size': `${appearance.codeFontSize}px`,
+    '--reading-width': `${appearance.readingWidth}px`,
+    '--density-scale': String(densityScale(appearance.density)),
+  }) as CSSProperties, [appearance, inspectorCollapsed, inspectorWidth, sidebarCollapsed, sidebarWidth]);
+
+  const updateAppearance = useCallback((next: AppearanceSettings) => {
+    setAppearance(normalizeAppearanceSettings(next));
+  }, []);
+
+  const resetAppearance = useCallback(() => {
+    setAppearance(DEFAULT_APPEARANCE);
+    showToast('外观已重置');
+  }, [showToast]);
 
   const startResize = useCallback((panel: 'sidebar' | 'inspector', event: ReactPointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -1585,6 +1775,10 @@ export default function App() {
   }, [showToast]);
 
   useEffect(() => {
+    window.localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(appearance));
+  }, [appearance]);
+
+  useEffect(() => {
     if (!exportMenuOpen) {
       return;
     }
@@ -1867,6 +2061,7 @@ export default function App() {
           onDetach={detachWorkspacePath}
           onError={setError}
         />
+        <AppearanceSettingsPanel value={appearance} onChange={updateAppearance} onReset={resetAppearance} />
         <section>
           <h2>模型</h2>
           {selectedModel ? (
