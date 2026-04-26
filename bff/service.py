@@ -356,6 +356,19 @@ class ChatSessionService:
         if not self._store.delete_message(conversation_id, message_id):
             raise HTTPException(status_code=404, detail="message not found")
 
+    def export_conversation(self, conversation_id: str, format: str = "markdown") -> tuple[str, str, str]:
+        normalized = (format or "markdown").strip().lower()
+        if normalized == "markdown":
+            content, filename = self.export_conversation_markdown(conversation_id)
+            return content, filename, "text/markdown; charset=utf-8"
+        if normalized == "json":
+            content, filename = self.export_conversation_json(conversation_id)
+            return content, filename, "application/json; charset=utf-8"
+        if normalized in {"txt", "text", "plain"}:
+            content, filename = self.export_conversation_text(conversation_id)
+            return content, filename, "text/plain; charset=utf-8"
+        raise HTTPException(status_code=400, detail=f"unsupported format: {format}")
+
     def export_conversation_markdown(self, conversation_id: str) -> tuple[str, str]:
         conversation = self._require_conversation(conversation_id)
         lines: list[str] = [
@@ -401,6 +414,59 @@ class ChatSessionService:
         safe_title = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "_", conversation.title).strip(" .") or "conversation"
         filename = f"{safe_title}-{conversation.id}.md"
         return markdown, filename
+
+    def export_conversation_json(self, conversation_id: str) -> tuple[str, str]:
+        conversation = self._require_conversation(conversation_id)
+        payload = {
+            "conversation": {
+                "id": conversation.id,
+                "title": conversation.title,
+                "model": conversation.model,
+                "created_at": conversation.created_at,
+                "updated_at": conversation.updated_at,
+            },
+            "messages": [self._export_message_payload(message) for message in conversation.messages],
+        }
+        content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        safe_title = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "_", conversation.title).strip(" .") or "conversation"
+        filename = f"{safe_title}-{conversation.id}.json"
+        return content, filename
+
+    def export_conversation_text(self, conversation_id: str) -> tuple[str, str]:
+        conversation = self._require_conversation(conversation_id)
+        lines: list[str] = [
+            f"标题: {conversation.title}",
+            f"会话 ID: {conversation.id}",
+            f"模型: {conversation.model or 'default'}",
+            f"创建于: {conversation.created_at}",
+            f"更新于: {conversation.updated_at}",
+            "",
+            "=" * 72,
+            "",
+        ]
+        role_labels = {
+            "user": "用户",
+            "assistant": "助手",
+            "tool": "工具",
+            "system": "系统",
+        }
+        for message in conversation.messages:
+            label = role_labels.get(message.role, message.role)
+            lines.append(f"[{label}] {message.created_at}")
+            if message.tool_name:
+                lines.append(f"工具名: {message.tool_name}")
+            if message.thinking:
+                lines.append("思考过程:")
+                lines.append(message.thinking)
+                lines.append("")
+            lines.append(message.content or "(空)")
+            lines.append("")
+            lines.append("-" * 72)
+            lines.append("")
+        content = "\n".join(lines).rstrip() + "\n"
+        safe_title = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "_", conversation.title).strip(" .") or "conversation"
+        filename = f"{safe_title}-{conversation.id}.txt"
+        return content, filename
 
     async def _run_assistant_turn(
         self, conversation: Conversation, run_id: str
@@ -627,6 +693,25 @@ class ChatSessionService:
             created_at=conversation.created_at,
             updated_at=conversation.updated_at,
         )
+
+    @staticmethod
+    def _export_message_payload(message: Message) -> dict[str, object]:
+        tool_calls: object = []
+        if message.tool_calls:
+            try:
+                tool_calls = json.loads(message.tool_calls)
+            except json.JSONDecodeError:
+                tool_calls = message.tool_calls
+        return {
+            "id": message.id,
+            "conversation_id": message.conversation_id,
+            "role": message.role,
+            "content": message.content,
+            "thinking": message.thinking,
+            "tool_name": message.tool_name,
+            "tool_calls": tool_calls,
+            "created_at": message.created_at,
+        }
 
     def _message_record(self, message: Message) -> MessageRecord:
         tool_calls: list[dict] = []

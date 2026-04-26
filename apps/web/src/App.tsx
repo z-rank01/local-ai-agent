@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, t
 import {
   deleteConversation,
   deleteMessage,
-  downloadConversationMarkdown,
+  downloadConversation,
   fetchConversations,
   fetchMessages,
   fetchModels,
@@ -43,6 +43,8 @@ type EditingState = {
   messageId: string;
   originalText: string;
 };
+
+type ExportFormat = 'markdown' | 'json' | 'txt';
 
 type ConversationSearchResult = {
   conversation_id: string;
@@ -749,6 +751,7 @@ export default function App() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<TranscriptBlock[]>([]);
@@ -771,6 +774,7 @@ export default function App() {
   const pendingAssistantBlockIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const suppressNextAutoScrollRef = useRef(false);
 
   const selectedModel = useMemo(
@@ -1353,9 +1357,9 @@ export default function App() {
     }
   }, [applyEvent, blocks, busy, conversationId, flushDeltaBuffer, showToast]);
 
-  const exportConversation = useCallback(async (conversation: ConversationSummary) => {
+  const exportConversation = useCallback(async (conversation: ConversationSummary, format: ExportFormat = 'markdown') => {
     try {
-      const {filename, blob} = await downloadConversationMarkdown(conversation.id);
+      const {filename, blob} = await downloadConversation(conversation.id, format);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -1364,12 +1368,36 @@ export default function App() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+      setExportMenuOpen(false);
       showToast(`已导出 ${filename}`);
     } catch (err) {
       const messageText = err instanceof Error ? err.message : String(err);
       setError(messageText);
     }
   }, [showToast]);
+
+  useEffect(() => {
+    if (!exportMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (exportMenuRef.current && target && !exportMenuRef.current.contains(target)) {
+        setExportMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setExportMenuOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [exportMenuOpen]);
 
   useEffect(() => {
     void (async () => {
@@ -1454,7 +1482,7 @@ export default function App() {
               onOpen={() => void openConversation(item.id)}
               onRename={() => void renameConversation(item)}
               onDelete={() => void removeConversation(item)}
-              onExport={() => void exportConversation(item)}
+              onExport={() => void exportConversation(item, 'markdown')}
             />
           ))}
           {conversations.length === 0 ? (
@@ -1496,17 +1524,50 @@ export default function App() {
               ))}
             </select>
             {conversationId ? (
-              <button
-                type="button"
-                className="ghost-button tiny"
-                title="导出当前会话为 Markdown"
-                onClick={() => {
-                  const current = conversations.find((item) => item.id === conversationId);
-                  if (current) {
-                    void exportConversation(current);
-                  }
-                }}
-              >导出</button>
+              <div className="export-menu" ref={exportMenuRef}>
+                <button
+                  type="button"
+                  className="ghost-button tiny"
+                  title="导出当前会话"
+                  aria-haspopup="menu"
+                  aria-expanded={exportMenuOpen}
+                  onClick={() => setExportMenuOpen((current) => !current)}
+                >导出</button>
+                {exportMenuOpen ? (
+                  <div className="export-menu-panel" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        const current = conversations.find((item) => item.id === conversationId);
+                        if (current) {
+                          void exportConversation(current, 'markdown');
+                        }
+                      }}
+                    >Markdown</button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        const current = conversations.find((item) => item.id === conversationId);
+                        if (current) {
+                          void exportConversation(current, 'json');
+                        }
+                      }}
+                    >JSON</button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        const current = conversations.find((item) => item.id === conversationId);
+                        if (current) {
+                          void exportConversation(current, 'txt');
+                        }
+                      }}
+                    >纯文本</button>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </header>

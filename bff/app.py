@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -170,12 +171,16 @@ async def regenerate_conversation(
 
 @app.get("/api/conversations/{conversation_id}/export")
 async def export_conversation(conversation_id: str, format: str = "markdown") -> Response:
-    if format != "markdown":
-        return Response(content=f"unsupported format: {format}", status_code=400)
-    markdown, filename = get_chat_service().export_conversation_markdown(conversation_id)
-    quoted = filename.replace('"', '')
-    headers = {"content-disposition": f'attachment; filename="{quoted}"'}
-    return Response(content=markdown, media_type="text/markdown; charset=utf-8", headers=headers)
+    content, filename, media_type = get_chat_service().export_conversation(conversation_id, format=format)
+    sanitized = filename.replace('"', '')
+    ascii_fallback = sanitized.encode("ascii", errors="ignore").decode("ascii") or "conversation-export"
+    encoded = quote(sanitized)
+    headers = {
+        "content-disposition": (
+            f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded}"
+        )
+    }
+    return Response(content=content, media_type=media_type, headers=headers)
 
 
 @app.post("/api/workspace/import-local-paths", response_model=WorkspaceImportResponse)

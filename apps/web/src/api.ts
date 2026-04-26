@@ -118,17 +118,19 @@ export function exportConversationUrl(
   return `${baseUrl}/api/conversations/${conversationId}/export?format=${encodeURIComponent(format)}`;
 }
 
-export async function downloadConversationMarkdown(
+export async function downloadConversation(
   conversationId: string,
+  format: 'markdown' | 'json' | 'txt' = 'markdown',
   baseUrl = DEFAULT_BASE_URL,
 ): Promise<{filename: string; blob: Blob}> {
-  const response = await fetch(exportConversationUrl(conversationId, 'markdown', baseUrl));
+  const response = await fetch(exportConversationUrl(conversationId, format, baseUrl));
   if (!response.ok) {
     throw new Error(`conversation export failed: ${response.status}`);
   }
   const disposition = response.headers.get('content-disposition') ?? '';
   const match = /filename="?([^";]+)"?/i.exec(disposition);
-  const filename = match ? match[1] : `${conversationId}.md`;
+  const fallbackExt = format === 'json' ? 'json' : format === 'txt' ? 'txt' : 'md';
+  const filename = match ? match[1] : `${conversationId}.${fallbackExt}`;
   return {filename, blob: await response.blob()};
 }
 

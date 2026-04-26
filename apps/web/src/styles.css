@@ -1009,6 +1009,36 @@ body.is-resizing-layout {
   align-items: center;
   gap: 8px;
 }
+.export-menu {
+  position: relative;
+}
+.export-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 132px;
+  padding: 6px;
+  border: 1px solid rgba(148, 201, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(12, 18, 29, 0.98);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.34);
+  display: grid;
+  gap: 4px;
+  z-index: 40;
+}
+.export-menu-panel button {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  text-align: left;
+  color: #e8f1ff;
+  background: transparent;
+}
+.export-menu-panel button:hover,
+.export-menu-panel button:focus-visible {
+  background: rgba(148, 201, 255, 0.12);
+}
 
 .message-actions {
   display: flex;
