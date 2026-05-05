@@ -9,6 +9,7 @@ import {
   fetchModels,
   fetchProviders,
   fetchStatus,
+  shutdownBackend,
   streamChat,
   streamEditMessage,
   streamRegenerate,
@@ -179,6 +180,14 @@ function formatTime(value?: string): string {
     return value;
   }
   return date.toLocaleString('zh-CN', {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'});
+}
+
+function formatBackendError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+    return 'Python BFF 未连接。请先启动后端，或稍后点击“重新连接”。';
+  }
+  return raw;
 }
 
 function eventText(event: UIStreamEvent, key: string): string {
@@ -1216,6 +1225,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [backendOnline, setBackendOnline] = useState(false);
+  const [shutdownPending, setShutdownPending] = useState(false);
   const deltaBufferRef = useRef<Record<string, {kind: 'assistant' | 'reasoning'; text: string}>>({});
   const deltaTimerRef = useRef<number | null>(null);
   const pendingPromptRef = useRef('');
@@ -1225,6 +1236,7 @@ export default function App() {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const suppressNextAutoScrollRef = useRef(false);
+  const activeConversationIdRef = useRef<string | null>(null);
 
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId) ?? models.find((model) => model.default) ?? models[0],
@@ -1345,6 +1357,44 @@ export default function App() {
     setEditingMessage(null);
     setError('');
   }, [flushDeltaBuffer]);
+
+  const loadBootstrap = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [nextStatus, nextModels, nextProviders, nextConversations] = await Promise.all([
+        fetchStatus(),
+        fetchModels(),
+        fetchProviders(),
+        fetchConversations(conversationFilter),
+      ]);
+      setStatus(nextStatus);
+      setModels(nextModels);
+      setProviders(nextProviders);
+      setSelectedModelId((current) => (
+        current && nextModels.some((model) => model.id === current)
+          ? current
+          : nextModels.find((model) => model.default)?.id ?? nextModels[0]?.id ?? ''
+      ));
+      setConversations(nextConversations);
+      setBackendOnline(true);
+      setError('');
+      const activeConversationId = activeConversationIdRef.current;
+      const target = activeConversationId && nextConversations.some((item) => item.id === activeConversationId)
+        ? activeConversationId
+        : nextConversations[0]?.id;
+      if (target) {
+        await openConversation(target);
+      }
+    } catch (err) {
+      setBackendOnline(false);
+      setStatus(null);
+      setModels([]);
+      setProviders([]);
+      setError(formatBackendError(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [conversationFilter, openConversation]);
 
   const resetConversation = () => {
     flushDeltaBuffer();
@@ -1864,9 +1914,39 @@ export default function App() {
     }
   }, [showToast]);
 
+  const handleShutdownBackend = useCallback(async () => {
+    if (!backendOnline || shutdownPending) {
+      return;
+    }
+    if (!window.confirm('关闭 Python BFF 后端？Docker 和 Ollama 不会被关闭。')) {
+      return;
+    }
+    setShutdownPending(true);
+    try {
+      await shutdownBackend();
+      setBackendOnline(false);
+      setStatus(null);
+      setModels([]);
+      setProviders([]);
+      setSelectedModelId('');
+      setError('Python BFF 已关闭。Docker 与 Ollama 仍保持运行。');
+      showToast('Python BFF 已关闭');
+    } catch (err) {
+      const messageText = formatBackendError(err);
+      setError(messageText);
+      setBackendOnline(false);
+    } finally {
+      setShutdownPending(false);
+    }
+  }, [backendOnline, shutdownPending, showToast]);
+
   useEffect(() => {
     window.localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(effectiveAppearance));
   }, [effectiveAppearance]);
+
+  useEffect(() => {
+    activeConversationIdRef.current = conversationId;
+  }, [conversationId]);
 
   useEffect(() => {
     if (!exportMenuOpen) {
@@ -1892,36 +1972,18 @@ export default function App() {
   }, [exportMenuOpen]);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const [nextStatus, nextModels, nextProviders, nextConversations] = await Promise.all([
-          fetchStatus(),
-          fetchModels(),
-          fetchProviders(),
-          fetchConversations(conversationFilter),
-        ]);
-        setStatus(nextStatus);
-        setModels(nextModels);
-        setProviders(nextProviders);
-        setSelectedModelId(nextModels.find((model) => model.default)?.id ?? nextModels[0]?.id ?? '');
-        setConversations(nextConversations);
-        if (nextConversations[0]) {
-          await openConversation(nextConversations[0].id);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [conversationFilter, openConversation]);
+    void loadBootstrap();
+  }, [loadBootstrap]);
 
   useEffect(() => {
     if (loading) {
       return;
     }
     const handle = window.setTimeout(() => {
-      void refreshConversations(conversationId, conversationFilter);
+      void refreshConversations(conversationId, conversationFilter).catch((err) => {
+        setBackendOnline(false);
+        setError(formatBackendError(err));
+      });
     }, 180);
     return () => window.clearTimeout(handle);
   }, [conversationFilter, conversationId, loading, refreshConversations]);
@@ -2089,7 +2151,16 @@ export default function App() {
           ))}
         </section>
 
-        {error ? <div className="error-banner">{error}</div> : null}
+        {error ? (
+          <div className="error-banner">
+            <span>{error}</span>
+            {!backendOnline ? (
+              <button type="button" className="ghost-button tiny" disabled={loading} onClick={() => void loadBootstrap()}>
+                重新连接
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         <footer className="composer-card">
           {editingMessage ? (
@@ -2177,8 +2248,25 @@ export default function App() {
         </section>
         <section>
           <h2>状态</h2>
+          <p className={backendOnline ? 'backend-status online' : 'backend-status offline'}>
+            Python BFF：{backendOnline ? '已连接' : '未连接'}
+          </p>
           <p>WebSearch：{status?.websearch_enabled ? '已启用' : '未启用'}</p>
           <p>工具数：{status?.tools.length ?? 0}</p>
+          <div className="status-actions">
+            <button
+              type="button"
+              className="ghost-button tiny danger-button"
+              disabled={!backendOnline || shutdownPending}
+              onClick={() => void handleShutdownBackend()}
+            >{shutdownPending ? '正在关闭...' : '关闭 Python 后端'}</button>
+            {!backendOnline ? (
+              <button type="button" className="ghost-button tiny" disabled={loading} onClick={() => void loadBootstrap()}>
+                重新连接
+              </button>
+            ) : null}
+          </div>
+          <p className="status-hint">仅控制 Python BFF；Docker 与 Ollama 不会被关闭。</p>
         </section>
       </aside>
 

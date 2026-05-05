@@ -18,6 +18,8 @@ TIMEOUT_SEC="${TIMEOUT_SEC:-120}"
 DO_BUILD="${BUILD:-0}"
 SKIP_FRONTEND="${SKIP_FRONTEND:-${SKIP_CLI:-${SKIP_TUI:-${SKIP_UI:-0}}}}"
 LAUNCH_CLI="${LAUNCH_CLI:-0}"
+STOP_BACKEND="${STOP_BACKEND:-0}"
+KEEP_OPEN="${KEEP_OPEN:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -40,6 +42,9 @@ fail() { printf '   \033[31m[FAIL]\033[0m %s\n' "$1"; }
 cleanup() {
     if [[ "$STARTED_BFF" == "1" && "$STOP_BFF_ON_EXIT" == "1" && -n "$BFF_PID" ]]; then
         kill "$BFF_PID" >/dev/null 2>&1 || true
+    fi
+    if [[ "$STARTED_WEB" == "1" && "$KEEP_OPEN" == "1" && -n "$WEB_PID" ]]; then
+        kill "$WEB_PID" >/dev/null 2>&1 || true
     fi
 }
 trap cleanup EXIT
@@ -119,6 +124,49 @@ get_listening_process_id() {
     fi
 }
 
+stop_backend_by_port() {
+    local port="$1" pid
+    pid="$(get_listening_process_id "$port" | head -n 1)"
+    if [[ -z "$pid" ]]; then
+        warn "No Python BFF listener found on port $port"
+        return 1
+    fi
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell.exe -NoProfile -Command "Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1 || true
+    else
+        kill "$pid" >/dev/null 2>&1 || true
+    fi
+    ok "Stopped Python BFF process $pid on port $port"
+}
+
+show_log_tail() {
+    local path="$1" lines="${2:-30}"
+    if [[ -f "$path" ]]; then
+        printf '   \033[33m--- %s (last %s lines) ---\033[0m\n' "$path" "$lines"
+        tail -n "$lines" "$path" | sed 's/^/   /'
+    fi
+}
+
+wait_for_quit() {
+    echo ""
+    echo "  Keep-open mode: press q then Enter to stop Python BFF/Web UI."
+    echo "  Docker containers and Ollama will remain running."
+    local command
+    while true; do
+        printf "  Command: "
+        read -r command
+        [[ "$command" =~ ^[Qq] ]] && break
+    done
+    [[ -n "$WEB_PID" ]] && kill "$WEB_PID" >/dev/null 2>&1 || true
+    if [[ -n "$BFF_PID" ]]; then
+        kill "$BFF_PID" >/dev/null 2>&1 || true
+    else
+        stop_backend_by_port "$BFF_PORT" >/dev/null 2>&1 || true
+    fi
+    STOP_BFF_ON_EXIT=0
+    ok "Stopped Python BFF/Web UI for this quick-start session"
+}
+
 web_ready() { curl -sf --max-time 3 "$WEB_URL" >/dev/null 2>&1; }
 
 web_ready_on_port() {
@@ -187,10 +235,30 @@ open_browser() {
     fi
 }
 
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --build) DO_BUILD=1 ;;
+        --skip-frontend|--skip-cli|--skip-tui|--skip-ui) SKIP_FRONTEND=1 ;;
+        --launch-cli) LAUNCH_CLI=1 ;;
+        --stop-backend) STOP_BACKEND=1 ;;
+        --keep-open) KEEP_OPEN=1 ;;
+        *) fail "Unknown argument: $1"; exit 1 ;;
+    esac
+    shift
+done
+
 echo ""
 echo "========================================"
 echo "  Local AI Agent v2.2 - Quick Start"
 echo "========================================"
+
+if [[ "$STOP_BACKEND" == "1" ]]; then
+    step "Stopping Python BFF only"
+    BFF_PORT_TO_STOP="$(read_env_value BFF_PORT 9510)"
+    stop_backend_by_port "$BFF_PORT_TO_STOP" || true
+    echo "   Docker containers and Ollama were not touched."
+    exit 0
+fi
 
 if [[ ! -d "$PROJECT_ROOT/data/workspace" ]]; then
     step "Initializing workspace data directory"
@@ -370,7 +438,10 @@ BFF_HOST=$(read_env_value BFF_HOST 127.0.0.1)
 BFF_PORT=$(read_env_value BFF_PORT 9510)
 [[ "$BFF_HOST" == "0.0.0.0" ]] && BFF_HOST="127.0.0.1"
 BFF_URL="http://${BFF_HOST}:${BFF_PORT}"
-REQUIRED_BFF_ROUTE="/api/conversations/{conversation_id}/messages/{message_id}/edit"
+REQUIRED_BFF_ROUTE="/api/admin/shutdown"
+mkdir -p "$PROJECT_ROOT/data/logs"
+BFF_LOG="$PROJECT_ROOT/data/logs/bff.log"
+BFF_ERR_LOG="$PROJECT_ROOT/data/logs/bff.err.log"
 
 if bff_ready; then
     NEED_BFF_RESTART=0
@@ -404,15 +475,18 @@ fi
 
 if ! bff_ready; then
     wait_ "Starting Python BFF"
-    (cd "$PROJECT_ROOT" && "$PYTHON_CMD" -m bff >/dev/null 2>&1) &
+    (cd "$PROJECT_ROOT" && "$PYTHON_CMD" -m bff >"$BFF_LOG" 2>"$BFF_ERR_LOG") &
     BFF_PID=$!
     STARTED_BFF=1
     STOP_BFF_ON_EXIT=1
     if ! wait_until 30 "Waiting for BFF health" 3 bff_ready; then
         fail "BFF did not become healthy within 30 seconds"
+        show_log_tail "$BFF_ERR_LOG"
+        show_log_tail "$BFF_LOG"
         exit 1
     fi
     ok "BFF is ready at $BFF_URL"
+    echo "   Log: $BFF_LOG / $BFF_ERR_LOG"
 fi
 
 WEB_DIR="$PROJECT_ROOT/apps/web"
@@ -477,14 +551,21 @@ if [[ "$SKIP_FRONTEND" != "1" && "$LAUNCH_CLI" != "1" ]]; then
 fi
 echo ""
 echo "  Stop services: docker compose down"
+echo "  Stop BFF only : scripts/quick-start.sh --stop-backend"
+echo "  Stop BFF only : scripts/stop-backend.sh"
 echo "  Backend-only : SKIP_FRONTEND=1 scripts/quick-start.sh"
+echo "  Keep open    : scripts/quick-start.sh --keep-open"
 echo "  Legacy CLI   : LAUNCH_CLI=1 scripts/quick-start.sh"
 echo ""
 
 if [[ "$SKIP_FRONTEND" == "1" ]]; then
-    STOP_BFF_ON_EXIT=0
-    [[ -n "$BFF_PID" ]] && disown "$BFF_PID" 2>/dev/null || true
     step "Skipping frontend launch (SKIP_FRONTEND=1 / legacy SKIP_CLI=1)"
+    if [[ "$KEEP_OPEN" == "1" ]]; then
+        wait_for_quit
+    else
+        STOP_BFF_ON_EXIT=0
+        [[ -n "$BFF_PID" ]] && disown "$BFF_PID" 2>/dev/null || true
+    fi
 elif [[ "$LAUNCH_CLI" == "1" ]]; then
     step "Launching legacy Ink CLI"
     cd "$INK_DIR"
@@ -499,7 +580,9 @@ else
         (cd "$WEB_DIR" && WEB_PORT="$WEB_PORT" VITE_LOCAL_AI_AGENT_API_URL="$BFF_URL" npm run dev -- --host "$WEB_HOST" --port "$WEB_PORT" > "$PROJECT_ROOT/data/logs/web-ui.log" 2>&1) &
         WEB_PID=$!
         STARTED_WEB=1
-        disown "$WEB_PID" 2>/dev/null || true
+        if [[ "$KEEP_OPEN" != "1" ]]; then
+            disown "$WEB_PID" 2>/dev/null || true
+        fi
 
         if ! wait_until 45 "Waiting for Web UI" 3 web_ready; then
             [[ -n "$WEB_PID" ]] && kill "$WEB_PID" >/dev/null 2>&1 || true
@@ -510,10 +593,15 @@ else
         ok "Web UI is ready at $WEB_URL"
     fi
 
-    STOP_BFF_ON_EXIT=0
-    [[ -n "$BFF_PID" ]] && disown "$BFF_PID" 2>/dev/null || true
+    if [[ "$KEEP_OPEN" != "1" ]]; then
+        STOP_BFF_ON_EXIT=0
+        [[ -n "$BFF_PID" ]] && disown "$BFF_PID" 2>/dev/null || true
+    fi
     open_browser
     ok "Browser opened: $WEB_URL"
     [[ -n "$BFF_PID" ]] && echo "   BFF process id: $BFF_PID"
     [[ -n "$WEB_PID" ]] && echo "   Web process id: $WEB_PID"
+    if [[ "$KEEP_OPEN" == "1" ]]; then
+        wait_for_quit
+    fi
 fi

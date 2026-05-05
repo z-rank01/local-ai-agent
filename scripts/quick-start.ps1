@@ -21,6 +21,10 @@
     The old -SkipCLI, -SkipTUI and -SkipUI flags are still accepted for compatibility.
 .PARAMETER LaunchCLI
     If set, launches the legacy Ink CLI instead of the Web UI.
+.PARAMETER StopBackend
+    If set, stops only the Python BFF process listening on BFF_PORT and exits.
+.PARAMETER KeepOpen
+    If set, keeps this script open after launching Web UI. Press q to stop this run's Python BFF/Web UI.
 #>
 
 param(
@@ -28,7 +32,9 @@ param(
     [switch]$Build,
     [Alias("SkipCLI", "SkipTUI", "SkipUI")]
     [switch]$SkipFrontend,
-    [switch]$LaunchCLI
+    [switch]$LaunchCLI,
+    [switch]$StopBackend,
+    [switch]$KeepOpen
 )
 
 $ErrorActionPreference = "Stop"
@@ -117,6 +123,13 @@ function Stop-BffProcess {
     }
 }
 
+function Stop-WebProcess {
+    param([System.Diagnostics.Process]$Process)
+    if ($Process -and -not $Process.HasExited) {
+        Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Test-HttpOk {
     param([string]$Url)
     try {
@@ -157,6 +170,52 @@ function Get-ListeningProcessId {
         if ($connection) { return [int]$connection.OwningProcess }
     } catch {}
     return $null
+}
+
+function Stop-BffByPort {
+    param([int]$Port)
+    $processId = Get-ListeningProcessId -Port $Port
+    if (-not $processId) {
+        Write-Warn "No Python BFF listener found on port $Port"
+        return $false
+    }
+    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+    Write-Ok "Stopped Python BFF process $processId on port $Port"
+    return $true
+}
+
+function Show-LogTail {
+    param([string]$Path, [int]$Lines = 30)
+    if (Test-Path $Path) {
+        Write-Host "   --- $Path (last $Lines lines) ---" -ForegroundColor Yellow
+        Get-Content $Path -Tail $Lines -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "   $_" -ForegroundColor Yellow }
+    }
+}
+
+function Wait-ForQuit {
+    param(
+        [System.Diagnostics.Process]$BffProcess,
+        [System.Diagnostics.Process]$WebProcess,
+        [int]$BffPort
+    )
+    Write-Host ""
+    Write-Host "  Keep-open mode: press q then Enter to stop this run's Python BFF/Web UI." -ForegroundColor DarkGray
+    Write-Host "  Docker containers and Ollama will remain running." -ForegroundColor DarkGray
+    try {
+        while ($true) {
+            $key = Read-Host "  Command"
+            if ($key -match "^[Qq]") { break }
+        }
+    } finally {
+        Stop-WebProcess -Process $WebProcess
+        if ($BffProcess) {
+            Stop-BffProcess -Process $BffProcess
+        } else {
+            [void](Stop-BffByPort -Port $BffPort)
+        }
+        Write-Ok "Stopped Python BFF/Web UI for this quick-start session"
+    }
 }
 
 function Test-TcpPortAvailable {
@@ -201,6 +260,14 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Local AI Agent v2.2 - Quick Start" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
+
+if ($StopBackend) {
+    $bffPortForStop = Get-EnvValue -FilePath $envFile -Key "BFF_PORT" -Default "9510"
+    Write-Step "Stopping Python BFF only"
+    [void](Stop-BffByPort -Port ([int]$bffPortForStop))
+    Write-Host "   Docker containers and Ollama were not touched." -ForegroundColor DarkGray
+    exit 0
+}
 
 # 0. Ensure workspace data exists
 $dataDir = Join-Path $projectRoot "data\workspace"
@@ -487,7 +554,11 @@ $bffPort = Get-EnvValue -FilePath $envFile -Key "BFF_PORT" -Default "9510"
 $bffHealthHost = if ($bffHost -eq "0.0.0.0") { "127.0.0.1" } else { $bffHost }
 $bffUrl = "http://${bffHealthHost}:${bffPort}"
 $bffHealthUrl = "$bffUrl/health"
-$requiredBffRoute = "/api/conversations/{conversation_id}/messages/{message_id}/edit"
+$requiredBffRoute = "/api/admin/shutdown"
+$logDir = Join-Path $projectRoot "data\logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$bffLog = Join-Path $logDir "bff.log"
+$bffErrLog = Join-Path $logDir "bff.err.log"
 
 $bffHealthy = $false
 try {
@@ -522,7 +593,7 @@ if ($bffHealthy) {
     Write-Ok "BFF already running at $bffUrl"
 } else {
     Write-Wait "Starting Python BFF"
-    $bffProcess = Start-Process -FilePath $pythonExe -ArgumentList @("-m", "bff") -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
+    $bffProcess = Start-Process -FilePath $pythonExe -ArgumentList @("-m", "bff") -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput $bffLog -RedirectStandardError $bffErrLog -PassThru
     $startedBff = $true
 
     $ready = Wait-Until -Condition {
@@ -535,10 +606,13 @@ if ($bffHealthy) {
     if (-not $ready) {
         Stop-BffProcess -Process $bffProcess
         Write-Fail "BFF did not become healthy within 30 seconds"
+        Show-LogTail -Path $bffErrLog
+        Show-LogTail -Path $bffLog
         exit 1
     }
 
     Write-Ok "BFF is ready at $bffUrl"
+    Write-Host "   Log: $bffLog / $bffErrLog" -ForegroundColor DarkGray
 }
 
 # 8. Ensure selected frontend dependencies
@@ -620,13 +694,19 @@ if (-not $SkipFrontend -and -not $LaunchCLI) {
 }
 Write-Host ""
 Write-Host "  Stop services: docker compose down" -ForegroundColor DarkGray
+Write-Host "  Stop BFF only : .\scripts\quick-start.ps1 -StopBackend" -ForegroundColor DarkGray
+Write-Host "  Stop BFF only : .\scripts\stop-backend.ps1" -ForegroundColor DarkGray
 Write-Host "  Backend-only : .\scripts\quick-start.ps1 -SkipFrontend" -ForegroundColor DarkGray
+Write-Host "  Keep open    : .\scripts\quick-start.ps1 -KeepOpen" -ForegroundColor DarkGray
 Write-Host "  Legacy CLI   : .\scripts\quick-start.ps1 -LaunchCLI" -ForegroundColor DarkGray
 Write-Host ""
 
 # 9. Launch selected frontend
 if ($SkipFrontend) {
     Write-Step "Skipping frontend launch (-SkipFrontend / legacy -SkipCLI)"
+    if ($KeepOpen) {
+        Wait-ForQuit -BffProcess $bffProcess -WebProcess $webProcess -BffPort ([int]$bffPort)
+    }
 } elseif ($LaunchCLI) {
     Write-Step "Launching legacy Ink CLI"
     $env:LOCAL_AI_AGENT_API_URL = $bffUrl
@@ -689,5 +769,9 @@ if ($SkipFrontend) {
     }
     if ($startedWeb -and $webProcess) {
         Write-Host "   Web process id: $($webProcess.Id)" -ForegroundColor DarkGray
+    }
+
+    if ($KeepOpen) {
+        Wait-ForQuit -BffProcess $bffProcess -WebProcess $webProcess -BffPort ([int]$bffPort)
     }
 }

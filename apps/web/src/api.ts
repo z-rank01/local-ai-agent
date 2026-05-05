@@ -35,6 +35,14 @@ export function fetchProviders(baseUrl = DEFAULT_BASE_URL): Promise<ProviderInfo
   return requestJson<ProviderInfo[]>('/api/providers', undefined, baseUrl);
 }
 
+export async function shutdownBackend(baseUrl = DEFAULT_BASE_URL): Promise<void> {
+  const response = await fetch(`${baseUrl}/api/admin/shutdown`, {method: 'POST'});
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`backend shutdown failed: ${response.status}${detail ? ` ${detail}` : ''}`);
+  }
+}
+
 export function fetchConversations(
   query?: string,
   baseUrl = DEFAULT_BASE_URL,

@@ -4,6 +4,7 @@ Policy engine — path whitelist/blacklist, execution restrictions.
 
 import logging
 import os
+import posixpath
 from pathlib import Path
 from typing import Any
 
@@ -14,13 +15,24 @@ logger = logging.getLogger("core.policy")
 _PATH_KEYS = frozenset({"path", "src", "dst", "directory"})
 
 
+def _normalize_virtual_path(path: str) -> str:
+    normalized = posixpath.normpath("/" + path.replace("\\", "/").lstrip("/"))
+    return normalized if normalized == "/" else normalized.rstrip("/")
+
+
+def _matches_prefix(path: str, prefix: str) -> bool:
+    return prefix == "/" or path == prefix or path.startswith(prefix + "/")
+
+
 class PolicyEngine:
     def __init__(self, policy_path: str | Path):
         with open(policy_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
-        self._allowed = [p.rstrip("/") for p in cfg["paths"]["allowed_prefixes"]]
-        self._denied = [p.rstrip("/") for p in cfg["paths"]["denied_prefixes"]]
-        self._write_only = [p.rstrip("/") for p in cfg["paths"].get("write_only_prefixes", [])]
+        self._allowed = [_normalize_virtual_path(p) for p in cfg["paths"]["allowed_prefixes"]]
+        self._denied = [_normalize_virtual_path(p) for p in cfg["paths"]["denied_prefixes"]]
+        self._write_only = [
+            _normalize_virtual_path(p) for p in cfg["paths"].get("write_only_prefixes", [])
+        ]
         self._allow_delete = cfg["operations"].get("allow_delete", True)
         self._allow_shell_exec = cfg["operations"].get("allow_shell_exec", False)
         self._max_size = cfg["files"].get("max_size_bytes", 10 * 1024 * 1024)
@@ -48,10 +60,9 @@ class PolicyEngine:
             protected_key = "path" if tool == "file_delete" else "src"
             target = params.get(protected_key, "")
             if isinstance(target, str):
-                absolute = os.path.normpath("/" + target.lstrip("/"))
+                absolute = _normalize_virtual_path(target)
                 for wo in self._write_only:
-                    w = wo.rstrip("/")
-                    if absolute == w or absolute.startswith(w + "/"):
+                    if _matches_prefix(absolute, wo):
                         raise PermissionError(
                             f"Path {target!r} is in a write-only directory"
                             f" ({wo!r}): delete and rename-away are not permitted"
@@ -114,16 +125,14 @@ class PolicyEngine:
         if not isinstance(path, str) or not path.strip():
             raise PermissionError("Path must be a non-empty string")
 
-        absolute = os.path.normpath("/" + path.lstrip("/"))
+        absolute = _normalize_virtual_path(path)
 
         for denied in self._denied:
-            d = denied.rstrip("/")
-            if absolute == d or absolute.startswith(d + "/"):
+            if _matches_prefix(absolute, denied):
                 raise PermissionError(f"Access denied: {path!r} matches a denied prefix")
 
         for allowed in self._allowed:
-            a = allowed.rstrip("/")
-            if absolute == a or absolute.startswith(a + "/"):
+            if _matches_prefix(absolute, allowed):
                 return
 
         raise PermissionError(f"Path {path!r} is outside all allowed prefixes")

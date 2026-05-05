@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
+import signal
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from urllib.parse import quote
 
-from fastapi import FastAPI, Query, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -94,6 +97,26 @@ async def health() -> dict[str, str]:
 @app.get("/api/status", response_model=AppStatus)
 async def status() -> AppStatus:
     return get_chat_service().app_status()
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    if not host:
+        return False
+    normalized = host.removeprefix("::ffff:")
+    return normalized in {"127.0.0.1", "::1", "localhost"}
+
+
+@app.post("/api/admin/shutdown")
+async def shutdown_backend(request: Request) -> dict[str, str]:
+    if not _is_loopback_host(request.client.host if request.client else None):
+        raise HTTPException(status_code=403, detail="Shutdown is only allowed from localhost")
+
+    async def terminate_process() -> None:
+        await asyncio.sleep(0.2)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    asyncio.create_task(terminate_process())
+    return {"status": "shutting_down"}
 
 
 @app.get("/api/models", response_model=list[ModelInfo])
