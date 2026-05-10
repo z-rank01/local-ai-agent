@@ -1,7 +1,7 @@
 import json
 import shutil
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from path_guard import PathGuard
@@ -108,6 +108,34 @@ class TrashManager:
             "deleted_at": str(record.get("deleted_at") or ""),
         }
 
+    def cleanup_expired(self, retention_days: int, *, now: datetime | None = None) -> dict:
+        if retention_days <= 0:
+            return {"removed": 0, "retention_days": retention_days, "operation_ids": []}
+
+        current_time = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
+        cutoff = current_time - timedelta(days=retention_days)
+        removed_operation_ids: list[str] = []
+
+        for manifest_path in list(self._trash.glob("*/*/manifest.json")):
+            record = self._load_manifest(manifest_path)
+            if record is None:
+                continue
+            deleted_at = self._parse_timestamp(record.get("deleted_at"))
+            if deleted_at is None or deleted_at > cutoff:
+                continue
+
+            operation_dir = manifest_path.parent
+            operation_id = str(record.get("operation_id") or operation_dir.name)
+            shutil.rmtree(operation_dir, ignore_errors=True)
+            self._prune_empty_dirs(operation_dir.parent, stop_at=self._trash)
+            removed_operation_ids.append(operation_id)
+
+        return {
+            "removed": len(removed_operation_ids),
+            "retention_days": retention_days,
+            "operation_ids": removed_operation_ids,
+        }
+
     def _write_manifest(self, operation_dir: Path, record: dict) -> None:
         manifest_path = operation_dir / "manifest.json"
         manifest_path.write_text(
@@ -130,6 +158,18 @@ class TrashManager:
         except (OSError, json.JSONDecodeError):
             return None
         return raw if isinstance(raw, dict) else None
+
+    @staticmethod
+    def _parse_timestamp(value: object) -> datetime | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     @staticmethod
     def _prune_empty_dirs(start: Path, stop_at: Path) -> None:

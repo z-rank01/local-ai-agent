@@ -1,6 +1,8 @@
+import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -47,6 +49,28 @@ class TrashManagerTests(unittest.TestCase):
         self.assertEqual(restore_result["workspace_path"], "/workspace/docs/report.txt")
         self.assertEqual(self.manager.list_items(), [])
         self.assertEqual(list(self.trash.rglob("*")), [])
+
+    def test_cleanup_expired_removes_only_old_operations(self) -> None:
+        old_source = self.workspace / "docs" / "old.txt"
+        new_source = self.workspace / "docs" / "new.txt"
+        old_source.write_text("old", encoding="utf-8")
+        new_source.write_text("new", encoding="utf-8")
+
+        old_result = self.manager.move_to_trash("docs/old.txt")
+        new_result = self.manager.move_to_trash("docs/new.txt")
+
+        manifest_path = Path(old_result["manifest"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["deleted_at"] = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        cleanup = self.manager.cleanup_expired(30, now=datetime.now(timezone.utc))
+        items = self.manager.list_items()
+
+        self.assertEqual(cleanup["removed"], 1)
+        self.assertIn(old_result["operation_id"], cleanup["operation_ids"])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["operation_id"], new_result["operation_id"])
 
 
 if __name__ == "__main__":

@@ -3,6 +3,10 @@ workspace:
   trash: /trash
   logs: /logs
 
+trash:
+  retention_days: 30
+  cleanup_interval_seconds: 3600
+
 services:
   gateway:
     host: "0.0.0.0"

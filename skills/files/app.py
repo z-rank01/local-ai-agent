@@ -1,8 +1,11 @@
 import logging
 import os
+import time
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import yaml
 
 from file_ops import FileOps
 from git_ops import GitOps
@@ -17,6 +20,9 @@ logger = logging.getLogger("skill-files")
 
 _WORKSPACE = "/workspace"
 _TRASH = "/trash"
+_RUNTIME_CONFIG_PATH = Path(os.environ.get("RUNTIME_CONFIG_PATH", "/config/runtime.yaml"))
+_DEFAULT_TRASH_RETENTION_DAYS = 30
+_DEFAULT_TRASH_CLEANUP_INTERVAL_SECONDS = 3600
 
 _guard = PathGuard(_WORKSPACE)
 _file_ops = FileOps(_guard)
@@ -25,7 +31,74 @@ _git = GitOps(_WORKSPACE)
 
 _AUTO_GIT = os.environ.get("AUTO_GIT_COMMIT", "true").lower() == "true"
 
+
+def _coerce_int(value: object, default: int, label: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s=%r, falling back to %s", label, value, default)
+        return default
+
+
+def _load_trash_settings() -> tuple[int, int]:
+    runtime_config: dict = {}
+    if _RUNTIME_CONFIG_PATH.exists():
+        try:
+            loaded = yaml.safe_load(_RUNTIME_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+            if isinstance(loaded, dict):
+                runtime_config = loaded
+        except Exception as exc:
+            logger.warning("Failed to load runtime config from %s: %s", _RUNTIME_CONFIG_PATH, exc)
+
+    trash_config = runtime_config.get("trash") if isinstance(runtime_config.get("trash"), dict) else {}
+    raw_retention = os.environ.get("TRASH_RETENTION_DAYS", trash_config.get("retention_days", _DEFAULT_TRASH_RETENTION_DAYS))
+    raw_interval = os.environ.get(
+        "TRASH_CLEANUP_INTERVAL_SECONDS",
+        trash_config.get("cleanup_interval_seconds", _DEFAULT_TRASH_CLEANUP_INTERVAL_SECONDS),
+    )
+
+    retention_days = max(0, _coerce_int(raw_retention, _DEFAULT_TRASH_RETENTION_DAYS, "TRASH_RETENTION_DAYS"))
+    cleanup_interval_seconds = max(
+        0,
+        _coerce_int(raw_interval, _DEFAULT_TRASH_CLEANUP_INTERVAL_SECONDS, "TRASH_CLEANUP_INTERVAL_SECONDS"),
+    )
+    return retention_days, cleanup_interval_seconds
+
+
+_TRASH_RETENTION_DAYS, _TRASH_CLEANUP_INTERVAL_SECONDS = _load_trash_settings()
+_last_trash_cleanup_monotonic = 0.0
+
+
+def _cleanup_trash_if_due(*, force: bool = False) -> None:
+    global _last_trash_cleanup_monotonic
+
+    if _TRASH_RETENTION_DAYS <= 0:
+        return
+
+    now = time.monotonic()
+    if (
+        not force
+        and _TRASH_CLEANUP_INTERVAL_SECONDS > 0
+        and _last_trash_cleanup_monotonic > 0
+        and now - _last_trash_cleanup_monotonic < _TRASH_CLEANUP_INTERVAL_SECONDS
+    ):
+        return
+
+    try:
+        result = _trash.cleanup_expired(_TRASH_RETENTION_DAYS)
+        _last_trash_cleanup_monotonic = now
+        removed = int(result.get("removed", 0))
+        if removed:
+            logger.info("Trash cleanup removed %s expired operations", removed)
+    except Exception:
+        logger.exception("Trash cleanup failed")
+
 app = FastAPI(title="Skill: Files")
+
+
+@app.on_event("startup")
+async def startup_cleanup():
+    _cleanup_trash_if_due(force=True)
 
 
 # ── Request models ───────────────────────────────────────────────────────────
@@ -110,6 +183,7 @@ async def file_list(req: ListRequest):
 @app.post("/tool/file_delete")
 async def file_delete(req: DeleteRequest):
     try:
+        _cleanup_trash_if_due()
         result = _trash.move_to_trash(req.path)
         return result
     except PermissionError as exc:
@@ -121,6 +195,7 @@ async def file_delete(req: DeleteRequest):
 @app.get("/trash/items")
 async def trash_items():
     try:
+        _cleanup_trash_if_due()
         return {"items": _trash.list_items()}
     except Exception as exc:
         logger.exception("trash_items failed")
@@ -130,6 +205,7 @@ async def trash_items():
 @app.post("/trash/restore")
 async def trash_restore(req: RestoreTrashRequest):
     try:
+        _cleanup_trash_if_due()
         return _trash.restore_from_trash(req.operation_id)
     except FileExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
