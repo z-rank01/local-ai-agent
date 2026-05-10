@@ -137,6 +137,13 @@ class WorkspaceUploadResponse(BaseModel):
     entry: WorkspaceEntry
 
 
+class WorkspaceDeleteResponse(BaseModel):
+    deleted_path: str
+    moved_to_trash: str
+    operation_id: str | None = None
+    manifest: str | None = None
+
+
 class UIStreamEvent(BaseModel):
     event: str
     conversation_id: str | None = None

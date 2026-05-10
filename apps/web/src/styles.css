@@ -1379,6 +1379,12 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 }
 .workspace-entry-main strong { font-size: 13px; }
 .workspace-entry-main em { color: var(--muted); font-size: 11px; font-style: normal; margin-top: 2px; }
+.workspace-entry-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
 .workspace-attach-pill {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1397,6 +1403,33 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   border-color: rgba(96, 211, 148, 0.35);
   color: var(--ok);
   background: rgba(96, 211, 148, 0.08);
+}
+.workspace-delete-pill {
+  border: 1px solid rgba(189, 55, 72, 0.24);
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: var(--danger);
+  font-size: 11px;
+  white-space: nowrap;
+  transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+.workspace-delete-pill:hover,
+.workspace-delete-pill:focus-visible {
+  transform: translateY(-1px);
+  background: #fff1f2;
+  border-color: rgba(189, 55, 72, 0.38);
+}
+.workspace-delete-pill.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.workspace-note {
+  border: 1px solid rgba(96, 211, 148, 0.24);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: var(--ok);
+  font-size: 12px;
+  background: rgba(96, 211, 148, 0.06);
 }
 .workspace-empty {
   border: 1px dashed var(--line);

@@ -27,6 +27,7 @@ from .schemas import (
     ProviderInfo,
     UIStreamEvent,
     WorkspaceEntry,
+    WorkspaceDeleteResponse,
     WorkspaceFilePreview,
     WorkspaceImportResponse,
     WorkspaceTreeResponse,
@@ -209,6 +210,36 @@ class ChatSessionService:
         if not target.exists() or not target.is_file():
             raise HTTPException(status_code=404, detail="workspace file not found")
         return target
+
+    async def delete_workspace_file(self, requested_path: str) -> WorkspaceDeleteResponse:
+        target = self.resolve_workspace_file(requested_path)
+        workspace_path = self._to_workspace_path(target)
+
+        try:
+            result = await self._runtime.router.dispatch(
+                "file_delete",
+                {"path": workspace_path},
+                session_id="workspace-ui",
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        moved_to_trash = result.get("moved_to_trash") if isinstance(result, dict) else None
+        if not isinstance(moved_to_trash, str) or not moved_to_trash:
+            raise HTTPException(status_code=502, detail="workspace delete returned no trash path")
+
+        operation_id = result.get("operation_id") if isinstance(result, dict) else None
+        manifest = result.get("manifest") if isinstance(result, dict) else None
+        return WorkspaceDeleteResponse(
+            deleted_path=workspace_path,
+            moved_to_trash=moved_to_trash,
+            operation_id=operation_id if isinstance(operation_id, str) else None,
+            manifest=manifest if isinstance(manifest, str) else None,
+        )
 
     async def stream_chat(self, request: ChatRequest) -> AsyncGenerator[UIStreamEvent, None]:
         message = request.message.strip()

@@ -98,6 +98,13 @@ export type WorkspaceUploadResponse = {
   entry: WorkspaceEntry;
 };
 
+export type WorkspaceDeleteResponse = {
+  deleted_path: string;
+  moved_to_trash: string;
+  operation_id?: string | null;
+  manifest?: string | null;
+};
+
 export type UIStreamEvent = {
   event: string;
   conversation_id?: string | null;

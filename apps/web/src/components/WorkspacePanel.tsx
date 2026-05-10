@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {
+  deleteWorkspaceFile,
   fetchWorkspacePreview,
   fetchWorkspaceTree,
   uploadWorkspaceFile,
@@ -80,6 +81,8 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
   const [loadingTree, setLoadingTree] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deletingPath, setDeletingPath] = useState('');
+  const [notice, setNotice] = useState('');
   const [navigationMotion, setNavigationMotion] = useState<'forward' | 'back' | 'refresh'>('refresh');
 
   const selectedAttached = useMemo(
@@ -103,6 +106,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
 
   const previewFile = useCallback(async (path: string) => {
     setSelectedPath(path);
+    setNotice('');
     setLoadingPreview(true);
     try {
       const next = await fetchWorkspacePreview(path);
@@ -137,6 +141,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
     }
 
     setUploading(true);
+    setNotice('');
     let lastUploadedPath = '';
     try {
       for (const file of files) {
@@ -178,6 +183,32 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
     }
   };
 
+  const deleteFile = async (path: string, name: string) => {
+    if (!window.confirm(`把「${name}」移入回收站？`)) {
+      return;
+    }
+
+    setDeletingPath(path);
+    setNotice('');
+    try {
+      const result = await deleteWorkspaceFile(path);
+      if (attachedPaths.includes(path)) {
+        onDetach(path);
+      }
+      if (selectedPath === path) {
+        setSelectedPath('');
+        setPreview(null);
+      }
+      setNavigationMotion('refresh');
+      await loadTree(root);
+      setNotice(`已移入回收站 · ${result.operation_id ?? name}`);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingPath('');
+    }
+  };
+
   const rawUrl = preview ? workspaceRawUrl(preview.path) : '';
   const canShowImage = Boolean(preview?.is_binary && preview.mime_type?.startsWith('image/'));
 
@@ -211,6 +242,8 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
         </label>
       </div>
 
+      {notice ? <div className="workspace-note">{notice}</div> : null}
+
       <div key={`${root}:${navigationMotion}`} className={`workspace-list workspace-list-${navigationMotion}`} aria-busy={loadingTree}>
         {loadingTree ? <div className="workspace-empty">正在读取目录...</div> : null}
         {!loadingTree && entries.length === 0 ? <div className="workspace-empty">目录为空</div> : null}
@@ -230,18 +263,31 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
                 <em>{entry.kind === 'directory' ? '目录' : `${formatBytes(entry.size)} · ${entry.mime_type ?? '文件'}`}</em>
               </span>
               {entry.kind === 'file' ? (
-                <span
-                  className={`workspace-attach-pill${attached ? ' active' : ''}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (attached) {
-                      onDetach(entry.path);
-                    } else {
-                      onAttach(entry.path);
-                    }
-                  }}
-                >
-                  {attached ? '已附加' : '附加'}
+                <span className="workspace-entry-actions">
+                  <span
+                    className={`workspace-attach-pill${attached ? ' active' : ''}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (attached) {
+                        onDetach(entry.path);
+                      } else {
+                        onAttach(entry.path);
+                      }
+                    }}
+                  >
+                    {attached ? '已附加' : '附加'}
+                  </span>
+                  <span
+                    className={`workspace-delete-pill${deletingPath ? ' disabled' : ''}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (!deletingPath) {
+                        void deleteFile(entry.path, entry.name);
+                      }
+                    }}
+                  >
+                    {deletingPath === entry.path ? '删除中...' : '删除'}
+                  </span>
                 </span>
               ) : null}
             </button>
@@ -268,6 +314,14 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
               ) : (
                 <button type="button" className="ghost-button tiny" onClick={attachSelected}>附加到对话</button>
               )}
+              <button
+                type="button"
+                className="ghost-button tiny danger-button"
+                onClick={() => void deleteFile(preview.path, preview.name)}
+                disabled={Boolean(deletingPath)}
+              >
+                {deletingPath === preview.path ? '删除中...' : '删除'}
+              </button>
               <a href={rawUrl} target="_blank" rel="noreferrer">打开</a>
             </div>
             {preview.is_binary ? (

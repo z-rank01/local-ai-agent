@@ -29,6 +29,7 @@ from .schemas import (
     RegenerateRequest,
     UIStreamEvent,
     UpdateConversationRequest,
+    WorkspaceDeleteResponse,
     WorkspaceFilePreview,
     WorkspaceImportRequest,
     WorkspaceImportResponse,
@@ -252,6 +253,11 @@ async def workspace_file_preview(
 async def workspace_file_raw(path: str) -> FileResponse:
     target = get_chat_service().resolve_workspace_file(path)
     return FileResponse(target, filename=target.name)
+
+
+@app.delete("/api/workspace/file", response_model=WorkspaceDeleteResponse)
+async def delete_workspace_file(path: str) -> WorkspaceDeleteResponse:
+    return await get_chat_service().delete_workspace_file(path)
 
 
 @app.post("/api/chat/stream")

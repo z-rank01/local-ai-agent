@@ -6,6 +6,7 @@ import type {
   ModelInfo,
   ProviderInfo,
   UIStreamEvent,
+  WorkspaceDeleteResponse,
   WorkspaceFilePreview,
   WorkspaceTreeResponse,
   WorkspaceUploadResponse,
@@ -198,6 +199,20 @@ export async function uploadWorkspaceFile(
     throw new Error(`workspace upload failed: ${response.status}${detail ? ` ${detail}` : ''}`);
   }
   return (await response.json()) as WorkspaceUploadResponse;
+}
+
+export async function deleteWorkspaceFile(
+  path: string,
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<WorkspaceDeleteResponse> {
+  const response = await fetch(`${baseUrl}/api/workspace/file?path=${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`workspace delete failed: ${response.status}${detail ? ` ${detail}` : ''}`);
+  }
+  return (await response.json()) as WorkspaceDeleteResponse;
 }
 
 export function workspaceRawUrl(path: string, baseUrl = DEFAULT_BASE_URL): string {
