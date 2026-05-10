@@ -105,6 +105,29 @@ export type WorkspaceDeleteResponse = {
   manifest?: string | null;
 };
 
+export type WorkspaceTrashEntry = {
+  operation_id: string;
+  deleted_at?: string | null;
+  name: string;
+  relative_path: string;
+  workspace_path: string;
+  original_path: string;
+  trash_path: string;
+  item_type: 'file' | 'directory';
+  exists_in_trash: boolean;
+};
+
+export type WorkspaceTrashResponse = {
+  items: WorkspaceTrashEntry[];
+};
+
+export type WorkspaceRestoreResponse = {
+  operation_id: string;
+  restored_to: string;
+  workspace_path: string;
+  deleted_at?: string | null;
+};
+
 export type UIStreamEvent = {
   event: string;
   conversation_id?: string | null;

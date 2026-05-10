@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncGenerator, AsyncIterable
 
+import httpx
 from fastapi import HTTPException
 
 from core import config
@@ -30,6 +31,9 @@ from .schemas import (
     WorkspaceDeleteResponse,
     WorkspaceFilePreview,
     WorkspaceImportResponse,
+    WorkspaceRestoreResponse,
+    WorkspaceTrashEntry,
+    WorkspaceTrashResponse,
     WorkspaceTreeResponse,
     WorkspaceUploadResponse,
 )
@@ -239,6 +243,43 @@ class ChatSessionService:
             moved_to_trash=moved_to_trash,
             operation_id=operation_id if isinstance(operation_id, str) else None,
             manifest=manifest if isinstance(manifest, str) else None,
+        )
+
+    async def list_workspace_trash(self) -> WorkspaceTrashResponse:
+        payload = await self._call_skill_files("GET", "/trash/items")
+        raw_items = payload.get("items") if isinstance(payload, dict) else []
+        items: list[WorkspaceTrashEntry] = []
+        if isinstance(raw_items, list):
+            for raw_item in raw_items:
+                if not isinstance(raw_item, dict):
+                    continue
+                item_type = "directory" if str(raw_item.get("item_type")) == "directory" else "file"
+                items.append(
+                    WorkspaceTrashEntry(
+                        operation_id=str(raw_item.get("operation_id") or ""),
+                        deleted_at=str(raw_item.get("deleted_at") or "") or None,
+                        name=str(raw_item.get("name") or ""),
+                        relative_path=str(raw_item.get("relative_path") or ""),
+                        workspace_path=str(raw_item.get("workspace_path") or ""),
+                        original_path=str(raw_item.get("original_path") or ""),
+                        trash_path=str(raw_item.get("trash_path") or ""),
+                        item_type=item_type,
+                        exists_in_trash=bool(raw_item.get("exists_in_trash", False)),
+                    )
+                )
+        return WorkspaceTrashResponse(items=items)
+
+    async def restore_workspace_trash_item(self, operation_id: str) -> WorkspaceRestoreResponse:
+        payload = await self._call_skill_files(
+            "POST",
+            "/trash/restore",
+            json_body={"operation_id": operation_id},
+        )
+        return WorkspaceRestoreResponse(
+            operation_id=str(payload.get("operation_id") or operation_id),
+            restored_to=str(payload.get("restored_to") or ""),
+            workspace_path=str(payload.get("workspace_path") or ""),
+            deleted_at=str(payload.get("deleted_at") or "") or None,
         )
 
     async def stream_chat(self, request: ChatRequest) -> AsyncGenerator[UIStreamEvent, None]:
@@ -980,6 +1021,32 @@ class ChatSessionService:
             if not candidate.exists():
                 return candidate
             index += 1
+
+    async def _call_skill_files(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, object] | None = None,
+    ) -> dict:
+        url = f"{config.SKILL_FILES_URL.rstrip('/')}{path}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.request(method, url, json=json_body)
+
+        if response.status_code >= 400:
+            try:
+                detail = response.json().get("detail", response.text)
+            except ValueError:
+                detail = response.text or f"HTTP {response.status_code}"
+            raise HTTPException(status_code=response.status_code, detail=str(detail))
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="skill-files returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail="skill-files returned invalid payload")
+        return payload
 
     @staticmethod
     def _guess_mime_type(target: Path) -> str | None:

@@ -33,6 +33,8 @@ from .schemas import (
     WorkspaceFilePreview,
     WorkspaceImportRequest,
     WorkspaceImportResponse,
+    WorkspaceRestoreResponse,
+    WorkspaceTrashResponse,
     WorkspaceTreeResponse,
     WorkspaceUploadResponse,
 )
@@ -258,6 +260,16 @@ async def workspace_file_raw(path: str) -> FileResponse:
 @app.delete("/api/workspace/file", response_model=WorkspaceDeleteResponse)
 async def delete_workspace_file(path: str) -> WorkspaceDeleteResponse:
     return await get_chat_service().delete_workspace_file(path)
+
+
+@app.get("/api/workspace/trash", response_model=WorkspaceTrashResponse)
+async def workspace_trash() -> WorkspaceTrashResponse:
+    return await get_chat_service().list_workspace_trash()
+
+
+@app.post("/api/workspace/trash/{operation_id}/restore", response_model=WorkspaceRestoreResponse)
+async def restore_workspace_trash_item(operation_id: str) -> WorkspaceRestoreResponse:
+    return await get_chat_service().restore_workspace_trash_item(operation_id)
 
 
 @app.post("/api/chat/stream")

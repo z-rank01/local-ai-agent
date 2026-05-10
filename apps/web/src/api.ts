@@ -8,6 +8,8 @@ import type {
   UIStreamEvent,
   WorkspaceDeleteResponse,
   WorkspaceFilePreview,
+  WorkspaceRestoreResponse,
+  WorkspaceTrashResponse,
   WorkspaceTreeResponse,
   WorkspaceUploadResponse,
 } from './types';
@@ -213,6 +215,27 @@ export async function deleteWorkspaceFile(
     throw new Error(`workspace delete failed: ${response.status}${detail ? ` ${detail}` : ''}`);
   }
   return (await response.json()) as WorkspaceDeleteResponse;
+}
+
+export function fetchWorkspaceTrash(
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<WorkspaceTrashResponse> {
+  return requestJson<WorkspaceTrashResponse>('/api/workspace/trash', undefined, baseUrl);
+}
+
+export async function restoreWorkspaceTrashItem(
+  operationId: string,
+  baseUrl = DEFAULT_BASE_URL,
+): Promise<WorkspaceRestoreResponse> {
+  const response = await fetch(
+    `${baseUrl}/api/workspace/trash/${encodeURIComponent(operationId)}/restore`,
+    {method: 'POST'},
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`workspace restore failed: ${response.status}${detail ? ` ${detail}` : ''}`);
+  }
+  return (await response.json()) as WorkspaceRestoreResponse;
 }
 
 export function workspaceRawUrl(path: string, baseUrl = DEFAULT_BASE_URL): string {

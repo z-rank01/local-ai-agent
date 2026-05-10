@@ -48,6 +48,10 @@ class DeleteRequest(BaseModel):
     path: str
 
 
+class RestoreTrashRequest(BaseModel):
+    operation_id: str
+
+
 class RenameRequest(BaseModel):
     src: str
     dst: str
@@ -112,6 +116,28 @@ async def file_delete(req: DeleteRequest):
         raise HTTPException(status_code=403, detail=str(exc))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/trash/items")
+async def trash_items():
+    try:
+        return {"items": _trash.list_items()}
+    except Exception as exc:
+        logger.exception("trash_items failed")
+        raise HTTPException(status_code=500, detail=f"Failed to list trash items: {exc}")
+
+
+@app.post("/trash/restore")
+async def trash_restore(req: RestoreTrashRequest):
+    try:
+        return _trash.restore_from_trash(req.operation_id)
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.exception("trash_restore failed for %s", req.operation_id)
+        raise HTTPException(status_code=500, detail=f"Failed to restore trash item: {exc}")
 
 
 @app.post("/tool/file_rename")

@@ -144,6 +144,29 @@ class WorkspaceDeleteResponse(BaseModel):
     manifest: str | None = None
 
 
+class WorkspaceTrashEntry(BaseModel):
+    operation_id: str
+    deleted_at: str | None = None
+    name: str
+    relative_path: str
+    workspace_path: str
+    original_path: str
+    trash_path: str
+    item_type: Literal["file", "directory"]
+    exists_in_trash: bool = True
+
+
+class WorkspaceTrashResponse(BaseModel):
+    items: list[WorkspaceTrashEntry] = Field(default_factory=list)
+
+
+class WorkspaceRestoreResponse(BaseModel):
+    operation_id: str
+    restored_to: str
+    workspace_path: str
+    deleted_at: str | None = None
+
+
 class UIStreamEvent(BaseModel):
     event: str
     conversation_id: str | None = None
