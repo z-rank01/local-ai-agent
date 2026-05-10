@@ -20,13 +20,14 @@ logger = logging.getLogger("skill-files")
 
 _WORKSPACE = "/workspace"
 _TRASH = "/trash"
+_AUDIT_LOG = "/logs/audit.jsonl"
 _RUNTIME_CONFIG_PATH = Path(os.environ.get("RUNTIME_CONFIG_PATH", "/config/runtime.yaml"))
 _DEFAULT_TRASH_RETENTION_DAYS = 30
 _DEFAULT_TRASH_CLEANUP_INTERVAL_SECONDS = 3600
 
 _guard = PathGuard(_WORKSPACE)
 _file_ops = FileOps(_guard)
-_trash = TrashManager(_WORKSPACE, _TRASH)
+_trash = TrashManager(_WORKSPACE, _TRASH, audit_log_path=_AUDIT_LOG)
 _git = GitOps(_WORKSPACE)
 
 _AUTO_GIT = os.environ.get("AUTO_GIT_COMMIT", "true").lower() == "true"

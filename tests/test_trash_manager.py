@@ -18,8 +18,10 @@ class TrashManagerTests(unittest.TestCase):
         base = Path(self._temp_dir.name)
         self.workspace = base / "workspace"
         self.trash = base / "trash"
+        self.audit_log = base / "logs" / "audit.jsonl"
         (self.workspace / "docs").mkdir(parents=True)
-        self.manager = TrashManager(str(self.workspace), str(self.trash))
+        self.audit_log.parent.mkdir(parents=True, exist_ok=True)
+        self.manager = TrashManager(str(self.workspace), str(self.trash), audit_log_path=str(self.audit_log))
 
     def tearDown(self) -> None:
         self._temp_dir.cleanup()
@@ -71,6 +73,38 @@ class TrashManagerTests(unittest.TestCase):
         self.assertIn(old_result["operation_id"], cleanup["operation_ids"])
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["operation_id"], new_result["operation_id"])
+
+    def test_list_and_restore_legacy_flat_trash_items_using_audit_log(self) -> None:
+        legacy_name = "20260510T023924Z_report.txt"
+        legacy_entry = self.trash / legacy_name
+        legacy_entry.parent.mkdir(parents=True, exist_ok=True)
+        legacy_entry.write_text("legacy", encoding="utf-8")
+        self.audit_log.write_text(
+            json.dumps(
+                {
+                    "ts": "2026-05-10T02:39:24+00:00",
+                    "event": "file_delete",
+                    "session_id": "workspace-ui",
+                    "params": {"path": "/workspace/docs/report.txt"},
+                    "status": "ok",
+                },
+                ensure_ascii=False,
+            ) + "\n",
+            encoding="utf-8",
+        )
+
+        items = self.manager.list_items()
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["operation_id"], legacy_name)
+        self.assertEqual(items[0]["workspace_path"], "/workspace/docs/report.txt")
+
+        restore_result = self.manager.restore_from_trash(legacy_name)
+
+        restored = self.workspace / "docs" / "report.txt"
+        self.assertTrue(restored.exists())
+        self.assertEqual(restored.read_text(encoding="utf-8"), "legacy")
+        self.assertEqual(restore_result["workspace_path"], "/workspace/docs/report.txt")
 
 
 if __name__ == "__main__":

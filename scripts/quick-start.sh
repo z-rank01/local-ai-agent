@@ -90,6 +90,13 @@ skill_runner_healthy() {
     curl -sf --max-time 3 "http://localhost:${port}/health" >/dev/null 2>&1
 }
 
+skill_files_has_route() {
+    local route="$1" port url
+    port=$(read_env_value SKILL_FILES_PORT 9101)
+    url="http://localhost:${port}"
+    service_has_route "$url" "$route"
+}
+
 bff_ready() {
     local host port
     host=$(read_env_value BFF_HOST 127.0.0.1)
@@ -103,7 +110,7 @@ bff_websearch_enabled() {
     curl -sf --max-time 3 "${url}/api/status" | grep -q '"websearch_enabled"[[:space:]]*:[[:space:]]*true'
 }
 
-bff_has_route() {
+service_has_route() {
     local url="$1" route="$2"
     curl -sf --max-time 3 "${url}/openapi.json" | grep -Fq "\"${route}\""
 }
@@ -433,6 +440,22 @@ if ! wait_until "$TIMEOUT_SEC" "Polling skill-files and skill-runner health" 3 c
 fi
 ok "All skill services are healthy"
 
+REQUIRED_SKILL_FILES_ROUTE="/trash/items"
+if ! skill_files_has_route "$REQUIRED_SKILL_FILES_ROUTE"; then
+    warn "skill-files is healthy but missing route $REQUIRED_SKILL_FILES_ROUTE. Rebuilding stale container."
+    if ! (cd "$PROJECT_ROOT" && docker compose up -d --build skill-files) 2>&1 | sed 's/^/   /'; then
+        fail "docker compose up --build skill-files failed"
+        exit 1
+    fi
+
+    if ! wait_until "$TIMEOUT_SEC" "Waiting for refreshed skill-files API" 3 skill_files_has_route "$REQUIRED_SKILL_FILES_ROUTE"; then
+        fail "skill-files did not expose route $REQUIRED_SKILL_FILES_ROUTE within ${TIMEOUT_SEC}s"
+        exit 1
+    fi
+
+    ok "skill-files API refreshed with route $REQUIRED_SKILL_FILES_ROUTE"
+fi
+
 step "Checking Python frontend adapter (BFF)"
 BFF_HOST=$(read_env_value BFF_HOST 127.0.0.1)
 BFF_PORT=$(read_env_value BFF_PORT 9510)
@@ -453,7 +476,7 @@ if bff_ready; then
         NEED_BFF_RESTART=1
     fi
 
-    if ! bff_has_route "$BFF_URL" "$REQUIRED_BFF_ROUTE"; then
+    if ! service_has_route "$BFF_URL" "$REQUIRED_BFF_ROUTE"; then
         warn "BFF is healthy but missing route $REQUIRED_BFF_ROUTE. Restarting stale BFF."
         NEED_BFF_RESTART=1
     fi

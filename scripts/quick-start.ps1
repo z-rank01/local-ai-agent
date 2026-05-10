@@ -150,7 +150,7 @@ function Get-BffWebSearchEnabled {
     }
 }
 
-function Test-BffRouteExists {
+function Test-ServiceRouteExists {
     param(
         [string]$BaseUrl,
         [string]$RoutePath
@@ -530,6 +530,8 @@ Write-Step "Waiting for skill services to become healthy"
 
 $sfPort = Get-EnvValue -FilePath $envFile -Key "SKILL_FILES_PORT" -Default "9101"
 $srPort = Get-EnvValue -FilePath $envFile -Key "SKILL_RUNNER_PORT" -Default "9102"
+$skillFilesUrl = "http://localhost:${sfPort}"
+$requiredSkillFilesRoute = "/trash/items"
 
 $ready = Wait-Until -Condition {
     try {
@@ -545,6 +547,42 @@ if (-not $ready) {
     exit 1
 }
 Write-Ok "All skill services are healthy"
+
+if (-not (Test-ServiceRouteExists -BaseUrl $skillFilesUrl -RoutePath $requiredSkillFilesRoute)) {
+    Write-Warn "skill-files is healthy but missing route $requiredSkillFilesRoute; rebuilding stale container."
+
+    Push-Location $projectRoot
+    try {
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & docker compose up -d --build skill-files 2>&1 | ForEach-Object { Write-Host "   $_" }
+        } finally {
+            $ErrorActionPreference = $prevEAP
+        }
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "docker compose up --build skill-files failed (exit code $LASTEXITCODE)"
+            exit 1
+        }
+    } finally {
+        Pop-Location
+    }
+
+    $ready = Wait-Until -Condition {
+        try {
+            $health = Invoke-WebRequest -Uri "$skillFilesUrl/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+            ($health.StatusCode -eq 200) -and (Test-ServiceRouteExists -BaseUrl $skillFilesUrl -RoutePath $requiredSkillFilesRoute)
+        } catch { $false }
+    } -Timeout $TimeoutSec -Label "Waiting for refreshed skill-files API"
+
+    if (-not $ready) {
+        Write-Fail "skill-files did not expose route $requiredSkillFilesRoute within ${TimeoutSec}s"
+        exit 1
+    }
+
+    Write-Ok "skill-files API refreshed with route $requiredSkillFilesRoute"
+}
 
 # 7. Start BFF if needed
 Write-Step "Checking Python frontend adapter (BFF)"
@@ -574,7 +612,7 @@ if ($bffHealthy) {
         $needsRestart = $true
     }
 
-    if (-not (Test-BffRouteExists -BaseUrl $bffUrl -RoutePath $requiredBffRoute)) {
+    if (-not (Test-ServiceRouteExists -BaseUrl $bffUrl -RoutePath $requiredBffRoute)) {
         Write-Warn "BFF is healthy but missing route $requiredBffRoute; restarting stale process."
         $needsRestart = $true
     }
