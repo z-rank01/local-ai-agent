@@ -222,6 +222,33 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('中断',self.service.get_messages(cid)[-1].content)
         self.assertFalse(self.service._active_conversations)
 
+    async def test_tool_params_redacted_in_display_but_not_protocol(self):
+        parent=self
+        secret='SECRET-TOKEN-123'
+        call={'id':'c1','type':'function','function':{'name':'shell_exec','arguments':json.dumps({'command':'echo hi','api_key':secret})}}
+        class ToolModel:
+            cloud=True
+            model='qwen3.5-flash'
+            async def chat_stream_with_tools(self,messages,tools=None):
+                parent.inputs.append(True)
+                if not any(m.get('role')=='tool' for m in messages):
+                    yield '',{'role':'assistant','content':'','tool_calls':[call]}
+                else:
+                    yield 'done',None
+                    yield '',{'role':'assistant','content':'done'}
+            async def close(self): pass
+        self.inputs=[]
+        self.runtime.models.clients['qwen:qwen3.5-flash']=ToolModel()
+        events=[e async for e in self.service.stream_chat(ChatRequest(message='run',model='qwen3.5-flash'))]
+        self.assertNotIn(secret,json.dumps([e.model_dump() for e in events],ensure_ascii=False))
+        cid=events[0].conversation_id
+        tool_rows=[m for m in self.service.get_messages(cid) if m.role=='tool']
+        self.assertTrue(tool_rows)
+        self.assertEqual(tool_rows[0].params.get('api_key'),'***')
+        self.assertEqual(tool_rows[0].params.get('command'),'echo hi')
+        protocol_meta=[m.metadata for m in self.runtime.store.get_messages(cid) if m.role=='protocol']
+        self.assertIn(secret,json.dumps(protocol_meta))
+
 class AgentTests(unittest.IsolatedAsyncioTestCase):
     def agent(self, replies, result=None, max_rounds=3):
         parent=self
@@ -320,5 +347,17 @@ class EditTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'唯一匹配'):
             self.ops.edit(str(path),'重复短句','新句',before['sha256'])
         self.assertEqual(path.read_bytes(),original)
+
+class RedactionTests(unittest.TestCase):
+    def test_secret_like_keys_masked_recursively(self):
+        from bff.service import _redact_params
+        params={'command':'echo ok','api_key':'SECRET','nested':{'headers':{'Authorization':'Bearer SECRET'},'n':1},'items':[{'token':'SECRET'}]}
+        redacted=_redact_params(params)
+        self.assertEqual(redacted['command'],'echo ok')
+        self.assertEqual(redacted['api_key'],'***')
+        self.assertEqual(redacted['nested']['headers']['Authorization'],'***')
+        self.assertEqual(redacted['nested']['n'],1)
+        self.assertEqual(redacted['items'][0]['token'],'***')
+        self.assertEqual(params['api_key'],'SECRET')
 
 if __name__=='__main__': unittest.main()

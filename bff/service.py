@@ -44,6 +44,22 @@ from .schemas import (
 
 _PREVIEW_ENCODINGS = ("utf-8", "gbk", "gb2312", "gb18030", "big5", "latin-1")
 
+_SECRET_PARAM_KEY = re.compile(r"key|token|secret|password|passwd|credential|authorization|cookie", re.IGNORECASE)
+
+
+def _redact_params(value):
+    """Mask secret-looking parameter values in display copies.
+
+    Execution and protocol replay keep the raw arguments the model produced;
+    only UI events and tool row metadata are redacted. The audit log keeps raw
+    values as the local forensic record.
+    """
+    if isinstance(value, dict):
+        return {k: "***" if _SECRET_PARAM_KEY.search(str(k)) else _redact_params(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_params(item) for item in value]
+    return value
+
 
 def exclusive_turn(method):
     async def guarded(self, *args, **kwargs):
@@ -729,7 +745,8 @@ class ChatSessionService:
                     elif event.kind == 'tool_start':
                         cid = event.data['call_id']
                         active_tools[cid] = event.data
-                        yield emit('tool.started', block_id=cid, data={**event.data, 'summary': event.data['name']})
+                        yield emit('tool.started', block_id=cid, data={**event.data,
+                            'params': _redact_params(event.data.get('params', {})), 'summary': event.data['name']})
                     elif event.kind == 'tool_progress':
                         running = active_tools.get(event.data['call_id'])
                         if running is not None and event.data.get('event') == 'output':
@@ -739,11 +756,12 @@ class ChatSessionService:
                         yield emit('tool.progress', block_id=event.data['call_id'], data=event.data)
                     elif event.kind == 'tool_end':
                         data = event.data
+                        display_params = _redact_params(data.get('params', {}))
                         saved = save('tool', '[' + data['status'] + '] ' + data['name'] + (' 已完成' if data['status']=='ok' else ' 执行失败') + '\n' + data.get('result_preview',''), tool_name=data['name'],
-                            tool_result=data.get('result'), metadata={**meta, 'params': data.get('params',{}), 'status': data['status']})
+                            tool_result=data.get('result'), metadata={**meta, 'params': display_params, 'status': data['status']})
                         active_tools.pop(data['call_id'], None)
                         yield emit('tool.completed', block_id=data['call_id'], message_id=saved.id,
-                            data={**data, 'detail': data.get('result_preview',''), 'headline': event.text})
+                            data={**data, 'params': display_params, 'detail': data.get('result_preview',''), 'headline': event.text})
                     elif event.kind == 'error':
                         partial = text + ('\n\n' if text else '') + '本轮未完成：' + event.text
                         saved = save('assistant', partial, thinking=reasoning, metadata={**meta, 'status':'error'})
@@ -763,7 +781,7 @@ class ChatSessionService:
                 save('protocol', metadata={**meta, 'message':{'role':'tool', 'tool_call_id':tool['call_id'],
                     'tool_name':tool['name'], 'content':json.dumps(result,ensure_ascii=False)}})
                 save('tool', '[error] 执行已中断，请核查已有结果。', tool_name=tool['name'],
-                    tool_result=result, metadata={**meta,'status':'error','params':tool['params']})
+                    tool_result=result, metadata={**meta,'status':'error','params':_redact_params(tool.get('params', {}))})
 
     def _ensure_conversation(self, conversation_id: str | None, title: str | None) -> Conversation:
         if conversation_id:
