@@ -76,6 +76,7 @@ type AppearanceSettings = {
 };
 
 const APPEARANCE_STORAGE_KEY = 'local-ai-agent.appearance.v1';
+const ACTIVE_CONVERSATION_STORAGE_KEY = 'local-ai-agent.activeConversation.v1';
 
 const DEFAULT_UI_FONT = 'Inter, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
 const DEFAULT_CODE_FONT = '"Cascadia Code", "JetBrains Mono", "Sarasa Mono SC", "SFMono-Regular", Consolas, "Liberation Mono", monospace';
@@ -523,10 +524,6 @@ function assistantGroupStatus(blocks: TranscriptBlock[]): TranscriptBlock['statu
   return undefined;
 }
 
-function orderedAssistantBlocks(blocks: TranscriptBlock[]): TranscriptBlock[] {
-  return blocks;
-}
-
 function buildAssistantTimeline(
   blocks: TranscriptBlock[],
   groupStatus: TranscriptBlock['status'] | undefined,
@@ -659,7 +656,7 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
         text: message.content,
         messageId: message.id,
         createdAt: message.created_at,
-        status: message.status === 'error' ? 'error' : 'ok',
+        status: message.status === 'error' || message.status === 'interrupted' ? 'error' : 'ok',
         responseToMessageId: message.response_to_message_id,
         versionNumber: message.version_number,
         versionCount: message.version_count,
@@ -771,7 +768,7 @@ function AssistantTranscriptItem({
 }) {
   const status = assistantGroupStatus(group.blocks);
   const createdAt = group.blocks.find((block) => block.createdAt)?.createdAt;
-  const ordered = orderedAssistantBlocks(group.blocks);
+  const ordered = group.blocks;
   const hasAnswer = ordered.some((block) => block.kind === 'assistant');
   const answerBlock = [...ordered].reverse().find((block) => block.kind === 'assistant');
   const answerText = ordered.filter(block => block.kind === 'assistant').map(block => block.text).join('\n\n');
@@ -1191,6 +1188,8 @@ function ModelPicker({
               role="option"
               aria-selected={model.id === selectedModel?.id}
               className={model.id === selectedModel?.id ? 'active' : ''}
+              disabled={model.status === 'missing_key'}
+              title={model.status === 'missing_key' ? '请先在“模型设置”中配置密钥' : undefined}
               onClick={() => {
                 onChange(model.id);
                 setOpen(false);
@@ -1240,7 +1239,7 @@ export default function App() {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const suppressNextAutoScrollRef = useRef(false);
-  const activeConversationIdRef = useRef<string | null>(null);
+  const activeConversationIdRef = useRef<string | null>(window.localStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY));
 
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId) ?? models.find((model) => model.default) ?? models[0],
@@ -1973,6 +1972,11 @@ export default function App() {
 
   useEffect(() => {
     activeConversationIdRef.current = conversationId;
+    if (conversationId) {
+      window.localStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, conversationId);
+    } else {
+      window.localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY);
+    }
   }, [conversationId]);
 
   useEffect(() => {
@@ -2323,7 +2327,7 @@ export default function App() {
         />
       ) : null}
 
-      {modelSettingsOpen ? <ModelSettingsDialog model={selectedModel} status={status}
+      {modelSettingsOpen ? <ModelSettingsDialog model={selectedModel} status={status} busy={busy}
         onClose={() => setModelSettingsOpen(false)}
         onSaved={async () => {const [nextModels, nextStatus] = await Promise.all([fetchModels(), fetchStatus()]); setModels(nextModels); setStatus(nextStatus);}} /> : null}
       {toast ? <div className="toast" role="status">{toast}</div> : null}

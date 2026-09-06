@@ -58,22 +58,6 @@ export function fetchConversations(
   return requestJson<ConversationSummary[]>(`/api/conversations${suffix}`, undefined, baseUrl);
 }
 
-export function createConversation(
-  title = '新对话',
-  model?: string | null,
-  baseUrl = DEFAULT_BASE_URL,
-): Promise<ConversationSummary> {
-  return requestJson<ConversationSummary>(
-    '/api/conversations',
-    {
-      method: 'POST',
-      headers: {'content-type': 'application/json'},
-      body: JSON.stringify({title, model}),
-    },
-    baseUrl,
-  );
-}
-
 export function updateConversationTitle(
   conversationId: string,
   title: string,

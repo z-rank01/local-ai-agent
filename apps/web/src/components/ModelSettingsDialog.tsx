@@ -4,8 +4,8 @@ import {createPortal} from 'react-dom';
 import type {AppStatus, ModelInfo} from '../types';
 import {ModelCredentials} from './ModelCredentials';
 
-export function ModelSettingsDialog({model, status, onClose, onSaved}: {
-  model?: ModelInfo; status: AppStatus | null; onClose: () => void; onSaved: () => Promise<void>;
+export function ModelSettingsDialog({model, status, busy = false, onClose, onSaved}: {
+  model?: ModelInfo; status: AppStatus | null; busy?: boolean; onClose: () => void; onSaved: () => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
@@ -56,7 +56,7 @@ export function ModelSettingsDialog({model, status, onClose, onSaved}: {
             <label className="capability-toggle">
               <span>思考输出</span>
               <input type="checkbox" role="switch" aria-label="思考输出" checked={model.thinking_enabled}
-                disabled={saving || !status || !model.thinking_supported}
+                disabled={saving || busy || !status || !model.thinking_supported}
                 onChange={event => void changeSetting({thinking_enabled: event.target.checked})} />
             </label>
             <p>{model.thinking_supported ? '开启后请求模型返回思考内容，并在对话中折叠展示；可能增加响应时间和费用。按模型保存，独立于工具开关。' : '当前模型未提供思考开关；若模型返回思考内容，仍会照常展示。'}</p>
@@ -64,13 +64,14 @@ export function ModelSettingsDialog({model, status, onClose, onSaved}: {
               <label className="capability-toggle">
                 <span>允许云端使用当前工作区工具</span>
                 <input type="checkbox" role="switch" aria-label="允许云端使用当前工作区工具" checked={status?.workspace_cloud_allowed ?? false}
-                  disabled={saving || !status}
+                  disabled={saving || busy || !status}
                   onChange={event => void changeSetting({workspace_cloud_allowed: event.target.checked})} />
               </label>
               <p>开启即允许云端模型调用工作区工具；读取的文件内容与工具结果可能发送给所选云端服务，工具可执行代码及修改文件。授权适用于此工作区的所有云端模型及会话，重启后保留。</p>
               <p className="capability-workspace">工作区：{status?.workspace_path ?? '正在连接…'}</p>
               <p>关闭后停止后续工具调用；此前已发送的内容不会撤回。若任务要求只读，仍应遵守只读要求。</p>
             </> : <p>本地模型可使用工作区工具，无需云端授权。</p>}
+            {busy ? <p>正在生成回答，开关暂不可修改；停止或完成后再更改。</p> : null}
             {notice ? <p role="status">{notice}</p> : null}
           </section>
           {model.provider_id === 'ollama'
