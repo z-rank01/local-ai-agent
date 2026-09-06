@@ -132,6 +132,9 @@ class ContextManager:
             work_msgs = messages
 
         safe_boundary = max(0, len(work_msgs) - self._preserve_recent)
+        # Keep whole user turns; never split a tool request from its responses.
+        while safe_boundary > 0 and work_msgs[safe_boundary].get('role') != 'user':
+            safe_boundary -= 1
         if safe_boundary < 2:
             return messages
 

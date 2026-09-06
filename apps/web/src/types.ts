@@ -1,4 +1,7 @@
 export type AppStatus = {
+  model_calls_used?: number;
+  model_call_limit?: number;
+  workspace_cloud_allowed?: boolean;
   status: string;
   model: string;
   workspace_path: string;
@@ -15,6 +18,9 @@ export type ConversationSummary = {
 };
 
 export type MessageRecord = {
+  model?: string;
+  status?: string;
+  params?: Record<string, unknown>;
   id: string;
   conversation_id: string;
   role: string;
@@ -51,6 +57,7 @@ export type ProviderInfo = {
 };
 
 export type ChatRequest = {
+  request_id?: string;
   message: string;
   conversation_id?: string | null;
   title?: string | null;

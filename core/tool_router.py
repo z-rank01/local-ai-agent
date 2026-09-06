@@ -107,9 +107,40 @@ class ToolRouter:
         self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
         return result
 
+    async def dispatch_stream(self, tool, params, session_id='default'):
+        if tool not in ('shell_exec', 'code_exec', 'skill_run'):
+            yield {'event':'result', 'result':await self.dispatch(tool, params, session_id)}
+            return
+        if tool not in self._registry.known_tools:
+            raise ValueError('Unknown tool')
+        self._policy.check(tool, params)
+        backend = self._registry.get_backend(tool)
+        async with self._client.stream('POST', self._backend_urls[backend] + f'/tool/{tool}/stream', json=params) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line.strip():
+                    yield json.loads(line)
+
     def _dispatch_local(self, tool: str, params: dict[str, Any]) -> Any:
         if self._store is None:
             raise RuntimeError(f"Tool {tool!r} requires conversation storage")
+        if getattr(self, 'cloud', False):
+            from .agent import model_projection
+            def safe_messages(cid):
+                return model_projection(self._store.messages_as_dicts(cid, cloud=True))
+            if tool == 'conversation_read':
+                cid = str(params.get('conversation_id', ''))
+                messages = safe_messages(cid)[-min(30, max(1, int(params.get('max_messages', 12)))):]
+                return {'conversation': {'id': cid, 'title': '云端可用会话'}, 'message_count': len(messages), 'messages': messages}
+            if tool == 'conversation_search':
+                query = str(params.get('query', ''))
+                results = []
+                for conv in self._store.list_conversations(limit=200):
+                    messages = safe_messages(conv.id)
+                    match = next((m for m in messages if query.casefold() in str(m.get('content','')).casefold()), None)
+                    if match:
+                        results.append({'conversation_id':conv.id, 'title':'云端可用会话', 'snippet':self._excerpt_match(str(match.get('content','')),query)})
+                return {'query':query,'results':results[:min(20,int(params.get('limit',5)))], 'count':len(results)}
         if tool == "conversation_search":
             return self._conversation_search(params)
         if tool == "conversation_read":

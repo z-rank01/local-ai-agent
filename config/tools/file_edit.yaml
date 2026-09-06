@@ -1,0 +1,16 @@
+name: file_edit
+backend: skill-files
+tier: core
+description: 精确修改 UTF-8 文本文件。先用 file_read 取得 sha256，传入 expected_sha256、唯一匹配的 old_text 和 new_text。内容变化或匹配多处时会拒绝；返回实际 diff。保留其他内容和换行。
+parameters:
+  type: object
+  properties:
+    path:
+      type: string
+    expected_sha256:
+      type: string
+    old_text:
+      type: string
+    new_text:
+      type: string
+  required: [path, expected_sha256, old_text, new_text]

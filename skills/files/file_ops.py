@@ -1,3 +1,11 @@
+import hashlib
+import difflib
+import tempfile
+import threading
+import os
+
+_FILE_LOCK = threading.RLock()
+
 from pathlib import Path
 
 from path_guard import PathGuard
@@ -93,7 +101,7 @@ class FileOps:
             )
             for enc in encodings:
                 try:
-                    return raw.decode(enc)
+                    return {'content':raw.decode(enc), 'sha256':hashlib.sha256(raw).hexdigest(), 'encoding':enc, 'path':path}
                 except (UnicodeDecodeError, LookupError):
                     continue
             return raw.decode("utf-8", errors="replace")
@@ -112,6 +120,37 @@ class FileOps:
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding=encoding)
         return {"written": str(resolved), "bytes": len(content.encode(encoding))}
+
+    def edit(self, path, old_text, new_text, expected_sha256):
+        resolved = self._guard.resolve(path)
+        with _FILE_LOCK:
+            original = resolved.read_bytes()
+            if hashlib.sha256(original).hexdigest() != expected_sha256:
+                raise ValueError('文件已变化，请重新读取后再修改')
+            if not old_text:
+                raise ValueError('old_text 不能为空')
+            try:
+                text = original.decode('utf-8')
+            except UnicodeDecodeError:
+                raise ValueError('精确编辑仅支持 UTF-8；原文件未改变，请先显式转换编码') from None
+            if text.count(old_text) != 1:
+                raise ValueError('原文必须唯一匹配，请读取更多上下文后重试')
+            updated = text.replace(old_text, new_text, 1)
+            fd, temporary = tempfile.mkstemp(dir=resolved.parent)
+            try:
+                with os.fdopen(fd, 'wb') as stream:
+                    stream.write(updated.encode('utf-8'))
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                if resolved.read_bytes() != original:
+                    raise ValueError('文件在修改期间变化，请重新读取')
+                os.replace(temporary, resolved)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+            diff = ''.join(difflib.unified_diff(text.splitlines(True), updated.splitlines(True), fromfile=path, tofile=path))
+            return {'path':path, 'sha256':hashlib.sha256(updated.encode('utf-8')).hexdigest(), 'diff':diff,
+                    'changed':text != updated}
 
     def list_dir(self, path: str) -> list[dict]:
         resolved = self._guard.resolve(path)

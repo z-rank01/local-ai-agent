@@ -19,6 +19,9 @@ class MessageRecord(BaseModel):
     id: str
     conversation_id: str
     role: str
+    model: str = ""
+    params: dict = Field(default_factory=dict)
+    status: str = ""
     content: str = ""
     thinking: str = ""
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
@@ -66,6 +69,9 @@ class WorkspaceFilePreview(BaseModel):
 
 
 class AppStatus(BaseModel):
+    model_calls_used: int = 0
+    model_call_limit: int = 0
+    workspace_cloud_allowed: bool = False
     status: str = "ok"
     model: str
     workspace_path: str
@@ -103,10 +109,14 @@ class UpdateConversationRequest(BaseModel):
 
 
 class RegenerateRequest(BaseModel):
+    provider_id: str | None = None
+    model: str | None = None
     message_id: str | None = None
 
 
 class EditMessageRequest(BaseModel):
+    provider_id: str | None = None
+    model: str | None = None
     content: str = Field(min_length=1)
 
 
@@ -115,6 +125,7 @@ class ActivateMessageVersionRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    request_id: str | None = Field(default=None, min_length=8, max_length=128)
     message: str = Field(min_length=1)
     conversation_id: str | None = None
     title: str | None = None

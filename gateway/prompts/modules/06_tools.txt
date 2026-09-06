@@ -10,7 +10,7 @@
 - file_delete  — 软删除（可恢复）。参数：path。⚠ 无法删除 /workspace/skills/ 文件。
 - code_exec    — 在沙盒中运行 Python。参数：code。可选：timeout。用于所有计算。
 - pip_install  — 动态安装 Python 包。参数：packages（列表）。可选：timeout。
-- shell_exec   — 运行 shell 命令（仅诊断用）。参数：command。
+- shell_exec   — 运行 shell 命令（容器内脚本、测试与搜索）。参数：command。
 - git_status   — 工作区 git 状态。无参数。
 - git_commit   — 提交所有更改。参数：message。
 - conversation_search — 搜索其他历史会话。参数：query。可选：limit（默认 5，最大 10）。

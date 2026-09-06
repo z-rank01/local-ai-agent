@@ -147,15 +147,14 @@ def _validate_skill_file(skill_path: Path) -> tuple[dict | None, str]:
     if meta is None:
         return None, "技能文件缺少有效的 SKILL_METADATA 字典（必须包含 'description' 字段）"
 
-    # Check run() function exists
+    # Parse without executing skill code inside the long-lived API server.
+    import ast
     try:
-        spec = importlib.util.spec_from_file_location("_validate", skill_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        if not callable(getattr(mod, "run", None)):
-            return None, "技能文件缺少 run(params) 函数"
+        tree = ast.parse(skill_path.read_text(encoding='utf-8'))
+        if not any(isinstance(n, ast.FunctionDef) and n.name == 'run' for n in tree.body):
+            return None, '技能文件缺少 run(params) 函数'
     except Exception as exc:
-        return None, f"技能文件加载失败: {exc}"
+        return None, f'技能语法错误: {exc}'
 
     return meta, ""
 
@@ -533,15 +532,15 @@ def update_skill(skill_name: str, code: str | None = None, auto_install_deps: bo
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
-def _load_metadata(skill_file: Path) -> dict | None:
-    """Import a skill file in-process just to read its SKILL_METADATA constant."""
+def _load_metadata(skill_path: Path) -> dict | None:
+    import ast
     try:
-        spec = importlib.util.spec_from_file_location("_probe", skill_file)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        meta = getattr(mod, "SKILL_METADATA", None)
-        if isinstance(meta, dict) and "description" in meta:
-            return meta
-    except Exception as exc:
-        logger.warning("Could not load metadata from %s: %s", skill_file, exc)
+        tree = ast.parse(skill_path.read_text(encoding='utf-8'))
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'SKILL_METADATA' for t in node.targets):
+                value = ast.literal_eval(node.value)
+                if isinstance(value, dict) and 'description' in value:
+                    return value
+    except (OSError, ValueError, SyntaxError):
+        pass
     return None

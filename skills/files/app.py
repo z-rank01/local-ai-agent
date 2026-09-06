@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import time
@@ -149,7 +150,7 @@ async def file_read(req: ReadRequest):
         # result may be a str (text content) or a dict (unsupported binary metadata)
         if isinstance(result, dict):
             return result
-        return {"content": result}
+        return {"content": result, "sha256": hashlib.sha256(_file_ops._guard.resolve(req.path).read_bytes()).hexdigest(), "path": req.path}
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
     except (FileNotFoundError, IsADirectoryError) as exc:
@@ -168,6 +169,26 @@ async def file_write(req: WriteRequest):
         return result
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
+
+
+class EditRequest(BaseModel):
+    path: str
+    old_text: str
+    new_text: str
+    expected_sha256: str
+
+
+@app.post('/tool/file_edit')
+async def file_edit(req: EditRequest):
+    try:
+        result = _file_ops.edit(req.path, req.old_text, req.new_text, req.expected_sha256)
+        if _AUTO_GIT and result['changed']:
+            _git.auto_commit(f'agent: edit {req.path}')
+        return result
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except (ValueError, FileNotFoundError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @app.post("/tool/file_list")

@@ -12,7 +12,7 @@ import yaml
 
 logger = logging.getLogger("core.policy")
 
-_PATH_KEYS = frozenset({"path", "src", "dst", "directory"})
+_PATH_KEYS = frozenset({"path", "src", "dst", "directory", "cwd"})
 
 
 def _normalize_virtual_path(path: str) -> str:

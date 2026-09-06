@@ -1,3 +1,4 @@
+import {workspaceRawUrl} from '../api';
 import React, {useState} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -50,6 +51,12 @@ function CodeBlock({className, children, inline, node, ...props}: any) {
   );
 }
 
+function messageHref(href?: string) {
+  if (!href?.startsWith('/workspace/')) return href;
+  try { return workspaceRawUrl(decodeURI(href)); }
+  catch { return workspaceRawUrl(href); }
+}
+
 export function MarkdownMessage({content}: MarkdownMessageProps) {
   return (
     <ReactMarkdown
@@ -58,7 +65,7 @@ export function MarkdownMessage({content}: MarkdownMessageProps) {
       components={{
         code: CodeBlock,
         a: ({children, href}) => (
-          <a href={href} target="_blank" rel="noreferrer">
+          <a href={messageHref(href)} target="_blank" rel="noreferrer">
             {children}
           </a>
         ),

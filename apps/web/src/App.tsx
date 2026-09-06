@@ -16,6 +16,7 @@ import {
   updateConversationTitle,
 } from './api';
 import {MarkdownMessage} from './components/MarkdownMessage';
+import {ModelCredentials} from './components/ModelCredentials';
 import {WorkspacePanel} from './components/WorkspacePanel';
 import type {
   AppStatus,
@@ -522,10 +523,7 @@ function assistantGroupStatus(blocks: TranscriptBlock[]): TranscriptBlock['statu
 }
 
 function orderedAssistantBlocks(blocks: TranscriptBlock[]): TranscriptBlock[] {
-  return [
-    ...blocks.filter((block) => block.kind !== 'assistant'),
-    ...blocks.filter((block) => block.kind === 'assistant'),
-  ];
+  return blocks;
 }
 
 function buildAssistantTimeline(
@@ -580,7 +578,7 @@ function buildAssistantTimeline(
     toolAttempts.set(toolKey, attempt);
     const badges: string[] = [];
     if (attempt > 1) {
-      badges.push(`重试 ${attempt - 1}`);
+      badges.push(`第 ${attempt} 次调用`);
     }
     if ((block.status ?? groupStatus) === 'error') {
       badges.push('失败节点');
@@ -656,7 +654,7 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
       blocks.push({
         id: message.id,
         kind: 'assistant',
-        label: 'assistant',
+        label: message.model || 'assistant',
         text: message.content,
         messageId: message.id,
         createdAt: message.created_at,
@@ -677,6 +675,7 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
         summary: headline,
         messageId: message.id,
         toolResult: message.tool_result,
+        params: message.params,
         status: message.content.startsWith('[ok]') ? 'ok' : message.content.startsWith('[error]') ? 'error' : undefined,
         collapsible: true,
         collapsed: true,
@@ -715,6 +714,7 @@ function AssistantSection({block, onToggle, onOpenConversation}: {block: Transcr
   if (block.kind === 'assistant') {
     return (
       <div className="assistant-answer-section">
+        {block.label.includes(':') ? <small>{block.label}</small> : null}
         {block.text ? <MarkdownMessage content={block.text} /> : <LoadingDots label="正在组织回答..." />}
       </div>
     );
@@ -770,8 +770,8 @@ function AssistantTranscriptItem({
   const createdAt = group.blocks.find((block) => block.createdAt)?.createdAt;
   const ordered = orderedAssistantBlocks(group.blocks);
   const hasAnswer = ordered.some((block) => block.kind === 'assistant');
-  const answerBlock = ordered.find((block) => block.kind === 'assistant');
-  const answerText = answerBlock?.text ?? '';
+  const answerBlock = [...ordered].reverse().find((block) => block.kind === 'assistant');
+  const answerText = ordered.filter(block => block.kind === 'assistant').map(block => block.text).join('\n\n');
   const answerMessageId = answerBlock?.messageId ?? null;
   const versionNumber = answerBlock?.versionNumber ?? 1;
   const versionCount = answerBlock?.versionCount ?? 1;
@@ -1193,7 +1193,7 @@ function ModelPicker({
                 setOpen(false);
               }}
             >
-              <span>{model.provider_name} / {model.name}</span>
+              <span>{model.provider_name} / {model.name}{model.status === 'missing_key' ? ' · 待配置密钥' : ''}</span>
               {model.id === selectedModel?.id ? <em>当前</em> : null}
             </button>
           ))}
@@ -1353,6 +1353,13 @@ export default function App() {
     pendingAssistantBlockIdRef.current = null;
     const messages = await fetchMessages(targetId);
     setConversationId(targetId);
+    const summaries = await fetchConversations();
+    const modelId = summaries.find(item => item.id === targetId)?.model;
+    if (modelId) {
+      const catalog = await fetchModels();
+      const chosen = catalog.find(item => item.id === modelId || item.name === modelId);
+      if (chosen) setSelectedModelId(chosen.id);
+    }
     setBlocks(buildBlocksFromMessages(messages));
     setEditingMessage(null);
     setError('');
@@ -1455,6 +1462,9 @@ export default function App() {
         }
         break;
       }
+      case 'model.selected':
+        setSelectedModelId(eventText(event, 'model'));
+        break;
       case 'attachments.imported': {
         const attachments = event.data.attachments;
         const names = Array.isArray(attachments)
@@ -1548,6 +1558,14 @@ export default function App() {
           params: typeof event.data.params === 'object' && event.data.params ? event.data.params as Record<string, unknown> : undefined,
         }]);
         break;
+      case 'tool.progress': {
+        const detail = eventText(event, 'text');
+        setBlocks(current => current.map(block => block.id === event.block_id ? {
+          ...block, text: detail ? (block.text + detail).slice(-102400) : block.text,
+          elapsed: typeof event.data.elapsed === 'number' ? event.data.elapsed : block.elapsed,
+        } : block));
+        break;
+      }
       case 'tool.completed': {
         const blockId = event.block_id ?? `tool-${Date.now()}`;
         const detail = eventText(event, 'detail');
@@ -1597,7 +1615,7 @@ export default function App() {
                 text,
                 status: 'ok',
               },
-              (block) => ({...block, text: text || block.text, status: 'ok', placeholder: false}),
+              (block) => ({...block, text: text || block.text, label: eventText(event, 'model') || block.label, messageId: event.message_id, status: event.data.status === 'error' ? 'error' : 'ok', placeholder: false}),
             );
           }
           return next;
@@ -1614,6 +1632,7 @@ export default function App() {
       }
       case 'session.completed':
         setBusy(false);
+        void fetchStatus().then(setStatus);
         void (async () => {
           await refreshConversations(event.conversation_id, conversationFilter);
           if (event.conversation_id && event.conversation_id === conversationId) {
@@ -1644,7 +1663,7 @@ export default function App() {
 
   const sendMessage = async () => {
     const prompt = input.trim() || (attachedPaths.length ? '请分析这些附件。' : '');
-    if (!prompt || busy) {
+    if (!prompt || busy || abortRef.current) {
       return;
     }
     const attachmentBlock = attachedPaths.length
@@ -1704,13 +1723,14 @@ export default function App() {
           conversationId,
           activeEdit.messageId,
           message,
-          {signal: controller.signal},
+          {signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name},
           applyEvent,
         );
       } else {
         await streamChat(
           {
             message,
+            request_id: crypto.randomUUID(),
             conversation_id: conversationId,
             title: conversationId ? undefined : '新对话',
             provider_id: selectedModel?.provider_id,
@@ -1727,6 +1747,7 @@ export default function App() {
         pendingAssistantBlockIdRef.current = null;
       }
       if ((err as DOMException).name === 'AbortError') {
+        setBlocks(current => current.map(block => block.status === 'running' ? {...block, status:'error', summary:'已停止，请核查已有结果'} : block));
         setBlocks((current) => [...current, {
           id: `abort-${Date.now()}`,
           kind: 'meta',
@@ -1795,7 +1816,7 @@ export default function App() {
     }
     try {
       await deleteMessage(conversationId, messageId);
-      setBlocks((current) => current.filter((block) => block.messageId !== messageId));
+      setBlocks(buildBlocksFromMessages(await fetchMessages(conversationId)));
       setEditingMessage((current) => current?.messageId === messageId ? null : current);
       showToast('已删除消息');
     } catch (err) {
@@ -1805,7 +1826,7 @@ export default function App() {
   }, [conversationId, showToast]);
 
   const regenerateLast = useCallback(async () => {
-    if (!conversationId || busy) {
+    if (!conversationId || busy || abortRef.current) {
       return;
     }
     // Find the most recent user block with a real messageId.
@@ -1842,7 +1863,7 @@ export default function App() {
     try {
       await streamRegenerate(
         conversationId,
-        {messageId: lastUserBlock.messageId, signal: controller.signal},
+        {messageId: lastUserBlock.messageId, signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name},
         applyEvent,
       );
     } catch (err) {
@@ -1852,6 +1873,7 @@ export default function App() {
         pendingAssistantBlockIdRef.current = null;
       }
       if ((err as DOMException).name === 'AbortError') {
+        setBlocks(current => current.map(block => block.status === 'running' ? {...block, status:'error', summary:'已停止，请核查已有结果'} : block));
         setBlocks((current) => [...current, {
           id: `abort-${Date.now()}`,
           kind: 'meta',
@@ -1877,7 +1899,7 @@ export default function App() {
   }, [applyEvent, blocks, busy, conversationId, flushDeltaBuffer, showToast]);
 
   const switchAssistantVersion = useCallback(async (messageId: string, versionNumber: number) => {
-    if (!conversationId || busy) {
+    if (!conversationId || busy || abortRef.current) {
       return;
     }
     setBusy(true);
@@ -2072,7 +2094,13 @@ export default function App() {
             <span>{status ? `BFF ${status.status} · ${status.workspace_path}` : '正在连接后端...'}</span>
           </div>
           <div className="topbar-actions">
+            <button type="button" disabled={busy} onClick={resetConversation}>新对话</button>
             <ModelPicker models={models} value={selectedModelId} onChange={setSelectedModelId} />
+            <details className="model-settings"><summary>模型设置</summary>
+              {selectedModel ? <ModelCredentials key={selectedModel.provider_id} model={selectedModel} onSaved={async () => {setModels(await fetchModels());}} /> : null}
+              <p>{status?.workspace_cloud_allowed ? '云端会接收聊天与本测试工作区的工具结果，请只使用允许发送的资料。' : '云端当前仅可聊天，本地文件与工具结果尚未授权发送。'}</p>
+              <p>本批云端请求：{status?.model_calls_used ?? 0} / {status?.model_call_limit || '不限'}（包含失败尝试）</p>
+            </details>
             {conversationId ? (
               <div className="export-menu" ref={exportMenuRef}>
                 <button
@@ -2221,6 +2249,7 @@ export default function App() {
         <AppearanceSettingsPanel value={effectiveAppearance} onChange={updateAppearance} onReset={resetAppearance} />
         <section>
           <h2>模型</h2>
+          <p>云端模型会接收本次聊天及测试工作区中的工具结果。请只放入允许发送的资料。</p>
           {selectedModel ? (
             <div className="model-card">
               <strong>{selectedModel.name}</strong>

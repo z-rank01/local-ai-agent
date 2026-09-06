@@ -92,7 +92,10 @@ COMPACT_THRESHOLD = _env_float("COMPACT_THRESHOLD", 0.6)
 
 # ── Tool tier ────────────────────────────────────────────────────────────
 
-TOOL_TIER = _env("TOOL_TIER", "core")
+TOOL_TIER = _env("TOOL_TIER", "all")
+
+# Only explicitly designated workspaces may supply tool results to cloud models.
+WORKSPACE_CLOUD_ALLOWED = _env_bool("WORKSPACE_CLOUD_ALLOWED", False)
 
 # ── Logging ──────────────────────────────────────────────────────────────
 

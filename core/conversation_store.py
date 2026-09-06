@@ -31,6 +31,7 @@ class Message:
     tool_calls: str = ""   # JSON-serialised
     tool_name: str = ""
     tool_result: str = ""
+    metadata: str = ""
     response_to_message_id: str = ""
     version_number: int = 1
     active: bool = True
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
+CREATE TABLE IF NOT EXISTS chat_requests (id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
 """
 
 # Migration steps applied incrementally based on PRAGMA user_version.
@@ -77,6 +79,7 @@ _MIGRATIONS: list[str] = [
     "SELECT 1;",
     "SELECT 1;",
     "SELECT 1;",
+    "ALTER TABLE messages ADD COLUMN metadata TEXT NOT NULL DEFAULT '';",
 ]
 
 
@@ -192,6 +195,7 @@ class ConversationStore:
                     tool_calls=m["tool_calls"],
                     tool_name=m["tool_name"],
                     tool_result=m["tool_result"],
+                    metadata=m["metadata"],
                     response_to_message_id=m["response_to_message_id"],
                     version_number=m["version_number"],
                     active=bool(m["active"]),
@@ -263,6 +267,7 @@ class ConversationStore:
         tool_calls: list[dict[str, Any]] | None = None,
         tool_name: str = "",
         tool_result: Any | None = None,
+        metadata: dict | None = None,
         response_to_message_id: str = "",
         version_number: int = 1,
         active: bool = True,
@@ -274,7 +279,7 @@ class ConversationStore:
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO messages (id, conversation_id, role, content, thinking, "
-                "tool_calls, tool_name, tool_result, response_to_message_id, version_number, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "tool_calls, tool_name, tool_result, response_to_message_id, version_number, active, created_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     msg_id,
                     conv_id,
@@ -288,6 +293,7 @@ class ConversationStore:
                     version_number,
                     1 if active else 0,
                     now,
+                    json.dumps(metadata or {}, ensure_ascii=False),
                 ),
             )
             conn.execute(
@@ -303,6 +309,7 @@ class ConversationStore:
             tool_calls=tc_json,
             tool_name=tool_name,
             tool_result=tr_json,
+            metadata=json.dumps(metadata or {}, ensure_ascii=False),
             response_to_message_id=response_to_message_id,
             version_number=version_number,
             active=active,
@@ -330,6 +337,7 @@ class ConversationStore:
                     tool_calls=r["tool_calls"],
                     tool_name=r["tool_name"],
                     tool_result=r["tool_result"],
+                    metadata=r["metadata"],
                     response_to_message_id=r["response_to_message_id"],
                     version_number=r["version_number"],
                     active=bool(r["active"]),
@@ -338,21 +346,47 @@ class ConversationStore:
                 for r in rows
             ]
 
-    def messages_as_dicts(self, conv_id: str) -> list[dict[str, str]]:
-        """Return messages in the format expected by the LLM client."""
+    def messages_as_dicts(self, conv_id: str, *, cloud=False) -> list[dict]:
         msgs = self.get_messages(conv_id)
-        result: list[dict[str, str]] = []
+        modern = {(m.response_to_message_id, m.version_number) for m in msgs if m.role == 'protocol'}
+        result = []
         for m in msgs:
-            d: dict[str, Any] = {"role": m.role, "content": m.content}
-            if m.tool_calls:
-                try:
-                    d["tool_calls"] = json.loads(m.tool_calls)
-                except json.JSONDecodeError:
-                    pass
-            if m.tool_name:
-                d["tool_name"] = m.tool_name
-            result.append(d)
-        return result
+            meta = json.loads(m.metadata or '{}')
+            if cloud and not meta.get('cloud_safe', False):
+                continue
+            if m.role == 'protocol':
+                result.append(meta['message'])
+            elif m.role == 'user':
+                result.append({'role': 'user', 'content': m.content})
+            elif (m.response_to_message_id, m.version_number) not in modern:
+                # Old UI-only tool rows do not have a valid call envelope.
+                role = 'assistant' if m.role == 'tool' else m.role
+                result.append({'role': role, 'content': m.content})
+        # A stopped generation may have assistant calls without all responses.
+        repaired = []
+        pending = {}
+        for m in result:
+            if m['role'] != 'tool' and pending:
+                repaired.extend({'role': 'tool', 'tool_call_id': k, 'tool_name': v, 'content': '{"error":"上次执行已中断或结果待核查，不得假定成功或自动重跑。"}'} for k,v in pending.items())
+                pending = {}
+            if m.get('tool_calls'):
+                pending = {t['id']:t['function']['name'] for t in m['tool_calls']}
+            if m['role'] == 'tool':
+                if m.get('tool_call_id') not in pending:
+                    continue
+                pending.pop(m['tool_call_id'])
+            repaired.append(m)
+        repaired.extend({'role': 'tool', 'tool_call_id': k, 'tool_name': v, 'content': '{"error":"上次执行已中断或结果待核查。"}'} for k,v in pending.items())
+        return repaired
+
+    def claim_chat_request(self, request_id):
+        with self._connect() as db:
+            return db.execute('INSERT OR IGNORE INTO chat_requests(id, created_at) VALUES (?,?)',
+                (request_id, self._now())).rowcount == 1
+
+    def set_model(self, conv_id, model):
+        with self._connect() as db:
+            db.execute('UPDATE conversations SET model=? WHERE id=?', (model, conv_id))
 
     def get_message(self, message_id: str) -> Message | None:
         with self._connect() as conn:
@@ -370,6 +404,7 @@ class ConversationStore:
                 tool_calls=row["tool_calls"],
                 tool_name=row["tool_name"],
                 tool_result=row["tool_result"],
+                metadata=row["metadata"],
                 response_to_message_id=row["response_to_message_id"],
                 version_number=row["version_number"],
                 active=bool(row["active"]),
@@ -447,6 +482,7 @@ class ConversationStore:
                     tool_calls=row["tool_calls"],
                     tool_name=row["tool_name"],
                     tool_result=row["tool_result"],
+                metadata=row["metadata"],
                     response_to_message_id=row["response_to_message_id"],
                     version_number=row["version_number"],
                     active=bool(row["active"]),

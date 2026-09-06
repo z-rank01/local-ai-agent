@@ -2287,3 +2287,9 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   border-color: rgba(95, 91, 218, 0.16);
   background: #f4f3ff;
 }
+
+.model-settings { position: relative; max-width: 360px; }
+.model-settings[open] { background: var(--panel-bg, #fff); padding: 12px; border: 1px solid #ccc; border-radius: 10px; }
+.model-settings summary { cursor: pointer; }
+.model-settings input { width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0; }
+.model-settings p { font-size: 12px; margin: 8px 0; }

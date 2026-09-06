@@ -16,6 +16,10 @@ import os
 import re as _re
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from contextlib import aclosing
+import json
+from stream_exec import stream_shell, stream_python
 from pydantic import BaseModel, Field
 
 from sandbox import run_python, run_shell, run_pip_install
@@ -53,7 +57,8 @@ class CodeExecRequest(BaseModel):
 
 class ShellExecRequest(BaseModel):
     command: str = Field(..., description="Shell command to run in /workspace")
-    timeout: int = Field(default=15, ge=1, le=60)
+    timeout: int = Field(default=60, ge=1, le=300)
+    cwd: str = '/workspace'
 
 
 class PipInstallRequest(BaseModel):
@@ -130,10 +135,19 @@ async def shell_exec(req: ShellExecRequest):
     return result
 
 
+@app.post('/tool/shell_exec/stream')
+async def shell_exec_stream(req: ShellExecRequest):
+    async def events():
+        async with aclosing(stream_shell(req.command, timeout=min(req.timeout, _SHELL_TIMEOUT), cwd=req.cwd)) as stream:
+            async for item in stream:
+                yield json.dumps(item, ensure_ascii=False) + '\n'
+    return StreamingResponse(events(), media_type='application/x-ndjson')
+
+
 _PKG_NAME_RE = _re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._\-]*(\[[\w,]+\])?([<>=!~]+[\w.*]+)?$')
 
 @app.post("/tool/pip_install")
-async def pip_install(req: PipInstallRequest):
+def pip_install(req: PipInstallRequest):
     """Install Python packages to /packages for use in code_exec."""
     if not req.packages:
         raise HTTPException(status_code=400, detail="packages list must not be empty")
@@ -154,7 +168,7 @@ async def pip_install(req: PipInstallRequest):
 
 
 @app.post("/tool/file_convert")
-async def file_convert(req: FileConvertRequest):
+def file_convert(req: FileConvertRequest):
     """Convert a non-text file to plain text using converter plugins."""
     if not req.path.strip():
         raise HTTPException(status_code=400, detail="path must not be empty")
@@ -267,3 +281,45 @@ async def skill_update_endpoint(req: SkillUpdateRequest):
         logger.warning("skill_update %r failed: %s", req.skill_name, result.get("error"))
 
     return result
+
+
+@app.post('/tool/code_exec/stream')
+async def code_exec_stream(req: CodeExecRequest):
+    async def events():
+        async with aclosing(stream_python(req.code, min(req.timeout, _PYTHON_TIMEOUT))) as stream:
+            async for item in stream:
+                yield json.dumps(item, ensure_ascii=False) + '\n'
+    return StreamingResponse(events(), media_type='application/x-ndjson')
+
+@app.post('/tool/skill_run/stream')
+async def skill_run_stream(req: SkillRunRequest):
+    from skill_registry import _SKILLS_DIR, _WRAPPER_TEMPLATE, _load_skill_config, _save_skill_config, _now_iso
+    if not _re.fullmatch(r'[\w-]+', req.skill_name):
+        raise HTTPException(422, 'Invalid skill name')
+    path = _SKILLS_DIR / (req.skill_name + '.py')
+    if not path.is_file() or not path.resolve().is_relative_to(_SKILLS_DIR.resolve()):
+        raise HTTPException(404, 'Skill not found')
+    cfg = _load_skill_config(req.skill_name)
+    if cfg and cfg.get('dependencies') and not cfg.get('dependencies_installed'):
+        raise HTTPException(409, '技能依赖未安装，请先安装依赖或重新注册')
+    async def events():
+        async with aclosing(stream_python(_WRAPPER_TEMPLATE.format(skill_path=str(path)),
+            min(req.timeout, _PYTHON_TIMEOUT), [json.dumps(req.params)])) as stream:
+            async for item in stream:
+                if item.get('event') == 'result':
+                    result = item['result']
+                    result['model_observation'] = {'exit_code':result['exit_code'],
+                        'error':'技能执行失败或输出不完整，原始输出保留在本地回执。'}
+                    if result['exit_code'] == 0:
+                        try:
+                            result['result'] = json.loads(result['stdout'].strip().splitlines()[-1])
+                            # Raw stdout can contain local-only result JSON; project the structured result only.
+                            result['model_observation'] = {'exit_code':0, 'result': result['result']}
+                        except (ValueError, IndexError):
+                            result['error'] = '技能返回结果不是完整 JSON，可能被截断；不把原始输出发送给模型'
+                    if cfg:
+                        cfg['run_count'] = cfg.get('run_count', 0) + 1
+                        cfg['last_run_at'] = _now_iso()
+                        _save_skill_config(req.skill_name, cfg)
+                yield json.dumps(item, ensure_ascii=False) + '\n'
+    return StreamingResponse(events(), media_type='application/x-ndjson')

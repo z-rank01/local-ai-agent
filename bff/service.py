@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import aclosing
+
 import json
 import mimetypes
 import re
@@ -42,49 +45,70 @@ from .schemas import (
 _PREVIEW_ENCODINGS = ("utf-8", "gbk", "gb2312", "gb18030", "big5", "latin-1")
 
 
+def exclusive_turn(method):
+    async def guarded(self, *args, **kwargs):
+        key = args[0].conversation_id if isinstance(args[0], ChatRequest) else args[0]
+        key = key or '__new__'
+        if key in self._active_conversations:
+            raise HTTPException(409, '本会话仍在运行，请等待或停止后再发送。')
+        self._active_conversations.add(key)
+        keys = {key}
+        try:
+            async with aclosing(method(self, *args, **kwargs)) as events:
+                async for event in events:
+                    if event.conversation_id:
+                        keys.add(event.conversation_id)
+                        self._active_conversations.add(event.conversation_id)
+                    yield event
+        finally:
+            self._active_conversations.difference_update(keys)
+    return guarded
+
+
 class ChatSessionService:
     """Frontend-facing façade over conversations, workspace, and agent streaming."""
 
     def __init__(self, runtime: RuntimeServices) -> None:
         self._runtime = runtime
+        self._active_conversations = set()
         self._store: ConversationStore = runtime.store
         self._workspace_root = config.WORKSPACE_PATH.resolve()
         self._workspace_root.mkdir(parents=True, exist_ok=True)
 
     def app_status(self) -> AppStatus:
         tools = sorted(self._runtime.tool_registry.known_tools)
+        budget = self._runtime.models.budget.status()
         return AppStatus(
-            model=self._runtime.llm.model,
+            model_calls_used=budget["used"], model_call_limit=budget["limit"],
+            workspace_cloud_allowed=config.WORKSPACE_CLOUD_ALLOWED,
+            model=self._runtime.models.default,
             workspace_path=str(self._workspace_root),
             tools=tools,
             websearch_enabled=config.ENABLE_WEBSEARCH and "web_search" in tools,
         )
 
     def list_models(self) -> list[ModelInfo]:
-        return [
-            ModelInfo(
-                id=f"ollama:{self._runtime.llm.model}",
-                name=self._runtime.llm.model,
-                provider_id="ollama",
-                provider_name="Ollama",
-                default=True,
-                capabilities=["text", "tools", "streaming", "reasoning"],
-                context_window=config.CONTEXT_WINDOW,
-                status="available",
-            )
-        ]
+        from core.providers import read_key
+        return [ModelInfo(id=s['id'], name=s['model'], provider_id=s['provider_id'],
+            provider_name=s['provider_name'], default=s['id'] == self._runtime.models.default,
+            capabilities=['text','tools','streaming'], context_window=config.CONTEXT_WINDOW,
+            status='configured' if s['kind']=='local' or read_key(s.get('api_key_env','')) else 'missing_key')
+            for s in self._runtime.models.specs]
 
     def list_providers(self) -> list[ProviderInfo]:
-        return [
-            ProviderInfo(
-                id="ollama",
-                name="Ollama",
-                kind="local",
-                enabled=True,
-                base_url=config.OLLAMA_BASE_URL,
-                models=self.list_models(),
-            )
-        ]
+        models = self.list_models()
+        return [ProviderInfo(id=s['provider_id'], name=s['provider_name'], kind=s['kind'],
+            base_url=s['base_url'], models=[m for m in models if m.provider_id == s['provider_id']])
+            for s in {s['provider_id']:s for s in self._runtime.models.specs}.values()]
+
+    def _select_model(self, conversation, provider=None, model=None):
+        try:
+            spec, client = self._runtime.models.resolve(provider, model, fallback=conversation.model)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        self._store.set_model(conversation.id, spec['id'])
+        conversation.model = spec['id']
+        return spec, client
 
     def list_conversations(
         self,
@@ -101,7 +125,7 @@ class ChatSessionService:
     def create_conversation(self, title: str, model: str | None = None) -> ConversationSummary:
         conv = self._store.create_conversation(
             title=title,
-            model=model or self._runtime.llm.model,
+            model=model or self._runtime.models.default,
         )
         return self._conversation_summary(conv)
 
@@ -123,7 +147,7 @@ class ChatSessionService:
         version_counts = self._response_version_counts(conversation_id)
         return [
             self._message_record(message, version_count=version_counts.get(message.response_to_message_id, 1))
-            for message in self._store.get_messages(conversation_id)
+            for message in self._store.get_messages(conversation_id) if message.role != "protocol"
         ]
 
     def import_local_paths(self, text: str) -> WorkspaceImportResponse:
@@ -282,12 +306,16 @@ class ChatSessionService:
             deleted_at=str(payload.get("deleted_at") or "") or None,
         )
 
+    @exclusive_turn
     async def stream_chat(self, request: ChatRequest) -> AsyncGenerator[UIStreamEvent, None]:
+        if request.request_id and not self._store.claim_chat_request(request.request_id):
+            raise HTTPException(409, '该请求已受理，请刷新查看已有结果；如需再次执行请发送新消息。')
         message = request.message.strip()
         if not message:
             raise HTTPException(status_code=422, detail="message cannot be empty")
 
         conversation = self._ensure_conversation(request.conversation_id, request.title)
+        self._select_model(conversation, request.provider_id, request.model)
         run_id = uuid.uuid4().hex[:12]
         yield UIStreamEvent(
             event="session.started",
@@ -310,6 +338,7 @@ class ChatSessionService:
             conversation.id,
             role="user",
             content=rewritten_text,
+            metadata={"cloud_safe": True},
         )
         yield UIStreamEvent(
             event="user.accepted",
@@ -320,18 +349,21 @@ class ChatSessionService:
         )
 
         self._retitle_if_needed(conversation.id, rewritten_text)
-        async for event in self._run_assistant_turn(
+        async with aclosing(self._run_assistant_turn(
             conversation,
             run_id,
             response_to_message_id=user_message.id,
             response_version_number=1,
-        ):
-            yield event
+        )) as events:
+            async for event in events:
+                yield event
 
+    @exclusive_turn
     async def regenerate_chat(
-        self, conversation_id: str, *, message_id: str | None = None
+        self, conversation_id: str, *, message_id: str | None = None, provider_id=None, model=None
     ) -> AsyncGenerator[UIStreamEvent, None]:
         conversation = self._require_conversation(conversation_id)
+        self._select_model(conversation, provider_id, model)
         messages = self._store.get_messages(conversation_id)
 
         # Locate the user message we will regenerate from. Default: most recent.
@@ -353,6 +385,10 @@ class ChatSessionService:
         if target is None:
             raise HTTPException(status_code=422, detail="no user message to regenerate from")
 
+        source_rows = [m for m in messages if m.response_to_message_id == target.id]
+        # Regeneration reuses observations; it is never an implicit rerun of writes or scripts.
+        last_tool = max((i for i,m in enumerate(source_rows) if m.role == 'protocol' and json.loads(m.metadata or '{}').get('message',{}).get('role') == 'tool'), default=-1)
+        reusable = source_rows[:last_tool + 2] if last_tool >= 0 else []
         latest_user = self._store.find_last_user_message(conversation_id)
         preserve_versions = latest_user is not None and latest_user.id == target.id
         response_version_number = 1
@@ -362,6 +398,12 @@ class ChatSessionService:
         else:
             # Earlier-turn regenerate still rewrites later history to avoid branching the conversation tree.
             self._store.delete_messages_from(conversation_id, target.id, inclusive=False)
+        for row in reusable:
+            self._store.add_message(conversation_id, role=row.role, content=row.content,
+                thinking=row.thinking, tool_name=row.tool_name,
+                tool_result=json.loads(row.tool_result) if row.tool_result else None,
+                metadata=json.loads(row.metadata or '{}'), response_to_message_id=target.id,
+                version_number=response_version_number)
         conversation = self._require_conversation(conversation_id)
 
         run_id = uuid.uuid4().hex[:12]
@@ -381,22 +423,27 @@ class ChatSessionService:
             message_id=target.id,
             data={"content": target.content, "regenerated": True},
         )
-        async for event in self._run_assistant_turn(
+        async with aclosing(self._run_assistant_turn(
             conversation,
             run_id,
             response_to_message_id=target.id,
             response_version_number=response_version_number,
-        ):
-            yield event
+            answer_only=True,
+        )) as events:
+            async for event in events:
+                yield event
 
+    @exclusive_turn
     async def edit_message_and_regenerate(
         self,
         conversation_id: str,
         *,
         message_id: str,
         content: str,
+        provider_id=None, model=None,
     ) -> AsyncGenerator[UIStreamEvent, None]:
         conversation = self._require_conversation(conversation_id)
+        self._select_model(conversation, provider_id, model)
         target = self._store.get_message(message_id)
         if target is None or target.conversation_id != conversation_id:
             raise HTTPException(status_code=404, detail="message not found")
@@ -438,13 +485,14 @@ class ChatSessionService:
             message_id=message_id,
             data={"content": rewritten_text, "edited": True},
         )
-        async for event in self._run_assistant_turn(
+        async with aclosing(self._run_assistant_turn(
             conversation,
             run_id,
             response_to_message_id=message_id,
             response_version_number=1,
-        ):
-            yield event
+        )) as events:
+            async for event in events:
+                yield event
 
     def activate_message_version(
         self,
@@ -470,8 +518,16 @@ class ChatSessionService:
 
     def delete_message(self, conversation_id: str, message_id: str) -> None:
         self._require_conversation(conversation_id)
-        if not self._store.delete_message(conversation_id, message_id):
-            raise HTTPException(status_code=404, detail="message not found")
+        if conversation_id in self._active_conversations:
+            raise HTTPException(409, '本会话仍在运行')
+        message = self._store.get_message(message_id)
+        if not message or message.conversation_id != conversation_id:
+            raise HTTPException(404, 'message not found')
+        response_id = message.id if message.role == 'user' else message.response_to_message_id
+        if response_id:
+            self._store.delete_response_versions(conversation_id, response_id)
+        if message.role == 'user' or not response_id:
+            self._store.delete_message(conversation_id, message_id)
 
     def export_conversation(self, conversation_id: str, format: str = "markdown") -> tuple[str, str, str]:
         normalized = (format or "markdown").strip().lower()
@@ -615,220 +671,98 @@ class ChatSessionService:
         filename = f"{safe_title}-{conversation.id}.txt"
         return content, filename
 
-    async def _run_assistant_turn(
-        self,
-        conversation: Conversation,
-        run_id: str,
-        *,
-        response_to_message_id: str,
-        response_version_number: int,
-    ) -> AsyncGenerator[UIStreamEvent, None]:
-        messages = self._store.messages_as_dicts(conversation.id)
-
-        assistant_text = ""
-        thinking_text = ""
-        assistant_block_id: str | None = None
-        reasoning_block_id: str | None = None
-        reasoning_open = False
-        active_tool_block_id: str | None = None
-        active_tool_name: str | None = None
-
-        async for event in self._runtime.agent.run(
-            messages,
-            session_id=conversation.id,
-            conversation_key=conversation.id,
-        ):
-            if event.kind == "token":
-                pending = event.text
-                while pending:
-                    if reasoning_open:
-                        if "</think>" in pending:
-                            before, pending = pending.split("</think>", 1)
-                            if before:
-                                thinking_text += before
-                                yield UIStreamEvent(
-                                    event="reasoning.delta",
-                                    conversation_id=conversation.id,
-                                    run_id=run_id,
-                                    block_id=reasoning_block_id,
-                                    data={"text": before},
-                                )
-                            yield UIStreamEvent(
-                                event="reasoning.completed",
-                                conversation_id=conversation.id,
-                                run_id=run_id,
-                                block_id=reasoning_block_id,
-                            )
-                            reasoning_open = False
-                            reasoning_block_id = None
-                            pending = pending.lstrip("\n")
-                            continue
-
-                        thinking_text += pending
-                        yield UIStreamEvent(
-                            event="reasoning.delta",
-                            conversation_id=conversation.id,
-                            run_id=run_id,
-                            block_id=reasoning_block_id,
-                            data={"text": pending},
-                        )
-                        pending = ""
-                        continue
-
-                    if "<think>" in pending:
-                        before, pending = pending.split("<think>", 1)
-                        if before:
-                            assistant_block_id = assistant_block_id or uuid.uuid4().hex[:12]
-                            assistant_text += before
-                            yield UIStreamEvent(
-                                event="assistant.delta",
-                                conversation_id=conversation.id,
-                                run_id=run_id,
-                                block_id=assistant_block_id,
-                                data={"text": before},
-                            )
-                        reasoning_block_id = uuid.uuid4().hex[:12]
-                        reasoning_open = True
-                        yield UIStreamEvent(
-                            event="reasoning.started",
-                            conversation_id=conversation.id,
-                            run_id=run_id,
-                            block_id=reasoning_block_id,
-                        )
-                        pending = pending.lstrip("\n")
-                        continue
-
-                    assistant_block_id = assistant_block_id or uuid.uuid4().hex[:12]
-                    assistant_text += pending
-                    yield UIStreamEvent(
-                        event="assistant.delta",
-                        conversation_id=conversation.id,
-                        run_id=run_id,
-                        block_id=assistant_block_id,
-                        data={"text": pending},
-                    )
-                    pending = ""
-
-            elif event.kind == "tool_start":
-                active_tool_block_id = uuid.uuid4().hex[:12]
-                active_tool_name = event.data.get("name", "tool")
-                yield UIStreamEvent(
-                    event="tool.started",
-                    conversation_id=conversation.id,
-                    run_id=run_id,
-                    block_id=active_tool_block_id,
-                    data={
-                        "name": active_tool_name,
-                        "summary": event.text,
-                        "params": event.data.get("params", {}),
-                    },
-                )
-
-            elif event.kind == "tool_end":
-                tool_name = event.data.get("name") or active_tool_name or "tool"
-                status = "ok" if event.data.get("status") == "ok" else "error"
-                detail = str(event.data.get("result_preview") or event.text)
-                headline = str(event.text)
-                tool_result = event.data.get("result")
-                tool_content = f"[{status}] {headline}"
-                if detail and detail != headline:
-                    tool_content = f"{tool_content}\n{detail}"
-                tool_message = self._store.add_message(
-                    conversation.id,
-                    role="tool",
-                    content=tool_content,
-                    tool_name=tool_name,
-                    tool_result=tool_result,
-                    response_to_message_id=response_to_message_id,
-                    version_number=response_version_number,
-                )
-                yield UIStreamEvent(
-                    event="tool.completed",
-                    conversation_id=conversation.id,
-                    run_id=run_id,
-                    block_id=active_tool_block_id,
-                    message_id=tool_message.id,
-                    data={
-                        "name": tool_name,
-                        "status": status,
-                        "headline": headline,
-                        "detail": detail,
-                        "result": tool_result,
-                        "elapsed": event.data.get("elapsed"),
-                    },
-                )
-                active_tool_block_id = None
-                active_tool_name = None
-
-            elif event.kind == "done":
-                if event.text and not assistant_text:
-                    assistant_block_id = assistant_block_id or uuid.uuid4().hex[:12]
-                    assistant_text = event.text
-                    yield UIStreamEvent(
-                        event="assistant.delta",
-                        conversation_id=conversation.id,
-                        run_id=run_id,
-                        block_id=assistant_block_id,
-                        data={"text": event.text},
-                    )
-
-                if reasoning_open:
-                    yield UIStreamEvent(
-                        event="reasoning.completed",
-                        conversation_id=conversation.id,
-                        run_id=run_id,
-                        block_id=reasoning_block_id,
-                    )
-                    reasoning_open = False
-
-                assistant_message_id: str | None = None
-                if assistant_text:
-                    assistant_message = self._store.add_message(
-                        conversation.id,
-                        role="assistant",
-                        content=assistant_text,
-                        thinking=thinking_text,
-                        response_to_message_id=response_to_message_id,
-                        version_number=response_version_number,
-                    )
-                    assistant_message_id = assistant_message.id
-
-                yield UIStreamEvent(
-                    event="assistant.completed",
-                    conversation_id=conversation.id,
-                    run_id=run_id,
-                    block_id=assistant_block_id,
-                    message_id=assistant_message_id,
-                    data={"text": assistant_text, "thinking": thinking_text},
-                )
-
-                latest = self._require_conversation(conversation.id)
-                yield UIStreamEvent(
-                    event="conversation.updated",
-                    conversation_id=conversation.id,
-                    run_id=run_id,
-                    data={"conversation": self._conversation_summary(latest).model_dump()},
-                )
-                yield UIStreamEvent(
-                    event="session.completed",
-                    conversation_id=conversation.id,
-                    run_id=run_id,
-                )
-
-            elif event.kind == "error":
-                yield UIStreamEvent(
-                    event="error",
-                    conversation_id=conversation.id,
-                    run_id=run_id,
-                    data={"message": event.text},
-                )
+    async def _run_assistant_turn(self, conversation, run_id, *, response_to_message_id, response_version_number, answer_only=False):
+        spec, llm = self._select_model(conversation)
+        cloud = spec['kind'] == 'cloud'
+        messages = self._store.messages_as_dicts(conversation.id, cloud=cloud)
+        agent = self._runtime.agent_for(spec, llm)
+        agent.allow_tools = not answer_only
+        base = dict(conversation_id=conversation.id, run_id=run_id)
+        meta = {'model': spec['id'], 'cloud_safe': cloud or config.WORKSPACE_CLOUD_ALLOWED}
+        response_meta = dict(response_to_message_id=response_to_message_id, version_number=response_version_number)
+        text, reasoning, block, thinking_block = '', '', uuid.uuid4().hex, uuid.uuid4().hex
+        thinking_open = False
+        active_tools = {}
+        def emit(event, **kwargs):
+            return UIStreamEvent(event=event, **base, **kwargs)
+        def save(role, content='', **kwargs):
+            return self._store.add_message(conversation.id, role=role, content=content, **response_meta, **kwargs)
+        try:
+            yield emit('model.selected', data={'model': spec['id'], 'cloud': cloud,
+                'workspace_cloud_allowed': config.WORKSPACE_CLOUD_ALLOWED})
+            async with aclosing(agent.run(messages, conversation.id, conversation.id)) as events:
+                async for event in events:
+                    if event.kind == 'token':
+                        # Model transports emit reasoning delimiters as complete protocol tokens.
+                        token = event.text
+                        if token.strip() == '<think>':
+                            thinking_open = True
+                            yield emit('reasoning.started', block_id=thinking_block)
+                        elif token.strip() == '</think>':
+                            thinking_open = False
+                            yield emit('reasoning.completed', block_id=thinking_block)
+                        elif thinking_open:
+                            reasoning += token
+                            yield emit('reasoning.delta', block_id=thinking_block, data={'text': token})
+                        else:
+                            text += token
+                            yield emit('assistant.delta', block_id=block, data={'text': token, 'model': spec['id']})
+                    elif event.kind == 'message':
+                        message = event.data['message']
+                        save('protocol', metadata={**meta, 'message': message})
+                        if message['role'] == 'assistant':
+                            final_text = message.get('content') or text
+                            if final_text:
+                                saved = save('assistant', final_text, thinking=reasoning, metadata=meta)
+                                yield emit('assistant.completed', block_id=block, message_id=saved.id,
+                                    data={'text': final_text, 'model': spec['id']})
+                            text, reasoning = '', ''
+                            block, thinking_block = uuid.uuid4().hex, uuid.uuid4().hex
+                    elif event.kind == 'tool_start':
+                        cid = event.data['call_id']
+                        active_tools[cid] = event.data
+                        yield emit('tool.started', block_id=cid, data={**event.data, 'summary': event.data['name']})
+                    elif event.kind == 'tool_progress':
+                        running = active_tools.get(event.data['call_id'])
+                        if running is not None and event.data.get('event') == 'output':
+                            stream_name = event.data.get('stream','stdout')
+                            partial = running.setdefault('partial', {})
+                            partial[stream_name] = (partial.get(stream_name,'') + event.data.get('text',''))[:51200]
+                        yield emit('tool.progress', block_id=event.data['call_id'], data=event.data)
+                    elif event.kind == 'tool_end':
+                        data = event.data
+                        saved = save('tool', '[' + data['status'] + '] ' + data['name'] + (' 已完成' if data['status']=='ok' else ' 执行失败') + '\n' + data.get('result_preview',''), tool_name=data['name'],
+                            tool_result=data.get('result'), metadata={**meta, 'params': data.get('params',{}), 'status': data['status']})
+                        active_tools.pop(data['call_id'], None)
+                        yield emit('tool.completed', block_id=data['call_id'], message_id=saved.id,
+                            data={**data, 'detail': data.get('result_preview',''), 'headline': event.text})
+                    elif event.kind == 'error':
+                        partial = text + ('\n\n' if text else '') + '本轮未完成：' + event.text
+                        saved = save('assistant', partial, thinking=reasoning, metadata={**meta, 'status':'error'})
+                        text = ''
+                        yield emit('assistant.completed', block_id=block, message_id=saved.id,
+                            data={'text': partial, 'model':spec['id'], 'status':'error'})
+                        yield emit('error', data={'message': event.text})
+            latest = self._require_conversation(conversation.id)
+            yield emit('conversation.updated', data={'conversation':self._conversation_summary(latest).model_dump()})
+            yield emit('session.completed')
+        finally:
+            # Disconnects/stop preserve partial output and terminal tool states.
+            if text or reasoning:
+                save('assistant', text + '\n\n[生成已中断]', thinking=reasoning, metadata={**meta,'status':'interrupted'})
+            for tool in active_tools.values():
+                result = {**tool.get('partial', {}), 'error':'执行已中断，请核查已有结果；不会自动重跑。'}
+                save('protocol', metadata={**meta, 'message':{'role':'tool', 'tool_call_id':tool['call_id'],
+                    'tool_name':tool['name'], 'content':json.dumps(result,ensure_ascii=False)}})
+                save('tool', '[error] 执行已中断，请核查已有结果。', tool_name=tool['name'],
+                    tool_result=result, metadata={**meta,'status':'error','params':tool['params']})
 
     def _ensure_conversation(self, conversation_id: str | None, title: str | None) -> Conversation:
         if conversation_id:
             return self._require_conversation(conversation_id)
         created = self._store.create_conversation(
             title=title or "新对话",
-            model=self._runtime.llm.model,
+            model=self._runtime.models.default,
         )
         return self._require_conversation(created.id)
 
@@ -921,6 +855,9 @@ class ChatSessionService:
             id=message.id,
             conversation_id=message.conversation_id,
             role=message.role,
+            model=json.loads(message.metadata or "{}").get("model", ""),
+            params=json.loads(message.metadata or "{}").get("params", {}),
+            status=json.loads(message.metadata or "{}").get("status", ""),
             content=message.content,
             thinking=message.thinking,
             tool_calls=tool_calls,
@@ -938,7 +875,7 @@ class ChatSessionService:
         for message in self._store.get_messages(conversation_id, include_inactive=True):
             if message.role != "assistant" or not message.response_to_message_id:
                 continue
-            counts[message.response_to_message_id] = counts.get(message.response_to_message_id, 0) + 1
+            counts[message.response_to_message_id] = max(counts.get(message.response_to_message_id, 0), message.version_number)
         return counts
 
     def _attachment(self, item: ImportedFile) -> ImportedAttachment:

@@ -13,6 +13,7 @@ from .llm_client import LLMClient
 from .memory_manager import MemoryManager
 from .policy_engine import PolicyEngine
 from .prompt_builder import PromptBuilder
+from .providers import ModelRegistry
 from .tool_registry import ToolRegistry
 from .tool_router import ToolRouter
 
@@ -29,10 +30,24 @@ class RuntimeServices:
     memory: MemoryManager
     store: ConversationStore
     agent: Agent
+    models: ModelRegistry
 
     async def close(self) -> None:
         await self.router.close()
         await self.llm.close()
+        await self.models.close()
+
+    def agent_for(self, spec, llm):
+        cloud = spec['kind'] == 'cloud'
+        # Never auto-read shared local memory into a cloud session.
+        from copy import copy
+        router = copy(self.router)
+        router.cloud = cloud
+        return Agent(llm=llm, router=router, registry=self.tool_registry,
+            audit=self.audit, context_mgr=ContextManager(context_window=config.CONTEXT_WINDOW,
+            compact_threshold=config.COMPACT_THRESHOLD, llm=llm), prompt_builder=self.prompt_builder,
+            memory=None if cloud else self.memory, tool_tier=config.TOOL_TIER,
+            max_rounds=12)
 
 
 def build_runtime() -> RuntimeServices:
@@ -87,4 +102,5 @@ def build_runtime() -> RuntimeServices:
         memory=memory,
         store=store,
         agent=agent,
+        models=ModelRegistry(),
     )

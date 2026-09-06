@@ -6,7 +6,7 @@ import asyncio
 import os
 import signal
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, aclosing
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
@@ -89,7 +89,11 @@ async def _stream_ndjson(
                 data={"message": str(detail)},
             ).model_dump_json() + "\n"
 
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
+    async def managed():
+        async with aclosing(events):
+            async for item in generate():
+                yield item
+    return StreamingResponse(managed(), media_type="application/x-ndjson")
 
 
 @app.get("/health")
@@ -188,6 +192,7 @@ async def edit_message(
             conversation_id,
             message_id=message_id,
             content=request.content,
+            provider_id=request.provider_id, model=request.model,
         ),
         conversation_id=conversation_id,
     )
@@ -200,7 +205,7 @@ async def regenerate_conversation(
     service = get_chat_service()
     payload = request or RegenerateRequest()
     return await _stream_ndjson(
-        service.regenerate_chat(conversation_id, message_id=payload.message_id),
+        service.regenerate_chat(conversation_id, message_id=payload.message_id, provider_id=payload.provider_id, model=payload.model),
         conversation_id=conversation_id,
     )
 
@@ -292,3 +297,23 @@ async def activate_message_version(
         message_id=message_id,
         version_number=request.version_number,
     )
+
+from pydantic import BaseModel, SecretStr
+from core.providers import save_key
+
+class ModelCredentialRequest(BaseModel):
+    api_key: SecretStr
+
+@app.put('/api/providers/{provider_id}/credential')
+async def set_model_credential(provider_id: str, payload: ModelCredentialRequest, request: Request):
+    origin = request.headers.get('origin')
+    if not _is_loopback_host(request.client.host if request.client else None) or (origin and origin not in config.WEB_ORIGINS):
+        raise HTTPException(403, '密钥仅允许本机 Web 设置')
+    spec = next((s for s in get_runtime().models.specs if s['provider_id'] == provider_id and s['kind'] == 'cloud'), None)
+    if not spec:
+        raise HTTPException(404, '模型供应商未配置')
+    key = payload.api_key.get_secret_value().strip()
+    if not key or len(key) > 1024 or any(c.isspace() for c in key):
+        raise HTTPException(422, '请输入有效密钥')
+    save_key(spec['api_key_env'], key)
+    return {'status': 'configured'}

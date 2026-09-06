@@ -2,7 +2,7 @@ name: shell_exec
 backend: skill-runner
 tier: core
 short_description: "Run a shell command."
-description: "Run a short shell command in /workspace for diagnostics. Only use safe, non-destructive commands."
+description: "在 Linux 容器 /bin/sh 中执行命令，可搜索文件、运行脚本与测试。工作目录必须在 /workspace 内。这不是 Windows CMD 或 PowerShell。输出、退出码、超时和截断会返回；较长命令逐段显示输出。"
 parameters:
   type: object
   properties:
@@ -12,4 +12,7 @@ parameters:
     timeout:
       type: integer
       description: "Timeout in seconds, up to policy limit"
+    cwd:
+      type: string
+      description: "Working directory inside /workspace; defaults to /workspace."
   required: ["command"]

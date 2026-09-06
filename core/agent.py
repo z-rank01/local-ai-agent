@@ -8,6 +8,7 @@ SSE endpoint, etc.) can consume ``AgentEvent`` objects.
 
 from __future__ import annotations
 
+from contextlib import aclosing
 import asyncio
 import json
 import logging
@@ -124,6 +125,22 @@ def _format_tool_result_preview(result: Any, max_chars: int = 1600) -> str:
 # ── Agent ───────────────────────────────────────────────────────────────────
 
 
+def tool_failed(value):
+    return isinstance(value, dict) and (bool(value.get('error')) or value.get('success') is False
+        or value.get('exit_code', 0) != 0 or value.get('status') == 'failed'
+        or tool_failed(value.get('result')))
+
+
+def model_projection(value):
+    if isinstance(value, dict):
+        if 'model_observation' in value:
+            return model_projection(value['model_observation'])
+        return {k: model_projection(v) for k, v in value.items() if k not in ('local_result', 'local_attachments')}
+    if isinstance(value, list):
+        return [model_projection(v) for v in value]
+    return value
+
+
 class Agent:
     """Framework-agnostic agentic loop with streaming tool calling.
 
@@ -165,6 +182,7 @@ class Agent:
         self.memory = memory
         self.tool_tier = tool_tier
         self.max_rounds = max_rounds
+        self.allow_tools = True
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -179,124 +197,76 @@ class Agent:
         This is the primary streaming interface.  The caller should iterate
         over the generator and render each event.
         """
+        from . import config
+        import uuid
         conversation_key = conversation_key or session_id
         messages = strip_think_tags_from_history(messages)
-
-        # Memory scaffold
-        if self.memory:
-            title = self.memory.derive_conversation_title(messages)
-            try:
-                await self.memory.ensure_memory_scaffold(
-                    session_id, conversation_key, title
-                )
-            except Exception as exc:
-                logger.debug("Memory scaffold failed: %s", exc)
-
-        # System prompt with workspace context
-        ws_sections: list[str] = []
-        if self.memory:
-            try:
-                ws_sections = await self.memory.fetch_workspace_context(
-                    session_id, conversation_key=conversation_key
-                )
-            except Exception as exc:
-                logger.debug("Workspace context fetch failed: %s", exc)
-
-        if not messages or messages[0].get("role") != "system":
-            messages.insert(0, {
-                "role": "system",
-                "content": self.prompt_builder.build(extra_sections=ws_sections),
-            })
-
-        # Pre-fetch file context & compact
-        messages = await self._inject_context_into_messages(messages, session_id)
-        messages = await self.context_mgr.process(messages)
-
-        # Tool definitions
-        use_short = self.tool_tier == "core"
-        tool_defs: list[dict] | None = self.registry.get_definitions(
-            tier=self.tool_tier, use_short_desc=use_short
-        )
-        if not self.llm._supports_tools:
-            tool_defs = None
-
-        tool_call_counts: dict[str, int] = {}
-        final_reply = ""
-
+        cloud = getattr(self.llm, "cloud", False)
         try:
-            for _round in range(self.max_rounds):
-                accumulated_msg: dict | None = None
-
-                # Remove over-budget tools
-                active_defs = tool_defs
-                if tool_defs and tool_call_counts:
-                    exhausted = {
-                        name
-                        for name, limit in _TOOL_BUDGETS.items()
-                        if tool_call_counts.get(name, 0) >= limit
-                    }
-                    if exhausted:
-                        active_defs = [
-                            d
-                            for d in tool_defs
-                            if d.get("function", {}).get("name") not in exhausted
-                        ]
-                        logger.info("Round %d: removed exhausted tools %s", _round, exhausted)
-
-                # Stream tokens from LLM
-                async for token, msg in self.llm.chat_stream_with_tools(
-                    messages, active_defs
-                ):
-                    if msg is not None:
-                        accumulated_msg = msg
-                    elif token:
-                        yield AgentEvent("token", text=token)
-
-                if accumulated_msg is None:
-                    break
-
-                tool_calls = accumulated_msg.get("tool_calls")
-                if not tool_calls:
-                    final_reply = accumulated_msg.get("content") or ""
-                    if final_reply:
-                        messages.append({"role": "assistant", "content": final_reply})
-                    break
-
-                # Budget filtering
-                filtered_calls = self._filter_tool_calls(tool_calls, tool_call_counts)
-
-                if not filtered_calls:
-                    messages.append(accumulated_msg)
-                    messages.append({
-                        "role": "tool",
-                        "content": json.dumps(
-                            {"error": "搜索次数已达上限，请直接基于已有搜索结果回答用户问题，不要再搜索。"},
-                            ensure_ascii=False,
-                        ),
-                    })
-                    continue
-
-                # Execute filtered tools
-                messages.append({**accumulated_msg, "tool_calls": filtered_calls})
-                async for event in self._execute_tools(
-                    filtered_calls, session_id, messages
-                ):
-                    yield event
-
-            # Memory writeback (fire-and-forget)
-            if final_reply and self.memory:
-                title = self.memory.derive_conversation_title(messages)
-                asyncio.create_task(
-                    self.memory.update_memory_after_turn(
-                        session_id, conversation_key, title, messages
-                    )
-                )
-
-            yield AgentEvent("done", text=final_reply)
-
+            ws_sections = []
+            if self.memory and not cloud:
+                try:
+                    title = self.memory.derive_conversation_title(messages)
+                    await self.memory.ensure_memory_scaffold(session_id, conversation_key, title)
+                    ws_sections = await self.memory.fetch_workspace_context(session_id, conversation_key=conversation_key)
+                except Exception:
+                    pass
+            if not messages or messages[0].get("role") != "system":
+                messages.insert(0, {"role": "system", "content": self.prompt_builder.build(extra_sections=ws_sections)})
+            messages = await self.context_mgr.process(messages)
+            tool_defs = self.registry.get_definitions(tier=self.tool_tier, use_short_desc=False)
+            if cloud and not config.WORKSPACE_CLOUD_ALLOWED:
+                tool_defs = []
+                messages[0]["content"] += "\n当前工作区未授权向云端提供文件或工具结果；可正常聊天，文件分析请使用本地模型。"
+            if not self.allow_tools:
+                tool_defs = []
+                messages[0]['content'] += '\n本次仅重新组织回答，使用已有工具结果，不重复执行工具；如需重新执行请用户另发一轮指令。'
+            counts = {}
+            for round_number in range(self.max_rounds):
+                active = [d for d in tool_defs if counts.get(d['function']['name'], 0) < _TOOL_BUDGETS.get(d['function']['name'], 1000)]
+                if round_number == self.max_rounds - 1:
+                    active = []
+                    messages.append({"role": "user", "content": "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
+                messages = await self.context_mgr.process(messages)
+                accumulated = None
+                async with aclosing(self.llm.chat_stream_with_tools(messages, active or None)) as stream:
+                    async for token, msg in stream:
+                        if msg is not None:
+                            accumulated = msg
+                        elif token:
+                            yield AgentEvent("token", text=token)
+                if not accumulated:
+                    raise RuntimeError("模型未返回完整消息，已取得的结果仍保留。")
+                calls = accumulated.get('tool_calls') or []
+                for tc in calls:
+                    if not tc.get('id'):
+                        tc['id'] = 'call_' + uuid.uuid4().hex
+                    tc.setdefault('type', 'function')
+                messages.append(accumulated)
+                yield AgentEvent('message', data={'message': accumulated})
+                if not calls:
+                    reply = accumulated.get('content') or ''
+                    if not reply:
+                        raise RuntimeError('模型返回空回答，已有工具结果仍保留。')
+                    if self.memory and not cloud:
+                        try:
+                            await self.memory.update_memory_after_turn(session_id, conversation_key,
+                                self.memory.derive_conversation_title(messages), messages)
+                        except Exception:
+                            logger.warning('Local memory update failed')
+                    yield AgentEvent('done', text=reply)
+                    return
+                allowed = {d['function']['name'] for d in active}
+                async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed)) as events:
+                    async for event in events:
+                        yield event
+                for call in calls:
+                    name = call['function']['name']
+                    counts[name] = counts.get(name, 0) + 1
+            yield AgentEvent('error', text='本轮调用已达到上限；已完成的工具结果保留，请继续追问。')
         except Exception as exc:
-            logger.error("Agent loop error: %s", exc)
-            yield AgentEvent("error", text=str(exc))
+            logger.error('Agent loop failed: %s', type(exc).__name__)
+            yield AgentEvent('error', text=str(exc))
 
     async def run_sync(
         self,
@@ -337,84 +307,47 @@ class Agent:
                 counts[fn_name] = counts.get(fn_name, 0) + 1
         return filtered
 
-    async def _execute_tools(
-        self,
-        tool_calls: list[dict],
-        session_id: str,
-        messages: list[dict],
-    ) -> AsyncGenerator[AgentEvent, None]:
-        """Execute tool calls and yield status events."""
-        called_names: list[str] = []
-
+    async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None):
         for tc in tool_calls:
-            fn = tc.get("function", {})
-            tool_name: str = fn.get("name", "")
-            params = _parse_tool_args(fn.get("arguments", {}))
-            params_brief = _format_tool_params(tool_name, params)
-
-            yield AgentEvent(
-                "tool_start",
-                text=f"`{tool_name}` {params_brief}",
-                data={"name": tool_name, "params": params},
-            )
-
-            t0 = time.time()
+            fn = tc.get('function', {})
+            name = fn.get('name', '')
+            params = {}
+            start = time.monotonic()
             try:
-                result = await self.router.dispatch(tool_name, params, session_id)
-                tool_content = json.dumps(result, ensure_ascii=False, default=str)
-                structured_result = json.loads(tool_content)
-                result_preview = _format_tool_result_preview(result)
-                elapsed = time.time() - t0
-                yield AgentEvent(
-                    "tool_end",
-                    text=f"✅ 成功 ({elapsed:.1f}s)",
-                    data={
-                        "name": tool_name,
-                        "status": "ok",
-                        "elapsed": elapsed,
-                        "result": structured_result,
-                        "result_preview": result_preview,
-                    },
-                )
-            except (PermissionError, FileNotFoundError, ValueError) as exc:
-                tool_content = json.dumps({"error": str(exc)})
-                structured_result = json.loads(tool_content)
-                result_preview = str(exc)
-                elapsed = time.time() - t0
-                yield AgentEvent(
-                    "tool_end",
-                    text=f"❌ 失败: {exc} ({elapsed:.1f}s)",
-                    data={
-                        "name": tool_name,
-                        "status": "error",
-                        "elapsed": elapsed,
-                        "error": str(exc),
-                        "result": structured_result,
-                        "result_preview": result_preview,
-                    },
-                )
+                raw = fn.get('arguments', {})
+                params = json.loads(raw) if isinstance(raw, str) else raw
+                if not isinstance(params, dict):
+                    raise ValueError('工具参数必须是 JSON 对象')
+                if allowed is not None and name not in allowed:
+                    raise ValueError('本轮工具未开放或调用额度已用完，请基于已有结果回答。')
+                yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id']})
+                result = None
+                if hasattr(self.router, 'dispatch_stream'):
+                    async with aclosing(self.router.dispatch_stream(name, params, session_id)) as stream:
+                        async for packet in stream:
+                            if packet.get('event') == 'result':
+                                result = packet['result']
+                            else:
+                                yield AgentEvent('tool_progress', data={'name': name, 'call_id': tc['id'], **packet})
+                else:
+                    result = await self.router.dispatch(name, params, session_id)
+                if result is None:
+                    raise RuntimeError('工具未返回最终执行结果')
+                failed = tool_failed(result)
+                status = 'error' if failed else 'ok'
             except Exception as exc:
-                logger.error("Tool %s failed: %s", tool_name, exc)
-                err_brief = str(exc)[:200]
-                tool_content = json.dumps({"error": err_brief})
-                result_preview = err_brief
-                elapsed = time.time() - t0
-                yield AgentEvent(
-                    "tool_end",
-                    text=f"❌ 异常: {err_brief} ({elapsed:.1f}s)",
-                    data={
-                        "name": tool_name,
-                        "status": "exception",
-                        "elapsed": elapsed,
-                        "error": err_brief,
-                        "result_preview": result_preview,
-                    },
-                )
-
-            messages.append({"role": "tool", "content": tool_content})
-            called_names.append(tool_name)
-
-        self.audit.record("tool_loop", {"session_id": session_id, "tools_called": called_names})
+                result = {'error': str(exc)}
+                status = 'error'
+            # Explicit local-only attachments are rendered by the UI, never in model history.
+            observation = model_projection(result)
+            content = json.dumps(observation, ensure_ascii=False, default=str)
+            message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
+            messages.append(message)
+            yield AgentEvent('message', data={'message': message})
+            yield AgentEvent('tool_end', text='已完成' if status == 'ok' else '执行失败', data={
+                'name': name, 'call_id': tc['id'], 'params': params, 'status': status,
+                'elapsed': time.monotonic() - start, 'result': result, 'result_preview': _format_tool_result_preview(result)})
+            self.audit.record('tool_loop', {'session_id': session_id, 'name': name, 'status': status})
 
     async def _inject_context_into_messages(
         self, messages: list[dict], session_id: str

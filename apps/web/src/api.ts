@@ -287,7 +287,7 @@ export async function streamChat(
 
 export async function streamRegenerate(
   conversationId: string,
-  options: {messageId?: string | null; signal?: AbortSignal; baseUrl?: string},
+  options: {providerId?: string; model?: string; messageId?: string | null; signal?: AbortSignal; baseUrl?: string},
   onEvent: (event: UIStreamEvent) => void,
 ): Promise<void> {
   const response = await fetch(
@@ -295,7 +295,7 @@ export async function streamRegenerate(
     {
       method: 'POST',
       headers: {'content-type': 'application/json'},
-      body: JSON.stringify({message_id: options.messageId ?? null}),
+      body: JSON.stringify({message_id: options.messageId ?? null, provider_id: options.providerId, model: options.model}),
       signal: options.signal,
     },
   );
@@ -334,7 +334,7 @@ export async function streamEditMessage(
   conversationId: string,
   messageId: string,
   content: string,
-  options: {signal?: AbortSignal; baseUrl?: string} = {},
+  options: {providerId?: string; model?: string; signal?: AbortSignal; baseUrl?: string} = {},
   onEvent: (event: UIStreamEvent) => void,
 ): Promise<void> {
   const response = await fetch(
@@ -342,7 +342,7 @@ export async function streamEditMessage(
     {
       method: 'POST',
       headers: {'content-type': 'application/json'},
-      body: JSON.stringify({content}),
+      body: JSON.stringify({content, provider_id: options.providerId, model: options.model}),
       signal: options.signal,
     },
   );

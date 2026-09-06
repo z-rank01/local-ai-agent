@@ -1,0 +1,11 @@
+[
+  {
+    "provider_id": "qwen",
+    "provider_name": "通义千问",
+    "kind": "cloud",
+    "model": "qwen3.5-flash",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "api_key_env": "DASHSCOPE_API_KEY",
+    "options": {"enable_thinking": false}
+  }
+]

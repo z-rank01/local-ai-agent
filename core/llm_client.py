@@ -226,9 +226,21 @@ class LLMClient:
         Yields ``(token_text, None)`` for each token, then
         ``("", accumulated_msg)`` as the final yield.
         """
+        normalized = []
+        for message in messages:
+            item = dict(message)
+            item.pop('reasoning_content', None)
+            if item.get('tool_calls'):
+                item['tool_calls'] = []
+                for call in message['tool_calls']:
+                    fn = dict(call['function'])
+                    if isinstance(fn.get('arguments'), str):
+                        fn['arguments'] = _json.loads(fn['arguments'])
+                    item['tool_calls'].append(dict(call, function=fn))
+            normalized.append(item)
         payload: dict = {
             "model": self._model,
-            "messages": messages,
+            "messages": normalized,
             "stream": True,
         }
         if tools and self._supports_tools:
@@ -237,6 +249,7 @@ class LLMClient:
         accumulated: dict = {"role": "assistant", "content": ""}
         tool_calls_acc: list[dict] = []
         thinking_started = False
+        stream_done = False
         in_thinking = False
         sanitizer: _ContentSanitizer | None = None
 
@@ -265,7 +278,7 @@ class LLMClient:
                             yield ("<think>\n", None)
                             thinking_started = True
                             in_thinking = True
-                            sanitizer = _ContentSanitizer()
+                            sanitizer = None
                         yield (thinking, None)
 
                     if content:
@@ -282,6 +295,7 @@ class LLMClient:
                             yield (content, None)
 
                     if chunk.get("done"):
+                        stream_done = True
                         if in_thinking:
                             yield ("\n</think>\n\n", None)
                         if sanitizer:
@@ -291,31 +305,17 @@ class LLMClient:
                                 yield (remaining, None)
                         break
 
+            if not stream_done:
+                raise RuntimeError('本地模型流提前结束，已有内容保留。')
             if tool_calls_acc:
                 accumulated["tool_calls"] = tool_calls_acc
 
             yield ("", accumulated)
 
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 400 and tools and self._supports_tools:
-                body = getattr(exc.response, "text", "") or ""
-                if "does not support tools" in body:
-                    logger.warning(
-                        "Model %s does not support tools — disabling",
-                        self._model,
-                    )
-                    self._supports_tools = False
-                    async for token in self.chat_stream(messages):
-                        yield (token, None)
-                    yield ("", {"role": "assistant", "content": ""})
-                    return
-            logger.error("LLM stream error %s", exc.response.status_code)
-            yield (f"\n[错误: LLM 请求失败 {exc.response.status_code}]", None)
-            yield ("", {"role": "assistant", "content": ""})
-        except httpx.RequestError as exc:
-            logger.error("LLM stream connection error: %s", exc)
-            yield (f"\n[错误: 无法连接 LLM]", None)
-            yield ("", {"role": "assistant", "content": ""})
+            raise RuntimeError(f'本地模型请求失败（HTTP {exc.response.status_code}），未切换模型或禁用工具。') from None
+        except httpx.RequestError:
+            raise RuntimeError('本地模型连接失败或超时，已保留收到的内容。') from None
 
     async def chat_stream(self, messages: list) -> AsyncGenerator[str, None]:
         """Stream a final text response (no tools).
@@ -349,7 +349,7 @@ class LLMClient:
                                 yield "<think>\n"
                                 thinking_started = True
                                 in_thinking = True
-                                sanitizer = _ContentSanitizer()
+                                sanitizer = None
                             yield thinking
 
                         if content:
