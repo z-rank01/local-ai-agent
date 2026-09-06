@@ -317,3 +317,31 @@ async def set_model_credential(provider_id: str, payload: ModelCredentialRequest
         raise HTTPException(422, '请输入有效密钥')
     save_key(spec['api_key_env'], key)
     return {'status': 'configured'}
+
+
+class ModelSettingsRequest(BaseModel):
+    model_id: str
+    workspace_path: str
+    thinking_enabled: bool | None = None
+    workspace_cloud_allowed: bool | None = None
+
+@app.patch('/api/model-settings')
+async def set_model_settings(payload: ModelSettingsRequest, request: Request):
+    origin = request.headers.get('origin')
+    if not _is_loopback_host(request.client.host if request.client else None) or (origin and origin not in config.WEB_ORIGINS):
+        raise HTTPException(403, '设置仅允许本机 Web 修改')
+    if payload.workspace_path != str(config.WORKSPACE_PATH.resolve()):
+        raise HTTPException(409, '工作区已变化，请刷新页面后重新确认')
+    service = get_chat_service()
+    if service._active_conversations:
+        raise HTTPException(409, '请等待当前回答完成或停止后再修改设置')
+    spec = next((s for s in get_runtime().models.specs if s['id'] == payload.model_id), None)
+    if spec is None:
+        raise HTTPException(404, '模型未配置')
+    if payload.thinking_enabled is not None and 'enable_thinking' not in spec.get('options', {}):
+        raise HTTPException(422, '当前模型未提供可配置的思考开关')
+    if payload.workspace_cloud_allowed is not None and spec['kind'] != 'cloud':
+        raise HTTPException(422, '本地模型无需云端授权')
+    from core.model_settings import update_settings
+    update_settings(spec['id'], thinking=payload.thinking_enabled, workspace=payload.workspace_cloud_allowed)
+    return {'status': 'saved'}

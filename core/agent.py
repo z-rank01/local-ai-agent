@@ -215,12 +215,15 @@ class Agent:
                 messages.insert(0, {"role": "system", "content": self.prompt_builder.build(extra_sections=ws_sections)})
             messages = await self.context_mgr.process(messages)
             tool_defs = self.registry.get_definitions(tier=self.tool_tier, use_short_desc=False)
-            if cloud and not config.WORKSPACE_CLOUD_ALLOWED:
+            if cloud and not getattr(self, 'workspace_cloud_allowed', config.WORKSPACE_CLOUD_ALLOWED):
                 tool_defs = []
-                messages[0]["content"] += "\n当前工作区未授权向云端提供文件或工具结果；可正常聊天，文件分析请使用本地模型。"
+                messages[0]["content"] += "\n当前工作区工具未获云端授权，本轮没有可调用工具。可正常聊天。用户要求读取、列出、分析本地文件或执行代码时，先明确说明尚未执行，并询问是否愿意在顶部“模型设置”开启“允许云端使用当前工作区工具”（文件内容和工具结果可能发送到云端模型）。用户也可选择本地模型。不要声称正在查看或执行，不要编造文件内容，不要以未执行的代码代替任务完成；仅在用户要求代码示例时提供并标明未执行。聊天中的同意不能代替设置开关，必须由用户在界面操作。"
             if not self.allow_tools:
                 tool_defs = []
                 messages[0]['content'] += '\n本次仅重新组织回答，使用已有工具结果，不重复执行工具；如需重新执行请用户另发一轮指令。'
+            messages[0]['content'] += '\n执行任务必须通过本轮实际提供的工具调用，代码块本身不会执行。没有执行结果时不得声称已经读取、修改或生成文件。用户只要求讨论或只读时遵守该范围。'
+            if cloud and not getattr(self.llm, 'spec', {}).get('options', {}).get('enable_thinking', False):
+                messages[0]['content'] += '\n当前思考输出关闭。若用户明确要求开启思考模式，请询问是否愿意在顶部“模型设置”开启“思考输出”；不能声称已自行开启。普通任务无需为此打断。'
             counts = {}
             for round_number in range(self.max_rounds):
                 active = [d for d in tool_defs if counts.get(d['function']['name'], 0) < _TOOL_BUDGETS.get(d['function']['name'], 1000)]

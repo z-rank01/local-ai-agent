@@ -16,7 +16,7 @@ from typing import AsyncGenerator, AsyncIterable
 import httpx
 from fastapi import HTTPException
 
-from core import config
+from core import config, model_settings
 from core.conversation_store import Conversation, ConversationStore, Message
 from core.input_utils import ImportedFile, ingest_local_file_paths
 from core.runtime import RuntimeServices
@@ -80,7 +80,7 @@ class ChatSessionService:
         budget = self._runtime.models.budget.status()
         return AppStatus(
             model_calls_used=budget["used"], model_call_limit=budget["limit"],
-            workspace_cloud_allowed=config.WORKSPACE_CLOUD_ALLOWED,
+            workspace_cloud_allowed=model_settings.workspace_allowed(),
             model=self._runtime.models.default,
             workspace_path=str(self._workspace_root),
             tools=tools,
@@ -91,6 +91,8 @@ class ChatSessionService:
         from core.providers import read_key
         return [ModelInfo(id=s['id'], name=s['model'], provider_id=s['provider_id'],
             provider_name=s['provider_name'], default=s['id'] == self._runtime.models.default,
+            thinking_supported='enable_thinking' in s.get('options', {}),
+            thinking_enabled=model_settings.thinking_enabled(s),
             capabilities=['text','tools','streaming'], context_window=config.CONTEXT_WINDOW,
             status='configured' if s['kind']=='local' or read_key(s.get('api_key_env','')) else 'missing_key')
             for s in self._runtime.models.specs]
@@ -674,11 +676,17 @@ class ChatSessionService:
     async def _run_assistant_turn(self, conversation, run_id, *, response_to_message_id, response_version_number, answer_only=False):
         spec, llm = self._select_model(conversation)
         cloud = spec['kind'] == 'cloud'
+        workspace_allowed = model_settings.workspace_allowed()
+        if 'enable_thinking' in spec.get('options', {}):
+            import copy
+            llm = copy.copy(llm)
+            llm.spec = {**spec, 'options': {**spec['options'], 'enable_thinking': model_settings.thinking_enabled(spec)}}
         messages = self._store.messages_as_dicts(conversation.id, cloud=cloud)
         agent = self._runtime.agent_for(spec, llm)
         agent.allow_tools = not answer_only
+        agent.workspace_cloud_allowed = workspace_allowed
         base = dict(conversation_id=conversation.id, run_id=run_id)
-        meta = {'model': spec['id'], 'cloud_safe': cloud or config.WORKSPACE_CLOUD_ALLOWED}
+        meta = {'model': spec['id'], 'cloud_safe': cloud or workspace_allowed}
         response_meta = dict(response_to_message_id=response_to_message_id, version_number=response_version_number)
         text, reasoning, block, thinking_block = '', '', uuid.uuid4().hex, uuid.uuid4().hex
         thinking_open = False
@@ -689,7 +697,7 @@ class ChatSessionService:
             return self._store.add_message(conversation.id, role=role, content=content, **response_meta, **kwargs)
         try:
             yield emit('model.selected', data={'model': spec['id'], 'cloud': cloud,
-                'workspace_cloud_allowed': config.WORKSPACE_CLOUD_ALLOWED})
+                'workspace_cloud_allowed': workspace_allowed})
             async with aclosing(agent.run(messages, conversation.id, conversation.id)) as events:
                 async for event in events:
                     if event.kind == 'token':
@@ -712,7 +720,7 @@ class ChatSessionService:
                         save('protocol', metadata={**meta, 'message': message})
                         if message['role'] == 'assistant':
                             final_text = message.get('content') or text
-                            if final_text:
+                            if final_text or reasoning:
                                 saved = save('assistant', final_text, thinking=reasoning, metadata=meta)
                                 yield emit('assistant.completed', block_id=block, message_id=saved.id,
                                     data={'text': final_text, 'model': spec['id']})

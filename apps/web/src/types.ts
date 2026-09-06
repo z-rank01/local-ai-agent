@@ -37,6 +37,8 @@ export type MessageRecord = {
 };
 
 export type ModelInfo = {
+  thinking_supported: boolean;
+  thinking_enabled: boolean;
   id: string;
   name: string;
   provider_id: string;

@@ -80,6 +80,8 @@ class AppStatus(BaseModel):
 
 
 class ModelInfo(BaseModel):
+    thinking_supported: bool = False
+    thinking_enabled: bool = False
     id: str
     name: str
     provider_id: str

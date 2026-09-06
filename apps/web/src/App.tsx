@@ -2098,6 +2098,8 @@ export default function App() {
             <ModelPicker models={models} value={selectedModelId} onChange={setSelectedModelId} />
             <button type="button" className="ghost-button topbar-button" aria-haspopup="dialog"
               aria-expanded={modelSettingsOpen} onClick={() => setModelSettingsOpen(true)}>模型设置</button>
+            {selectedModel?.provider_id !== 'ollama' ? <button type="button" className="ghost-button topbar-button capability-status"
+              onClick={() => setModelSettingsOpen(true)}>{status?.workspace_cloud_allowed ? '工具已开启' : '工具未开启'} · {selectedModel?.thinking_enabled ? '思考开' : '思考关'}</button> : null}
             {conversationId ? (
               <div className="export-menu" ref={exportMenuRef}>
                 <button
@@ -2246,7 +2248,7 @@ export default function App() {
         <AppearanceSettingsPanel value={effectiveAppearance} onChange={updateAppearance} onReset={resetAppearance} />
         <section>
           <h2>模型</h2>
-          <p>云端模型会接收本次聊天及测试工作区中的工具结果。请只放入允许发送的资料。</p>
+          <p>{selectedModel?.provider_id === 'ollama' ? '本地模型 · 工作区工具可用' : status?.workspace_cloud_allowed ? '云端工作区工具已开启，文件内容和工具结果可能发送到所选云端模型。' : '云端工作区工具未开启；文件分析或代码执行前，请打开模型设置授权。'}</p>
           {selectedModel ? (
             <div className="model-card">
               <strong>{selectedModel.name}</strong>
@@ -2318,7 +2320,7 @@ export default function App() {
 
       {modelSettingsOpen ? <ModelSettingsDialog model={selectedModel} status={status}
         onClose={() => setModelSettingsOpen(false)}
-        onSaved={async () => {setModels(await fetchModels());}} /> : null}
+        onSaved={async () => {const [nextModels, nextStatus] = await Promise.all([fetchModels(), fetchStatus()]); setModels(nextModels); setStatus(nextStatus);}} /> : null}
       {toast ? <div className="toast" role="status">{toast}</div> : null}
     </div>
   );
