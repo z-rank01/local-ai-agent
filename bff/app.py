@@ -193,6 +193,7 @@ async def edit_message(
             message_id=message_id,
             content=request.content,
             provider_id=request.provider_id, model=request.model,
+            request_id=request.request_id,
         ),
         conversation_id=conversation_id,
     )
@@ -205,7 +206,7 @@ async def regenerate_conversation(
     service = get_chat_service()
     payload = request or RegenerateRequest()
     return await _stream_ndjson(
-        service.regenerate_chat(conversation_id, message_id=payload.message_id, provider_id=payload.provider_id, model=payload.model),
+        service.regenerate_chat(conversation_id, message_id=payload.message_id, provider_id=payload.provider_id, model=payload.model, request_id=payload.request_id),
         conversation_id=conversation_id,
     )
 

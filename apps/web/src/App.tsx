@@ -1728,7 +1728,7 @@ export default function App() {
           conversationId,
           activeEdit.messageId,
           message,
-          {signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name},
+          {signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name, requestId: crypto.randomUUID()},
           applyEvent,
         );
       } else {
@@ -1868,7 +1868,7 @@ export default function App() {
     try {
       await streamRegenerate(
         conversationId,
-        {messageId: lastUserBlock.messageId, signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name},
+        {messageId: lastUserBlock.messageId, signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name, requestId: crypto.randomUUID()},
         applyEvent,
       );
     } catch (err) {

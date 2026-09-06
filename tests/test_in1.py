@@ -202,6 +202,21 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.seen),1)
         self.assertEqual(len(self.service.get_messages(first[0].conversation_id)),2)
 
+    async def test_edit_and_regenerate_reject_repeated_request_id(self):
+        events=[e async for e in self.service.stream_chat(ChatRequest(message='hi',model='qwen:qwen3.5-flash'))]
+        cid=events[0].conversation_id
+        user=[m for m in self.service.get_messages(cid) if m.role=='user'][0]
+        _=[e async for e in self.service.edit_message_and_regenerate(cid,message_id=user.id,content='edited',request_id='edit-req-1')]
+        with self.assertRaisesRegex(Exception,'已受理'):
+            _=[e async for e in self.service.edit_message_and_regenerate(cid,message_id=user.id,content='edited again',request_id='edit-req-1')]
+        users=[m for m in self.service.get_messages(cid) if m.role=='user']
+        self.assertEqual([m.content for m in users],['edited'])
+        _=[e async for e in self.service.regenerate_chat(cid,request_id='regen-req-1')]
+        with self.assertRaisesRegex(Exception,'已受理'):
+            _=[e async for e in self.service.regenerate_chat(cid,request_id='regen-req-1')]
+        assistants=[m for m in self.service.get_messages(cid) if m.role=='assistant']
+        self.assertEqual(len(assistants),1)
+
     async def test_duplicate_active_send_rejected_before_mutation(self):
         conv = self.runtime.store.create_conversation(title='test',model='qwen:qwen3.5-flash')
         first = self.service.stream_chat(ChatRequest(conversation_id=conv.id,message='first'))

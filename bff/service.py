@@ -378,8 +378,10 @@ class ChatSessionService:
 
     @exclusive_turn
     async def regenerate_chat(
-        self, conversation_id: str, *, message_id: str | None = None, provider_id=None, model=None
+        self, conversation_id: str, *, message_id: str | None = None, provider_id=None, model=None, request_id: str | None = None
     ) -> AsyncGenerator[UIStreamEvent, None]:
+        if request_id and not self._store.claim_chat_request(request_id):
+            raise HTTPException(409, '该请求已受理，请刷新查看已有结果；如需再次执行请发送新消息。')
         conversation = self._require_conversation(conversation_id)
         self._select_model(conversation, provider_id, model)
         messages = self._store.get_messages(conversation_id)
@@ -458,8 +460,10 @@ class ChatSessionService:
         *,
         message_id: str,
         content: str,
-        provider_id=None, model=None,
+        provider_id=None, model=None, request_id: str | None = None,
     ) -> AsyncGenerator[UIStreamEvent, None]:
+        if request_id and not self._store.claim_chat_request(request_id):
+            raise HTTPException(409, '该请求已受理，请刷新查看已有结果；如需再次执行请发送新消息。')
         conversation = self._require_conversation(conversation_id)
         self._select_model(conversation, provider_id, model)
         target = self._store.get_message(message_id)

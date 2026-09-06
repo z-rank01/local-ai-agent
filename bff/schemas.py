@@ -114,12 +114,14 @@ class RegenerateRequest(BaseModel):
     provider_id: str | None = None
     model: str | None = None
     message_id: str | None = None
+    request_id: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class EditMessageRequest(BaseModel):
     provider_id: str | None = None
     model: str | None = None
     content: str = Field(min_length=1)
+    request_id: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class ActivateMessageVersionRequest(BaseModel):
