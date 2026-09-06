@@ -22,14 +22,21 @@ services:
     image: local-ai-agent-skill-files:latest
     build: ./skills/files
     ports: ["127.0.0.1:19101:8100"]
+    user: "1001:1001"
     volumes:
       - ./skills/files:/app:ro
       - ./data/in1/workspace:/workspace
       - ./data/in1/trash:/trash
       - ./data/in1/logs:/logs
       - ./config:/config:ro
+    read_only: true
+    tmpfs: [/tmp]
     environment:
       AUTO_GIT_COMMIT: 'true'
+      HOME: /tmp
+    cpus: 1
+    mem_limit: 512m
+    pids_limit: 64
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
 volumes:

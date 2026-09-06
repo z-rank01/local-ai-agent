@@ -20,6 +20,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Unprivileged user for defence-in-depth. The image default stays root for
+# the legacy deployment; compose.in1.yml opts into this user explicitly.
+RUN useradd -m -u 1001 files
+
 EXPOSE 8100
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8100"]
