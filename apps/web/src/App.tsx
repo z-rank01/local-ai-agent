@@ -534,7 +534,7 @@ function buildAssistantTimeline(
 ): AssistantTimelineEntry[] {
   const toolAttempts = new Map<string, number>();
 
-  return blocks.map((block, index) => {
+  return blocks.filter(block => block.kind !== 'assistant' || block.text || block.status === 'running').map((block, index) => {
     const stepNumber = index + 1;
 
     if (block.kind === 'assistant') {
@@ -651,13 +651,14 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
           createdAt: message.created_at,
         });
       }
-      blocks.push({
+      if (message.content) blocks.push({
         id: message.id,
         kind: 'assistant',
         label: message.model || 'assistant',
         text: message.content,
         messageId: message.id,
         createdAt: message.created_at,
+        status: message.status === 'error' ? 'error' : 'ok',
         responseToMessageId: message.response_to_message_id,
         versionNumber: message.version_number,
         versionCount: message.version_count,
@@ -712,6 +713,7 @@ function EmptyState() {
 
 function AssistantSection({block, onToggle, onOpenConversation}: {block: TranscriptBlock; onToggle: (id: string) => void; onOpenConversation?: (conversationId: string) => void | Promise<void>}) {
   if (block.kind === 'assistant') {
+    if (!block.text && block.status !== 'running') return null;
     return (
       <div className="assistant-answer-section">
         {block.label.includes(':') ? <small>{block.label}</small> : null}

@@ -141,6 +141,16 @@ def model_projection(value):
     return value
 
 
+def unfinished_execution(reply: str, user_request: str) -> bool:
+    """Narrow recovery signal: promised execution followed by an unexecuted code block."""
+    if re.search(r'仅.*(?:讨论|代码|示例)|只.*(?:讨论|代码|示例)|不要执行|不用执行|代码示例|example|do not (?:run|execute)', user_request, re.I):
+        return False
+    prose = re.sub(r'```[\s\S]*?```', '', reply)
+    return bool(re.search(r'```(?:python|py|bash|sh|powershell|javascript)\s', reply, re.I)
+                and re.search(r'让我|我先|接下来.*(?:读取|执行|运行|查看|分析)|let me|I will|I.ll', prose, re.I)
+                and not re.search(r'尚未执行|未运行|无法执行|不能执行|示例|not executed|cannot run', prose, re.I))
+
+
 class Agent:
     """Framework-agnostic agentic loop with streaming tool calling.
 
@@ -225,6 +235,8 @@ class Agent:
             if cloud and not getattr(self.llm, 'spec', {}).get('options', {}).get('enable_thinking', False):
                 messages[0]['content'] += '\n当前思考输出关闭。若用户明确要求开启思考模式，请询问是否愿意在顶部“模型设置”开启“思考输出”；不能声称已自行开启。普通任务无需为此打断。'
             counts = {}
+            execution_retries = 0
+            user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             for round_number in range(self.max_rounds):
                 active = [d for d in tool_defs if counts.get(d['function']['name'], 0) < _TOOL_BUDGETS.get(d['function']['name'], 1000)]
                 if round_number == self.max_rounds - 1:
@@ -251,6 +263,12 @@ class Agent:
                     reply = accumulated.get('content') or ''
                     if not reply:
                         raise RuntimeError('模型返回空回答，已有工具结果仍保留。')
+                    if tool_defs and self.allow_tools and unfinished_execution(reply, user_request):
+                        if execution_retries >= 2 or not active or round_number >= self.max_rounds - 1:
+                            raise RuntimeError('模型只给出了待执行代码，没有完成所述操作。已有工具结果保留；代码未自动运行，任务尚未完成。')
+                        execution_retries += 1
+                        messages.append({'role': 'system', 'content': '执行检查：你刚才说要继续操作，却只输出了代码，代码块不会被执行。请根据用户原任务及只读/讨论等限制判断：若仍需且已获授权执行，使用实际工具调用继续；若用户只需要示例或存在阻碍，明确说明未执行及原因。不新增用户未授权的操作，不把代码示例当作已完成结果。'})
+                        continue
                     if self.memory and not cloud:
                         try:
                             await self.memory.update_memory_after_turn(session_id, conversation_key,
