@@ -1,5 +1,7 @@
 ﻿# 本地 AI Agent 部署与使用文档
 
+> 2026-09-06 文档导航：新增 [docs 文档入口](./docs/README.md)与[股票能力接入计划](./docs/股票能力接入.md)。两仓库直接在 main 开发，当前只完成方案文档，用户查阅后再开始实现；以下历史功能记录不代表云端模型或股票接入已完成。
+
 > 适用环境：Windows + Docker Desktop + Ollama（本机运行）+ Python 3.11+ + Node.js LTS + React/Vite Web 界面
 >
 > 当前主架构：Web UI（React + Vite，本地 Node.js dev server）→ Python BFF（localhost:9510）→ core/ → Ollama（localhost:11434）+ skill-files（:9101）+ skill-runner（:9102）+ SearXNG + skill-websearch（:9103，可选）
