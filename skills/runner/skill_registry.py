@@ -10,11 +10,12 @@ import importlib.util
 import json
 import logging
 import os
-import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+from sandbox import run_argv
 
 logger = logging.getLogger("skill-runner.registry")
 
@@ -23,14 +24,6 @@ _REGISTRY_DIR = Path("/workspace/.skill_registry")
 _REGISTRY_SKILLS_DIR = _REGISTRY_DIR / "skills"
 _REGISTRY_INDEX = _REGISTRY_DIR / "registry.json"
 _EXEC_TIMEOUT = int(os.environ.get("PYTHON_EXEC_TIMEOUT", "30"))
-
-_SAFE_ENV = {
-    "PATH": "/usr/local/bin:/usr/bin:/bin",
-    "HOME": "/tmp",
-    "PYTHONPATH": "/packages:/workspace",
-    "PYTHONDONTWRITEBYTECODE": "1",
-    "PYTHONUNBUFFERED": "1",
-}
 
 _WRAPPER_TEMPLATE = """\
 import json, sys, importlib.util
@@ -275,14 +268,7 @@ def run_skill(skill_name: str, params: dict, timeout: int = _EXEC_TIMEOUT) -> di
             f.write(wrapper_code)
             tmp_path = f.name
 
-        result = subprocess.run(
-            [sys.executable, tmp_path, params_json],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd="/workspace",
-            env=_SAFE_ENV,
-        )
+        result = run_argv([sys.executable, tmp_path, params_json], timeout=timeout)
 
         # Update run stats
         if config:
@@ -290,14 +276,17 @@ def run_skill(skill_name: str, params: dict, timeout: int = _EXEC_TIMEOUT) -> di
             config["run_count"] = config.get("run_count", 0) + 1
             _save_skill_config(skill_name, config)
 
-        if result.returncode != 0:
-            logger.warning("skill %s failed: %s", skill_name, result.stderr[:200])
+        if result.get("timed_out"):
+            return {"error": f"Skill {skill_name!r} timed out after {timeout}s; process group terminated"}
+
+        if result["exit_code"] != 0:
+            logger.warning("skill %s failed: %s", skill_name, result["stderr"][:200])
             return {
-                "exit_code": result.returncode,
-                "error": result.stderr.strip(),
+                "exit_code": result["exit_code"],
+                "error": result["stderr"].strip(),
             }
 
-        stdout = result.stdout.strip()
+        stdout = result["stdout"].strip()
         if not stdout:
             return {"exit_code": 0, "result": None}
 
@@ -306,8 +295,6 @@ def run_skill(skill_name: str, params: dict, timeout: int = _EXEC_TIMEOUT) -> di
         except json.JSONDecodeError:
             return {"exit_code": 0, "output": stdout}
 
-    except subprocess.TimeoutExpired:
-        return {"error": f"Skill {skill_name!r} timed out after {timeout}s"}
     except Exception as exc:
         return {"error": f"Skill execution error: {exc}"}
     finally:

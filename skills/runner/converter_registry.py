@@ -13,23 +13,16 @@ import importlib.util
 import json
 import logging
 import os
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from sandbox import run_argv
 
 logger = logging.getLogger("skill-runner.converters")
 
 _CONVERTERS_DIR = Path("/workspace/converters")
 _EXEC_TIMEOUT = int(os.environ.get("PYTHON_EXEC_TIMEOUT", "60"))
-
-_SAFE_ENV = {
-    "PATH": "/usr/local/bin:/usr/bin:/bin",
-    "HOME": "/tmp",
-    "PYTHONPATH": "/packages:/workspace",
-    "PYTHONDONTWRITEBYTECODE": "1",
-    "PYTHONUNBUFFERED": "1",
-}
 
 # Track which converters have had their deps installed this session
 _deps_installed: set[str] = set()
@@ -149,21 +142,17 @@ def convert_file(file_path: str) -> dict:
             f.write(_CONVERT_WRAPPER)
             tmp_path = f.name
 
-        result = subprocess.run(
-            [sys.executable, tmp_path, str(converter_path), file_path],
-            capture_output=True,
-            text=True,
-            timeout=_EXEC_TIMEOUT,
-            cwd="/workspace",
-            env=_SAFE_ENV,
-        )
+        result = run_argv([sys.executable, tmp_path, str(converter_path), file_path], timeout=_EXEC_TIMEOUT)
 
-        if result.returncode != 0:
-            error_msg = result.stderr.strip()[:500]
+        if result.get("timed_out"):
+            return {"error": f"转换器执行超时 ({_EXEC_TIMEOUT}s)；进程组已终止"}
+
+        if result["exit_code"] != 0:
+            error_msg = result["stderr"].strip()[:500]
             logger.warning("Converter %s failed: %s", converter_path.name, error_msg)
             return {"error": f"转换器执行失败: {error_msg}"}
 
-        stdout = result.stdout.strip()
+        stdout = result["stdout"].strip()
         if not stdout:
             return {"error": "转换器未返回任何内容"}
 
@@ -173,8 +162,6 @@ def convert_file(file_path: str) -> dict:
             # If converter printed plain text instead of JSON, wrap it
             return {"content": stdout}
 
-    except subprocess.TimeoutExpired:
-        return {"error": f"转换器执行超时 ({_EXEC_TIMEOUT}s)"}
     except Exception as exc:
         return {"error": f"转换器执行异常: {exc}"}
     finally:

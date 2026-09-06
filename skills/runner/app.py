@@ -129,7 +129,10 @@ async def shell_exec(req: ShellExecRequest):
 
     timeout = min(req.timeout, _SHELL_TIMEOUT)
     logger.info("shell_exec: %r, timeout=%ds", req.command[:100], timeout)
-    result = run_shell(req.command, timeout=timeout)
+    try:
+        result = run_shell(req.command, timeout=timeout, cwd=req.cwd)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     if result["exit_code"] != 0 and not result["stdout"] and result["stderr"]:
         logger.warning("shell_exec failed: exit=%d stderr=%s", result["exit_code"], result["stderr"][:200])

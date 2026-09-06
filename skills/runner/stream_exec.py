@@ -6,14 +6,11 @@ import signal
 import time
 from pathlib import Path
 
-from sandbox import _SAFE_ENV
+from sandbox import _SAFE_ENV, validate_workspace_cwd
 
 
 async def stream_shell(command, timeout=60, cwd='/workspace', argv=None):
-    root = Path('/workspace').resolve()
-    workdir = Path(cwd).resolve()
-    if not workdir.is_relative_to(root) or not workdir.is_dir():
-        raise ValueError('工作目录必须是 /workspace 内的实际目录')
+    workdir = validate_workspace_cwd(cwd)
     start = time.monotonic()
     proc = await asyncio.create_subprocess_exec(*(argv or ['/bin/sh', '-c', command]), cwd=str(workdir),
         env=_SAFE_ENV, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
