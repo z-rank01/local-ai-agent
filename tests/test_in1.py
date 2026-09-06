@@ -313,4 +313,12 @@ class EditTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.ops.edit(str(path),old,'new',hash_)
         self.assertEqual(path.read_bytes(),b'abc')
 
+    def test_ambiguous_match_rejected_without_changing_bytes(self):
+        path=self.root/'dup.txt';original='重复短句\n中间\n重复短句\n'.encode('utf-8');path.write_bytes(original)
+        before=self.ops.read(str(path))
+        self.assertEqual(before['sha256'],hashlib.sha256(original).hexdigest())
+        with self.assertRaisesRegex(ValueError,'唯一匹配'):
+            self.ops.edit(str(path),'重复短句','新句',before['sha256'])
+        self.assertEqual(path.read_bytes(),original)
+
 if __name__=='__main__': unittest.main()

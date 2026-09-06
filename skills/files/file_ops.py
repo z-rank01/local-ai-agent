@@ -77,22 +77,23 @@ class FileOps:
 
     _FALLBACK_ENCODINGS = ("utf-8", "gbk", "gb2312", "gb18030", "big5", "latin-1")
 
-    def read(self, path: str, encoding: str = "utf-8") -> dict | str:
+    def read(self, path: str, encoding: str = "utf-8") -> dict:
         resolved = self._guard.resolve(path)
         if not resolved.exists():
             raise FileNotFoundError(f"File not found: {path!r}")
         if not resolved.is_file():
             raise IsADirectoryError(f"Path is a directory, not a file: {path!r}")
 
+        # Read once: the sha256 always describes the same bytes this response is based on.
+        raw = resolved.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
         suffix = resolved.suffix.lower()
 
         # Built-in converters for common formats
         if suffix in _XLSX_SUFFIXES:
-            return _read_excel_as_text(resolved)
+            return {"content": _read_excel_as_text(resolved), "sha256": digest, "path": path}
         if suffix in _PDF_SUFFIXES:
-            return _read_pdf_as_text(resolved)
-
-        raw = resolved.read_bytes()
+            return {"content": _read_pdf_as_text(resolved), "sha256": digest, "path": path}
 
         # Known text extensions or small files: try text decoding
         if suffix in _TEXT_SUFFIXES or not _is_binary(raw):
@@ -101,10 +102,11 @@ class FileOps:
             )
             for enc in encodings:
                 try:
-                    return {'content':raw.decode(enc), 'sha256':hashlib.sha256(raw).hexdigest(), 'encoding':enc, 'path':path}
+                    return {'content':raw.decode(enc), 'sha256':digest, 'encoding':enc, 'path':path}
                 except (UnicodeDecodeError, LookupError):
                     continue
-            return raw.decode("utf-8", errors="replace")
+            return {'content':raw.decode("utf-8", errors="replace"), 'sha256':digest,
+                    'encoding':'utf-8+replace', 'path':path}
 
         # Unsupported binary file — return structured metadata
         return {

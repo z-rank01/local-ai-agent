@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import os
 import time
@@ -147,10 +146,10 @@ async def health():
 async def file_read(req: ReadRequest):
     try:
         result = _file_ops.read(req.path)
-        # result may be a str (text content) or a dict (unsupported binary metadata)
+        # read() returns structured dicts whose sha256 hashes the exact bytes served.
         if isinstance(result, dict):
             return result
-        return {"content": result, "sha256": hashlib.sha256(_file_ops._guard.resolve(req.path).read_bytes()).hexdigest(), "path": req.path}
+        return {"content": str(result), "path": req.path}
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
     except (FileNotFoundError, IsADirectoryError) as exc:
