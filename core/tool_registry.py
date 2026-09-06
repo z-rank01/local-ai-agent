@@ -16,6 +16,9 @@ logger = logging.getLogger("core.tool_registry")
 _WEBSEARCH_BACKEND = "skill-websearch"
 
 _DEFAULT_MAX_RESULT_CHARS: dict[str, int] = {
+    "package_list": 20000,
+    "package_status": 10000,
+    "pip_install": 10000,
     "file_read": 8000,
     "file_list": 4000,
     "code_exec": 6000,

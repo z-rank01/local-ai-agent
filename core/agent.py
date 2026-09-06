@@ -365,7 +365,8 @@ class Agent:
             message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
             messages.append(message)
             yield AgentEvent('message', data={'message': message})
-            yield AgentEvent('tool_end', text='已完成' if status == 'ok' else '执行失败', data={
+            pending_install = isinstance(result, dict) and result.get('job_id') and result.get('status') in ('queued', 'running')
+            yield AgentEvent('tool_end', text='安装已提交，后台运行中' if pending_install else '已完成' if status == 'ok' else '执行失败', data={
                 'name': name, 'call_id': tc['id'], 'params': params, 'status': status,
                 'elapsed': time.monotonic() - start, 'result': result, 'result_preview': _format_tool_result_preview(result)})
             self.audit.record('tool_loop', {'session_id': session_id, 'name': name, 'status': status})

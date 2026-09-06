@@ -1,0 +1,14 @@
+name: package_cancel
+backend: skill-runner
+tier: core
+description: "Cancel a background installation ONLY when the user requests stopping it. Partial installed files may remain; inspect package_list afterwards."
+parameters:
+  type: object
+  properties:
+    job_id:
+      type: string
+    wait_seconds:
+      type: integer
+      minimum: 0
+      maximum: 20
+  required: [job_id]

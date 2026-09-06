@@ -2336,3 +2336,10 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .model-capability-settings p {font-size: 12px; color: var(--muted); margin: 8px 0 16px;}
 .capability-workspace {overflow-wrap: anywhere;}
 .capability-status {font-size: 12px;}
+
+.package-tasks {padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted);}
+.package-tasks summary {cursor: pointer; overflow-wrap: anywhere;}
+.package-task-list {max-height: min(280px, 35dvh); overflow: auto; margin-top: 8px;}
+.package-task-list article {padding: 10px 0; border-top: 1px solid var(--line);}
+.package-task-list p {margin: 6px 0;}
+.package-task-list pre {white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-height: 160px; overflow: auto;}

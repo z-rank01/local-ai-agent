@@ -2,7 +2,7 @@ name: pip_install
 backend: skill-runner
 tier: extended
 short_description: "Install Python packages."
-description: "Install Python packages dynamically. Use this when you need a package that is not yet available. Pre-installed: pandas, openpyxl. Common packages: matplotlib, numpy, scipy, scikit-learn, seaborn, plotly, xlsxwriter."
+description: "Start a background installation with no total time limit. Returns job_id/status/log; queued or running is NOT success. Already satisfied packages are skipped. Query package_status before importing; describe long-running status to the user. Install Python packages dynamically. Use this when you need a package that is not yet available. Pre-installed: pandas, openpyxl. Common packages: matplotlib, numpy, scipy, scikit-learn, seaborn, plotly, xlsxwriter."
 parameters:
   type: object
   properties:
@@ -11,7 +11,4 @@ parameters:
       items:
         type: string
       description: "List of pip package names to install, e.g. ['matplotlib', 'scipy']"
-    timeout:
-      type: integer
-      description: "Timeout in seconds for installation (default 120, max 300)"
   required: ["packages"]

@@ -1,0 +1,7 @@
+name: package_list
+backend: skill-runner
+tier: core
+description: "Inspect actually installed Python distributions and versions, installation location, and recent background jobs. Check before installing packages; reuse available alternatives."
+parameters:
+  type: object
+  properties: {}

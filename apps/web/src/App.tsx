@@ -16,6 +16,7 @@ import {
   updateConversationTitle,
 } from './api';
 import {MarkdownMessage} from './components/MarkdownMessage';
+import {PackageTasks} from './components/PackageTasks';
 import {ModelSettingsDialog} from './components/ModelSettingsDialog';
 import {WorkspacePanel} from './components/WorkspacePanel';
 import type {
@@ -2193,6 +2194,7 @@ export default function App() {
         ) : null}
 
         <footer className="composer-card">
+          <PackageTasks />
           {editingMessage ? (
             <div className="composer-mode">
               <div>

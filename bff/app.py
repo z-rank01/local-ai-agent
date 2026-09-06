@@ -345,3 +345,21 @@ async def set_model_settings(payload: ModelSettingsRequest, request: Request):
     from core.model_settings import update_settings
     update_settings(spec['id'], thinking=payload.thinking_enabled, workspace=payload.workspace_cloud_allowed)
     return {'status': 'saved'}
+
+
+@app.get('/api/package-jobs')
+async def package_job_list():
+    router = get_runtime().router
+    try:
+        response = await router._client.get(router._backend_urls['skill-runner'] + '/package-jobs', timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception:
+        raise HTTPException(503, '无法获取安装状态，请检查工具服务；这不代表安装已结束')
+
+@app.post('/api/package-jobs/{job_id}/cancel')
+async def package_job_cancel(job_id: str, request: Request):
+    origin = request.headers.get('origin')
+    if not _is_loopback_host(request.client.host if request.client else None) or (origin and origin not in config.WEB_ORIGINS):
+        raise HTTPException(403, '只允许本机页面停止安装')
+    return await get_runtime().router.dispatch('package_cancel', {'job_id':job_id})

@@ -585,7 +585,7 @@ if (-not (Test-ServiceRouteExists -BaseUrl $skillFilesUrl -RoutePath $requiredSk
 }
 
 $skillRunnerUrl = "http://localhost:${srPort}"
-$requiredSkillRunnerRoute = "/tool/code_exec/stream"
+$requiredSkillRunnerRoute = "/tool/package_status"
 
 if (-not (Test-ServiceRouteExists -BaseUrl $skillRunnerUrl -RoutePath $requiredSkillRunnerRoute)) {
     Write-Warn "skill-runner is healthy but missing route $requiredSkillRunnerRoute; rebuilding stale container."
@@ -631,7 +631,7 @@ $bffPort = Get-EnvValue -FilePath $envFile -Key "BFF_PORT" -Default "9510"
 $bffHealthHost = if ($bffHost -eq "0.0.0.0") { "127.0.0.1" } else { $bffHost }
 $bffUrl = "http://${bffHealthHost}:${bffPort}"
 $bffHealthUrl = "$bffUrl/health"
-$requiredBffRoute = "/api/admin/shutdown"
+$requiredBffRoute = "/api/package-jobs"
 $logDir = Join-Path $projectRoot "data\logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $bffLog = Join-Path $logDir "bff.log"

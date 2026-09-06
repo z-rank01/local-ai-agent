@@ -23,6 +23,7 @@ from stream_exec import stream_shell, stream_python
 from pydantic import BaseModel, Field
 
 from sandbox import run_python, run_shell, run_pip_install
+import package_jobs
 from skill_registry import (
     list_skills, run_skill, register_skill, unregister_skill,
     skill_info, update_skill, init_registry,
@@ -63,7 +64,8 @@ class ShellExecRequest(BaseModel):
 
 class PipInstallRequest(BaseModel):
     packages: list[str] = Field(..., description="List of pip package names to install")
-    timeout: int = Field(default=120, ge=1, le=300)
+    # Legacy argument accepted but no longer imposes an installation deadline.
+    timeout: int | None = None
 
 
 class SkillRunRequest(BaseModel):
@@ -156,15 +158,7 @@ def pip_install(req: PipInstallRequest):
         if not _PKG_NAME_RE.match(pkg):
             raise HTTPException(status_code=400, detail=f"Invalid package name: {pkg}")
 
-    logger.info("pip_install: %s (timeout=%ds)", req.packages, req.timeout)
-    result = run_pip_install(req.packages, timeout=req.timeout)
-
-    if result["exit_code"] != 0:
-        logger.warning("pip_install failed: exit=%d stderr=%s", result["exit_code"], result["stderr"][:200])
-    else:
-        logger.info("pip_install success: %s", req.packages)
-
-    return result
+    return package_jobs.start(req.packages)
 
 
 @app.post("/tool/file_convert")
@@ -323,3 +317,26 @@ async def skill_run_stream(req: SkillRunRequest):
                         _save_skill_config(req.skill_name, cfg)
                 yield json.dumps(item, ensure_ascii=False) + '\n'
     return StreamingResponse(events(), media_type='application/x-ndjson')
+
+
+class PackageStatusRequest(BaseModel):
+    job_id: str
+    wait_seconds: int = Field(default=0, ge=0, le=20)
+
+@app.post('/tool/package_list')
+def package_list():
+    return {'location':'/packages', 'packages':package_jobs.inventory(), 'jobs':package_jobs.list_jobs()}
+
+@app.post('/tool/package_status')
+def package_status(req: PackageStatusRequest):
+    try: return package_jobs.status(req.job_id,req.wait_seconds)
+    except ValueError as exc: raise HTTPException(404,str(exc))
+
+@app.post('/tool/package_cancel')
+def package_cancel(req: PackageStatusRequest):
+    try: return package_jobs.cancel(req.job_id)
+    except ValueError as exc: raise HTTPException(404,str(exc))
+
+@app.get('/package-jobs')
+def package_jobs_list():
+    return package_jobs.list_jobs()

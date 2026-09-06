@@ -1,0 +1,14 @@
+name: package_status
+backend: skill-runner
+tier: core
+description: "Check background installation state, elapsed seconds and pip log. wait_seconds waits at most 20 seconds for this observation, NOT an installation deadline. If still running, inform user and continue other work or query later."
+parameters:
+  type: object
+  properties:
+    job_id:
+      type: string
+    wait_seconds:
+      type: integer
+      minimum: 0
+      maximum: 20
+  required: [job_id]

@@ -84,7 +84,7 @@ class PolicyEngine:
             if ext in self._denied_ext:
                 raise PermissionError(f"File extension {ext!r} is not permitted by policy")
 
-        if "timeout" in params:
+        if "timeout" in params and tool != "pip_install":
             timeout = params["timeout"]
             if not isinstance(timeout, int) or timeout < 1 or timeout > self._max_timeout_seconds:
                 raise PermissionError(
