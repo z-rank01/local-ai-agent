@@ -165,9 +165,11 @@ class Agent:
     memory : MemoryHooks | None
         Optional memory subsystem (Phase 1.4).
     tool_tier : str
-        ``"core"`` or ``"all"``.
+        ``"core"`` or ``"all"``; the default mirrors ``config.TOOL_TIER``.
     max_rounds : int
-        Maximum tool-call rounds per request.
+        Maximum tool-call rounds per request; the default mirrors
+        ``config.AGENT_MAX_ROUNDS`` (12) so direct construction matches the
+        runtime used by the BFF and TUI.
     """
 
     def __init__(
@@ -180,8 +182,8 @@ class Agent:
         context_mgr: ContextManager,
         prompt_builder: PromptBuilder,
         memory: MemoryHooks | None = None,
-        tool_tier: str = "core",
-        max_rounds: int = 6,
+        tool_tier: str = "all",
+        max_rounds: int = 12,
     ) -> None:
         self.llm = llm
         self.router = router

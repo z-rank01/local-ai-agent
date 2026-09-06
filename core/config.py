@@ -94,6 +94,9 @@ COMPACT_THRESHOLD = _env_float("COMPACT_THRESHOLD", 0.6)
 
 TOOL_TIER = _env("TOOL_TIER", "all")
 
+# Tool-call rounds per request before the agent is asked to wrap up.
+AGENT_MAX_ROUNDS = _env_int("AGENT_MAX_ROUNDS", 12)
+
 # Only explicitly designated workspaces may supply tool results to cloud models.
 WORKSPACE_CLOUD_ALLOWED = _env_bool("WORKSPACE_CLOUD_ALLOWED", False)
 

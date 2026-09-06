@@ -47,7 +47,7 @@ class RuntimeServices:
             audit=self.audit, context_mgr=ContextManager(context_window=config.CONTEXT_WINDOW,
             compact_threshold=config.COMPACT_THRESHOLD, llm=llm), prompt_builder=self.prompt_builder,
             memory=None if cloud else self.memory, tool_tier=config.TOOL_TIER,
-            max_rounds=12)
+            max_rounds=config.AGENT_MAX_ROUNDS)
 
 
 def build_runtime() -> RuntimeServices:
@@ -90,6 +90,7 @@ def build_runtime() -> RuntimeServices:
         prompt_builder=prompt_builder,
         memory=memory,
         tool_tier=config.TOOL_TIER,
+        max_rounds=config.AGENT_MAX_ROUNDS,
     )
     return RuntimeServices(
         tool_registry=tool_registry,
