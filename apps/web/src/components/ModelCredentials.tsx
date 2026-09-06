@@ -7,7 +7,7 @@ export function ModelCredentials({model, onSaved}: {model: ModelInfo; onSaved: (
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   if (model.provider_id === 'ollama') return null;
-  return <form onSubmit={async (event) => {
+  return <form className="model-credentials" onSubmit={async (event) => {
     event.preventDefault(); setSaving(true); setMessage('');
     try {
       const response = await fetch(`${DEFAULT_BASE_URL}/api/providers/${encodeURIComponent(model.provider_id)}/credential`, {
@@ -20,8 +20,8 @@ export function ModelCredentials({model, onSaved}: {model: ModelInfo; onSaved: (
     finally { setSaving(false); }
   }}>
     <p>{model.status === 'missing_key' ? '尚未填写 API Key' : 'API Key 已配置'}</p>
-    <label>模型 API Key<input aria-label="模型 API Key" type="password" autoComplete="new-password" value={key} onChange={e => setKey(e.target.value)} placeholder="在此输入密钥" /></label>
-    <button type="submit" disabled={!key.trim() || saving}>{saving ? '保存中…' : '保存密钥'}</button>
-    <p>仅存本机；不回显，不写入聊天或 Git。</p><p role="status">{message}</p>
+    <label>模型 API Key<input aria-label="模型 API Key" type="password" autoComplete="new-password" value={key} onChange={e => setKey(e.target.value)} placeholder={model.status === 'missing_key' ? '在此输入密钥' : '输入新密钥以替换已保存的密钥'} /></label>
+    <button className="primary-button" type="submit" disabled={!key.trim() || saving}>{saving ? '保存中…' : '保存密钥'}</button>
+    <p>仅存本机；不回显，不写入聊天或 Git。</p>{message ? <p role="status">{message}</p> : null}
   </form>;
 }

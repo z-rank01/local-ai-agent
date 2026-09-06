@@ -2288,8 +2288,40 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   background: #f4f3ff;
 }
 
-.model-settings { position: relative; max-width: 360px; }
-.model-settings[open] { background: var(--panel-bg, #fff); padding: 12px; border: 1px solid #ccc; border-radius: 10px; }
-.model-settings summary { cursor: pointer; }
-.model-settings input { width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0; }
-.model-settings p { font-size: 12px; margin: 8px 0; }
+
+/* Keep settings outside the header layout and within even short viewports. */
+.topbar {height: auto; min-height: 62px; flex-wrap: wrap; gap: 10px;}
+.topbar-actions {flex-wrap: wrap; min-width: 0; max-width: 100%;}
+.topbar-button {min-height: 38px; padding: 8px 12px; white-space: nowrap; border-radius: 12px;}
+.topbar .model-picker {min-width: 0; max-width: 100%;}
+.topbar .model-picker-trigger span {margin-top: 0;}
+.model-settings-dialog {
+  width: min(480px, calc(100vw - 32px)); max-width: none;
+  max-height: calc(100dvh - 32px); margin: auto; padding: 0;
+  border: 1px solid var(--line-strong); border-radius: 18px;
+  color: var(--text); background: var(--surface); box-shadow: 0 24px 80px rgba(0,0,0,.22);
+  overflow: hidden;
+}
+.model-settings-dialog[open] {display: flex; flex-direction: column;}
+.model-settings-dialog::backdrop {background: rgba(24,22,19,.35);}
+.model-settings-header {display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--line); flex-shrink: 0;}
+.model-settings-header h2 {margin: 0; font-size: 18px;}
+.model-settings-close {width: 36px; height: 36px; padding: 0; font-size: 26px; line-height: 1;}
+.model-settings-body {padding: 20px; overflow-y: auto; min-height: 0; line-height: 1.6; overflow-wrap: anywhere;}
+.model-settings-current {display: grid; gap: 4px; margin-bottom: 20px;}
+.model-settings-current span {font-size: 13px; color: var(--muted);}
+.model-settings-current strong {font-size: 17px;}
+.model-credentials {display: grid; gap: 12px;}
+.model-credentials p {margin: 0; font-size: 13px; color: var(--muted);}
+.model-credentials label {display: grid; gap: 6px; font-size: 14px;}
+.model-credentials input {width: 100%; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--text);}
+.model-credentials button {justify-self: start;}
+.model-settings-notes {margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted);}
+.model-settings-notes p {margin: 6px 0;}
+.model-settings-footer {display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--line); flex-shrink: 0;}
+.model-settings-dialog :focus-visible {outline: 2px solid var(--accent); outline-offset: 3px;}
+@media (max-width: 700px) {
+  .topbar {padding: 10px 14px;}
+  .topbar-actions {width: 100%;}
+  .topbar .model-picker {flex: 1; width: auto; min-width: 120px;}
+}

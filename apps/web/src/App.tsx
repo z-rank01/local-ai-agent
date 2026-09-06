@@ -16,7 +16,7 @@ import {
   updateConversationTitle,
 } from './api';
 import {MarkdownMessage} from './components/MarkdownMessage';
-import {ModelCredentials} from './components/ModelCredentials';
+import {ModelSettingsDialog} from './components/ModelSettingsDialog';
 import {WorkspacePanel} from './components/WorkspacePanel';
 import type {
   AppStatus,
@@ -1209,6 +1209,7 @@ export default function App() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<TranscriptBlock[]>([]);
@@ -2094,13 +2095,10 @@ export default function App() {
             <span>{status ? `BFF ${status.status} · ${status.workspace_path}` : '正在连接后端...'}</span>
           </div>
           <div className="topbar-actions">
-            <button type="button" disabled={busy} onClick={resetConversation}>新对话</button>
+            <button type="button" className="ghost-button topbar-button" disabled={busy} onClick={resetConversation}>新对话</button>
             <ModelPicker models={models} value={selectedModelId} onChange={setSelectedModelId} />
-            <details className="model-settings"><summary>模型设置</summary>
-              {selectedModel ? <ModelCredentials key={selectedModel.provider_id} model={selectedModel} onSaved={async () => {setModels(await fetchModels());}} /> : null}
-              <p>{status?.workspace_cloud_allowed ? '云端会接收聊天与本测试工作区的工具结果，请只使用允许发送的资料。' : '云端当前仅可聊天，本地文件与工具结果尚未授权发送。'}</p>
-              <p>本批云端请求：{status?.model_calls_used ?? 0} / {status?.model_call_limit || '不限'}（包含失败尝试）</p>
-            </details>
+            <button type="button" className="ghost-button topbar-button" aria-haspopup="dialog"
+              aria-expanded={modelSettingsOpen} onClick={() => setModelSettingsOpen(true)}>模型设置</button>
             {conversationId ? (
               <div className="export-menu" ref={exportMenuRef}>
                 <button
@@ -2319,6 +2317,9 @@ export default function App() {
         />
       ) : null}
 
+      {modelSettingsOpen ? <ModelSettingsDialog model={selectedModel} status={status}
+        onClose={() => setModelSettingsOpen(false)}
+        onSaved={async () => {setModels(await fetchModels());}} /> : null}
       {toast ? <div className="toast" role="status">{toast}</div> : null}
     </div>
   );
