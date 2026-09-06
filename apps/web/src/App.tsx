@@ -1564,7 +1564,8 @@ export default function App() {
       case 'tool.progress': {
         const detail = eventText(event, 'text');
         setBlocks(current => current.map(block => block.id === event.block_id ? {
-          ...block, text: detail ? (block.text + detail).slice(-102400) : block.text,
+          ...block, text: event.data.event === 'heartbeat' ? block.text : detail ? (block.text + detail).slice(-102400) : block.text,
+          summary: event.data.event === 'heartbeat' ? `${detail}（已等待 ${event.data.elapsed ?? 0} 秒）` : block.summary,
           elapsed: typeof event.data.elapsed === 'number' ? event.data.elapsed : block.elapsed,
         } : block));
         break;
@@ -1592,7 +1593,7 @@ export default function App() {
           (block) => ({
             ...block,
             text: detail || block.text,
-            summary: eventText(event, 'summary') || block.summary,
+            summary: eventText(event, 'summary') || eventText(event, 'headline') || (event.data.status === 'error' ? '执行失败' : '已完成'),
             toolResult: toolResult ?? block.toolResult,
             status: statusValue,
             elapsed: typeof event.data.elapsed === 'number' ? event.data.elapsed : block.elapsed,

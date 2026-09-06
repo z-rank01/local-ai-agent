@@ -22,8 +22,9 @@ RUN useradd -m -u 1001 runner
 # Writable directory for runtime package installs (backed by named volume)
 RUN mkdir -p /packages && chown runner:runner /packages
 
-# Ensure runtime-installed packages are importable
-ENV PYTHONPATH="/packages:/workspace"
+# User-installed packages belong to execution subprocesses, not the API server.
+# sandbox._SAFE_ENV supplies /packages to Python tools.
+ENV PYTHONPATH="/workspace"
 
 USER runner
 

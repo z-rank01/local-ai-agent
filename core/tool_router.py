@@ -3,6 +3,9 @@ Tool router — dispatches tool calls to skill microservices via HTTP.
 """
 
 import json
+import asyncio
+import time
+from contextlib import suppress
 import logging
 from typing import Any
 
@@ -109,13 +112,26 @@ class ToolRouter:
 
     async def dispatch_stream(self, tool, params, session_id='default'):
         if tool not in ('shell_exec', 'code_exec', 'skill_run'):
-            yield {'event':'result', 'result':await self.dispatch(tool, params, session_id)}
+            started = time.monotonic()
+            pending = asyncio.create_task(self.dispatch(tool, params, session_id))
+            try:
+                yield {'event':'heartbeat', 'elapsed':0, 'text':'工具正在执行，等待服务返回结果…'}
+                while not pending.done():
+                    done, _ = await asyncio.wait({pending}, timeout=2)
+                    if not done:
+                        yield {'event':'heartbeat', 'elapsed':round(time.monotonic()-started, 1), 'text':'工具仍在执行，等待服务返回结果…'}
+                yield {'event':'result', 'result':await pending}
+            finally:
+                if not pending.done(): pending.cancel()
+                with suppress(asyncio.CancelledError): await pending
             return
         if tool not in self._registry.known_tools:
             raise ValueError('Unknown tool')
         self._policy.check(tool, params)
         backend = self._registry.get_backend(tool)
         async with self._client.stream('POST', self._backend_urls[backend] + f'/tool/{tool}/stream', json=params) as response:
+            if response.status_code == 404:
+                raise RuntimeError('工具服务版本过旧，缺少流式执行接口。请更新 skill-runner 服务；修改代码或安装 Python 包不能解决该问题。')
             response.raise_for_status()
             async for line in response.aiter_lines():
                 if line.strip():

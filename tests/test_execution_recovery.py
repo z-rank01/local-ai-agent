@@ -35,3 +35,31 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
     def test_finished_answer_and_documented_limit_are_not_retried(self):
         self.assertFalse(unfinished_execution('已完成计算，复现代码：\n```python\nprint(42)\n```','计算'))
         self.assertFalse(unfinished_execution('无法执行，以下仅为示例：\n```python\nprint(42)\n```','计算'))
+
+
+class ToolWaitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_waiting_tool_emits_heartbeat_then_result(self):
+        import asyncio
+        from types import SimpleNamespace
+        from core.tool_router import ToolRouter
+        async def dispatch(*args):
+            await asyncio.sleep(2.1)
+            return {'exit_code':0}
+        packets=[p async for p in ToolRouter.dispatch_stream(SimpleNamespace(dispatch=dispatch),'pip_install',{})]
+        self.assertEqual(packets[0]['event'],'heartbeat')
+        self.assertTrue(any(p.get('elapsed',0)>=2 for p in packets))
+        self.assertEqual(packets[-1],{'event':'result','result':{'exit_code':0}})
+
+    async def test_closing_wait_cancels_local_request(self):
+        import asyncio
+        from types import SimpleNamespace
+        from core.tool_router import ToolRouter
+        cancelled=asyncio.Event()
+        async def dispatch(*args):
+            try: await asyncio.sleep(100)
+            finally: cancelled.set()
+        stream=ToolRouter.dispatch_stream(SimpleNamespace(dispatch=dispatch),'pip_install',{})
+        await anext(stream)
+        await asyncio.sleep(0)
+        await stream.aclose()
+        self.assertTrue(cancelled.is_set())

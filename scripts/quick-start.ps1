@@ -531,7 +531,7 @@ Write-Step "Waiting for skill services to become healthy"
 $sfPort = Get-EnvValue -FilePath $envFile -Key "SKILL_FILES_PORT" -Default "9101"
 $srPort = Get-EnvValue -FilePath $envFile -Key "SKILL_RUNNER_PORT" -Default "9102"
 $skillFilesUrl = "http://localhost:${sfPort}"
-$requiredSkillFilesRoute = "/trash/items"
+$requiredSkillFilesRoute = "/tool/file_edit"
 
 $ready = Wait-Until -Condition {
     try {
@@ -582,6 +582,45 @@ if (-not (Test-ServiceRouteExists -BaseUrl $skillFilesUrl -RoutePath $requiredSk
     }
 
     Write-Ok "skill-files API refreshed with route $requiredSkillFilesRoute"
+}
+
+$skillRunnerUrl = "http://localhost:${srPort}"
+$requiredSkillRunnerRoute = "/tool/code_exec/stream"
+
+if (-not (Test-ServiceRouteExists -BaseUrl $skillRunnerUrl -RoutePath $requiredSkillRunnerRoute)) {
+    Write-Warn "skill-runner is healthy but missing route $requiredSkillRunnerRoute; rebuilding stale container."
+
+    Push-Location $projectRoot
+    try {
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & docker compose up -d --build skill-runner 2>&1 | ForEach-Object { Write-Host "   $_" }
+        } finally {
+            $ErrorActionPreference = $prevEAP
+        }
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "docker compose up --build skill-runner failed (exit code $LASTEXITCODE)"
+            exit 1
+        }
+    } finally {
+        Pop-Location
+    }
+
+    $ready = Wait-Until -Condition {
+        try {
+            $health = Invoke-WebRequest -Uri "$skillRunnerUrl/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+            ($health.StatusCode -eq 200) -and (Test-ServiceRouteExists -BaseUrl $skillRunnerUrl -RoutePath $requiredSkillRunnerRoute)
+        } catch { $false }
+    } -Timeout $TimeoutSec -Label "Waiting for refreshed skill-runner API"
+
+    if (-not $ready) {
+        Write-Fail "skill-runner did not expose route $requiredSkillRunnerRoute within ${TimeoutSec}s"
+        exit 1
+    }
+
+    Write-Ok "skill-runner API refreshed with route $requiredSkillRunnerRoute"
 }
 
 # 7. Start BFF if needed
