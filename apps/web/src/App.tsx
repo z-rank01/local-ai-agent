@@ -2095,7 +2095,6 @@ export default function App() {
             <span>{status ? `BFF ${status.status} · ${status.workspace_path}` : '正在连接后端...'}</span>
           </div>
           <div className="topbar-actions">
-            <button type="button" className="ghost-button topbar-button" disabled={busy} onClick={resetConversation}>新对话</button>
             <ModelPicker models={models} value={selectedModelId} onChange={setSelectedModelId} />
             <button type="button" className="ghost-button topbar-button" aria-haspopup="dialog"
               aria-expanded={modelSettingsOpen} onClick={() => setModelSettingsOpen(true)}>模型设置</button>
