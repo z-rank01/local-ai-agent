@@ -1,4 +1,18 @@
-use_default_settings: true
+# 2026-09-07：用 keep_only 收敛引擎集。
+# use_default_settings 为 true 时自定义 engines 只是按名覆盖、内置引擎集仍然激活
+#（实测 98 个在跑，本网络不可达的引擎每次搜索都等超时）；
+# 直接写 false 会因缺失默认段导致启动校验失败，故用字典形式的 keep_only。
+use_default_settings:
+  engines:
+    keep_only:
+      - 360search
+      - quark
+      - bing
+      - baidu
+      - sogou
+      - duckduckgo
+      - wikipedia
+      - google
 
 general:
   instance_name: "Local AI Agent Search"
@@ -41,31 +55,33 @@ engines:
     weight: 0.5
     disabled: false
 
-  # DuckDuckGo — 英文备用（中文查询实测返回 0）
-  - name: duckduckgo
-    engine: duckduckgo
-    shortcut: ddg
-    disabled: false
-
-  # Wikipedia — 知识查询
-  - name: wikipedia
-    engine: wikipedia
-    shortcut: wp
-    disabled: false
-
-  # Google — 需要代理，默认关闭
-  - name: google
-    engine: google
-    shortcut: go
-    disabled: true
-
-  # 百度 / 搜狗 — 实测本网络下返回 0（2026-09-07），暂不启用
+  # 以下实测本网络不可用，仅登记原因备查（2026-09-07）：
+  # 百度 — 对机器流量弹验证码墙（SearxEngineCaptchaException，引擎被自动挂起 1 小时）
   - name: baidu
     engine: baidu
     shortcut: bd
     disabled: true
 
+  # 搜狗 — 容器内 DNS 解析 www.sogou.com 失败（Errno -5）
   - name: sogou
     engine: sogou
     shortcut: sg
+    disabled: true
+
+  # DuckDuckGo — 连接 html.duckduckgo.com 超时
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: true
+
+  # Wikipedia — zh.wikipedia.org 连接超时
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: true
+
+  # Google — 需要代理
+  - name: google
+    engine: google
+    shortcut: go
     disabled: true
