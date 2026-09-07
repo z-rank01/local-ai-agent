@@ -12,7 +12,7 @@
 
 打开 <http://127.0.0.1:5173>。顶部选择 `通义千问 / qwen3.5-flash`，在“模型设置”填写或更换密钥，保存后立即生效。密钥输入清空，页面只显示配置状态。当前用户已自行填写；未从 Dify 提取密钥。
 
-- Web：5173；BFF：9510；文件容器：19101；执行容器：19102。全部仅绑定本机。
+- Web：5173；BFF：9510；文件容器：19101；执行容器：19102；联网搜索：19103（§14 起启用）。全部仅绑定本机。
 - 本批使用 `data/in1/workspace`、`data/in1/conversations.db` 和 `data/in1/logs`；不加载旧聊天库或旧工作区。容器里的 `/workspace` 就是这个测试目录。
 - 使用仓库自己的 `.conda/python.exe`，本批已安装项目声明的依赖。重建环境可用 Python 3.11+，执行 `python -m pip install -e .`，并对应调整启动脚本的解释器路径。Web 依赖用 `npm ci --prefix apps/web` 安装。
 - 首次机器上无镜像时执行 `scripts/start-in1.ps1 -Build`。本机已启动独立 `local-ai-agent-in1` Compose 项目。服务代码只读挂载，因此更新 runner/files 后需 `docker compose -f compose.in1.yml restart`；BFF 更新需停止自己的进程后重新运行启动脚本。
@@ -185,3 +185,15 @@ npm run build --prefix apps/web
 - **提示收紧**：系统提示"当前思考输出关闭"仅在显式关闭时添加，默认/未知不再向模型声明关闭。
 
 验证：58 项离线测试执行（57 通过 + 1 skip），新增三态读写清除、能力映射、端点校验、payload 注入（开+budget/关无 budget/默认静态/发现默认无参数且无提示）、Ollama think 字段；Web 生产构建通过。真实模型行为差异（qwen3.8-flash 显式开关、thinking_budget 生效、Ollama think）**未实测**——额度保持 30/30，留待增加额度后人工验证。
+
+
+## 14. 联网搜索修复（2026-09-07）
+
+起因：普通工作区一条购物查询（3000 以内升降桌）两次搜索均被关键词劫持（"3000"命中阅读站/汇率页、"电动"命中汽车），模型又把两次 web_fetch 浪费在 Bing 结果页上，配额耗尽后只能基于训练知识回答。修复如下：
+
+- **引擎**：SearXNG 启用 360search 与 quark 并提高权重（weight 1.5），bing 降为 0.5（保留国际查询），wikipedia/duckduckgo 保留，baidu/sogou 实测本网络返回 0 暂不启用，google 维持禁用（无代理）。实测证据（2026-09-07 本机探测）：360search/quark 对原失败查询返回什么值得买/搜狐/ZOL 等相关结果；加权后相关结果占据头部。
+- **参数**：`web_search` 新增 `language`（默认 zh-CN）与 `time_range`（day/week/month/year，非法值 400）；`web_fetch` 对搜索引擎结果页返回说明性错误，不再把 JS 结果页抠成垃圾文本浪费配额。
+- **配额口径修正**：`web_search`/`web_fetch` 预算改为 `WEB_SEARCH_BUDGET`/`WEB_FETCH_BUDGET`（默认各 2），并修正提示词——实际计数是**每轮消息**重置（原文写"每次对话最多"，与实现不符）；提示词不再硬编码次数，并新增"禁止抓取搜索引擎结果页"与"购物类查询如实说明来源新旧、不把训练知识冒充实时检索"两条规则（生效模块与休眠 fallback 同步更新）。
+- **IN1 接入联网**：`compose.in1.yml` 新增 searxng 与 skill-websearch（127.0.0.1:19103），`run_in1.py` 启用 `ENABLE_WEBSEARCH` 并指向 19103；联网条件案例由此可测，IN1.H 工具面相应扩大。
+
+验证：61 项离线测试执行（60 通过 + 1 skip；含搜索页守卫正反例、预算 env 生效）；旧栈与 IN1 的 websearch 服务实测——原失败查询顶部为相关结果、英文查询仍走 bing、fetch 守卫拦截 Bing 结果页且正常文章抓取不受影响、非法 time_range 返回 400。京东/淘宝等电商实时数据仍不可得（反爬），提示词已要求模型如实说明。真实模型联网对话未新增（额度 30/30）。
