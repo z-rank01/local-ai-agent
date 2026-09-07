@@ -432,4 +432,24 @@ class RedactionTests(unittest.TestCase):
         self.assertEqual(redacted['items'][0]['token'],'***')
         self.assertEqual(params['api_key'],'SECRET')
 
+class SearchGuardTests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'skills/websearch'))
+        from search_pages import is_search_page
+        self.guard=is_search_page
+
+    def test_search_result_pages_blocked(self):
+        for url in ['https://cn.bing.com/search?q=x','https://www.bing.com/search?q=x&setlang=zh-hans',
+                    'https://www.google.com/search?q=x','https://www.baidu.com/s?wd=x',
+                    'https://www.so.com/s?q=x','https://www.sogou.com/web?query=x',
+                    'https://quark.sm.cn/s?q=x','https://m.toutiao.com/search?keyword=x',
+                    'https://duckduckgo.com/?q=x']:
+            self.assertTrue(self.guard(url),url)
+
+    def test_article_pages_allowed(self):
+        for url in ['https://post.smzdm.com/p/agg6nrxw/','https://www.sohu.com/a/518022445_120914927',
+                    'https://zh.wikipedia.org/wiki/升降桌','https://cn.bing.com/ck/a?redirect=x']:
+            self.assertFalse(self.guard(url),url)
+
 if __name__=='__main__': unittest.main()

@@ -20,13 +20,28 @@ ui:
   static_use_hash: true
 
 engines:
-  # Bing — 国内可直连
+  # 360search — 国内可直连；实测对中文购物/商品查询有效（2026-09-07）
+  - name: 360search
+    engine: 360search
+    shortcut: 360
+    weight: 1.5
+    disabled: false
+
+  # 夸克 — 国内可直连；实测对中文消费类查询有效（2026-09-07）
+  - name: quark
+    engine: quark
+    shortcut: qk
+    weight: 1.5
+    disabled: false
+
+  # Bing — 国内可直连，偏国际结果；中文购物查询易被词条劫持，降低排序权重
   - name: bing
     engine: bing
     shortcut: bi
+    weight: 0.5
     disabled: false
 
-  # DuckDuckGo — 备用
+  # DuckDuckGo — 英文备用（中文查询实测返回 0）
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
@@ -42,4 +57,15 @@ engines:
   - name: google
     engine: google
     shortcut: go
+    disabled: true
+
+  # 百度 / 搜狗 — 实测本网络下返回 0（2026-09-07），暂不启用
+  - name: baidu
+    engine: baidu
+    shortcut: bd
+    disabled: true
+
+  - name: sogou
+    engine: sogou
+    shortcut: sg
     disabled: true

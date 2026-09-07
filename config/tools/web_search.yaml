@@ -5,6 +5,8 @@ short_description: "Search the internet."
 description: >
   搜索互联网获取实时信息。返回搜索结果列表，包含标题、链接和摘要。
   当用户询问最新资讯、实时数据、不确定的事实、或任何需要联网查询的问题时使用。
+  时效敏感的查询（价格、活动、新闻）可用 time_range 限定时间范围；
+  购物类查询可能缺乏电商实时数据，此时如实说明来源与新旧。
 parameters:
   type: object
   properties:
@@ -14,5 +16,11 @@ parameters:
     max_results:
       type: integer
       description: "最大返回结果数量（默认5，最大20）"
+    language:
+      type: string
+      description: "结果语言，默认 zh-CN；查英文资料可填 en-US 或 all"
+    time_range:
+      type: string
+      description: "可选时间范围：day、week、month、year；不填表示不限时间"
   required:
     - query

@@ -17,6 +17,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from readability import Document
 
+from search_pages import is_search_page
+
 logger = logging.getLogger("skill-websearch")
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
@@ -66,6 +68,8 @@ async def health():
 class WebSearchRequest(BaseModel):
     query: str
     max_results: Optional[int] = DEFAULT_SEARCH_RESULTS
+    language: Optional[str] = "zh-CN"
+    time_range: Optional[str] = None  # day | week | month | year
 
 
 @app.post("/tool/web_search")
@@ -76,17 +80,24 @@ async def web_search(req: WebSearchRequest):
 
     max_results = min(req.max_results or DEFAULT_SEARCH_RESULTS, 20)
 
-    logger.info("web_search: query=%r max_results=%d", req.query, max_results)
+    params = {
+        "q": req.query,
+        "format": "json",
+        "pageno": 1,
+    }
+    language = (req.language or "").strip()
+    if language:
+        params["language"] = language
+    if req.time_range:
+        if req.time_range not in ("day", "week", "month", "year"):
+            raise HTTPException(status_code=400, detail="time_range must be one of day/week/month/year")
+        params["time_range"] = req.time_range
+
+    logger.info("web_search: query=%r max_results=%d language=%r time_range=%r",
+                req.query, max_results, language, req.time_range)
 
     try:
-        resp = await _client.get(
-            f"{SEARXNG_URL}/search",
-            params={
-                "q": req.query,
-                "format": "json",
-                "pageno": 1,
-            },
-        )
+        resp = await _client.get(f"{SEARXNG_URL}/search", params=params)
         resp.raise_for_status()
         data = resp.json()
     except httpx.TimeoutException:
@@ -136,6 +147,13 @@ async def web_fetch(req: WebFetchRequest):
 
     if not req.url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="url must start with http:// or https://")
+
+    if is_search_page(req.url):
+        return {
+            "error": "这是搜索引擎结果页，无法提取正文。请改用 web_search 搜索；web_fetch 只用于抓取搜索结果中的具体页面。",
+            "url": req.url,
+            "content": "",
+        }
 
     max_chars = min(req.max_chars or MAX_FETCH_CHARS, 50000)
 
