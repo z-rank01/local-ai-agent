@@ -10,6 +10,7 @@ import {
   fetchProviders,
   fetchStatus,
   shutdownBackend,
+  shutdownStack,
   streamChat,
   streamEditMessage,
   streamRegenerate,
@@ -1323,6 +1324,7 @@ export default function App() {
   const [error, setError] = useState<string>('');
   const [backendOnline, setBackendOnline] = useState(false);
   const [shutdownPending, setShutdownPending] = useState(false);
+  const [stackStopped, setStackStopped] = useState(false);
   const deltaBufferRef = useRef<Record<string, {kind: 'assistant' | 'reasoning'; text: string}>>({});
   const deltaTimerRef = useRef<number | null>(null);
   const pendingPromptRef = useRef('');
@@ -2085,6 +2087,26 @@ export default function App() {
     }
   }, [backendOnline, shutdownPending, showToast]);
 
+  const handleShutdownStack = useCallback(async () => {
+    if (!backendOnline || shutdownPending) {
+      return;
+    }
+    if (!window.confirm('退出前端与后端？将停止 Web 开发服务器、Python BFF 和股票桥接后端；Docker 与 Ollama 不会被关闭。')) {
+      return;
+    }
+    setShutdownPending(true);
+    try {
+      await shutdownStack();
+      setBackendOnline(false);
+      setStackStopped(true);
+    } catch (err) {
+      const messageText = formatBackendError(err);
+      setError(messageText);
+      setBackendOnline(false);
+      setShutdownPending(false);
+    }
+  }, [backendOnline, shutdownPending]);
+
   useEffect(() => {
     window.localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(effectiveAppearance));
   }, [effectiveAppearance]);
@@ -2417,6 +2439,12 @@ export default function App() {
               disabled={!backendOnline || shutdownPending}
               onClick={() => void handleShutdownBackend()}
             >{shutdownPending ? '正在关闭...' : '关闭 Python 后端'}</button>
+            <button
+              type="button"
+              className="ghost-button tiny danger-button"
+              disabled={!backendOnline || shutdownPending}
+              onClick={() => void handleShutdownStack()}
+            >退出前端与后端</button>
             {!backendOnline ? (
               <button type="button" className="ghost-button tiny" disabled={loading} onClick={() => void loadBootstrap()}>
                 重新连接
@@ -2451,6 +2479,12 @@ export default function App() {
         onClose={() => setModelSettingsOpen(false)}
         onSaved={async () => {const [nextModels, nextProviders, nextStatus] = await Promise.all([fetchModels(), fetchProviders(), fetchStatus()]); setModels(nextModels); setProviders(nextProviders); setStatus(nextStatus);}} /> : null}
       {toast ? <div className="toast" role="status">{toast}</div> : null}
+      {stackStopped ? (
+        <div className="stack-stopped" role="alert">
+          <h2>已停止运行</h2>
+          <p>Web 开发服务器、Python BFF 与股票桥接后端已停止，可以关闭此页面。Docker 容器与 Ollama 未受影响。</p>
+        </div>
+      ) : null}
     </div>
   );
 }

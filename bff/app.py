@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import subprocess
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, aclosing
 from urllib.parse import quote
@@ -124,6 +125,61 @@ async def shutdown_backend(request: Request) -> dict[str, str]:
 
     asyncio.create_task(terminate_process())
     return {"status": "shutting_down"}
+
+
+def _find_pids_on_port(port: int) -> list[int]:
+    """PIDs of processes listening on a loopback TCP port (Windows netstat; empty elsewhere)."""
+    if os.name != 'nt':
+        return []
+    try:
+        completed = subprocess.run(['netstat', '-ano', '-p', 'tcp'], capture_output=True, text=True, timeout=10)
+    except Exception:
+        return []
+    pids = set()
+    for line in completed.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[0].upper().startswith('TCP') and parts[3].upper() == 'LISTENING':
+            host, _, port_text = parts[1].rpartition(':')
+            if port_text.isdigit() and int(port_text) == port and host in ('127.0.0.1', '0.0.0.0', '::1', '[::1]', '::', '[::]'):
+                pids.add(int(parts[4]))
+    return sorted(pids)
+
+
+def _stack_shutdown_targets() -> dict[str, list[int]]:
+    from urllib.parse import urlparse
+    web_port = int(os.environ.get('WEB_DEV_PORT', '5173'))
+    targets = {
+        'bff': [os.getpid()],
+        'web': [pid for pid in _find_pids_on_port(web_port) if pid != os.getpid()],
+    }
+    if config.STOCK_BRIDGE_URL:
+        port = urlparse(config.STOCK_BRIDGE_URL).port or 80
+        targets['stock-bridge'] = [pid for pid in _find_pids_on_port(port) if pid != os.getpid()]
+    return targets
+
+
+def schedule_stack_shutdown(targets: dict[str, list[int]]) -> None:
+    async def terminate() -> None:
+        await asyncio.sleep(0.5)
+        for name in ('web', 'stock-bridge'):
+            for pid in targets.get(name, []):
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        await asyncio.sleep(0.3)
+        os.kill(os.getpid(), signal.SIGTERM)
+    asyncio.create_task(terminate())
+
+
+@app.post('/api/admin/shutdown-stack')
+async def shutdown_stack(request: Request) -> dict:
+    origin = request.headers.get('origin')
+    if not _is_loopback_host(request.client.host if request.client else None) or (origin and origin not in config.WEB_ORIGINS):
+        raise HTTPException(status_code=403, detail='仅允许本机 Web 停止服务')
+    targets = _stack_shutdown_targets()
+    schedule_stack_shutdown(targets)
+    return {'stopping': {name: pids for name, pids in targets.items() if pids}}
 
 
 @app.get("/api/models", response_model=list[ModelInfo])

@@ -46,6 +46,15 @@ export async function shutdownBackend(baseUrl = DEFAULT_BASE_URL): Promise<void>
   }
 }
 
+export async function shutdownStack(baseUrl = DEFAULT_BASE_URL): Promise<{stopping: Record<string, number[]>}> {
+  const response = await fetch(`${baseUrl}/api/admin/shutdown-stack`, {method: 'POST'});
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`stack shutdown failed: ${response.status}${detail ? ` ${detail}` : ''}`);
+  }
+  return (await response.json()) as {stopping: Record<string, number[]>};
+}
+
 export function fetchConversations(
   query?: string,
   baseUrl = DEFAULT_BASE_URL,

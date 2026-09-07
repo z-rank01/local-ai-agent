@@ -2305,6 +2305,10 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .stock-badge {font-size: 11px; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: #f4f3ff; color: var(--text-strong);}
 .stock-note {font-size: 11px; color: var(--muted);}
 
+.stack-stopped {position: fixed; inset: 0; z-index: 100; display: grid; place-content: center; gap: 10px; background: var(--bg); text-align: center; padding: 24px;}
+.stack-stopped h2 {margin: 0; font-size: 20px;}
+.stack-stopped p {color: var(--muted); max-width: 420px;}
+
 .model-picker-menu button {
   width: 100%;
   display: flex;

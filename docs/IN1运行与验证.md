@@ -13,6 +13,7 @@
 打开 <http://127.0.0.1:5173>。顶部选择 `通义千问 / qwen3.5-flash`，在“模型设置”填写或更换密钥，保存后立即生效。密钥输入清空，页面只显示配置状态。当前用户已自行填写；未从 Dify 提取密钥。
 
 - Web：5173；BFF：9510；文件容器：19101；执行容器：19102；联网搜索：19103（§14 起启用）。全部仅绑定本机。
+- 停止：页面右下“退出前端与后端”一键停止 vite、BFF 和（已配置时的）股票桥接后端进程；Docker 容器与 Ollama 不受影响，容器用 `docker compose -f compose.in1.yml stop` 停止。“关闭 Python 后端”按钮仍只停 BFF，供重启场景使用。
 - 本批使用 `data/in1/workspace`、`data/in1/conversations.db` 和 `data/in1/logs`；不加载旧聊天库或旧工作区。容器里的 `/workspace` 就是这个测试目录。
 - 使用仓库自己的 `.conda/python.exe`，本批已安装项目声明的依赖。重建环境可用 Python 3.11+，执行 `python -m pip install -e .`，并对应调整启动脚本的解释器路径。Web 依赖用 `npm ci --prefix apps/web` 安装。
 - 首次机器上无镜像时执行 `scripts/start-in1.ps1 -Build`。本机已启动独立 `local-ai-agent-in1` Compose 项目。服务代码只读挂载，因此更新 runner/files 后需 `docker compose -f compose.in1.yml restart`；BFF 更新需停止自己的进程后重新运行启动脚本。
