@@ -2301,6 +2301,10 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   font-size: 13px;
 }
 
+.stock-observation {display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; align-items: center;}
+.stock-badge {font-size: 11px; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: #f4f3ff; color: var(--text-strong);}
+.stock-note {font-size: 11px; color: var(--muted);}
+
 .model-picker-menu button {
   width: 100%;
   display: flex;

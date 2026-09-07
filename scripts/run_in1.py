@@ -14,7 +14,7 @@ for key, value in {
     'SKILL_RUNNER_URL': 'http://127.0.0.1:19102',
     'SKILL_WEBSEARCH_URL': 'http://127.0.0.1:19103',
     'DEFAULT_MODEL': 'qwen:qwen3.5-flash',
-    'MODEL_CALL_LIMIT': '30',
+    'MODEL_CALL_LIMIT': '60',  # 30 次 IN1 额度已用尽；2026-09-07 用户批准新增 30 次供 IN2 联调
     'TOOL_TIER': 'all',
     'ENABLE_WEBSEARCH': 'true',
 }.items():

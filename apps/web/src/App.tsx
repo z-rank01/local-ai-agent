@@ -306,6 +306,42 @@ function ToolDetailSection({title, children}: {title: string; children: ReactNod
   );
 }
 
+function StockObservation({observation, tool}: {observation: Record<string, unknown>; tool: string}) {
+  if (tool === 'stock_account_view') {
+    const account = observation.account as Record<string, unknown> | undefined;
+    if (!account) {
+      return null;
+    }
+    const cash = typeof account.cash_yuan === 'number' ? account.cash_yuan : null;
+    const count = typeof account.position_count === 'number' ? account.position_count : null;
+    return (
+      <div className="stock-observation">
+        {typeof account.status === 'string' ? <span className="stock-badge">{account.status}</span> : null}
+        {cash !== null ? <span className="stock-badge">现金 ¥{cash.toLocaleString('zh-CN')}</span> : null}
+        {count !== null ? <span className="stock-badge">持仓 {count} 只</span> : null}
+        {account.value_basis === 'LEDGER_COST_NOT_MARKET_VALUE' ? <span className="stock-note">账面成本非市值</span> : null}
+      </div>
+    );
+  }
+  const badges: {label: string; value: string}[] = [];
+  for (const [key, label] of [['task_status', '任务'], ['business_status', '裁决'], ['data_quality', '数据']] as const) {
+    const value = observation[key];
+    if (typeof value === 'string' && value) {
+      badges.push({label, value});
+    }
+  }
+  const availableAt = typeof observation.available_at === 'string' ? observation.available_at : '';
+  if (!badges.length && !availableAt) {
+    return null;
+  }
+  return (
+    <div className="stock-observation">
+      {badges.map((badge) => <span key={badge.label} className="stock-badge">{badge.label} {badge.value}</span>)}
+      {availableAt ? <span className="stock-note">证据时间 {availableAt}</span> : null}
+    </div>
+  );
+}
+
 function ToolDetail({
   block,
   loadingLabel,
@@ -317,6 +353,9 @@ function ToolDetail({
 }) {
   const hasParams = Boolean(block.params && Object.keys(block.params).length);
   const hasOutput = Boolean(block.text);
+  const stockObservation = block.label.startsWith('stock_') && block.toolResult && typeof block.toolResult === 'object'
+    ? (block.toolResult as Record<string, unknown>).model_observation as Record<string, unknown> | undefined
+    : undefined;
   const searchPayload = block.label === 'conversation_search' ? structuredToolPayload<ConversationSearchPayload>(block) : null;
   const readPayload = block.label === 'conversation_read' ? structuredToolPayload<ConversationReadPayload>(block) : null;
   const structuredResultText = block.toolResult !== undefined && block.toolResult !== null
@@ -410,6 +449,7 @@ function ToolDetail({
           <p className="tool-summary">{block.summary}</p>
         </ToolDetailSection>
       ) : null}
+      {stockObservation ? <StockObservation observation={stockObservation} tool={block.label} /> : null}
       {hasParams ? (
         <ToolDetailSection title="参数">
           <dl className="tool-params-list">

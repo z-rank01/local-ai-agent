@@ -289,3 +289,92 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         cid = next(t[1] for t in stub.turns if t[0] == 'set')
         tool_rows = [m for m in self.service.get_messages(cid) if m.role == 'tool']
         self.assertEqual(tool_rows[0].tool_result.get('local_result'), 'X')
+
+class StockPrivacyTests(unittest.IsolatedAsyncioTestCase):
+    """Local stock report content must never reach the model through any path."""
+    asyncSetUp = test_in1.ServiceTests.asyncSetUp
+
+    def install_bridge(self, marker):
+        from core.tool_registry import ToolRegistry
+        parent = self
+        class StubBridge:
+            def __init__(self): self.open = False
+            def set_turn(self, cid, rid, query=''): self.open = True
+            def has_open_turn(self, cid): return self.open
+            async def call_tool(self, tool, params, session_id):
+                return {'model_observation': {'task_status': 'SUCCEEDED'}, 'status': 'TOOL_RETURNED',
+                        'code': 'OK', 'local_result_available': True}
+            async def finish_turn(self, cid):
+                self.open = False
+                return [marker]
+            async def close(self): pass
+        stub = StubBridge()
+        self.runtime.stock_bridge = stub
+        self.runtime.router._stock_bridge = stub
+        registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://x')
+        self.runtime.tool_registry = registry
+        self.runtime.router._registry = registry
+        return stub
+
+    def recording_model(self):
+        parent = self
+        ref = 'a' * 64
+        class RecordingModel:
+            cloud = True
+            model = 'qwen3.5-flash'
+            async def chat_stream_with_tools(self, messages, tools=None):
+                parent.seen.append(json.loads(json.dumps(messages)))
+                if not any(m.get('role') == 'tool' for m in messages):
+                    yield '', {'role':'assistant','content':'','tool_calls':[{'id':'c1','type':'function','function':{'name':'stock_report_read','arguments':json.dumps({'reference': ref})}}]}
+                else:
+                    yield '好的', None
+                    yield '', {'role':'assistant','content':'好的'}
+            async def close(self): pass
+        self.seen = []
+        self.runtime.models.clients['qwen:qwen3.5-flash'] = RecordingModel()
+
+    async def test_local_result_never_reenters_model_history(self):
+        marker = 'F01-SECRET-REPORT-TEXT'
+        self.install_bridge(marker)
+        self.recording_model()
+        _ = [e async for e in self.service.stream_chat(ChatRequest(message='读报告', model='qwen3.5-flash', request_id='stock-leak-1'))]
+        cid = _[0].conversation_id
+        _ = [e async for e in self.service.stream_chat(ChatRequest(conversation_id=cid, message='再聊聊', model='qwen3.5-flash', request_id='stock-leak-2'))]
+        self.assertGreaterEqual(len(self.seen), 2)
+        self.assertNotIn(marker, json.dumps(self.seen, ensure_ascii=False))
+
+    async def test_history_projection_and_compact_exclude_local_result(self):
+        marker = 'F01-SECRET-REPORT-TEXT'
+        conv = self.runtime.store.create_conversation(title='t', model='qwen:qwen3.5-flash')
+        user = self.runtime.store.add_message(conv.id, role='user', content='读报告', metadata={'cloud_safe': True})
+        self.runtime.store.add_message(conv.id, role='protocol', content='', response_to_message_id=user.id,
+            metadata={'cloud_safe': True, 'message': {'role':'tool','tool_call_id':'c1','tool_name':'stock_report_read','content':'{"task_status":"SUCCEEDED"}'}})
+        self.runtime.store.add_message(conv.id, role='tool', content='[ok] stock_report_read 已完成', response_to_message_id=user.id,
+            tool_name='stock_report_read', tool_result={'model_observation': {'task_status':'SUCCEEDED'}, 'local_result': marker}, metadata={'cloud_safe': True})
+        for cloud in (False, True):
+            history = self.runtime.store.messages_as_dicts(conv.id, cloud=cloud)
+            self.assertNotIn(marker, json.dumps(history, ensure_ascii=False))
+        from core.context_manager import ContextManager
+        captured = []
+        class Model:
+            async def chat(self, *args):
+                captured.append(json.dumps(args, ensure_ascii=False))
+                return '摘要'
+        manager = ContextManager(context_window=100, compact_threshold=.1, llm=Model())
+        history = self.runtime.store.messages_as_dicts(conv.id)
+        compacted = await manager.auto_compact(history)
+        self.assertNotIn(marker, json.dumps(compacted, ensure_ascii=False))
+        self.assertFalse(any(marker in text for text in captured))
+
+    async def test_cross_session_tools_exclude_local_result(self):
+        marker = 'F01-SECRET-REPORT-TEXT'
+        conv = self.runtime.store.create_conversation(title='t', model='qwen:qwen3.5-flash')
+        user = self.runtime.store.add_message(conv.id, role='user', content='看报告', metadata={'cloud_safe': True})
+        self.runtime.store.add_message(conv.id, role='tool', content='[ok] stock_report_read 已完成', response_to_message_id=user.id,
+            tool_name='stock_report_read', tool_result={'local_result': marker}, metadata={'cloud_safe': True})
+        router = self.runtime.router
+        router.cloud = True
+        found = router._dispatch_local('conversation_search', {'query': '报告'})
+        self.assertNotIn(marker, json.dumps(found, ensure_ascii=False))
+        read = router._dispatch_local('conversation_read', {'conversation_id': conv.id})
+        self.assertNotIn(marker, json.dumps(read, ensure_ascii=False))
