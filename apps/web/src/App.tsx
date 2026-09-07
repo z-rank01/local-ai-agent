@@ -2168,7 +2168,7 @@ export default function App() {
             <button type="button" className="ghost-button topbar-button" aria-haspopup="dialog"
               aria-expanded={modelSettingsOpen} onClick={() => setModelSettingsOpen(true)}>模型设置</button>
             {selectedModel?.provider_id !== 'ollama' ? <button type="button" className="ghost-button topbar-button capability-status"
-              onClick={() => setModelSettingsOpen(true)}>{status?.workspace_cloud_allowed ? '工具已开启' : '工具未开启'} · {selectedModel?.thinking_enabled ? '思考开' : '思考关'}</button> : null}
+              onClick={() => setModelSettingsOpen(true)}>{status?.workspace_cloud_allowed ? '工具已开启' : '工具未开启'} · {selectedModel?.thinking_enabled == null ? '思考默认' : selectedModel.thinking_enabled ? '思考开' : '思考关'}</button> : null}
             {conversationId ? (
               <div className="export-menu" ref={exportMenuRef}>
                 <button

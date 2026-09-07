@@ -2381,6 +2381,11 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .capability-toggle input:checked {background: var(--accent);}
 .capability-toggle input:checked::before {left: 19px;}
 .capability-toggle input:disabled {opacity: .5; cursor: not-allowed;}
+.capability-toggle select {font: inherit; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: #fffefa;}
+.capability-toggle select:disabled {opacity: .5;}
+.capability-static {color: var(--muted); font-weight: 400;}
+.capability-budget {display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; margin: 4px 0 8px;}
+.capability-budget input {width: 140px; font: inherit; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: #fffefa;}
 .model-capability-settings p {font-size: 12px; color: var(--muted); margin: 8px 0 16px;}
 .capability-workspace {overflow-wrap: anywhere;}
 .capability-status {font-size: 12px;}

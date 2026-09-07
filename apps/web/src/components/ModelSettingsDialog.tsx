@@ -9,7 +9,7 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
 }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
-  const changeSetting = async (change: {thinking_enabled?: boolean; workspace_cloud_allowed?: boolean}) => {
+  const changeSetting = async (change: {thinking_enabled?: boolean | null; thinking_budget?: number | null; workspace_cloud_allowed?: boolean}) => {
     if (!model || !status) return;
     setSaving(true); setNotice('');
     try {
@@ -53,13 +53,62 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
         {model ? <>
           <div className="model-settings-current"><span>当前模型</span><strong>{model.name}</strong><span>{model.provider_name}</span></div>
           <section className="model-capability-settings" aria-label="模型能力">
-            <label className="capability-toggle">
+            <div className="capability-toggle">
               <span>思考输出</span>
-              <input type="checkbox" role="switch" aria-label="思考输出" checked={model.thinking_enabled}
-                disabled={saving || busy || !status || !model.thinking_supported}
-                onChange={event => void changeSetting({thinking_enabled: event.target.checked})} />
-            </label>
-            <p>{model.thinking_supported ? '开启后请求模型返回思考内容，并在对话中折叠展示；可能增加响应时间和费用。按模型保存，独立于工具开关。' : '当前模型未提供思考开关；若模型返回思考内容，仍会照常展示。'}</p>
+              {model.thinking_supported ? (
+                <select
+                  aria-label="思考输出"
+                  value={model.thinking_enabled == null ? 'default' : model.thinking_enabled ? 'on' : 'off'}
+                  disabled={saving || busy || !status}
+                  onChange={event => {
+                    const value = event.target.value;
+                    void changeSetting({thinking_enabled: value === 'default' ? null : value === 'on'});
+                  }}
+                >
+                  <option value="default">供应商默认</option>
+                  <option value="on">开启</option>
+                  <option value="off">关闭</option>
+                </select>
+              ) : (
+                <span className="capability-static">供应商默认</span>
+              )}
+            </div>
+            <p>{model.thinking_supported
+              ? '默认：静态目录按其配置、新发现模型按供应商默认行为运行；开启/关闭会显式发送供应商对应参数（如 Qwen 的 enable_thinking、Ollama 的 think）。按模型保存，独立于工具开关。'
+              : '使用供应商默认行为；该模型未提供思考开关（第三方托管模型不发送私有参数，避免静默无效），若默认返回思考内容仍会照常展示。'}</p>
+            {model.thinking_budget_supported ? (
+              <p>本模型支持思考强度（Qwen thinking_budget，思考 token 上限，典型 512~16384）；留空不限制，仅“开启”时生效。</p>
+            ) : null}
+            {model.thinking_budget_supported && model.thinking_enabled ? (
+              <label className="capability-budget">
+                <span>思考强度（token）</span>
+                <input
+                  key={`${model.id}:${model.thinking_budget ?? ''}`}
+                  type="number"
+                  min={128}
+                  max={131072}
+                  step={128}
+                  placeholder="不限制"
+                  defaultValue={model.thinking_budget ?? ''}
+                  disabled={saving || busy || !status}
+                  onBlur={event => {
+                    const raw = event.target.value.trim();
+                    if (raw === String(model.thinking_budget ?? '')) return;
+                    if (raw === '') {
+                      void changeSetting({thinking_budget: null});
+                      return;
+                    }
+                    const value = Number(raw);
+                    if (!Number.isInteger(value) || value < 128 || value > 131072) {
+                      setNotice('思考强度需为 128~131072 的整数，未保存。');
+                      event.target.value = String(model.thinking_budget ?? '');
+                      return;
+                    }
+                    void changeSetting({thinking_budget: value});
+                  }}
+                />
+              </label>
+            ) : null}
             {model.provider_id !== 'ollama' ? <>
               <label className="capability-toggle">
                 <span>允许云端使用当前工作区工具</span>
