@@ -134,6 +134,8 @@ class LLMClient:
     def __init__(self, base_url: str, model: str):
         self._base_url = base_url.rstrip("/")
         self._model = model
+        # Ollama `think` field; None means the parameter is not sent at all.
+        self.think: bool | None = None
         self._supports_tools: bool = True
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
@@ -152,6 +154,8 @@ class LLMClient:
             ],
             "stream": False,
         }
+        if self.think is not None:
+            payload["think"] = self.think
         try:
             resp = await self._client.post(f"{self._base_url}/api/chat", json=payload)
             resp.raise_for_status()
@@ -177,6 +181,8 @@ class LLMClient:
             "messages": messages,
             "stream": False,
         }
+        if self.think is not None:
+            payload["think"] = self.think
         if tools and self._supports_tools:
             payload["tools"] = tools
         try:
@@ -243,6 +249,8 @@ class LLMClient:
             "messages": normalized,
             "stream": True,
         }
+        if self.think is not None:
+            payload["think"] = self.think
         if tools and self._supports_tools:
             payload["tools"] = tools
 
@@ -327,6 +335,8 @@ class LLMClient:
             "messages": messages,
             "stream": True,
         }
+        if self.think is not None:
+            payload["think"] = self.think
         try:
             thinking_started = False
             in_thinking = False

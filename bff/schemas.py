@@ -81,7 +81,9 @@ class AppStatus(BaseModel):
 
 class ModelInfo(BaseModel):
     thinking_supported: bool = False
-    thinking_enabled: bool = False
+    thinking_budget_supported: bool = False
+    thinking_enabled: bool | None = None
+    thinking_budget: int | None = None
     id: str
     name: str
     provider_id: str

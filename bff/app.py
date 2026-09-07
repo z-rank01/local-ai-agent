@@ -300,7 +300,7 @@ async def activate_message_version(
     )
 
 from pydantic import BaseModel, SecretStr
-from core.providers import save_key
+from core.providers import save_key, thinking_capability
 
 class ModelCredentialRequest(BaseModel):
     api_key: SecretStr
@@ -324,6 +324,7 @@ class ModelSettingsRequest(BaseModel):
     model_id: str
     workspace_path: str
     thinking_enabled: bool | None = None
+    thinking_budget: int | None = None
     workspace_cloud_allowed: bool | None = None
 
 @app.patch('/api/model-settings')
@@ -339,12 +340,26 @@ async def set_model_settings(payload: ModelSettingsRequest, request: Request):
     spec = next((s for s in get_runtime().models.specs if s['id'] == payload.model_id), None)
     if spec is None:
         raise HTTPException(404, '模型未配置')
-    if payload.thinking_enabled is not None and 'enable_thinking' not in spec.get('options', {}):
-        raise HTTPException(422, '当前模型未提供可配置的思考开关')
+    fields = payload.model_fields_set
+    capability = thinking_capability(spec)
+    if 'thinking_enabled' in fields and capability is None:
+        raise HTTPException(422, '当前模型未提供可配置的思考开关，按供应商默认行为运行')
+    if 'thinking_budget' in fields:
+        if capability != 'switch_budget':
+            raise HTTPException(422, '当前模型不支持思考强度设置')
+        if payload.thinking_budget is not None and not 128 <= payload.thinking_budget <= 131072:
+            raise HTTPException(422, '思考强度需为 128~131072 的整数 token 数')
     if payload.workspace_cloud_allowed is not None and spec['kind'] != 'cloud':
         raise HTTPException(422, '本地模型无需云端授权')
     from core.model_settings import update_settings
-    update_settings(spec['id'], thinking=payload.thinking_enabled, workspace=payload.workspace_cloud_allowed)
+    changes = {}
+    if 'thinking_enabled' in fields:
+        changes['thinking'] = payload.thinking_enabled  # None 表示恢复默认
+    if 'thinking_budget' in fields:
+        changes['budget'] = payload.thinking_budget
+    if payload.workspace_cloud_allowed is not None:
+        changes['workspace'] = payload.workspace_cloud_allowed
+    update_settings(spec['id'], **changes)
     return {'status': 'saved'}
 
 

@@ -23,6 +23,29 @@ _CATALOG_TTL_SECONDS = 30
 # Provider catalogs also list non-chat models that cannot serve this harness.
 _NON_CHAT_MODEL = re.compile(r'embedding|rerank|tts|asr|speech|audio|image|video|ocr|docmind', re.IGNORECASE)
 
+# Thinking-control parameter conventions differ per provider; this table maps
+# each cloud provider to the prefix that marks its own model family. Models
+# outside the family (third-party hosted ids like "ZHIPU/..." on DashScope)
+# get no switch, because foreign thinking parameters may silently do nothing.
+#   qwen (DashScope compatible mode): enable_thinking (bool) + thinking_budget (int)
+#   ollama (local): think (bool), no strength — handled via spec['kind'] == 'local'
+_CLOUD_THINKING = {
+    'qwen': {'family_prefix': 'qwen'},
+}
+
+
+def thinking_capability(spec):
+    """Thinking controls offered for a model: 'switch_budget', 'switch' or None.
+
+    None means the provider default applies and no toggle is shown.
+    """
+    if spec.get('kind') == 'local':
+        return 'switch'
+    conf = _CLOUD_THINKING.get(spec.get('provider_id', ''))
+    if conf and spec.get('model', '').lower().startswith(conf['family_prefix']):
+        return 'switch_budget'
+    return None
+
 
 def credential_path():
     return config.PROJECT_ROOT / 'data' / 'private' / 'model-keys.json'

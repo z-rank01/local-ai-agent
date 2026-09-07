@@ -234,7 +234,7 @@ class Agent:
                 tool_defs = []
                 messages[0]['content'] += '\n本次仅重新组织回答，使用已有工具结果，不重复执行工具；如需重新执行请用户另发一轮指令。'
             messages[0]['content'] += '\n执行任务必须通过本轮实际提供的工具调用，代码块本身不会执行。没有执行结果时不得声称已经读取、修改或生成文件。用户只要求讨论或只读时遵守该范围。'
-            if cloud and not getattr(self.llm, 'spec', {}).get('options', {}).get('enable_thinking', False):
+            if cloud and getattr(self.llm, 'spec', {}).get('options', {}).get('enable_thinking', None) is False:
                 messages[0]['content'] += '\n当前思考输出关闭。若用户明确要求开启思考模式，请询问是否愿意在顶部“模型设置”开启“思考输出”；不能声称已自行开启。普通任务无需为此打断。'
             counts = {}
             execution_retries = 0

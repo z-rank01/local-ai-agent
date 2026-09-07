@@ -19,6 +19,7 @@ from fastapi import HTTPException
 from core import config, model_settings
 from core.conversation_store import Conversation, ConversationStore, Message
 from core.input_utils import ImportedFile, ingest_local_file_paths
+from core.providers import thinking_capability
 from core.runtime import RuntimeServices
 
 from .schemas import (
@@ -108,8 +109,10 @@ class ChatSessionService:
         specs = await self._runtime.models.catalog(refresh=refresh)
         return [ModelInfo(id=s['id'], name=s['model'], provider_id=s['provider_id'],
             provider_name=s['provider_name'], default=s['id'] == self._runtime.models.default,
-            thinking_supported='enable_thinking' in s.get('options', {}),
-            thinking_enabled=model_settings.thinking_enabled(s),
+            thinking_supported=thinking_capability(s) is not None,
+            thinking_budget_supported=thinking_capability(s) == 'switch_budget',
+            thinking_enabled=model_settings.thinking_setting(s),
+            thinking_budget=model_settings.thinking_budget(s['id']),
             capabilities=['text','tools','streaming'], context_window=config.CONTEXT_WINDOW,
             status='configured' if s['kind']=='local' or read_key(s.get('api_key_env','')) else 'missing_key')
             for s in specs]
@@ -698,10 +701,23 @@ class ChatSessionService:
         spec, llm = self._select_model(conversation)
         cloud = spec['kind'] == 'cloud'
         workspace_allowed = model_settings.workspace_allowed()
-        if 'enable_thinking' in spec.get('options', {}):
+        # Explicit thinking setting only; "default" leaves the client untouched so
+        # static options apply and discovered models use the provider default.
+        thinking_state = model_settings.thinking_setting(spec) if thinking_capability(spec) else None
+        if thinking_state is not None:
             import copy
             llm = copy.copy(llm)
-            llm.spec = {**spec, 'options': {**spec['options'], 'enable_thinking': model_settings.thinking_enabled(spec)}}
+            if spec['kind'] == 'local':
+                llm.think = thinking_state
+            else:
+                options = dict(spec.get('options', {}))
+                options['enable_thinking'] = thinking_state
+                budget = model_settings.thinking_budget(spec['id']) if thinking_state else None
+                if budget:
+                    options['thinking_budget'] = budget
+                else:
+                    options.pop('thinking_budget', None)
+                llm.spec = {**spec, 'options': options}
         messages = self._store.messages_as_dicts(conversation.id, cloud=cloud)
         agent = self._runtime.agent_for(spec, llm)
         agent.allow_tools = not answer_only
