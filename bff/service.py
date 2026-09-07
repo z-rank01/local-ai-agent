@@ -103,18 +103,19 @@ class ChatSessionService:
             websearch_enabled=config.ENABLE_WEBSEARCH and "web_search" in tools,
         )
 
-    def list_models(self) -> list[ModelInfo]:
+    async def list_models(self, refresh: bool = False) -> list[ModelInfo]:
         from core.providers import read_key
+        specs = await self._runtime.models.catalog(refresh=refresh)
         return [ModelInfo(id=s['id'], name=s['model'], provider_id=s['provider_id'],
             provider_name=s['provider_name'], default=s['id'] == self._runtime.models.default,
             thinking_supported='enable_thinking' in s.get('options', {}),
             thinking_enabled=model_settings.thinking_enabled(s),
             capabilities=['text','tools','streaming'], context_window=config.CONTEXT_WINDOW,
             status='configured' if s['kind']=='local' or read_key(s.get('api_key_env','')) else 'missing_key')
-            for s in self._runtime.models.specs]
+            for s in specs]
 
-    def list_providers(self) -> list[ProviderInfo]:
-        models = self.list_models()
+    async def list_providers(self, refresh: bool = False) -> list[ProviderInfo]:
+        models = await self.list_models(refresh=refresh)
         return [ProviderInfo(id=s['provider_id'], name=s['provider_name'], kind=s['kind'],
             base_url=s['base_url'], models=[m for m in models if m.provider_id == s['provider_id']])
             for s in {s['provider_id']:s for s in self._runtime.models.specs}.values()]

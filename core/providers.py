@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from contextlib import closing
+import asyncio
 import json
 import os
+import re
 import sqlite3
+import time
 import uuid
 from pathlib import Path
 
@@ -12,6 +15,13 @@ import httpx
 
 from . import config
 from .llm_client import LLMClient
+
+# Catalog discovery refreshes at most this often; /api/models and /api/providers
+# are usually called together, so a short TTL avoids double probing.
+_CATALOG_TTL_SECONDS = 30
+
+# Provider catalogs also list non-chat models that cannot serve this harness.
+_NON_CHAT_MODEL = re.compile(r'embedding|rerank|tts|asr|speech|audio|image|video|ocr|docmind', re.IGNORECASE)
 
 
 def credential_path():
@@ -37,6 +47,38 @@ def save_key(env_name, value):
     temporary.write_text(json.dumps(data), encoding='utf-8')
     temporary.chmod(0o600)
     temporary.replace(path)
+
+
+async def _probe_ollama_models(base_url):
+    """Installed Ollama model names, or None when the server is unreachable."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(3, connect=2), trust_env=False) as client:
+            resp = await client.get(base_url.rstrip('/') + '/api/tags')
+            if resp.status_code != 200:
+                return None
+            return [m.get('name') for m in resp.json().get('models', []) if m.get('name')]
+    except Exception:
+        return None
+
+
+async def _probe_compatible_models(spec):
+    """Model ids exposed by an OpenAI-compatible provider, or None on failure.
+
+    Skipped entirely when no API key is configured, so listing models never
+    makes unauthenticated or unexpected outbound calls.
+    """
+    key = read_key(spec.get('api_key_env', ''))
+    if not key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5), trust_env=False) as client:
+            resp = await client.get(spec['base_url'].rstrip('/') + '/models',
+                                    headers={'Authorization': f'Bearer {key}'})
+            if resp.status_code != 200:
+                return None
+            return [m.get('id') for m in resp.json().get('data', []) if m.get('id')]
+    except Exception:
+        return None
 
 
 class CallBudget:
@@ -156,16 +198,59 @@ class CompatibleClient:
 class ModelRegistry:
     def __init__(self):
         self.budget = CallBudget(config.PROJECT_ROOT / 'data' / 'in1-model-calls.sqlite', int(os.environ.get('MODEL_CALL_LIMIT', '0')))
-        self.specs = [{'id': f'ollama:{config.OLLAMA_MODEL}', 'provider_id': 'ollama', 'provider_name': 'Ollama',
+        static_specs = [{'id': f'ollama:{config.OLLAMA_MODEL}', 'provider_id': 'ollama', 'provider_name': 'Ollama',
                        'model': config.OLLAMA_MODEL, 'base_url': config.OLLAMA_BASE_URL, 'kind': 'local'}]
-        catalog = Path(os.environ.get('MODEL_CATALOG', str(config.PROJECT_ROOT / 'config' / 'models.json')))
-        if catalog.exists():
-            for item in json.loads(catalog.read_text(encoding='utf-8-sig')):
+        catalog_path = Path(os.environ.get('MODEL_CATALOG', str(config.PROJECT_ROOT / 'config' / 'models.json')))
+        if catalog_path.exists():
+            for item in json.loads(catalog_path.read_text(encoding='utf-8-sig')):
                 item = dict(item)
                 item['id'] = f"{item['provider_id']}:{item['model']}"
-                self.specs.append(item)
+                static_specs.append(item)
+        self._static_specs = static_specs
+        # Merged snapshot (static + discovered) that resolve() matches against.
+        self.specs = list(static_specs)
         self.clients = {}
-        self.default = os.environ.get('DEFAULT_MODEL', self.specs[0]['id'])
+        self.default = os.environ.get('DEFAULT_MODEL', static_specs[0]['id'])
+        self._catalog_fetched_at = 0.0
+        self._catalog_lock = asyncio.Lock()
+
+    async def catalog(self, refresh=False):
+        """Static specs merged with models discovered from the providers themselves.
+
+        Static entries always win on id conflicts (they carry options such as
+        enable_thinking). Discovery failures degrade to the static list: Ollama
+        keeps its configured entry, cloud providers their models.json entries.
+        """
+        async with self._catalog_lock:
+            now = time.monotonic()
+            if not refresh and self._catalog_fetched_at and now - self._catalog_fetched_at < _CATALOG_TTL_SECONDS:
+                return self.specs
+            merged = {s['id']: s for s in self._static_specs}
+            ollama_names = await _probe_ollama_models(config.OLLAMA_BASE_URL)
+            if ollama_names:
+                for name in ollama_names:
+                    if _NON_CHAT_MODEL.search(name):
+                        continue
+                    merged.setdefault(f'ollama:{name}', {
+                        'id': f'ollama:{name}', 'provider_id': 'ollama', 'provider_name': 'Ollama',
+                        'model': name, 'base_url': config.OLLAMA_BASE_URL, 'kind': 'local'})
+            cloud_specs = {}
+            for spec in self._static_specs:
+                if spec.get('kind') == 'cloud':
+                    cloud_specs.setdefault(spec['provider_id'], spec)
+            for provider_id, spec in cloud_specs.items():
+                names = await _probe_compatible_models(spec)
+                for name in names or []:
+                    if _NON_CHAT_MODEL.search(name):
+                        continue
+                    merged.setdefault(f'{provider_id}:{name}', {
+                        'id': f'{provider_id}:{name}', 'provider_id': provider_id,
+                        'provider_name': spec['provider_name'], 'model': name,
+                        'base_url': spec['base_url'], 'api_key_env': spec.get('api_key_env', ''),
+                        'kind': 'cloud'})
+            self.specs = list(merged.values())
+            self._catalog_fetched_at = now
+            return self.specs
 
     def resolve(self, provider=None, model=None, fallback=None):
         key = f'{provider}:{model}' if provider and model else model or fallback or self.default

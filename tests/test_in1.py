@@ -112,6 +112,63 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError,'HTTP 401'):
                 _ = [e async for e in client.chat_stream_with_tools([])]
 
+class CatalogTests(unittest.IsolatedAsyncioTestCase):
+    CLOUD = [{'provider_id':'qwen','provider_name':'通义千问','kind':'cloud','model':'qwen3.5-flash',
+              'base_url':'https://example.invalid/v1','api_key_env':'IN1_FAKE_KEY','options':{'enable_thinking':False}}]
+
+    def make_registry(self, items):
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name)/'models.json'
+        path.write_text(json.dumps(items), encoding='utf-8')
+        with patch.dict('os.environ',{'MODEL_CATALOG':str(path)}):
+            from core.providers import ModelRegistry
+            return ModelRegistry()
+
+    async def test_discovered_models_merge_and_static_wins(self):
+        registry = self.make_registry(self.CLOUD)
+        self.addAsyncCleanup(registry.close)
+        with patch('core.providers._probe_ollama_models',return_value=['gemma4:26b','qwen3:8b']), \
+             patch('core.providers._probe_compatible_models',return_value=['qwen3.5-flash','qwen-plus','qwen3.7-text-embedding-flash']):
+            specs = await registry.catalog(refresh=True)
+        ids = {s['id'] for s in specs}
+        self.assertIn('ollama:qwen3:8b',ids)
+        self.assertIn('qwen:qwen-plus',ids)
+        self.assertNotIn('qwen:qwen3.7-text-embedding-flash',ids)
+        static = next(s for s in specs if s['id']=='qwen:qwen3.5-flash')
+        self.assertEqual(static.get('options'),{'enable_thinking':False})
+        spec,_ = registry.resolve('qwen','qwen-plus')
+        self.assertEqual(spec['id'],'qwen:qwen-plus')
+
+    async def test_probe_failure_keeps_static_catalog(self):
+        registry = self.make_registry(self.CLOUD)
+        with patch('core.providers._probe_ollama_models',return_value=None), \
+             patch('core.providers._probe_compatible_models',return_value=None):
+            specs = await registry.catalog(refresh=True)
+        self.assertEqual({s['id'] for s in specs},{'ollama:gemma4:26b','qwen:qwen3.5-flash'})
+
+    async def test_catalog_ttl_caches_and_refresh_forces(self):
+        registry = self.make_registry(self.CLOUD)
+        with patch('core.providers._probe_ollama_models',return_value=['a:1']) as po, \
+             patch('core.providers._probe_compatible_models',return_value=[]):
+            await registry.catalog()
+            await registry.catalog()
+            self.assertEqual(po.call_count,1)
+            await registry.catalog(refresh=True)
+            self.assertEqual(po.call_count,2)
+
+    async def test_probe_compatible_skips_without_key(self):
+        from core import providers
+        with patch.object(providers,'read_key',return_value=''):
+            self.assertIsNone(await providers._probe_compatible_models({'base_url':'https://x','api_key_env':'NOPE'}))
+
+    async def test_probe_ollama_parses_tags(self):
+        from core import providers
+        def handler(request):
+            return httpx.Response(200,json={'models':[{'name':'a:1'},{'name':'b:2'},{}]})
+        real_client = httpx.AsyncClient
+        with patch.object(providers.httpx,'AsyncClient',lambda **kw: real_client(transport=httpx.MockTransport(handler))):
+            self.assertEqual(await providers._probe_ollama_models('http://ollama'),['a:1','b:2'])
+
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()

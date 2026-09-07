@@ -127,13 +127,13 @@ async def shutdown_backend(request: Request) -> dict[str, str]:
 
 
 @app.get("/api/models", response_model=list[ModelInfo])
-async def list_models() -> list[ModelInfo]:
-    return get_chat_service().list_models()
+async def list_models(refresh: int = 0) -> list[ModelInfo]:
+    return await get_chat_service().list_models(refresh=bool(refresh))
 
 
 @app.get("/api/providers", response_model=list[ProviderInfo])
-async def list_providers() -> list[ProviderInfo]:
-    return get_chat_service().list_providers()
+async def list_providers(refresh: int = 0) -> list[ProviderInfo]:
+    return await get_chat_service().list_providers(refresh=bool(refresh))
 
 
 @app.get("/api/conversations", response_model=list[ConversationSummary])
