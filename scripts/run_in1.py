@@ -12,10 +12,11 @@ for key, value in {
     'WORKSPACE_CLOUD_ALLOWED': 'true',
     'SKILL_FILES_URL': 'http://127.0.0.1:19101',
     'SKILL_RUNNER_URL': 'http://127.0.0.1:19102',
+    'SKILL_WEBSEARCH_URL': 'http://127.0.0.1:19103',
     'DEFAULT_MODEL': 'qwen:qwen3.5-flash',
     'MODEL_CALL_LIMIT': '30',
     'TOOL_TIER': 'all',
-    'ENABLE_WEBSEARCH': 'false',
+    'ENABLE_WEBSEARCH': 'true',
 }.items():
     os.environ[key] = value
 import uvicorn

@@ -39,5 +39,20 @@ services:
     pids_limit: 64
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+      - ./config/searxng:/etc/searxng
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080
+    expose: ["8080"]
+  skill-websearch:
+    image: local-ai-agent-skill-websearch:latest
+    build: ./skills/websearch
+    ports: ["127.0.0.1:19103:8300"]
+    environment:
+      SEARXNG_URL: http://searxng:8080
+    depends_on:
+      - searxng
 volumes:
   in1-packages:
