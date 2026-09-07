@@ -30,12 +30,12 @@ export function fetchStatus(baseUrl = DEFAULT_BASE_URL): Promise<AppStatus> {
   return requestJson<AppStatus>('/api/status', undefined, baseUrl);
 }
 
-export function fetchModels(baseUrl = DEFAULT_BASE_URL): Promise<ModelInfo[]> {
-  return requestJson<ModelInfo[]>('/api/models', undefined, baseUrl);
+export function fetchModels(refresh = false, baseUrl = DEFAULT_BASE_URL): Promise<ModelInfo[]> {
+  return requestJson<ModelInfo[]>(`/api/models${refresh ? '?refresh=1' : ''}`, undefined, baseUrl);
 }
 
-export function fetchProviders(baseUrl = DEFAULT_BASE_URL): Promise<ProviderInfo[]> {
-  return requestJson<ProviderInfo[]>('/api/providers', undefined, baseUrl);
+export function fetchProviders(refresh = false, baseUrl = DEFAULT_BASE_URL): Promise<ProviderInfo[]> {
+  return requestJson<ProviderInfo[]>(`/api/providers${refresh ? '?refresh=1' : ''}`, undefined, baseUrl);
 }
 
 export async function shutdownBackend(baseUrl = DEFAULT_BASE_URL): Promise<void> {

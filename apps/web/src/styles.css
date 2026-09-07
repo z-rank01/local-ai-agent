@@ -2241,16 +2241,64 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   top: calc(100% + 6px);
   left: 0;
   right: 0;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
-  max-height: 280px;
-  overflow: auto;
+  max-height: min(440px, 70vh);
+  overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
   padding: 6px;
   background: #ffffff;
   box-shadow: var(--shadow);
   animation: motion-soft-pop var(--duration-fast) var(--ease-emphasized) both;
+}
+
+.model-picker-groups {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.model-picker-filter {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  padding: 7px 9px;
+  font: inherit;
+  background: #fffefa;
+}
+
+.model-picker-group-header {
+  justify-content: flex-start;
+  font-weight: 600;
+}
+
+.model-picker-group-header em {
+  margin-left: auto;
+}
+
+.model-picker-group-header em + em {
+  margin-left: 8px;
+}
+
+.model-picker-option {
+  padding-left: 26px;
+}
+
+.model-picker-refresh {
+  justify-content: center;
+  border-top: 1px solid var(--line-strong);
+  color: var(--muted);
+}
+
+.model-picker-empty {
+  margin: 6px 4px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .model-picker-menu button {
