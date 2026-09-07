@@ -161,3 +161,14 @@ npm run build --prefix apps/web
 - IN1 files 容器以非 root（uid 1001）、只读根文件系统和 cpu/mem/pids 限制运行（仅 compose.in1.yml 启用，旧 docker-compose.yml 部署不变）；工作区两个历史 root 属主文件已按字节不变重建为 uid 1001 所有。
 
 验证：宿主机离线测试 47 项执行（46 通过 + 容器门控模块 1 个 skip；另有 5 项后台安装测试仅容器内运行）；18 项隔离容器检查在加固后的容器上通过；软删除/恢复手测通过；Web 生产构建通过。真实模型行为与 IN1.H 人工验收范围不变。
+
+
+## 12. 动态模型目录与分组选择器（2026-09-06）
+
+用户要求把原 IN1.1 列为后置的"全量模型自动发现"提前实现。此前模型目录完全静态：Ollama 只列 `OLLAMA_MODEL` 配置的一项，云端只列 `config/models.json` 手写条目。
+
+- `ModelRegistry.catalog()` 合并静态条目与实时发现：Ollama 走 `GET /api/tags`，OpenAI 兼容云端走 `GET {base_url}/models`（**未配置密钥时不发起请求**）。名称过滤非聊天模型（embedding/rerank/tts/asr/speech/audio/image/video/ocr/docmind）。静态条目按 id 优先（保留 `enable_thinking` 等 options）；发现失败静默回退到静态列表；30 秒 TTL 加锁防重复探测，`/api/models`、`/api/providers` 支持 `?refresh=1` 强制重探。发现调用不计入 CallBudget。
+- 选择器改为二级分组：供应商头部（云端/本地与模型数，可折叠，缺密钥标注），组内模型行；模型数超过 6 个时出现搜索框；底部"刷新模型列表"手动重探。缺密钥模型禁用并提示去"模型设置"；保存密钥后分组列表同步刷新。
+- 已知边界：发现的模型未逐个验证工具调用能力，调用不兼容时按现有规则明确报错、不静默切换；思考开关仅静态条目可配（发现模型 `thinking_supported=false`）；`resolve` 与回复来源记录的 id 方案不变，旧会话模型继续可解析。
+
+验证：52 项离线测试执行（51 通过 + 1 skip），含 5 项目录发现测试（合并、静态优先、失败回退、TTL、无密钥不探测、tags 解析）；真实 DashScope `GET /models` 探测 200（合并后 193 个云端模型）；Ollama 在线发现 2 个本地模型、离线回退验证；临时端口 BFF 实测 `/api/models`、`/api/providers?refresh=1` 返回结构；Web 生产构建通过。真实模型聊天调用未新增（额度保持 30/30）。
