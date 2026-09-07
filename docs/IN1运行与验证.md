@@ -204,3 +204,5 @@ npm run build --prefix apps/web
 2. 更大的问题：原配置 `use_default_settings: true` 时自定义 `engines:` 只是按名覆盖，**内置引擎集仍然激活**——实测运行实例有 98 个引擎在跑，本网络不可达的（brave/startpage/wikipedia 等）每次搜索都产生 3~10 秒超时，拖慢并干扰结果。已改用字典形式 `use_default_settings.engines.keep_only` 收敛（直接写 `false` 会因缺失默认段无法通过启动校验，已实测确认并报错回退）。现加载 8 个引擎、生效 3 个（360search、quark、bing），其余按原因登记禁用（baidu 验证码、sogou DNS、duckduckgo/wikipedia 连接超时、google 需代理）。
 
 收敛后验证：两个环境的 searxng 均已重启，`/config` 确认仅 3 个引擎生效；原失败查询约 1.7 秒返回且顶部为相关结果（6 条中 5 条相关），英文查询（python release）正常走 bing。
+
+**追加（2026-09-07，预算可见与引导）**：用户反馈 2+2 配额对深度检索偏低，已自行在 `.env` 调为 `WEB_SEARCH_BUDGET=6` / `WEB_FETCH_BUDGET=8`。同时按讨论结论实现：预算化工具的返回附"剩余次数"提示（仅模型可见，UI 与落库结果不变），耗尽报错说明每轮重置并引导基于已有结果回答。设计取舍：保留限额作为防失控安全网、放宽默认值由用户按体验调整，不实现相似度拦截（用户明确暂缓）。离线测试 62 项执行（61 通过 + 1 skip），未消耗模型额度。
