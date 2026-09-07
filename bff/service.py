@@ -376,6 +376,7 @@ class ChatSessionService:
             run_id,
             response_to_message_id=user_message.id,
             response_version_number=1,
+            request_id=request.request_id,
         )) as events:
             async for event in events:
                 yield event
@@ -453,6 +454,7 @@ class ChatSessionService:
             response_to_message_id=target.id,
             response_version_number=response_version_number,
             answer_only=True,
+            request_id=request_id,
         )) as events:
             async for event in events:
                 yield event
@@ -516,6 +518,7 @@ class ChatSessionService:
             run_id,
             response_to_message_id=message_id,
             response_version_number=1,
+            request_id=request_id,
         )) as events:
             async for event in events:
                 yield event
@@ -697,7 +700,7 @@ class ChatSessionService:
         filename = f"{safe_title}-{conversation.id}.txt"
         return content, filename
 
-    async def _run_assistant_turn(self, conversation, run_id, *, response_to_message_id, response_version_number, answer_only=False):
+    async def _run_assistant_turn(self, conversation, run_id, *, response_to_message_id, response_version_number, answer_only=False, request_id=None):
         spec, llm = self._select_model(conversation)
         cloud = spec['kind'] == 'cloud'
         workspace_allowed = model_settings.workspace_allowed()
@@ -728,6 +731,12 @@ class ChatSessionService:
         text, reasoning, block, thinking_block = '', '', uuid.uuid4().hex, uuid.uuid4().hex
         thinking_open = False
         active_tools = {}
+        stock_bridge = self._runtime.stock_bridge
+        stock_pending_local = []   # call_ids whose step flagged local_result_available, in order
+        stock_tool_rows = {}       # call_id -> saved tool row id
+        if stock_bridge is not None and not answer_only:
+            stock_bridge.set_turn(conversation.id, request_id or run_id,
+                next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), ''))
         def emit(event, **kwargs):
             return UIStreamEvent(event=event, **base, **kwargs)
         def save(role, content='', **kwargs):
@@ -781,6 +790,10 @@ class ChatSessionService:
                         saved = save('tool', '[' + data['status'] + '] ' + data['name'] + (' 已完成' if data['status']=='ok' else ' 执行失败') + '\n' + data.get('result_preview',''), tool_name=data['name'],
                             tool_result=data.get('result'), metadata={**meta, 'params': display_params, 'status': data['status']})
                         active_tools.pop(data['call_id'], None)
+                        if stock_bridge is not None:
+                            stock_tool_rows[data['call_id']] = saved.id
+                            if isinstance(data.get('result'), dict) and data['result'].get('local_result_available'):
+                                stock_pending_local.append(data['call_id'])
                         yield emit('tool.completed', block_id=data['call_id'], message_id=saved.id,
                             data={**data, 'params': display_params, 'detail': data.get('result_preview',''), 'headline': event.text})
                     elif event.kind == 'error':
@@ -790,10 +803,17 @@ class ChatSessionService:
                         yield emit('assistant.completed', block_id=block, message_id=saved.id,
                             data={'text': partial, 'model':spec['id'], 'status':'error'})
                         yield emit('error', data={'message': event.text})
+            if stock_bridge is not None and not answer_only:
+                async for stock_event in self._finish_stock_turn(conversation.id, stock_pending_local, stock_tool_rows, emit):
+                    yield stock_event
             latest = self._require_conversation(conversation.id)
             yield emit('conversation.updated', data={'conversation':self._conversation_summary(latest).model_dump()})
             yield emit('session.completed')
         finally:
+            if stock_bridge is not None and stock_bridge.has_open_turn(conversation.id):
+                # Interrupted path: harvest attachments to storage without streaming.
+                async for _ in self._finish_stock_turn(conversation.id, stock_pending_local, stock_tool_rows, None):
+                    pass
             # Disconnects/stop preserve partial output and terminal tool states.
             if text or reasoning:
                 save('assistant', text + '\n\n[生成已中断]', thinking=reasoning, metadata={**meta,'status':'interrupted'})
@@ -803,6 +823,28 @@ class ChatSessionService:
                     'tool_name':tool['name'], 'content':json.dumps(result,ensure_ascii=False)}})
                 save('tool', '[error] 执行已中断，请核查已有结果。', tool_name=tool['name'],
                     tool_result=result, metadata={**meta,'status':'error','params':_redact_params(tool.get('params', {}))})
+
+    async def _finish_stock_turn(self, conversation_id, pending, tool_rows, emit):
+        """Finish the turn's broker session and attach harvested local-only results.
+
+        Attachment texts arrive in step order and pair with the calls that flagged
+        local_result_available; on a count mismatch (broker dedupes identical
+        details) everything goes to the last flagged call rather than misaligning.
+        """
+        bridge = self._runtime.stock_bridge
+        if bridge is None:
+            return
+        texts = await bridge.finish_turn(conversation_id)
+        if not texts or not pending:
+            return
+        pairs = list(zip(pending, texts)) if len(texts) == len(pending) else [(pending[-1], '\n\n---\n\n'.join(texts))]
+        for call_id, text in pairs:
+            message_id = tool_rows.get(call_id)
+            if not message_id:
+                continue
+            self._store.update_message_tool_result(conversation_id, message_id, text)
+            if emit is not None:
+                yield emit('tool.local_result', block_id=call_id, message_id=message_id, data={'local_result': text})
 
     def _ensure_conversation(self, conversation_id: str | None, title: str | None) -> Conversation:
         if conversation_id:

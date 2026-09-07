@@ -425,6 +425,38 @@ class ConversationStore:
                 return True
             return False
 
+    def update_message_tool_result(self, conv_id: str, message_id: str, local_result: str) -> bool:
+        """Merge a local-only attachment into an existing tool row's result.
+
+        Display-path only: protocol rows and model history are never touched,
+        so the attachment cannot leak into later model input on replay.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT tool_result FROM messages WHERE id = ? AND conversation_id = ?",
+                (message_id, conv_id),
+            ).fetchone()
+            if not row:
+                return False
+            try:
+                payload = json.loads(row["tool_result"]) if row["tool_result"] else {}
+            except json.JSONDecodeError:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {"result": payload}
+            payload["local_result"] = local_result
+            cursor = conn.execute(
+                "UPDATE messages SET tool_result = ? WHERE id = ? AND conversation_id = ?",
+                (json.dumps(payload, ensure_ascii=False, default=str), message_id, conv_id),
+            )
+            if cursor.rowcount:
+                conn.execute(
+                    "UPDATE conversations SET updated_at = ? WHERE id = ?",
+                    (self._now(), conv_id),
+                )
+                return True
+            return False
+
     def delete_message(self, conv_id: str, message_id: str) -> bool:
         with self._connect() as conn:
             cursor = conn.execute(

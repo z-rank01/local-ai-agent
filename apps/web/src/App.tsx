@@ -425,6 +425,11 @@ function ToolDetail({
       <ToolDetailSection title={block.status === 'running' ? '执行中' : '结果'}>
         {renderToolResult()}
       </ToolDetailSection>
+      {typeof (block.toolResult as {local_result?: unknown} | null | undefined)?.local_result === 'string' ? (
+        <ToolDetailSection title="完整报告（本地，未发送给模型）">
+          <MarkdownMessage content={(block.toolResult as {local_result: string}).local_result} />
+        </ToolDetailSection>
+      ) : null}
     </div>
   );
 }
@@ -1660,6 +1665,20 @@ export default function App() {
             collapsed: (detail || block.text).length > 120 || (detail || block.text).includes('\n'),
           }),
         ));
+        break;
+      }
+      case 'tool.local_result': {
+        const localResult = eventText(event, 'local_result');
+        if (!localResult) {
+          break;
+        }
+        setBlocks((current) => current.map((block) => {
+          if (block.id !== event.block_id) {
+            return block;
+          }
+          const existing = (typeof block.toolResult === 'object' && block.toolResult !== null ? block.toolResult : {}) as Record<string, unknown>;
+          return {...block, toolResult: {...existing, local_result: localResult}};
+        }));
         break;
       }
       case 'assistant.completed': {

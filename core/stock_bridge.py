@@ -105,8 +105,13 @@ class StockBridge:
             code = step.get('code') or status
             return {'error': f'股票工具未执行（{code}）；请修正参数或换个思路，不要重试相同参数。',
                     'status': status, 'code': code}
+        observation = step.get('observation') or {}
+        if not observation and step.get('code'):
+            # Direct/local routes carry no model-visible projection; tell the model
+            # the outcome code so it never has to guess from an empty object.
+            observation = {'code': step['code'], 'note': '该结果没有模型可见字段；完整内容已作为本地附件直接展示给用户。'}
         return {
-            'model_observation': step.get('observation') or {},
+            'model_observation': observation,
             'status': status,
             'code': step.get('code', ''),
             'local_result_available': bool(step.get('local_result_available')),

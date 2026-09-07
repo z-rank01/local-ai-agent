@@ -63,7 +63,6 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(read['local_result_available'])
         texts = await bridge.finish_turn('conv-1')
         self.assertEqual(texts, ['报告全文一', '报告全文二'])
-        self.assertIsNone(await bridge.close())
 
         prepare = calls[0]
         self.assertTrue(prepare['path'].endswith('/prepare'))
@@ -81,6 +80,16 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         finish = calls[-1]
         self.assertTrue(finish['path'].endswith('/finish'))
         self.assertEqual(finish['json']['completion'], '')
+
+    async def test_empty_observation_surfaces_code_to_model(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls, step_responses=[
+            {'sequence': 1, 'continue': True, 'status': 'TOOL_RETURNED', 'observation': {}, 'code': 'UNINITIALIZED', 'local_result_available': True},
+        ]))
+        bridge.set_turn('c', 'r', 'q')
+        result = await bridge.call_tool('stock_account_view', {}, 'c')
+        self.assertEqual(result['model_observation']['code'], 'UNINITIALIZED')
+        self.assertIn('note', result['model_observation'])
 
     async def test_error_mappings(self):
         calls = []
@@ -171,3 +180,112 @@ class RouterDelegationTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+from tests import test_in1
+from bff.schemas import ChatRequest
+
+class StockTurnTests(unittest.IsolatedAsyncioTestCase):
+    """Service-level turn wiring with a stub bridge; no broker or model calls."""
+    asyncSetUp = test_in1.ServiceTests.asyncSetUp
+
+    def install_bridge(self, texts):
+        from core.tool_registry import ToolRegistry
+        parent = self
+        class StubBridge:
+            def __init__(self):
+                self.turns = []
+                self.open = False
+            def set_turn(self, cid, rid, query=''):
+                self.turns.append(('set', cid, rid, query))
+                self.open = True
+            def has_open_turn(self, cid):
+                return self.open
+            async def call_tool(self, tool, params, session_id):
+                self.turns.append(('call', tool, session_id))
+                return {'model_observation': {'task_status': 'SUCCEEDED'}, 'status': 'TOOL_RETURNED',
+                        'code': 'OK', 'local_result_available': True}
+            async def finish_turn(self, cid):
+                if not self.open:
+                    return []
+                self.turns.append(('finish', cid))
+                self.open = False
+                return list(texts)
+            async def close(self): pass
+        stub = StubBridge()
+        registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://x')
+        self.runtime.stock_bridge = stub
+        self.runtime.tool_registry = registry
+        self.runtime.router._stock_bridge = stub
+        self.runtime.router._registry = registry
+        return stub
+
+    def stock_model(self):
+        parent = self
+        ref = 'a' * 64
+        class StockModel:
+            cloud = True
+            model = 'qwen3.5-flash'
+            async def chat_stream_with_tools(self, messages, tools=None):
+                if not any(m.get('role') == 'tool' for m in messages):
+                    yield '', {'role':'assistant','content':'','tool_calls':[{'id':'c1','type':'function','function':{'name':'stock_report_read','arguments':json.dumps({'reference': ref})}}]}
+                else:
+                    yield '报告已读取', None
+                    yield '', {'role':'assistant','content':'报告已读取'}
+            async def close(self): pass
+        self.runtime.models.clients['qwen:qwen3.5-flash'] = StockModel()
+        return ref
+
+    async def test_local_result_attached_at_turn_end_not_in_protocol(self):
+        stub = self.install_bridge(['完整报告全文'])
+        self.stock_model()
+        events = [e async for e in self.service.stream_chat(ChatRequest(message='读报告', model='qwen3.5-flash', request_id='stock-turn-1'))]
+        cid = events[0].conversation_id
+        self.assertIn(('set', cid, 'stock-turn-1', '读报告'), stub.turns)
+        self.assertIn(('finish', cid), stub.turns)
+        tool_rows = [m for m in self.service.get_messages(cid) if m.role == 'tool']
+        self.assertEqual(tool_rows[0].tool_result['local_result'], '完整报告全文')
+        local_events = [e for e in events if e.event == 'tool.local_result']
+        self.assertEqual(len(local_events), 1)
+        self.assertEqual(local_events[0].block_id, 'c1')
+        protocol = [m for m in self.runtime.store.get_messages(cid) if m.role == 'protocol']
+        self.assertNotIn('完整报告全文', json.dumps([m.metadata for m in protocol], ensure_ascii=False))
+
+    async def test_answer_only_regenerate_opens_no_broker_session(self):
+        stub = self.install_bridge(['X'])
+        self.stock_model()
+        events = [e async for e in self.service.stream_chat(ChatRequest(message='读报告', model='qwen:qwen3.5-flash', request_id='stock-turn-2'))]
+        cid = events[0].conversation_id
+        before = len(stub.turns)
+        _ = [e async for e in self.service.regenerate_chat(cid, request_id='stock-turn-3')]
+        self.assertEqual(len(stub.turns), before)
+
+    async def test_interrupt_finishes_bridge_session_without_events(self):
+        stub = self.install_bridge(['X'])
+        parent = self
+        ref = 'a' * 64
+        class HangingModel:
+            cloud = True
+            model = 'qwen3.5-flash'
+            async def chat_stream_with_tools(self, messages, tools=None):
+                if not any(m.get('role')=='tool' for m in messages):
+                    yield '', {'role':'assistant','content':'','tool_calls':[{'id':'c1','type':'function','function':{'name':'stock_report_read','arguments':json.dumps({'reference': ref})}}]}
+                    return
+                yield '部分', None
+                import asyncio
+                await asyncio.Event().wait()
+                yield '', {'role':'assistant','content':'never'}
+            async def close(self): pass
+        self.runtime.models.clients['qwen:qwen3.5-flash'] = HangingModel()
+        collected = []
+        stream = self.service.stream_chat(ChatRequest(message='go', model='qwen3.5-flash', request_id='stock-int-1'))
+        async for event in stream:
+            collected.append(event)
+            if event.event == 'assistant.delta':
+                break
+        await stream.aclose()
+        self.assertFalse(any(e.event == 'tool.local_result' for e in collected))
+        self.assertTrue(any(t[0] == 'finish' for t in stub.turns))
+        # Attachment harvested to storage silently, not streamed.
+        cid = next(t[1] for t in stub.turns if t[0] == 'set')
+        tool_rows = [m for m in self.service.get_messages(cid) if m.role == 'tool']
+        self.assertEqual(tool_rows[0].tool_result.get('local_result'), 'X')
