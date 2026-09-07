@@ -1,0 +1,18 @@
+name: stock_report_read
+backend: stock-bridge
+tier: extended
+short_description: "读取本会话已有研究任务的报告（只读）。"
+description: >
+  按 reference 读取本会话已有研究任务的报告摘要与状态，不会重跑任务。
+  reference 必须是本会话 stock_research_find 返回的 64 位任务引用，不要编造。
+  返回中 task_status（程序执行）、business_status（业务裁决）、data_quality（数据质量）
+  是三种不同事实，解释时不能混淆；available_at 是证据时间。
+  完整报告正文作为本地附件直接在界面展示，不会进入模型历史；内容不构成投资建议。
+parameters:
+  type: object
+  properties:
+    reference:
+      type: string
+      description: "本会话 stock_research_find 返回的 64 位任务引用"
+  required:
+    - reference

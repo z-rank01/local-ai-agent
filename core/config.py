@@ -97,6 +97,10 @@ TOOL_TIER = _env("TOOL_TIER", "all")
 # Tool-call rounds per request before the agent is asked to wrap up.
 AGENT_MAX_ROUNDS = _env_int("AGENT_MAX_ROUNDS", 12)
 
+# Optional stock read-only bridge; stock tools are only registered when a URL is set.
+STOCK_BRIDGE_URL = _env("STOCK_BRIDGE_URL", "")
+STOCK_BRIDGE_TOKEN = _env("STOCK_BRIDGE_TOKEN", "")
+
 # Web search/fetch call budgets per user message (fresh allowance each turn).
 WEB_SEARCH_BUDGET = _env_int("WEB_SEARCH_BUDGET", 2)
 WEB_FETCH_BUDGET = _env_int("WEB_FETCH_BUDGET", 2)

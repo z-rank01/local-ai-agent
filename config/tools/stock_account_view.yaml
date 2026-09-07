@@ -1,0 +1,12 @@
+name: stock_account_view
+backend: stock-bridge
+tier: extended
+short_description: "查看股票模拟账户（只读）。"
+description: >
+  查看股票模拟账户的授权事实：现金、各持仓的数量与账面成本、账户状态与观察时间。
+  只读操作，不会创建任务或修改账本。返回的 cost_yuan 是账面成本，不是市值
+  （value_basis 字段有明确声明）；observed_at 是账本读取时间，不是实时行情。
+  回答价格或盈亏相关问题时必须说明这个时间口径，不得把成本当作当前价值。
+parameters:
+  type: object
+  properties: {}

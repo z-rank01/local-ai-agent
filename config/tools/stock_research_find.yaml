@@ -1,0 +1,17 @@
+name: stock_research_find
+backend: stock-bridge
+tier: extended
+short_description: "查找本会话已有的股票研究任务（只读）。"
+description: >
+  分页查找本会话内已有的股票研究任务，不会创建新任务。返回任务引用、状态、标的与时间。
+  结果中的 reference 可交给 stock_report_read 读取报告。
+  研究池是流动性筛选结果，不构成推荐；向用户介绍时保持这一区分。
+parameters:
+  type: object
+  properties:
+    symbol:
+      type: string
+      description: "可选，6 位股票代码，只看该标的的研究"
+    page:
+      type: integer
+      description: "页码，从 1 开始，每页 8 条"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from . import config
 from .agent import Agent
@@ -14,6 +15,7 @@ from .memory_manager import MemoryManager
 from .policy_engine import PolicyEngine
 from .prompt_builder import PromptBuilder
 from .providers import ModelRegistry
+from .stock_bridge import StockBridge
 from .tool_registry import ToolRegistry
 from .tool_router import ToolRouter
 
@@ -31,11 +33,14 @@ class RuntimeServices:
     store: ConversationStore
     agent: Agent
     models: ModelRegistry
+    stock_bridge: Any = None
 
     async def close(self) -> None:
         await self.router.close()
         await self.llm.close()
         await self.models.close()
+        if self.stock_bridge is not None:
+            await self.stock_bridge.close()
 
     def agent_for(self, spec, llm):
         cloud = spec['kind'] == 'cloud'
@@ -55,11 +60,13 @@ def build_runtime() -> RuntimeServices:
     enable_websearch = config.ENABLE_WEBSEARCH
 
     tool_registry = ToolRegistry(
-        config.TOOLS_DIR, enable_websearch=enable_websearch
+        config.TOOLS_DIR, enable_websearch=enable_websearch,
+        stock_bridge_url=config.STOCK_BRIDGE_URL,
     )
     policy = PolicyEngine(config.POLICY_PATH)
     audit = AuditLogger(config.LOG_PATH)
     store = ConversationStore(config.DB_PATH)
+    stock_bridge = StockBridge(config.STOCK_BRIDGE_URL, config.STOCK_BRIDGE_TOKEN) if config.STOCK_BRIDGE_URL else None
     router = ToolRouter(
         config.SKILL_FILES_URL,
         config.SKILL_RUNNER_URL,
@@ -69,6 +76,7 @@ def build_runtime() -> RuntimeServices:
         tool_registry,
         store=store,
         enable_websearch=enable_websearch,
+        stock_bridge=stock_bridge,
     )
     llm = LLMClient(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
     context_mgr = ContextManager(
@@ -104,4 +112,5 @@ def build_runtime() -> RuntimeServices:
         store=store,
         agent=agent,
         models=ModelRegistry(),
+        stock_bridge=stock_bridge,
     )

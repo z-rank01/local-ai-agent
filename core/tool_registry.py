@@ -14,6 +14,7 @@ import yaml
 logger = logging.getLogger("core.tool_registry")
 
 _WEBSEARCH_BACKEND = "skill-websearch"
+_STOCK_BRIDGE_BACKEND = "stock-bridge"
 
 _DEFAULT_MAX_RESULT_CHARS: dict[str, int] = {
     "package_list": 20000,
@@ -36,15 +37,15 @@ _DEFAULT_MAX_RESULT_CHARS: dict[str, int] = {
 class ToolRegistry:
     """Loads tool metadata from a directory of YAML files."""
 
-    def __init__(self, tools_dir: str | Path, *, enable_websearch: bool = False) -> None:
+    def __init__(self, tools_dir: str | Path, *, enable_websearch: bool = False, stock_bridge_url: str = "") -> None:
         self._tools: dict[str, dict[str, Any]] = {}
-        self._load(str(tools_dir), enable_websearch)
+        self._load(str(tools_dir), enable_websearch, bool(stock_bridge_url))
         core_count = sum(1 for t in self._tools.values() if t.get("tier", "core") == "core")
-        logger.info("ToolRegistry loaded %d tools (%d core, %d extended) from %s (websearch=%s)",
+        logger.info("ToolRegistry loaded %d tools (%d core, %d extended) from %s (websearch=%s, stock=%s)",
                      len(self._tools), core_count, len(self._tools) - core_count,
-                     tools_dir, enable_websearch)
+                     tools_dir, enable_websearch, bool(stock_bridge_url))
 
-    def _load(self, tools_dir: str, enable_websearch: bool) -> None:
+    def _load(self, tools_dir: str, enable_websearch: bool, stock_enabled: bool) -> None:
         tools_path = Path(tools_dir)
         if not tools_path.is_dir():
             logger.warning("tools_dir %r does not exist — no tools loaded", tools_dir)
@@ -60,6 +61,9 @@ class ToolRegistry:
                     continue
                 if backend == _WEBSEARCH_BACKEND and not enable_websearch:
                     logger.info("Skipping %s: websearch feature disabled", name)
+                    continue
+                if backend == _STOCK_BRIDGE_BACKEND and not stock_enabled:
+                    logger.info("Skipping %s: stock bridge not configured", name)
                     continue
                 self._tools[name] = tool
             except Exception as exc:

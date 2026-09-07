@@ -31,6 +31,7 @@ class ToolRouter:
         store: ConversationStore | None = None,
         *,
         enable_websearch: bool = False,
+        stock_bridge=None,
     ):
         self._backend_urls = {
             "skill-files": skill_files_url.rstrip("/"),
@@ -42,6 +43,7 @@ class ToolRouter:
         self._audit = audit
         self._registry = registry
         self._store = store
+        self._stock_bridge = stock_bridge
         self._client = httpx.AsyncClient(timeout=300.0)
 
     async def dispatch(self, tool: str, params: dict[str, Any], session_id: str = "default") -> Any:
@@ -53,6 +55,12 @@ class ToolRouter:
         backend = self._registry.get_backend(tool)
         if backend == "local-runtime":
             result = self._dispatch_local(tool, params)
+            self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
+            return result
+        if backend == "stock-bridge":
+            if self._stock_bridge is None:
+                raise RuntimeError("股票能力未配置（缺少 STOCK_BRIDGE_URL）。")
+            result = await self._stock_bridge.call_tool(tool, params, session_id)
             self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
             return result
         base_url = self._backend_urls[backend]
