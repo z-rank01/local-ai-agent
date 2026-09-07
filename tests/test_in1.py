@@ -366,6 +366,31 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(config,'WORKSPACE_CLOUD_ALLOWED',False): _=[e async for e in agent.run([{'role':'user','content':'go'}])]
         self.assertEqual(self.runs,0)
 
+    async def test_web_search_budget_from_config(self):
+        parent=self
+        calls=[{'id':'c1','type':'function','function':{'name':'web_search','arguments':'{"query":"a"}'}},
+               {'id':'c2','type':'function','function':{'name':'web_search','arguments':'{"query":"b"}'}}]
+        class Model:
+            cloud=True
+            async def chat_stream_with_tools(self,messages,tools=None):
+                reply={'role':'assistant','content':'','tool_calls':[calls.pop(0)]} if calls else {'role':'assistant','content':'done'}
+                yield '',reply
+        class Router:
+            async def dispatch_stream(self,*args):
+                parent.runs += 1
+                yield {'event':'result','result':{'total_results':1}}
+        async def process(messages): return messages
+        self.runs=0
+        agent=Agent(llm=Model(),router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[{'function':{'name':'web_search'}}]),
+            audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw:'test'))
+        with patch.object(config,'WORKSPACE_CLOUD_ALLOWED',True), patch.object(config,'WEB_SEARCH_BUDGET',1):
+            events=[e async for e in agent.run([{'role':'user','content':'go'}])]
+        self.assertEqual(self.runs,1)
+        ends=[e for e in events if e.kind=='tool_end']
+        self.assertEqual(ends[-1].data['status'],'error')
+        self.assertIn('额度',ends[-1].data['result']['error'])
+
 class CompactTests(unittest.IsolatedAsyncioTestCase):
     async def test_compact_preserves_entire_recent_tool_turn(self):
         from core.context_manager import ContextManager

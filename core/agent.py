@@ -26,9 +26,6 @@ from .tool_router import ToolRouter
 
 logger = logging.getLogger("core.agent")
 
-# Per-tool call budgets to prevent search loops
-_TOOL_BUDGETS: dict[str, int] = {"web_search": 2, "web_fetch": 2}
-
 
 # ── Events ──────────────────────────────────────────────────────────────────
 
@@ -237,10 +234,11 @@ class Agent:
             if cloud and getattr(self.llm, 'spec', {}).get('options', {}).get('enable_thinking', None) is False:
                 messages[0]['content'] += '\n当前思考输出关闭。若用户明确要求开启思考模式，请询问是否愿意在顶部“模型设置”开启“思考输出”；不能声称已自行开启。普通任务无需为此打断。'
             counts = {}
+            budgets = {'web_search': config.WEB_SEARCH_BUDGET, 'web_fetch': config.WEB_FETCH_BUDGET}
             execution_retries = 0
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             for round_number in range(self.max_rounds):
-                active = [d for d in tool_defs if counts.get(d['function']['name'], 0) < _TOOL_BUDGETS.get(d['function']['name'], 1000)]
+                active = [d for d in tool_defs if counts.get(d['function']['name'], 0) < budgets.get(d['function']['name'], 1000)]
                 if round_number == self.max_rounds - 1:
                     active = []
                     messages.append({"role": "user", "content": "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
@@ -310,25 +308,6 @@ class Agent:
         return final_text, messages
 
     # ── Internal helpers ────────────────────────────────────────────────
-
-    def _filter_tool_calls(
-        self, tool_calls: list[dict], counts: dict[str, int]
-    ) -> list[dict]:
-        """Apply per-tool budget limits, mutating ``counts`` in place."""
-        filtered: list[dict] = []
-        for tc in tool_calls:
-            fn_name = tc.get("function", {}).get("name", "")
-            limit = _TOOL_BUDGETS.get(fn_name)
-            if limit is not None and counts.get(fn_name, 0) >= limit:
-                logger.info(
-                    "Budget exceeded for %s (count=%d, limit=%d), skipping",
-                    fn_name, counts.get(fn_name, 0), limit,
-                )
-                continue
-            filtered.append(tc)
-            if fn_name in _TOOL_BUDGETS:
-                counts[fn_name] = counts.get(fn_name, 0) + 1
-        return filtered
 
     async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None):
         for tc in tool_calls:
