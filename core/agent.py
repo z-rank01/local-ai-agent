@@ -278,7 +278,7 @@ class Agent:
                     yield AgentEvent('done', text=reply)
                     return
                 allowed = {d['function']['name'] for d in active}
-                async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed)) as events:
+                async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed, budgets=budgets, counts=counts)) as events:
                     async for event in events:
                         yield event
                 for call in calls:
@@ -309,7 +309,7 @@ class Agent:
 
     # ── Internal helpers ────────────────────────────────────────────────
 
-    async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None):
+    async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None, budgets=None, counts=None):
         for tc in tool_calls:
             fn = tc.get('function', {})
             name = fn.get('name', '')
@@ -321,6 +321,8 @@ class Agent:
                 if not isinstance(params, dict):
                     raise ValueError('工具参数必须是 JSON 对象')
                 if allowed is not None and name not in allowed:
+                    if budgets and name in budgets:
+                        raise ValueError(f'本轮 {name} 的联网额度已用完。请基于已有结果综合回答并如实说明信息来源；如需更多检索，请用户再发一条消息继续（每轮额度会重新计算）。')
                     raise ValueError('本轮工具未开放或调用额度已用完，请基于已有结果回答。')
                 yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id']})
                 result = None
@@ -343,6 +345,9 @@ class Agent:
             # Explicit local-only attachments are rendered by the UI, never in model history.
             observation = model_projection(result)
             content = json.dumps(observation, ensure_ascii=False, default=str)
+            if budgets and counts is not None and name in budgets:
+                remaining = {n: max(0, b - counts.get(n, 0) - (1 if n == name else 0)) for n, b in budgets.items()}
+                content += '\n[联网额度：' + '，'.join(f'{n} 还可 {r} 次' for n, r in remaining.items()) + '；请据此规划后续检索，额度用尽后基于已有结果回答。]'
             message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
             messages.append(message)
             yield AgentEvent('message', data={'message': message})

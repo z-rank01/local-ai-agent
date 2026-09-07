@@ -390,6 +390,32 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         ends=[e for e in events if e.kind=='tool_end']
         self.assertEqual(ends[-1].data['status'],'error')
         self.assertIn('额度',ends[-1].data['result']['error'])
+        self.assertIn('每轮额度会重新计算',ends[-1].data['result']['error'])
+
+    async def test_budget_remaining_visible_in_tool_message(self):
+        parent=self
+        class Model:
+            cloud=True
+            async def chat_stream_with_tools(self,messages,tools=None):
+                if not any(m.get('role')=='tool' for m in messages):
+                    yield '',{'role':'assistant','content':'','tool_calls':[{'id':'c1','type':'function','function':{'name':'web_search','arguments':'{"query":"a"}'}}]}
+                else:
+                    yield '',{'role':'assistant','content':'done'}
+        class Router:
+            async def dispatch_stream(self,*args):
+                parent.runs += 1
+                yield {'event':'result','result':{'total_results':1}}
+        async def process(messages): return messages
+        self.runs=0
+        agent=Agent(llm=Model(),router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[{'function':{'name':'web_search'}},{'function':{'name':'web_fetch'}}]),
+            audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw:'test'))
+        with patch.object(config,'WORKSPACE_CLOUD_ALLOWED',True), patch.object(config,'WEB_SEARCH_BUDGET',2), patch.object(config,'WEB_FETCH_BUDGET',3):
+            events=[e async for e in agent.run([{'role':'user','content':'go'}])]
+        tool_msgs=[e.data['message'] for e in events if e.kind=='message' and e.data['message'].get('role')=='tool']
+        self.assertEqual(self.runs,1)
+        self.assertIn('web_search 还可 1 次',tool_msgs[0]['content'])
+        self.assertIn('web_fetch 还可 3 次',tool_msgs[0]['content'])
 
 class CompactTests(unittest.IsolatedAsyncioTestCase):
     async def test_compact_preserves_entire_recent_tool_turn(self):
