@@ -191,9 +191,16 @@ npm run build --prefix apps/web
 
 起因：普通工作区一条购物查询（3000 以内升降桌）两次搜索均被关键词劫持（"3000"命中阅读站/汇率页、"电动"命中汽车），模型又把两次 web_fetch 浪费在 Bing 结果页上，配额耗尽后只能基于训练知识回答。修复如下：
 
-- **引擎**：SearXNG 启用 360search 与 quark 并提高权重（weight 1.5），bing 降为 0.5（保留国际查询），wikipedia/duckduckgo 保留，baidu/sogou 实测本网络返回 0 暂不启用，google 维持禁用（无代理）。实测证据（2026-09-07 本机探测）：360search/quark 对原失败查询返回什么值得买/搜狐/ZOL 等相关结果；加权后相关结果占据头部。
+- **引擎**：SearXNG 收敛为实测可达引擎集。先启用 360search 与 quark 并提高权重（weight 1.5），bing 降为 0.5（保留国际查询）；原失败查询加权后相关结果占据头部（360search 返回什么值得买/搜狐/ZOL 等）。baidu/sogou/google/wikipedia/duckduckgo 登记原因后禁用（详见下方更正）。
 - **参数**：`web_search` 新增 `language`（默认 zh-CN）与 `time_range`（day/week/month/year，非法值 400）；`web_fetch` 对搜索引擎结果页返回说明性错误，不再把 JS 结果页抠成垃圾文本浪费配额。
 - **配额口径修正**：`web_search`/`web_fetch` 预算改为 `WEB_SEARCH_BUDGET`/`WEB_FETCH_BUDGET`（默认各 2），并修正提示词——实际计数是**每轮消息**重置（原文写"每次对话最多"，与实现不符）；提示词不再硬编码次数，并新增"禁止抓取搜索引擎结果页"与"购物类查询如实说明来源新旧、不把训练知识冒充实时检索"两条规则（生效模块与休眠 fallback 同步更新）。
 - **IN1 接入联网**：`compose.in1.yml` 新增 searxng 与 skill-websearch（127.0.0.1:19103），`run_in1.py` 启用 `ENABLE_WEBSEARCH` 并指向 19103；联网条件案例由此可测，IN1.H 工具面相应扩大。
 
 验证：61 项离线测试执行（60 通过 + 1 skip；含搜索页守卫正反例、预算 env 生效）；旧栈与 IN1 的 websearch 服务实测——原失败查询顶部为相关结果、英文查询仍走 bing、fetch 守卫拦截 Bing 结果页且正常文章抓取不受影响、非法 time_range 返回 400。京东/淘宝等电商实时数据仍不可得（反爬），提示词已要求模型如实说明。真实模型联网对话未新增（额度 30/30）。
+
+**更正与追加（2026-09-07，引擎集收敛）**：本节前版两处不准确，更正如下。
+
+1. baidu/sogou"返回 0"只是现象；真实原因查日志确认：baidu 对无 cookie 的机器流量弹验证码墙（`SearxEngineCaptchaException`，引擎被自动挂起 1 小时），sogou 是容器内 DNS 解析 `www.sogou.com` 失败（Errno -5）。都不是简单的"网络返回 0"。
+2. 更大的问题：原配置 `use_default_settings: true` 时自定义 `engines:` 只是按名覆盖，**内置引擎集仍然激活**——实测运行实例有 98 个引擎在跑，本网络不可达的（brave/startpage/wikipedia 等）每次搜索都产生 3~10 秒超时，拖慢并干扰结果。已改用字典形式 `use_default_settings.engines.keep_only` 收敛（直接写 `false` 会因缺失默认段无法通过启动校验，已实测确认并报错回退）。现加载 8 个引擎、生效 3 个（360search、quark、bing），其余按原因登记禁用（baidu 验证码、sogou DNS、duckduckgo/wikipedia 连接超时、google 需代理）。
+
+收敛后验证：两个环境的 searxng 均已重启，`/config` 确认仅 3 个引擎生效；原失败查询约 1.7 秒返回且顶部为相关结果（6 条中 5 条相关），英文查询（python release）正常走 bing。
