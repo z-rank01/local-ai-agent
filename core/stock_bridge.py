@@ -111,7 +111,12 @@ class StockBridge:
                 return {'error': f'reference 必须是本会话 stock_research_find 返回的 64 位任务引用；请先调用 stock_research_find 获取。'}
         if tool == 'stock_research_submit':
             symbol = params.get('symbol')
-            if not isinstance(symbol, str) or not _SYMBOL_RE.match(symbol):
+            reference = params.get('reference')
+            if symbol and reference:
+                return {'error': 'symbol 和 reference 只能二选一：新研究给 6 位代码，continue/redo 定向给本会话的 64 位任务引用。'}
+            if reference is not None and (not isinstance(reference, str) or not _REFERENCE_RE.match(reference)):
+                return {'error': 'reference 必须是本会话 stock_research_find 返回的 64 位任务引用；请先调用 stock_research_find 获取。'}
+            if not reference and (not isinstance(symbol, str) or not _SYMBOL_RE.match(symbol)):
                 return {'error': 'symbol 必填且必须是 6 位股票代码（如 600150）；research_mode 可选 reuse/continue/redo。'}
             mode = params.get('research_mode')
             if mode is not None and mode not in _RESEARCH_MODES:
@@ -121,6 +126,11 @@ class StockBridge:
             # Direct dispatch outside a BFF turn (tests, tooling).
             self.set_turn(session_id, None)
             state = self._turns[session_id]
+        if state.get('boundary'):
+            # A broker boundary is terminal for the turn; short-circuit locally
+            # instead of letting our sequence counter desync from the server.
+            return {'error': '本轮股票工具的步数或时间已达上限，已取得的结果保留，请基于已有结果回答。',
+                    'status': state['boundary']}
         try:
             if state['ticket'] is None:
                 await self._prepare(state, session_id)
@@ -134,6 +144,7 @@ class StockBridge:
         status = step.get('status')
         if status in ('STEP_LIMIT', 'TIME_LIMIT'):
             # Boundary responses carry no tool/code/context keys by contract.
+            state['boundary'] = status
             return {'error': '本轮股票工具的步数或时间已达上限，已取得的结果保留，请基于已有结果回答。', 'status': status}
         if status in ('INVALID_TOOL', 'RULE_BLOCKED'):
             code = step.get('code') or status

@@ -162,9 +162,33 @@ class ResearchChainActionTests(unittest.IsolatedAsyncioTestCase):
         calls = []
         bridge = self.bridge(make_broker(calls))
         bridge.set_turn('c', 'r', 'q')
-        await bridge.call_tool('stock_research_submit', {'symbol': '000001', 'research_mode': 'redo', 'reference': REF}, 'c')
+        await bridge.call_tool('stock_research_submit', {'research_mode': 'redo', 'reference': REF}, 'c')
         step = [c for c in calls if c['path'].endswith('/step')][0]
-        self.assertEqual(step['json']['tool_call'], {'action': 'submit', 'kind': 'research', 'research_mode': 'redo', 'reference': {'type': 'task', 'token': REF}, 'symbol': '000001'})
+        self.assertEqual(step['json']['tool_call'], {'action': 'submit', 'kind': 'research', 'research_mode': 'redo', 'reference': {'type': 'task', 'token': REF}})
+
+    async def test_submit_rejects_symbol_plus_reference(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', 'q')
+        result = await bridge.call_tool('stock_research_submit', {'symbol': '600150', 'reference': REF}, 'c')
+        self.assertIn('二选一', result['error'])
+        self.assertEqual(calls, [])
+
+    async def test_boundary_is_terminal_for_the_turn(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls, step_responses=[
+            ok_step({'kind': 'task_search', 'items': []}),
+            {'sequence': 2, 'continue': False, 'status': 'STEP_LIMIT', 'observation': {}},
+        ]))
+        bridge.set_turn('c', 'r', 'q')
+        await bridge.call_tool('stock_research_find', {}, 'c')
+        limited = await bridge.call_tool('stock_research_find', {}, 'c')
+        self.assertEqual(limited['status'], 'STEP_LIMIT')
+        # Boundary is terminal: further calls are answered locally without HTTP.
+        again = await bridge.call_tool('stock_account_view', {}, 'c')
+        self.assertEqual(again['status'], 'STEP_LIMIT')
+        steps = [c for c in calls if c['path'].endswith('/step')]
+        self.assertEqual(len(steps), 2)
 
     async def test_submit_validation_happens_before_http(self):
         calls = []
