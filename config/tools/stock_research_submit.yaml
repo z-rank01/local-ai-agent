@@ -1,0 +1,25 @@
+name: stock_research_submit
+backend: stock-bridge
+tier: extended
+short_description: "提交一个股票研究任务（排队异步执行）。"
+description: >
+  提交某只 A 股的研究任务，立即返回受理回执（QUEUED），研究由后台异步执行。
+  symbol 必填（6 位股票代码）。research_mode：reuse（默认，本会话已有该标的任务则复用，不新建）、
+  continue（复用已有研究，没有则报错不新建）、redo（强制新建一个版本）。
+  受理不等于完成：你必须明确告诉用户"研究已排队，稍后问进度即可"；不得说成已完成或已读过报告。
+  本会话的任务可用 stock_research_find 查询、stock_report_read 读取。
+  停止生成不会取消研究；取消研究只能用 stock_research_cancel。
+parameters:
+  type: object
+  properties:
+    symbol:
+      type: string
+      description: "6 位股票代码，如 600150"
+    research_mode:
+      type: string
+      description: "reuse（默认）/ continue / redo"
+    reference:
+      type: string
+      description: "可选；continue/redo 时定向的 64 位任务引用，来自本会话 stock_research_find"
+  required:
+    - symbol

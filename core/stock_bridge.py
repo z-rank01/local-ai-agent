@@ -41,11 +41,38 @@ def _report_action(params):
             'reference': {'type': 'task', 'token': params.get('reference', '')}}
 
 
+def _submit_action(params):
+    action = {'action': 'submit', 'kind': 'research'}
+    mode = params.get('research_mode')
+    if mode:
+        action['research_mode'] = mode
+    reference = params.get('reference')
+    if reference:
+        action['reference'] = {'type': 'task', 'token': reference}
+    symbol = params.get('symbol')
+    if symbol is not None:
+        action['symbol'] = symbol
+    return action
+
+
+def _reference_action(action_name):
+    def build(params):
+        return {'action': action_name, 'reference': {'type': 'task', 'token': params.get('reference', '')}}
+    return build
+
+
 _TOOL_ACTIONS = {
     'stock_account_view': _account_action,
     'stock_research_find': _find_action,
     'stock_report_read': _report_action,
+    'stock_research_submit': _submit_action,
+    'stock_research_cancel': _reference_action('cancel_research'),
+    'stock_research_resume': _reference_action('resume_research'),
 }
+
+_SYMBOL_RE = re.compile(r'^\d{6}$')
+_RESEARCH_MODES = {'reuse', 'continue', 'redo'}
+_REFERENCE_TOOLS = {'stock_report_read', 'stock_research_cancel', 'stock_research_resume'}
 
 
 class StockBridge:
@@ -78,10 +105,17 @@ class StockBridge:
         """Map one frozen stock tool call to one broker step. Never raises."""
         if tool not in _TOOL_ACTIONS:
             return {'error': f'未知的股票工具: {tool}'}
-        if tool == 'stock_report_read':
+        if tool in _REFERENCE_TOOLS:
             reference = params.get('reference', '')
             if not isinstance(reference, str) or not _REFERENCE_RE.match(reference):
-                return {'error': 'reference 必须是本会话 stock_research_find 返回的 64 位任务引用；请先调用 stock_research_find 获取。'}
+                return {'error': f'reference 必须是本会话 stock_research_find 返回的 64 位任务引用；请先调用 stock_research_find 获取。'}
+        if tool == 'stock_research_submit':
+            symbol = params.get('symbol')
+            if not isinstance(symbol, str) or not _SYMBOL_RE.match(symbol):
+                return {'error': 'symbol 必填且必须是 6 位股票代码（如 600150）；research_mode 可选 reuse/continue/redo。'}
+            mode = params.get('research_mode')
+            if mode is not None and mode not in _RESEARCH_MODES:
+                return {'error': 'research_mode 只能是 reuse（默认，已有则复用）/ continue（无旧任务不新建）/ redo（强制新建）。'}
         state = self._turns.get(session_id)
         if state is None or state['finished']:
             # Direct dispatch outside a BFF turn (tests, tooling).
@@ -106,10 +140,16 @@ class StockBridge:
             return {'error': f'股票工具未执行（{code}）；请修正参数或换个思路，不要重试相同参数。',
                     'status': status, 'code': code}
         observation = step.get('observation') or {}
-        if not observation and step.get('code'):
-            # Direct/local routes carry no model-visible projection; tell the model
-            # the outcome code so it never has to guess from an empty object.
-            observation = {'code': step['code'], 'note': '该结果没有模型可见字段；完整内容已作为本地附件直接展示给用户。'}
+        if not observation:
+            capsule = step.get('tool') or {}
+            if capsule:
+                # The broker's safe tool capsule is the acceptance receipt for
+                # submit/cancel/resume (action/status/operation/symbol).
+                observation = dict(capsule)
+            elif step.get('code'):
+                # Direct/local routes carry no model-visible projection; tell the model
+                # the outcome code so it never has to guess from an empty object.
+                observation = {'code': step['code'], 'note': '该结果没有模型可见字段；完整内容已作为本地附件直接展示给用户。'}
         return {
             'model_observation': observation,
             'status': status,

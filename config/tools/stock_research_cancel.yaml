@@ -1,0 +1,17 @@
+name: stock_research_cancel
+backend: stock-bridge
+tier: extended
+short_description: "请求停止本会话一个研究任务（异步生效）。"
+description: >
+  请求停止本会话一个研究任务（按 stock_research_find 返回的 64 位任务引用）。
+  这是"请求停止"而非"立即终止"：运行中的任务会打上停止标记，当前已发出的模型调用照常返回，
+  在阶段边界停止，已完成的阶段与检查点保留，最终状态为 CANCELLED。
+  必须如实向用户说明这是异步停止；用户界面上的"停止生成"按钮只停聊天回答，不取消研究。
+parameters:
+  type: object
+  properties:
+    reference:
+      type: string
+      description: "本会话 stock_research_find 返回的 64 位任务引用"
+  required:
+    - reference

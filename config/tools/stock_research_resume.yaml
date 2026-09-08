@@ -1,0 +1,18 @@
+name: stock_research_resume
+backend: stock-bridge
+tier: extended
+short_description: "恢复一个中断的研究任务（条件严格）。"
+description: >
+  恢复本会话一个已中断的研究任务（按 stock_research_find 返回的 64 位任务引用）。
+  条件严格：仅接受中断/采集中的任务，且策略版本、标的与材料、数据快照必须一致，
+  距原任务不超过 7 天，既有模型调用无失败记录；失败或结果不明的付费调用不会重发。
+  缺少材料（NEEDS_MATERIALS）的研究不能恢复，只能 redo 重新研究。
+  被拒绝时把拒绝码如实告诉用户，不要重试相同参数。
+parameters:
+  type: object
+  properties:
+    reference:
+      type: string
+      description: "本会话 stock_research_find 返回的 64 位任务引用"
+  required:
+    - reference

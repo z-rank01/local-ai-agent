@@ -139,6 +139,62 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await bridge.finish_turn('c'), [])
 
 
+class ResearchChainActionTests(unittest.IsolatedAsyncioTestCase):
+    def bridge(self, handler):
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        self.addAsyncCleanup(client.aclose)
+        return StockBridge('http://paper.test', 'secret-token', client=client)
+
+    async def test_submit_mapping_and_capsule_receipt(self):
+        calls = []
+        capsule = {'action': 'submit', 'kind': 'research', 'status': 'QUEUED', 'operation': 'CREATED', 'symbol': '600150'}
+        bridge = self.bridge(make_broker(calls, step_responses=[
+            {'sequence': 1, 'continue': True, 'status': 'TOOL_RETURNED', 'observation': {}, 'tool': capsule, 'code': 'TASK_SUBMITTED', 'local_result_available': True},
+        ]))
+        bridge.set_turn('c', 'r', '研究 600150')
+        result = await bridge.call_tool('stock_research_submit', {'symbol': '600150'}, 'c')
+        self.assertEqual(result['model_observation']['status'], 'QUEUED')
+        self.assertEqual(result['model_observation']['operation'], 'CREATED')
+        step = [c for c in calls if c['path'].endswith('/step')][0]
+        self.assertEqual(step['json']['tool_call'], {'action': 'submit', 'kind': 'research', 'symbol': '600150'})
+
+    async def test_submit_redo_with_reference(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', 'q')
+        await bridge.call_tool('stock_research_submit', {'symbol': '000001', 'research_mode': 'redo', 'reference': REF}, 'c')
+        step = [c for c in calls if c['path'].endswith('/step')][0]
+        self.assertEqual(step['json']['tool_call'], {'action': 'submit', 'kind': 'research', 'research_mode': 'redo', 'reference': {'type': 'task', 'token': REF}, 'symbol': '000001'})
+
+    async def test_submit_validation_happens_before_http(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', 'q')
+        self.assertIn('6 位', (await bridge.call_tool('stock_research_submit', {'symbol': 'ABC'}, 'c'))['error'])
+        self.assertIn('research_mode', (await bridge.call_tool('stock_research_submit', {'symbol': '600150', 'research_mode': 'again'}, 'c'))['error'])
+        self.assertEqual(calls, [])
+
+    async def test_cancel_and_resume_mapping(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', 'q')
+        await bridge.call_tool('stock_research_cancel', {'reference': REF}, 'c')
+        await bridge.call_tool('stock_research_resume', {'reference': REF}, 'c')
+        steps = [c['json']['tool_call'] for c in calls if c['path'].endswith('/step')]
+        self.assertEqual(steps, [
+            {'action': 'cancel_research', 'reference': {'type': 'task', 'token': REF}},
+            {'action': 'resume_research', 'reference': {'type': 'task', 'token': REF}},
+        ])
+
+    async def test_cancel_resume_reference_validated(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', 'q')
+        result = await bridge.call_tool('stock_research_cancel', {'reference': 'bad'}, 'c')
+        self.assertIn('stock_research_find', result['error'])
+        self.assertEqual(calls, [])
+
+
 class RegistryGatingTests(unittest.TestCase):
     def test_stock_tools_gated_on_configuration(self):
         without = ToolRegistry(config.TOOLS_DIR)
