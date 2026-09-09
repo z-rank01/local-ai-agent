@@ -225,7 +225,7 @@ npm run build --prefix apps/web
 | 离线测试 | `.\.conda\python.exe -m unittest discover -s tests -v` → **Ran 86, OK (skipped=1)**；5 项容器门控的后台安装测试在宿主机计为 1 个 skip |
 | Web 构建 | `npm run build --prefix apps/web` → 通过（3.5s，仍有 >500 kB 大包提示，不影响构建） |
 | 容器集成检查 | 未重跑：Docker Desktop 未运行 |
-| 真实模型对话 | 未新增：账本 `data/in1-model-calls.sqlite` 为 **70/120**，最后一次 2026-09-08 07:27 UTC |
+| 真实模型对话 | 文档复核时未新增：账本 `data/in1-model-calls.sqlite` 为 **70/120**，最后一次 2026-09-08 07:27 UTC（同日后续的 IN3 模型在环复验另消耗 23 次，见 §16） |
 | 运行状态 | BFF、Web、容器全部停止（无 5173、9510 监听） |
 
 **配置复核（与实现一致）**：`TOOL_TIER` 默认 `all`（`core/config.py`、`.env.example`）；`AGENT_MAX_ROUNDS` 默认 12；`MODEL_CALL_LIMIT=120`（`scripts/run_in1.py`）；`.env` 中 `WEB_SEARCH_BUDGET=6` / `WEB_FETCH_BUDGET=8`；端口 5173 / 9510 / 19101 / 19102 / 19103；股票工具 6 个（IN2 三个只读 + IN3 三个任务链），未配置 `STOCK_BRIDGE_URL` 时全部不注册。
@@ -245,4 +245,20 @@ npm run build --prefix apps/web
 | §12 | 搜索框按"模型数超过 6 个" | 按全量模型数计数；整组缺密钥才在分组头部标注 |
 | §13 | 三态选项与顶栏标签文案 | 更正为 供应商默认 / 开启 / 关闭 |
 
-**未解决事项**：见[股票能力接入与开发顺序](./股票能力接入.md)第 6.3 节。“`stock_research_submit` 的 reference 语义三方不一致”已于 2026-09-09 解决（聊天侧 `28789dd`、股票侧 `ae91b53`：submit 改为 `symbol`/`name` 二选一，名称由股票侧可信名称表解析）；仍待处理的只有“边界修复 `f0b8a64` 之后的真实模型在环回归”，需在 IN3.H 中补做。
+**未解决事项**：见[股票能力接入与开发顺序](./股票能力接入.md)第 6.3 节。`stock_research_submit` 的 reference 语义不一致已于 2026-09-09 解决（聊天侧 `28789dd`、股票侧 `ae91b53`：submit 改为 `symbol`/`name` 二选一，名称由股票侧可信名称表解析），“边界修复后的模型在环回归”也已于同日复验通过（见 §16）；IN3.H 的工程前置全部完成，剩余为用户人工验收。
+
+
+## 16. IN3 模型在环复验（2026-09-09）
+
+目的：在真实 Qwen 模型驱动下复验 `f0b8a64` 边界修复，并验收名称标识（代码/名称二选一）。环境：隔离股票后台 `data/bridge-check-in22`（worker 关闭，不执行付费研究）、BFF 9510、模型 `qwen:qwen3.5-flash`、会话 `911b922351d142d8`。脚本：`scripts/check_in3_model_loop.py`（`--yes` 才消耗真实调用，报告写入 `data/in3-model-loop.json`）。
+
+| 回合 | 检查 | 结果 |
+| --- | --- | --- |
+| 按名称复用 | 「中国船舶」→ `600150`，复用已有任务 | ✅ `REUSED`，返回任务/裁决/数据质量投影 |
+| 按名称新建 | 「中国石油」→ `601857`，受理回执与措辞 | ✅ `QUEUED/CREATED`；回答明确“已排队、稍后问进度”，未冒充完成 |
+| 跨轮查询 | `stock_research_find` 列出本会话任务 | ✅ 列出 3 个任务 |
+| 报告读取 | `stock_report_read` 完整本地报告 | ✅ 本地附件含 `SYNTHETIC_DEMO_NOT_FOR_CLOUD`，模型回答不含该标记 |
+| 定向停止/恢复 | cancel 成功、resume 按设计拒绝 | ✅ 模型如实说明两者结果 |
+| 步数边界回归 | 一轮 8 次股票调用触发终态 `STEP_LIMIT` | ✅ 第 7、8 次返回终态边界；该轮正常结束并交付最终回答；无 409 序号失步 |
+
+账本 70 → 93（本轮消耗 23 次，其中 2 次因探针脚本编码缺陷重跑一个回合，与产品行为无关）。本轮未启动 worker，未执行付费研究、未变更日常账本。IN3.H 的人工验收仍由用户按自由问法完成。
