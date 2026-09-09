@@ -222,7 +222,7 @@ npm run build --prefix apps/web
 
 | 项目 | 结果 |
 | --- | --- |
-| 离线测试 | `.\.conda\python.exe -m unittest discover -s tests -v` → **Ran 84, OK (skipped=1)**；5 项容器门控的后台安装测试在宿主机计为 1 个 skip |
+| 离线测试 | `.\.conda\python.exe -m unittest discover -s tests -v` → **Ran 86, OK (skipped=1)**；5 项容器门控的后台安装测试在宿主机计为 1 个 skip |
 | Web 构建 | `npm run build --prefix apps/web` → 通过（3.5s，仍有 >500 kB 大包提示，不影响构建） |
 | 容器集成检查 | 未重跑：Docker Desktop 未运行 |
 | 真实模型对话 | 未新增：账本 `data/in1-model-calls.sqlite` 为 **70/120**，最后一次 2026-09-08 07:27 UTC |
@@ -245,4 +245,4 @@ npm run build --prefix apps/web
 | §12 | 搜索框按"模型数超过 6 个" | 按全量模型数计数；整组缺密钥才在分组头部标注 |
 | §13 | 三态选项与顶栏标签文案 | 更正为 供应商默认 / 开启 / 关闭 |
 
-**未解决事项**：见[股票能力接入与开发顺序](./股票能力接入.md)第 6.3 节，其中 `stock_research_submit` 的 reference 语义三方不一致（契约 / 股票侧实现 / 本侧桥接）与“边界修复后未再做模型在环回归”两项需在 IN3.H 前处理。
+**未解决事项**：见[股票能力接入与开发顺序](./股票能力接入.md)第 6.3 节。“`stock_research_submit` 的 reference 语义三方不一致”已于 2026-09-09 解决（聊天侧 `28789dd`、股票侧 `ae91b53`：submit 改为 `symbol`/`name` 二选一，名称由股票侧可信名称表解析）；仍待处理的只有“边界修复 `f0b8a64` 之后的真实模型在环回归”，需在 IN3.H 中补做。
