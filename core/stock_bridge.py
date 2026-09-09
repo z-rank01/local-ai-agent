@@ -46,9 +46,11 @@ def _submit_action(params):
     mode = params.get('research_mode')
     if mode:
         action['research_mode'] = mode
-    reference = params.get('reference')
-    if reference:
-        action['reference'] = {'type': 'task', 'token': reference}
+    name = params.get('name')
+    if isinstance(name, str) and name.strip():
+        # The broker resolves the name to a code through its trusted name table;
+        # the model only supplies the entity the user actually said.
+        action['reference'] = {'type': 'candidate_name', 'name': name.strip()}
     symbol = params.get('symbol')
     if symbol is not None:
         action['symbol'] = symbol
@@ -111,13 +113,15 @@ class StockBridge:
                 return {'error': f'reference 必须是本会话 stock_research_find 返回的 64 位任务引用；请先调用 stock_research_find 获取。'}
         if tool == 'stock_research_submit':
             symbol = params.get('symbol')
-            reference = params.get('reference')
-            if symbol and reference:
-                return {'error': 'symbol 和 reference 只能二选一：新研究给 6 位代码，continue/redo 定向给本会话的 64 位任务引用。'}
-            if reference is not None and (not isinstance(reference, str) or not _REFERENCE_RE.match(reference)):
-                return {'error': 'reference 必须是本会话 stock_research_find 返回的 64 位任务引用；请先调用 stock_research_find 获取。'}
-            if not reference and (not isinstance(symbol, str) or not _SYMBOL_RE.match(symbol)):
-                return {'error': 'symbol 必填且必须是 6 位股票代码（如 600150）；research_mode 可选 reuse/continue/redo。'}
+            name = params.get('name')
+            if symbol and name:
+                return {'error': 'symbol 和 name 只能二选一：给 6 位股票代码或用户说出的股票名称。'}
+            if not symbol and not name:
+                return {'error': '必须提供 symbol（6 位股票代码）或 name（股票名称）之一；用户只说名称时用 name 原样传入。'}
+            if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > 40):
+                return {'error': 'name 必须是不超过 40 字的股票名称。'}
+            if symbol is not None and (not isinstance(symbol, str) or not _SYMBOL_RE.match(symbol)):
+                return {'error': 'symbol 必须是 6 位股票代码（如 600150）；不知道代码时请改用 name 传股票名称。'}
             mode = params.get('research_mode')
             if mode is not None and mode not in _RESEARCH_MODES:
                 return {'error': 'research_mode 只能是 reuse（默认，已有则复用）/ continue（无旧任务不新建）/ redo（强制新建）。'}

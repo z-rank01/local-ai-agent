@@ -158,20 +158,43 @@ class ResearchChainActionTests(unittest.IsolatedAsyncioTestCase):
         step = [c for c in calls if c['path'].endswith('/step')][0]
         self.assertEqual(step['json']['tool_call'], {'action': 'submit', 'kind': 'research', 'symbol': '600150'})
 
-    async def test_submit_redo_with_reference(self):
+    async def test_submit_by_stock_name_maps_to_name_reference(self):
         calls = []
-        bridge = self.bridge(make_broker(calls))
-        bridge.set_turn('c', 'r', 'q')
-        await bridge.call_tool('stock_research_submit', {'research_mode': 'redo', 'reference': REF}, 'c')
+        capsule = {'action': 'submit', 'kind': 'research', 'status': 'QUEUED', 'operation': 'CREATED', 'symbol': '600150'}
+        bridge = self.bridge(make_broker(calls, step_responses=[
+            {'sequence': 1, 'continue': True, 'status': 'TOOL_RETURNED', 'observation': {}, 'tool': capsule, 'code': 'TASK_SUBMITTED', 'local_result_available': True},
+        ]))
+        bridge.set_turn('c', 'r', '研究一下中国船舶')
+        result = await bridge.call_tool('stock_research_submit', {'name': ' 中国船舶 '}, 'c')
+        self.assertEqual(result['model_observation']['symbol'], '600150')
         step = [c for c in calls if c['path'].endswith('/step')][0]
-        self.assertEqual(step['json']['tool_call'], {'action': 'submit', 'kind': 'research', 'research_mode': 'redo', 'reference': {'type': 'task', 'token': REF}})
+        self.assertEqual(step['json']['tool_call'], {'action': 'submit', 'kind': 'research',
+                         'reference': {'type': 'candidate_name', 'name': '中国船舶'}})
 
-    async def test_submit_rejects_symbol_plus_reference(self):
+    async def test_submit_name_with_research_mode(self):
         calls = []
         bridge = self.bridge(make_broker(calls))
         bridge.set_turn('c', 'r', 'q')
-        result = await bridge.call_tool('stock_research_submit', {'symbol': '600150', 'reference': REF}, 'c')
+        await bridge.call_tool('stock_research_submit', {'name': '贵州茅台', 'research_mode': 'redo'}, 'c')
+        step = [c for c in calls if c['path'].endswith('/step')][0]
+        self.assertEqual(step['json']['tool_call'], {'action': 'submit', 'kind': 'research', 'research_mode': 'redo',
+                         'reference': {'type': 'candidate_name', 'name': '贵州茅台'}})
+
+    async def test_submit_rejects_symbol_plus_name(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', 'q')
+        result = await bridge.call_tool('stock_research_submit', {'symbol': '600150', 'name': '中国船舶'}, 'c')
         self.assertIn('二选一', result['error'])
+        self.assertEqual(calls, [])
+
+    async def test_submit_requires_symbol_or_name(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', 'q')
+        result = await bridge.call_tool('stock_research_submit', {'research_mode': 'reuse'}, 'c')
+        self.assertIn('symbol', result['error'])
+        self.assertIn('name', result['error'])
         self.assertEqual(calls, [])
 
     async def test_boundary_is_terminal_for_the_turn(self):
