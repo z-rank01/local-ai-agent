@@ -114,6 +114,34 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         result = await bridge.call_tool('stock_account_view', {}, 'c')
         self.assertIn('认证失败', result['error'])
 
+    async def test_rule_rejection_states_the_reason_to_the_model(self):
+        """IN4.18: a classified refusal reaches the model with its reason."""
+        calls = []
+        bridge = self.bridge(make_broker(calls, step_responses=[
+            {'sequence': 1, 'continue': True, 'status': 'RULE_BLOCKED', 'observation': {},
+             'code': 'RULE_BLOCKED', 'reason_code': 'UNSUPPORTED_BOARD',
+             'guidance': '该股票所属板块暂不支持（首版仅支持沪深主板）。'},
+        ]))
+        bridge.set_turn('c', 'r', 'q')
+        result = await bridge.call_tool('stock_account_view', {}, 'c')
+        self.assertIn('该股票所属板块暂不支持', result['error'])
+        self.assertIn('不要重试相同参数', result['error'])
+        self.assertEqual(result['reason_code'], 'UNSUPPORTED_BOARD')
+        # The old generic wording must be gone; it told the model to fix parameters.
+        self.assertNotIn('请修正参数', result['error'])
+
+    async def test_unclassified_block_says_the_reason_is_unavailable(self):
+        """Without a classification the model must not be told to retry."""
+        calls = []
+        bridge = self.bridge(make_broker(calls, step_responses=[
+            {'sequence': 1, 'continue': True, 'status': 'RULE_BLOCKED', 'observation': {},
+             'code': 'RULE_BLOCKED'},
+        ]))
+        bridge.set_turn('c', 'r', 'q')
+        result = await bridge.call_tool('stock_account_view', {}, 'c')
+        self.assertIn('未提供可转述的原因', result['error'])
+        self.assertEqual(result['reason_code'], '')
+
     async def test_unreachable_backend_is_clear_error(self):
         def handler(request):
             raise httpx.ConnectError('refused')

@@ -146,14 +146,26 @@ class StockBridge:
         except _BridgeError as exc:
             return {'error': str(exc)}
         status = step.get('status')
+        # The broker classifies refusals the user can act on and sends a
+        # pre-vetted sentence with them; when present it is the whole reason, so
+        # prefer it over the generic guidance below.
+        guidance = str(step.get('guidance') or '')
+        reason_code = str(step.get('reason_code') or '')
         if status in ('STEP_LIMIT', 'TIME_LIMIT'):
             # Boundary responses carry no tool/code/context keys by contract.
             state['boundary'] = status
             return {'error': '本轮股票工具的步数或时间已达上限，已取得的结果保留，请基于已有结果回答。', 'status': status}
-        if status in ('INVALID_TOOL', 'RULE_BLOCKED'):
-            code = step.get('code') or status
-            return {'error': f'股票工具未执行（{code}）；请修正参数或换个思路，不要重试相同参数。',
-                    'status': status, 'code': code}
+        if status in ('INVALID_TOOL', 'RULE_BLOCKED') or guidance:
+            code = reason_code or step.get('code') or status
+            if guidance:
+                # State the reason and tell the model not to invent a workaround.
+                message = f'股票工具未执行：{guidance}请如实说明原因，不要重试相同参数。'
+            elif status == 'INVALID_TOOL':
+                message = '股票工具未执行：参数未通过校验。请修正参数后重试，不要重试相同参数。'
+            else:
+                message = f'股票工具未执行（{code}），本机未提供可转述的原因；请如实说明未能执行，不要重试相同参数。'
+            return {'error': message, 'status': status, 'code': code,
+                    'reason_code': reason_code}
         observation = step.get('observation') or {}
         if not observation:
             capsule = step.get('tool') or {}
