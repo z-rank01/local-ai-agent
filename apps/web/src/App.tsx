@@ -9,7 +9,7 @@ import {
   fetchModels,
   fetchProviders,
   fetchStatus,
-  shutdownBackend,
+  sendHeartbeat,
   shutdownStack,
   streamChat,
   streamEditMessage,
@@ -21,6 +21,7 @@ import {PackageTasks} from './components/PackageTasks';
 import {ModelSettingsDialog} from './components/ModelSettingsDialog';
 import {WorkspacePanel} from './components/WorkspacePanel';
 import {StockServicePanel} from './components/StockServicePanel';
+import {SkillsPanel} from './components/SkillsPanel';
 import type {
   AppStatus,
   ConversationSummary,
@@ -30,19 +31,16 @@ import type {
   TranscriptBlock,
   UIStreamEvent,
 } from './types';
-
 const DELTA_FLUSH_MS = 48;
 const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 480;
 const INSPECTOR_MIN = 280;
 const INSPECTOR_MAX = 620;
-
 type AssistantTranscriptGroup = {
   id: string;
   kind: 'assistant-group';
   blocks: TranscriptBlock[];
 };
-
 type AssistantTimelineEntry = {
   id: string;
   stepNumber: number;
@@ -55,18 +53,13 @@ type AssistantTimelineEntry = {
   collapsed: boolean;
   badges: string[];
 };
-
 type TranscriptViewItem = TranscriptBlock | AssistantTranscriptGroup;
-
 type EditingState = {
   messageId: string;
   originalText: string;
 };
-
 type ExportFormat = 'markdown' | 'json' | 'txt';
-
 type DensityMode = 'comfortable' | 'compact' | 'spacious';
-
 type AppearanceSettings = {
   uiFont: string;
   codeFont: string;
@@ -76,13 +69,10 @@ type AppearanceSettings = {
   lineHeight: number;
   density: DensityMode;
 };
-
 const APPEARANCE_STORAGE_KEY = 'local-ai-agent.appearance.v1';
 const ACTIVE_CONVERSATION_STORAGE_KEY = 'local-ai-agent.activeConversation.v1';
-
 const DEFAULT_UI_FONT = 'Inter, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
 const DEFAULT_CODE_FONT = '"Cascadia Code", "JetBrains Mono", "Sarasa Mono SC", "SFMono-Regular", Consolas, "Liberation Mono", monospace';
-
 const DEFAULT_APPEARANCE: AppearanceSettings = {
   uiFont: DEFAULT_UI_FONT,
   codeFont: DEFAULT_CODE_FONT,
@@ -92,27 +82,23 @@ const DEFAULT_APPEARANCE: AppearanceSettings = {
   lineHeight: 1.75,
   density: 'comfortable',
 };
-
 const UI_FONT_PRESETS = [
   {label: '系统默认', value: DEFAULT_UI_FONT},
   {label: 'Segoe UI / 微软雅黑', value: '"Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif'},
   {label: 'PingFang / Noto Sans', value: '"PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif'},
   {label: 'Inter', value: 'Inter, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif'},
 ];
-
 const CODE_FONT_PRESETS = [
   {label: '系统默认', value: DEFAULT_CODE_FONT},
   {label: 'Cascadia Code', value: '"Cascadia Code", "Sarasa Mono SC", Consolas, monospace'},
   {label: 'JetBrains Mono', value: '"JetBrains Mono", "Sarasa Mono SC", Consolas, monospace'},
   {label: 'Consolas', value: 'Consolas, "Courier New", monospace'},
 ];
-
 const DENSITY_OPTIONS: Array<{label: string; value: DensityMode; scale: number}> = [
   {label: '紧凑', value: 'compact', scale: 0.86},
   {label: '标准', value: 'comfortable', scale: 1},
   {label: '宽松', value: 'spacious', scale: 1.14},
 ];
-
 type ConversationSearchResult = {
   conversation_id: string;
   title: string;
@@ -122,20 +108,17 @@ type ConversationSearchResult = {
   matched_role?: string | null;
   snippet: string;
 };
-
 type ConversationSearchPayload = {
   query?: string;
   count?: number;
   results?: ConversationSearchResult[];
 };
-
 type ConversationReadMessage = {
   id: string;
   role: string;
   created_at?: string;
   content?: string;
 };
-
 type ConversationReadPayload = {
   conversation?: {
     id: string;
@@ -146,11 +129,9 @@ type ConversationReadPayload = {
   message_count?: number;
   messages?: ConversationReadMessage[];
 };
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
-
 function normalizeAppearanceSettings(value: Partial<AppearanceSettings> | null | undefined): AppearanceSettings {
   return {
     uiFont: typeof value?.uiFont === 'string' && value.uiFont.trim() ? value.uiFont.trim() : DEFAULT_APPEARANCE.uiFont,
@@ -162,7 +143,6 @@ function normalizeAppearanceSettings(value: Partial<AppearanceSettings> | null |
     density: value?.density === 'compact' || value?.density === 'spacious' ? value.density : DEFAULT_APPEARANCE.density,
   };
 }
-
 function loadAppearanceSettings(): AppearanceSettings {
   try {
     const raw = window.localStorage.getItem(APPEARANCE_STORAGE_KEY);
@@ -171,11 +151,9 @@ function loadAppearanceSettings(): AppearanceSettings {
     return DEFAULT_APPEARANCE;
   }
 }
-
 function densityScale(density: DensityMode): number {
   return DENSITY_OPTIONS.find((item) => item.value === density)?.scale ?? 1;
 }
-
 function formatTime(value?: string): string {
   if (!value) {
     return '';
@@ -186,7 +164,6 @@ function formatTime(value?: string): string {
   }
   return date.toLocaleString('zh-CN', {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'});
 }
-
 function formatBackendError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (/failed to fetch|networkerror|load failed/i.test(raw)) {
@@ -194,19 +171,16 @@ function formatBackendError(err: unknown): string {
   }
   return raw;
 }
-
 function eventText(event: UIStreamEvent, key: string): string {
   const value = event.data[key];
   return typeof value === 'string' ? value : '';
 }
-
 function formatToolElapsed(value?: number): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return '';
   }
   return `${value.toFixed(value >= 10 ? 0 : 1)}s`;
 }
-
 function formatToolParamValue(value: unknown): string {
   if (typeof value === 'string') {
     return value;
@@ -223,16 +197,13 @@ function formatToolParamValue(value: unknown): string {
     return String(value);
   }
 }
-
 function looksStructuredToolOutput(text: string): boolean {
   const trimmed = text.trim();
   return trimmed.startsWith('{') || trimmed.startsWith('[');
 }
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-
 function splitStoredToolContent(text: string): {headline: string; detail: string} {
   const normalized = text.replace(/^\[(ok|error)\]\s*/i, '').trim();
   const newlineIndex = normalized.indexOf('\n');
@@ -243,7 +214,6 @@ function splitStoredToolContent(text: string): {headline: string; detail: string
   const detail = normalized.slice(newlineIndex + 1).trim();
   return {headline, detail: detail || headline};
 }
-
 function parseToolJson<T>(text: string): T | null {
   const detail = splitStoredToolContent(text).detail;
   if (!looksStructuredToolOutput(detail)) {
@@ -255,14 +225,12 @@ function parseToolJson<T>(text: string): T | null {
     return null;
   }
 }
-
 function structuredToolPayload<T>(block: TranscriptBlock): T | null {
   if (block.toolResult !== undefined && block.toolResult !== null) {
     return block.toolResult as T;
   }
   return parseToolJson<T>(block.text);
 }
-
 function roleLabel(role?: string | null): string {
   if (role === 'user') {
     return '用户命中';
@@ -275,7 +243,6 @@ function roleLabel(role?: string | null): string {
   }
   return '内容命中';
 }
-
 function highlightText(text: string, query: string): ReactNode {
   const needle = query.trim();
   if (!needle) {
@@ -298,7 +265,6 @@ function highlightText(text: string, query: string): ReactNode {
   }
   return parts.length ? parts : text;
 }
-
 function ToolDetailSection({title, children}: {title: string; children: ReactNode}) {
   return (
     <section className="tool-section">
@@ -307,7 +273,6 @@ function ToolDetailSection({title, children}: {title: string; children: ReactNod
     </section>
   );
 }
-
 function StockObservation({observation, tool}: {observation: Record<string, unknown>; tool: string}) {
   if (tool === 'stock_account_view') {
     const account = observation.account as Record<string, unknown> | undefined;
@@ -343,7 +308,6 @@ function StockObservation({observation, tool}: {observation: Record<string, unkn
     </div>
   );
 }
-
 function ToolDetail({
   block,
   loadingLabel,
@@ -368,7 +332,6 @@ function ToolDetail({
     : typeof searchPayload?.query === 'string'
       ? searchPayload.query
       : '';
-
   const renderToolResult = () => {
     if (searchPayload?.results) {
       return (
@@ -398,7 +361,6 @@ function ToolDetail({
         </div>
       );
     }
-
     if (readPayload?.conversation) {
       return (
         <div className="history-read-view">
@@ -436,14 +398,12 @@ function ToolDetail({
         </div>
       );
     }
-
     return hasOutput || structuredResultText ? (
       <pre className={block.toolResult != null || looksStructuredToolOutput(block.text) ? 'tool-output structured' : 'tool-output'}>{structuredResultText || block.text}</pre>
     ) : (
       <LoadingDots label={loadingLabel} />
     );
   };
-
   return (
     <div className="tool-detail">
       {block.summary ? (
@@ -475,7 +435,6 @@ function ToolDetail({
     </div>
   );
 }
-
 function readConversationSummary(event: UIStreamEvent): ConversationSummary | null {
   const value = event.data.conversation;
   if (!value || typeof value !== 'object') {
@@ -492,7 +451,6 @@ function readConversationSummary(event: UIStreamEvent): ConversationSummary | nu
       }
     : null;
 }
-
 function upsertConversation(
   conversations: ConversationSummary[],
   next: ConversationSummary,
@@ -503,7 +461,6 @@ function upsertConversation(
     : [next, ...conversations];
   return [...merged].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
-
 function appendOrUpdate(
   blocks: TranscriptBlock[],
   id: string,
@@ -520,7 +477,6 @@ function appendOrUpdate(
   });
   return found ? updated : [...updated, updater(fallback)];
 }
-
 function insertBeforeBlock(
   blocks: TranscriptBlock[],
   beforeId: string | null,
@@ -535,15 +491,12 @@ function insertBeforeBlock(
   }
   return [...blocks.slice(0, index), block, ...blocks.slice(index)];
 }
-
 function isAssistantSideBlock(block: TranscriptBlock): boolean {
   return block.kind === 'assistant' || block.kind === 'reasoning' || block.kind === 'tool';
 }
-
 function buildTranscriptViewItems(blocks: TranscriptBlock[]): TranscriptViewItem[] {
   const items: TranscriptViewItem[] = [];
   let group: AssistantTranscriptGroup | null = null;
-
   for (const block of blocks) {
     if (isAssistantSideBlock(block)) {
       if (!group) {
@@ -553,14 +506,11 @@ function buildTranscriptViewItems(blocks: TranscriptBlock[]): TranscriptViewItem
       group.blocks.push(block);
       continue;
     }
-
     group = null;
     items.push(block);
   }
-
   return items;
 }
-
 function assistantGroupStatus(blocks: TranscriptBlock[]): TranscriptBlock['status'] | undefined {
   if (blocks.some((block) => block.status === 'running' || block.placeholder)) {
     return 'running';
@@ -570,7 +520,6 @@ function assistantGroupStatus(blocks: TranscriptBlock[]): TranscriptBlock['statu
   }
   return undefined;
 }
-
 function buildAssistantTimeline(
   blocks: TranscriptBlock[],
   groupStatus: TranscriptBlock['status'] | undefined,
@@ -578,10 +527,8 @@ function buildAssistantTimeline(
   versionCount: number,
 ): AssistantTimelineEntry[] {
   const toolAttempts = new Map<string, number>();
-
   return blocks.filter(block => block.kind !== 'assistant' || block.text || block.status === 'running').map((block, index) => {
     const stepNumber = index + 1;
-
     if (block.kind === 'assistant') {
       const badges = versionCount > 1 ? [`版本 ${versionNumber}/${versionCount}`] : [];
       if ((block.status ?? groupStatus) === 'error') {
@@ -599,7 +546,6 @@ function buildAssistantTimeline(
         badges,
       } satisfies AssistantTimelineEntry;
     }
-
     if (block.kind === 'reasoning') {
       const badges: string[] = [];
       if ((block.status ?? groupStatus) === 'error') {
@@ -617,7 +563,6 @@ function buildAssistantTimeline(
         badges,
       } satisfies AssistantTimelineEntry;
     }
-
     const toolKey = block.label || 'tool';
     const attempt = (toolAttempts.get(toolKey) ?? 0) + 1;
     toolAttempts.set(toolKey, attempt);
@@ -642,7 +587,6 @@ function buildAssistantTimeline(
     } satisfies AssistantTimelineEntry;
   });
 }
-
 async function copyText(text: string): Promise<boolean> {
   if (!text) {
     return false;
@@ -670,7 +614,6 @@ async function copyText(text: string): Promise<boolean> {
     return false;
   }
 }
-
 function LoadingDots({label}: {label: string}) {
   return (
     <div className="stream-placeholder">
@@ -679,7 +622,6 @@ function LoadingDots({label}: {label: string}) {
     </div>
   );
 }
-
 function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
   return messages.flatMap((message) => {
     if (message.role === 'assistant') {
@@ -710,7 +652,6 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
       });
       return blocks;
     }
-
     if (message.role === 'tool') {
       const {headline, detail} = splitStoredToolContent(message.content);
       return [{
@@ -728,7 +669,6 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
         createdAt: message.created_at,
       }];
     }
-
     return [{
       id: message.id,
       kind: message.role === 'user' ? 'user' as const : 'meta' as const,
@@ -739,7 +679,6 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
     }];
   });
 }
-
 function EmptyState() {
   return (
     <div className="empty-state">
@@ -755,7 +694,6 @@ function EmptyState() {
     </div>
   );
 }
-
 function AssistantSection({block, onToggle, onOpenConversation}: {block: TranscriptBlock; onToggle: (id: string) => void; onOpenConversation?: (conversationId: string) => void | Promise<void>}) {
   if (block.kind === 'assistant') {
     if (!block.text && block.status !== 'running') return null;
@@ -766,7 +704,6 @@ function AssistantSection({block, onToggle, onOpenConversation}: {block: Transcr
       </div>
     );
   }
-
   const title = block.kind === 'reasoning' ? '思考过程' : `工具调用 · ${block.label}`;
   const collapsed = Boolean(block.collapsible && block.collapsed);
   const content = collapsed ? null : block.kind === 'tool' ? (
@@ -776,7 +713,6 @@ function AssistantSection({block, onToggle, onOpenConversation}: {block: Transcr
   ) : (
     <LoadingDots label="正在思考..." />
   );
-
   return (
     <section className={`assistant-subblock assistant-subblock-${block.kind}${collapsed ? ' is-collapsed' : ''}`}>
       <header className="assistant-subblock-header">
@@ -793,7 +729,6 @@ function AssistantSection({block, onToggle, onOpenConversation}: {block: Transcr
     </section>
   );
 }
-
 function AssistantTranscriptItem({
   group,
   onToggle,
@@ -826,7 +761,6 @@ function AssistantTranscriptItem({
   const isRunning = status === 'running';
   const timeline = buildAssistantTimeline(ordered, status, versionNumber, versionCount);
   const showTimeline = timeline.length > 1;
-
   return (
     <article className="message message-assistant message-assistant-group">
       <div className="avatar">AI</div>
@@ -934,7 +868,6 @@ function AssistantTranscriptItem({
     </article>
   );
 }
-
 function TranscriptItem({
   block,
   onToggle,
@@ -960,7 +893,6 @@ function TranscriptItem({
     meta: 'i',
     error: '!',
   }[block.kind];
-
   const content = block.collapsible && block.collapsed ? null : block.kind === 'assistant' ? (
     <MarkdownMessage content={block.text || ' '} />
   ) : block.kind === 'user' ? (
@@ -970,9 +902,7 @@ function TranscriptItem({
   ) : (
     <pre className="plain-pre">{block.text}</pre>
   );
-
   const showActions = block.kind === 'user' && Boolean(block.messageId);
-
   return (
     <article className={`message message-${block.kind}`}>
       <div className="avatar">{icon}</div>
@@ -1017,7 +947,6 @@ function TranscriptItem({
     </article>
   );
 }
-
 function ConversationItem({
   item,
   active,
@@ -1040,7 +969,6 @@ function ConversationItem({
       onOpen();
     }
   };
-
   return (
     <div
       role="button"
@@ -1059,7 +987,6 @@ function ConversationItem({
     </div>
   );
 }
-
 function AppearanceSettingsPanel({
   value,
   onChange,
@@ -1072,14 +999,12 @@ function AppearanceSettingsPanel({
   const update = (patch: Partial<AppearanceSettings>) => {
     onChange(normalizeAppearanceSettings({...value, ...patch}));
   };
-
   return (
     <section className="appearance-panel">
       <div className="appearance-panel-header">
         <h2>外观</h2>
         <button type="button" className="ghost-button tiny" onClick={onReset}>重置</button>
       </div>
-
       <label className="appearance-field">
         <span>正文字体</span>
         <select value={value.uiFont} onChange={(event) => update({uiFont: event.target.value})}>
@@ -1095,7 +1020,6 @@ function AppearanceSettingsPanel({
           placeholder={'"Segoe UI", "Microsoft YaHei UI", sans-serif'}
         />
       </label>
-
       <label className="appearance-field">
         <span>代码字体</span>
         <select value={value.codeFont} onChange={(event) => update({codeFont: event.target.value})}>
@@ -1111,7 +1035,6 @@ function AppearanceSettingsPanel({
           placeholder={'"Cascadia Code", Consolas, monospace'}
         />
       </label>
-
       <div className="appearance-grid">
         <label className="appearance-field appearance-field-range">
           <span>正文字号 <em>{value.contentFontSize}px</em></span>
@@ -1136,7 +1059,6 @@ function AppearanceSettingsPanel({
           />
         </label>
       </div>
-
       <label className="appearance-field appearance-field-range">
         <span>阅读宽度 <em>{value.readingWidth}px</em></span>
         <input
@@ -1148,7 +1070,6 @@ function AppearanceSettingsPanel({
           onChange={(event) => update({readingWidth: Number(event.target.value)})}
         />
       </label>
-
       <label className="appearance-field appearance-field-range">
         <span>上下行间距 <em>{value.lineHeight.toFixed(2)}</em></span>
         <input
@@ -1160,7 +1081,6 @@ function AppearanceSettingsPanel({
           onChange={(event) => update({lineHeight: Number(event.target.value)})}
         />
       </label>
-
       <div className="appearance-density" role="group" aria-label="界面密度">
         {DENSITY_OPTIONS.map((option) => (
           <button
@@ -1176,7 +1096,6 @@ function AppearanceSettingsPanel({
     </section>
   );
 }
-
 function ModelPicker({
   providers,
   value,
@@ -1196,7 +1115,6 @@ function ModelPicker({
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const allModels = providers.flatMap((provider) => provider.models);
   const selectedModel = allModels.find((model) => model.id === value) ?? allModels[0];
-
   useEffect(() => {
     if (!open) {
       return;
@@ -1219,7 +1137,6 @@ function ModelPicker({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [open]);
-
   const query = filter.trim().toLowerCase();
   const visibleGroups = providers
     .map((provider) => ({
@@ -1227,7 +1144,6 @@ function ModelPicker({
       models: query ? provider.models.filter((model) => model.name.toLowerCase().includes(query)) : provider.models,
     }))
     .filter((group) => !query || group.models.length > 0);
-
   return (
     <div className="model-picker" ref={pickerRef}>
       <button
@@ -1299,7 +1215,6 @@ function ModelPicker({
     </div>
   );
 }
-
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -1336,25 +1251,20 @@ export default function App() {
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const suppressNextAutoScrollRef = useRef(false);
   const activeConversationIdRef = useRef<string | null>(window.localStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY));
-
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId) ?? models.find((model) => model.default) ?? models[0],
     [models, selectedModelId],
   );
-
   const transcriptItems = useMemo(() => buildTranscriptViewItems(blocks), [blocks]);
   const effectiveAppearance = useMemo(() => normalizeAppearanceSettings(appearance), [appearance]);
-
   const showToast = useCallback((message: string) => {
     setToast(message);
     window.setTimeout(() => setToast((current) => (current === message ? '' : current)), 2200);
   }, []);
-
   const handleCopy = useCallback(async (text: string) => {
     const ok = await copyText(text);
     showToast(ok ? '已复制到剪贴板' : '复制失败');
   }, [showToast]);
-
   const shellStyle = useMemo(() => ({
     '--sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth}px`,
     '--inspector-width': inspectorCollapsed ? '0px' : `${inspectorWidth}px`,
@@ -1366,16 +1276,13 @@ export default function App() {
     '--content-line-height': String(effectiveAppearance.lineHeight),
     '--density-scale': String(densityScale(effectiveAppearance.density)),
   }) as CSSProperties, [effectiveAppearance, inspectorCollapsed, inspectorWidth, sidebarCollapsed, sidebarWidth]);
-
   const updateAppearance = useCallback((next: AppearanceSettings) => {
     setAppearance(normalizeAppearanceSettings(next));
   }, []);
-
   const resetAppearance = useCallback(() => {
     setAppearance(DEFAULT_APPEARANCE);
     showToast('外观已重置');
   }, [showToast]);
-
   const startResize = useCallback((panel: 'sidebar' | 'inspector', event: ReactPointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const handlePointerMove = (moveEvent: PointerEvent) => {
@@ -1394,7 +1301,6 @@ export default function App() {
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp, {once: true});
   }, []);
-
   const flushDeltaBuffer = useCallback(() => {
     const buffered = Object.entries(deltaBufferRef.current);
     if (!buffered.length) {
@@ -1422,7 +1328,6 @@ export default function App() {
       return next;
     });
   }, []);
-
   const queueDelta = useCallback((kind: 'assistant' | 'reasoning', blockId: string, text: string) => {
     const current = deltaBufferRef.current[blockId];
     deltaBufferRef.current[blockId] = current
@@ -1436,7 +1341,6 @@ export default function App() {
       flushDeltaBuffer();
     }, DELTA_FLUSH_MS);
   }, [flushDeltaBuffer]);
-
   const refreshConversations = useCallback(async (preferredId?: string | null, query?: string) => {
     const next = await fetchConversations(query);
     setConversations(next);
@@ -1445,7 +1349,6 @@ export default function App() {
     }
     return next;
   }, []);
-
   const openConversation = useCallback(async (targetId: string) => {
     flushDeltaBuffer();
     pendingUserBlockIdRef.current = null;
@@ -1463,7 +1366,6 @@ export default function App() {
     setEditingMessage(null);
     setError('');
   }, [flushDeltaBuffer]);
-
   const [modelsRefreshing, setModelsRefreshing] = useState(false);
   const refreshModels = useCallback(async () => {
     setModelsRefreshing(true);
@@ -1475,7 +1377,6 @@ export default function App() {
       setModelsRefreshing(false);
     }
   }, []);
-
   const loadBootstrap = useCallback(async () => {
     setLoading(true);
     try {
@@ -1513,7 +1414,6 @@ export default function App() {
       setLoading(false);
     }
   }, [conversationFilter, openConversation]);
-
   const resetConversation = () => {
     flushDeltaBuffer();
     pendingUserBlockIdRef.current = null;
@@ -1525,22 +1425,18 @@ export default function App() {
     setEditingMessage(null);
     setError('');
   };
-
   const toggleBlock = (id: string) => {
     suppressNextAutoScrollRef.current = true;
     setBlocks((current) => current.map((block) => (
       block.id === id ? {...block, collapsed: !block.collapsed} : block
     )));
   };
-
   const attachWorkspacePath = useCallback((path: string) => {
     setAttachedPaths((current) => current.includes(path) ? current : [...current, path]);
   }, []);
-
   const detachWorkspacePath = useCallback((path: string) => {
     setAttachedPaths((current) => current.filter((item) => item !== path));
   }, []);
-
   const beginEditMessage = useCallback((block: TranscriptBlock) => {
     if (block.kind !== 'user' || !block.messageId) {
       return;
@@ -1550,21 +1446,17 @@ export default function App() {
     setError('');
     showToast('已进入编辑模式');
   }, [showToast]);
-
   const cancelEditMessage = useCallback(() => {
     setEditingMessage(null);
     setInput('');
   }, []);
-
   const applyEvent = useCallback((event: UIStreamEvent) => {
     if (event.event !== 'assistant.delta' && event.event !== 'reasoning.delta') {
       flushDeltaBuffer();
     }
-
     if (event.conversation_id) {
       setConversationId(event.conversation_id);
     }
-
     switch (event.event) {
       case 'session.started': {
         const summary = readConversationSummary(event);
@@ -1786,7 +1678,6 @@ export default function App() {
         break;
     }
   }, [conversationFilter, conversationId, flushDeltaBuffer, queueDelta, refreshConversations]);
-
   const sendMessage = async () => {
     const prompt = input.trim() || (attachedPaths.length ? '请分析这些附件。' : '');
     if (!prompt || busy || abortRef.current) {
@@ -1796,7 +1687,6 @@ export default function App() {
       ? `\n\n[工作区附件]\n${attachedPaths.map((path) => `- ${path}`).join('\n')}`
       : '';
     const message = `${prompt}${attachmentBlock}`;
-
     const controller = new AbortController();
     const localId = Date.now();
     const pendingUserId = `pending-user-${localId}`;
@@ -1842,7 +1732,6 @@ export default function App() {
         placeholder: true,
       }]);
     }
-
     try {
       if (activeEdit?.messageId && conversationId) {
         await streamEditMessage(
@@ -1903,11 +1792,9 @@ export default function App() {
       pendingUserBlockIdRef.current = null;
     }
   };
-
   const stopGeneration = () => {
     abortRef.current?.abort();
   };
-
   const renameConversation = async (item: ConversationSummary) => {
     const title = window.prompt('重命名会话', item.title)?.trim();
     if (!title || title === item.title) {
@@ -1916,7 +1803,6 @@ export default function App() {
     const updated = await updateConversationTitle(item.id, title);
     setConversations((current) => upsertConversation(current, updated));
   };
-
   const removeConversation = async (item: ConversationSummary) => {
     if (!window.confirm(`删除会话「${item.title}」？`)) {
       return;
@@ -1932,7 +1818,6 @@ export default function App() {
       }
     }
   };
-
   const removeMessage = useCallback(async (messageId: string) => {
     if (!conversationId) {
       return;
@@ -1950,7 +1835,6 @@ export default function App() {
       setError(messageText);
     }
   }, [conversationId, showToast]);
-
   const regenerateLast = useCallback(async () => {
     if (!conversationId || busy || abortRef.current) {
       return;
@@ -1981,7 +1865,6 @@ export default function App() {
         placeholder: true,
       },
     ]);
-
     const controller = new AbortController();
     abortRef.current = controller;
     setBusy(true);
@@ -2023,7 +1906,6 @@ export default function App() {
       abortRef.current = null;
     }
   }, [applyEvent, blocks, busy, conversationId, flushDeltaBuffer, showToast]);
-
   const switchAssistantVersion = useCallback(async (messageId: string, versionNumber: number) => {
     if (!conversationId || busy || abortRef.current) {
       return;
@@ -2042,7 +1924,6 @@ export default function App() {
       setBusy(false);
     }
   }, [busy, conversationFilter, conversationId, refreshConversations, showToast]);
-
   const exportConversation = useCallback(async (conversation: ConversationSummary, format: ExportFormat = 'markdown') => {
     try {
       const {filename, blob} = await downloadConversation(conversation.id, format);
@@ -2061,38 +1942,11 @@ export default function App() {
       setError(messageText);
     }
   }, [showToast]);
-
-  const handleShutdownBackend = useCallback(async () => {
-    if (!backendOnline || shutdownPending) {
-      return;
-    }
-    if (!window.confirm('关闭 Python BFF 后端？Docker 和 Ollama 不会被关闭。')) {
-      return;
-    }
-    setShutdownPending(true);
-    try {
-      await shutdownBackend();
-      setBackendOnline(false);
-      setStatus(null);
-      setModels([]);
-      setProviders([]);
-      setSelectedModelId('');
-      setError('Python BFF 已关闭。Docker 与 Ollama 仍保持运行。');
-      showToast('Python BFF 已关闭');
-    } catch (err) {
-      const messageText = formatBackendError(err);
-      setError(messageText);
-      setBackendOnline(false);
-    } finally {
-      setShutdownPending(false);
-    }
-  }, [backendOnline, shutdownPending, showToast]);
-
   const handleShutdownStack = useCallback(async () => {
     if (!backendOnline || shutdownPending) {
       return;
     }
-    if (!window.confirm('退出前端与后端？将停止 Web 开发服务器、Python BFF 和股票桥接后端；Docker 与 Ollama 不会被关闭。')) {
+    if (!window.confirm('退出并停止全部服务？股票任务会先收尾，工具容器与聊天服务都会停止。重新使用请再次双击启动。')) {
       return;
     }
     setShutdownPending(true);
@@ -2107,11 +1961,9 @@ export default function App() {
       setShutdownPending(false);
     }
   }, [backendOnline, shutdownPending]);
-
   useEffect(() => {
     window.localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(effectiveAppearance));
   }, [effectiveAppearance]);
-
   useEffect(() => {
     activeConversationIdRef.current = conversationId;
     if (conversationId) {
@@ -2120,7 +1972,6 @@ export default function App() {
       window.localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY);
     }
   }, [conversationId]);
-
   useEffect(() => {
     if (!exportMenuOpen) {
       return;
@@ -2143,11 +1994,20 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [exportMenuOpen]);
-
   useEffect(() => {
     void loadBootstrap();
   }, [loadBootstrap]);
-
+  // Keep-alive: closing the page stops heartbeats and the backend shuts
+  // the whole stack down automatically after a short grace period.
+  useEffect(() => {
+    const beat = () => {
+      if (document.visibilityState !== 'visible') return;
+      void sendHeartbeat().catch(() => {});
+    };
+    beat();
+    const timer = window.setInterval(beat, 5000);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => {
     if (loading) {
       return;
@@ -2160,7 +2020,6 @@ export default function App() {
     }, 180);
     return () => window.clearTimeout(handle);
   }, [conversationFilter, conversationId, loading, refreshConversations]);
-
   useEffect(() => {
     return () => {
       if (deltaTimerRef.current) {
@@ -2169,7 +2028,6 @@ export default function App() {
       abortRef.current?.abort();
     };
   }, []);
-
   useEffect(() => {
     if (suppressNextAutoScrollRef.current) {
       suppressNextAutoScrollRef.current = false;
@@ -2177,7 +2035,6 @@ export default function App() {
     }
     transcriptRef.current?.scrollTo({top: transcriptRef.current.scrollHeight, behavior: 'smooth'});
   }, [blocks, busy]);
-
   return (
     <div
       className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${inspectorCollapsed ? ' inspector-collapsed' : ''}`}
@@ -2217,7 +2074,6 @@ export default function App() {
           ) : null}
         </div>
       </aside>
-
       {sidebarCollapsed ? (
         <button
           type="button"
@@ -2228,7 +2084,6 @@ export default function App() {
           会话
         </button>
       ) : null}
-
       {!sidebarCollapsed ? (
         <button
           type="button"
@@ -2237,12 +2092,11 @@ export default function App() {
           onPointerDown={(event) => startResize('sidebar', event)}
         />
       ) : null}
-
       <main className="chat-panel">
         <header className="topbar">
           <div>
             <strong>{conversationId ? conversations.find((item) => item.id === conversationId)?.title ?? '当前会话' : '新对话'}</strong>
-            <span>{status ? `BFF ${status.status} · ${status.workspace_path}` : '正在连接后端...'}</span>
+            <span>{status ? `工作区 ${status.workspace_path}` : '正在连接服务...'}</span>
           </div>
           <div className="topbar-actions">
             <ModelPicker providers={providers} value={selectedModelId} onChange={setSelectedModelId}
@@ -2299,7 +2153,6 @@ export default function App() {
             ) : null}
           </div>
         </header>
-
         <section className="transcript" ref={transcriptRef}>
           {loading ? <div className="loading-card">正在加载...</div> : null}
           {!loading && blocks.length === 0 ? <EmptyState /> : null}
@@ -2328,7 +2181,6 @@ export default function App() {
                 />
           ))}
         </section>
-
         {error ? (
           <div className="error-banner">
             <span>{error}</span>
@@ -2339,7 +2191,6 @@ export default function App() {
             ) : null}
           </div>
         ) : null}
-
         <footer className="composer-card">
           <PackageTasks />
           {editingMessage ? (
@@ -2388,7 +2239,6 @@ export default function App() {
           </div>
         </footer>
       </main>
-
       <aside className="inspector">
         <button type="button" className="ghost-button tiny inspector-collapse-button" onClick={() => setInspectorCollapsed(true)}>收起工作区</button>
         <WorkspacePanel
@@ -2429,34 +2279,26 @@ export default function App() {
         <section>
           <h2>状态</h2>
           <p className={backendOnline ? 'backend-status online' : 'backend-status offline'}>
-            Python BFF：{backendOnline ? '已连接' : '未连接'}
+            {backendOnline ? '服务运行中' : '服务未连接'}
           </p>
-          <p>WebSearch：{status?.websearch_enabled ? '已启用' : '未启用'}</p>
-          <p>工具数：{status?.tools.length ?? 0}</p>
           <div className="status-actions">
             <button
               type="button"
               className="ghost-button tiny danger-button"
               disabled={!backendOnline || shutdownPending}
-              onClick={() => void handleShutdownBackend()}
-            >{shutdownPending ? '正在关闭...' : '关闭 Python 后端'}</button>
-            <button
-              type="button"
-              className="ghost-button tiny danger-button"
-              disabled={!backendOnline || shutdownPending}
               onClick={() => void handleShutdownStack()}
-            >退出前端与后端</button>
+            >{shutdownPending ? '正在退出...' : '退出'}</button>
             {!backendOnline ? (
               <button type="button" className="ghost-button tiny" disabled={loading} onClick={() => void loadBootstrap()}>
                 重新连接
               </button>
             ) : null}
           </div>
-          <p className="status-hint">仅控制 Python BFF；Docker 与 Ollama 不会被关闭。</p>
+          <p className="status-hint">关闭此页面也会自动停止全部服务。</p>
         </section>
+        <SkillsPanel onChanged={() => void loadBootstrap()} />
         <StockServicePanel onChanged={() => void loadBootstrap()} />
       </aside>
-
       {inspectorCollapsed ? (
         <button
           type="button"
@@ -2467,7 +2309,6 @@ export default function App() {
           工作区
         </button>
       ) : null}
-
       {!inspectorCollapsed ? (
         <button
           type="button"
@@ -2476,7 +2317,6 @@ export default function App() {
           onPointerDown={(event) => startResize('inspector', event)}
         />
       ) : null}
-
       {modelSettingsOpen ? <ModelSettingsDialog model={selectedModel} status={status} busy={busy}
         onClose={() => setModelSettingsOpen(false)}
         onSaved={async () => {const [nextModels, nextProviders, nextStatus] = await Promise.all([fetchModels(), fetchProviders(), fetchStatus()]); setModels(nextModels); setProviders(nextProviders); setStatus(nextStatus);}} /> : null}
@@ -2484,7 +2324,7 @@ export default function App() {
       {stackStopped ? (
         <div className="stack-stopped" role="alert">
           <h2>已停止运行</h2>
-          <p>Web 开发服务器、Python BFF 与股票桥接后端已停止，可以关闭此页面。Docker 容器与 Ollama 未受影响。</p>
+          <p>全部服务已停止，可以关闭此页面。重新使用请双击 启动.bat，或运行 scripts/start-daily.ps1。</p>
         </div>
       ) : null}
     </div>

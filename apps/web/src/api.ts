@@ -40,14 +40,6 @@ export function fetchProviders(refresh = false, baseUrl = DEFAULT_BASE_URL): Pro
   return requestJson<ProviderInfo[]>(`/api/providers${refresh ? '?refresh=1' : ''}`, undefined, baseUrl);
 }
 
-export async function shutdownBackend(baseUrl = DEFAULT_BASE_URL): Promise<void> {
-  const response = await fetch(`${baseUrl}/api/admin/shutdown`, {method: 'POST'});
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`backend shutdown failed: ${response.status}${detail ? ` ${detail}` : ''}`);
-  }
-}
-
 export async function shutdownStack(baseUrl = DEFAULT_BASE_URL): Promise<{stopping: Record<string, number[]>}> {
   const response = await fetch(`${baseUrl}/api/admin/shutdown-stack`, {method: 'POST'});
   if (!response.ok) {
@@ -55,6 +47,24 @@ export async function shutdownStack(baseUrl = DEFAULT_BASE_URL): Promise<{stoppi
     throw new Error(`stack shutdown failed: ${response.status}${detail ? ` ${detail}` : ''}`);
   }
   return (await response.json()) as {stopping: Record<string, number[]>};
+}
+
+export function sendHeartbeat(baseUrl = DEFAULT_BASE_URL): Promise<{ok: boolean; auto_exit: boolean}> {
+  return requestJson<{ok: boolean; auto_exit: boolean}>('/api/heartbeat', {method: 'POST'}, baseUrl);
+}
+
+export type SkillsStatus = {websearch: {enabled: boolean; active: boolean; url: string}};
+
+export function fetchSkills(baseUrl = DEFAULT_BASE_URL): Promise<SkillsStatus> {
+  return requestJson<SkillsStatus>('/api/admin/skills', undefined, baseUrl);
+}
+
+export async function setWebsearch(enabled: boolean, baseUrl = DEFAULT_BASE_URL): Promise<SkillsStatus> {
+  return requestJson<SkillsStatus>('/api/admin/skills', {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({websearch: enabled}),
+  }, baseUrl);
 }
 
 export function fetchConversations(
