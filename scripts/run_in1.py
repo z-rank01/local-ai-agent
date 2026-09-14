@@ -14,7 +14,7 @@ for key, value in {
     'SKILL_RUNNER_URL': 'http://127.0.0.1:19102',
     'SKILL_WEBSEARCH_URL': 'http://127.0.0.1:19103',
     'DEFAULT_MODEL': 'qwen:qwen3.5-flash',
-    'MODEL_CALL_LIMIT': '120',  # IN1 用 30；2026-09-07 用户批准 +30 供 IN2；2026-09-08 用户要求翻倍至 120 供 IN3 验收
+    'MODEL_CALL_LIMIT': '200',  # IN1 用 30；2026-09-07 用户批准 +30 供 IN2；2026-09-08 翻倍至 120 供 IN3；2026-09-10 批准至 200 供 IN3.H 人工验收（含真实研究闭环与重试余量）
     'TOOL_TIER': 'all',
     'ENABLE_WEBSEARCH': 'true',
 }.items():
