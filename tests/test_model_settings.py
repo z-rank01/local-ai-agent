@@ -204,13 +204,18 @@ class ThinkingInjectionTests(unittest.IsolatedAsyncioTestCase):
 class ShutdownStackTests(unittest.IsolatedAsyncioTestCase):
     async def test_shutdown_stack_endpoint_guards_and_payload(self):
         from bff import app as bff_app
+        from core.stock_service import stock_service
+        from unittest.mock import AsyncMock
         with patch.object(bff_app, '_stack_shutdown_targets', return_value={'bff': [1], 'web': [2], 'stock-bridge': [3]}), \
-             patch.object(bff_app, 'schedule_stack_shutdown') as schedule:
+             patch.object(bff_app, 'schedule_stack_shutdown') as schedule, \
+             patch.object(stock_service, 'status', AsyncMock(return_value={'online': True})), \
+             patch.object(stock_service, 'request', AsyncMock(return_value={'status': 'shutting_down'})) as stop:
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=bff_app.app, client=('127.0.0.1', 1234)), base_url='http://test') as client:
                 denied = await client.post('/api/admin/shutdown-stack', headers={'origin': 'https://untrusted.invalid'})
                 self.assertEqual(denied.status_code, 403)
                 schedule.assert_not_called()
                 ok = await client.post('/api/admin/shutdown-stack')
                 self.assertEqual(ok.status_code, 200)
-                self.assertEqual(ok.json()['stopping'], {'bff': [1], 'web': [2], 'stock-bridge': [3]})
-                schedule.assert_called_once_with({'bff': [1], 'web': [2], 'stock-bridge': [3]})
+                self.assertEqual(ok.json()['stopping'], {'bff': [1], 'web': [2]})
+                schedule.assert_called_once_with({'bff': [1], 'web': [2]})
+                stop.assert_awaited_once_with('/api/control/action', {'action': 'shutdown'})

@@ -64,6 +64,9 @@ def _redact_params(value):
 
 def exclusive_turn(method):
     async def guarded(self, *args, **kwargs):
+        from core.stock_service import stock_service
+        if stock_service.lock.locked():
+            raise HTTPException(409, '股票服务正在切换，请稍后发送')
         key = args[0].conversation_id if isinstance(args[0], ChatRequest) else args[0]
         key = key or '__new__'
         if key in self._active_conversations:
@@ -96,6 +99,7 @@ class ChatSessionService:
         tools = sorted(self._runtime.tool_registry.known_tools)
         budget = self._runtime.models.budget.status()
         return AppStatus(
+            daily_services=__import__('os').environ.get('DAILY_SERVICES') == '1',
             model_calls_used=budget["used"], model_call_limit=budget["limit"],
             workspace_cloud_allowed=model_settings.workspace_allowed(),
             model=self._runtime.models.default,

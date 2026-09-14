@@ -20,6 +20,7 @@ import {MarkdownMessage} from './components/MarkdownMessage';
 import {PackageTasks} from './components/PackageTasks';
 import {ModelSettingsDialog} from './components/ModelSettingsDialog';
 import {WorkspacePanel} from './components/WorkspacePanel';
+import {StockServicePanel} from './components/StockServicePanel';
 import type {
   AppStatus,
   ConversationSummary,
@@ -2453,6 +2454,7 @@ export default function App() {
           </div>
           <p className="status-hint">仅控制 Python BFF；Docker 与 Ollama 不会被关闭。</p>
         </section>
+        <StockServicePanel onChanged={() => void loadBootstrap()} />
       </aside>
 
       {inspectorCollapsed ? (

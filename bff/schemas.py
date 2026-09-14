@@ -69,6 +69,7 @@ class WorkspaceFilePreview(BaseModel):
 
 
 class AppStatus(BaseModel):
+    daily_services: bool = False
     model_calls_used: int = 0
     model_call_limit: int = 0
     workspace_cloud_allowed: bool = False

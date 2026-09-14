@@ -43,7 +43,17 @@ from .schemas import (
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    get_runtime()
+    runtime = get_runtime()
+    if os.environ.get('DAILY_SERVICES') == '1':
+        from core.stock_service import stock_service
+        await stock_service.attach(runtime, False)
+        if stock_service.settings['enabled']:
+            try:
+                await stock_service.start(runtime)
+            except Exception:
+                # An optional backend must not prevent the chat/control UI starting.
+                import logging
+                logging.getLogger(__name__).exception('Stock service startup failed')
     try:
         yield
     finally:
@@ -105,6 +115,37 @@ async def health() -> dict[str, str]:
 @app.get("/api/status", response_model=AppStatus)
 async def status() -> AppStatus:
     return get_chat_service().app_status()
+
+
+def require_local_control(request: Request):
+    origin = request.headers.get('origin')
+    if not _is_loopback_host(request.client.host if request.client else None) or origin not in config.WEB_ORIGINS:
+        raise HTTPException(403, '服务控制仅允许本机 Web 页面')
+
+
+@app.get('/api/admin/stock-service')
+async def stock_service_status(request: Request):
+    if not _is_loopback_host(request.client.host if request.client else None):
+        raise HTTPException(403, '仅允许本机查看服务控制')
+    from core.stock_service import stock_service
+    return await stock_service.status()
+
+
+@app.post('/api/admin/stock-service')
+async def stock_service_action(request: Request):
+    require_local_control(request)
+    if get_chat_service()._active_conversations:
+        raise HTTPException(409, '聊天正在执行，请等待本轮结束后再切换服务')
+    from core.stock_service import stock_service
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('服务操作必须为对象')
+        return await stock_service.action(get_runtime(), body, lambda: bool(get_chat_service()._active_conversations))
+    except (ValueError, OSError) as exc:
+        raise HTTPException(409, str(exc) if isinstance(exc, ValueError) else '本地服务配置或凭据不可读') from exc
+    except __import__('httpx').HTTPError as exc:
+        raise HTTPException(503, '股票服务连接失败，请刷新状态') from exc
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -178,6 +219,17 @@ async def shutdown_stack(request: Request) -> dict:
     if not _is_loopback_host(request.client.host if request.client else None) or (origin and origin not in config.WEB_ORIGINS):
         raise HTTPException(status_code=403, detail='仅允许本机 Web 停止服务')
     targets = _stack_shutdown_targets()
+    from core.stock_service import stock_service
+    service_status = await stock_service.status()
+    if service_status['online']:
+        try:
+            await stock_service.request('/api/control/action', {'action': 'shutdown'})
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    elif targets.get('stock-bridge'):
+        raise HTTPException(409, '股票后台未接入安全关闭接口，请先在股票服务中暂停并关闭后再退出')
+    # The backend shuts itself down after draining; never kill an arbitrary port owner.
+    targets.pop('stock-bridge', None)
     schedule_stack_shutdown(targets)
     return {'stopping': {name: pids for name, pids in targets.items() if pids}}
 
