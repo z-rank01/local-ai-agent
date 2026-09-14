@@ -14,7 +14,7 @@ The seeded demo tasks must belong to the conversation under test
 (`scripts/seed_bridge_demo.py --conversation-id <id>`); pass --conversation-id or
 let this script create a fresh conversation first.
 
-This spends real model calls and is counted by the IN1 ledger, so it refuses to
+This spends real model calls and is counted by the model-call ledger, so it refuses to
 run without --yes.
 """
 from __future__ import annotations
@@ -36,8 +36,8 @@ for stream in (sys.stdout, sys.stderr):
 BFF = 'http://127.0.0.1:9510'
 BROKER = 'http://127.0.0.1:8766'
 MARKER = 'SYNTHETIC_DEMO_NOT_FOR_CLOUD'
-LEDGER = ROOT / 'data' / 'in1-model-calls.sqlite'
-AUDIT = ROOT / 'data' / 'in1' / 'logs' / 'audit.jsonl'
+LEDGER = ROOT / 'data' / 'model-calls.sqlite'
+AUDIT = ROOT / 'data' / 'logs' / 'audit.jsonl'
 MODEL = 'qwen:qwen3.5-flash'
 
 BOUNDARY_REQUEST = (

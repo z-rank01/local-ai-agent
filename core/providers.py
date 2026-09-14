@@ -220,7 +220,7 @@ class CompatibleClient:
 
 class ModelRegistry:
     def __init__(self):
-        self.budget = CallBudget(config.PROJECT_ROOT / 'data' / 'in1-model-calls.sqlite', int(os.environ.get('MODEL_CALL_LIMIT', '0')))
+        self.budget = CallBudget(config.PROJECT_ROOT / 'data' / 'model-calls.sqlite', int(os.environ.get('MODEL_CALL_LIMIT', '0')))
         static_specs = [{'id': f'ollama:{config.OLLAMA_MODEL}', 'provider_id': 'ollama', 'provider_name': 'Ollama',
                        'model': config.OLLAMA_MODEL, 'base_url': config.OLLAMA_BASE_URL, 'kind': 'local'}]
         catalog_path = Path(os.environ.get('MODEL_CATALOG', str(config.PROJECT_ROOT / 'config' / 'models.json')))
