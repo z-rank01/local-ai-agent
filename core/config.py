@@ -86,6 +86,11 @@ SKILL_WEBSEARCH_URL = _env("SKILL_WEBSEARCH_URL", "http://localhost:9103")
 
 ENABLE_WEBSEARCH = _env_bool("ENABLE_WEBSEARCH", False)
 AUTO_GIT_COMMIT = _env_bool("AUTO_GIT_COMMIT", True)
+# Close-page auto exit: after the page has been opened once, stopping heartbeats
+# for this long shuts the whole stack down (stock finishes current work first).
+AUTO_EXIT_ON_CLOSE = _env_bool("AUTO_EXIT_ON_CLOSE", True)
+HEARTBEAT_TIMEOUT_SECONDS = _env_float("HEARTBEAT_TIMEOUT_SECONDS", 15.0)
+
 
 # ── Context management ───────────────────────────────────────────────────
 

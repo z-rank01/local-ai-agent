@@ -106,6 +106,7 @@ class ChatSessionService:
             workspace_path=str(self._workspace_root),
             tools=tools,
             websearch_enabled=config.ENABLE_WEBSEARCH and "web_search" in tools,
+            auto_exit_enabled=config.AUTO_EXIT_ON_CLOSE,
         )
 
     async def list_models(self, refresh: bool = False) -> list[ModelInfo]:

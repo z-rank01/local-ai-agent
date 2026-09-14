@@ -78,6 +78,7 @@ class AppStatus(BaseModel):
     workspace_path: str
     tools: list[str]
     websearch_enabled: bool
+    auto_exit_enabled: bool = False
 
 
 class ModelInfo(BaseModel):
