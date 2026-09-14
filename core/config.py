@@ -52,8 +52,10 @@ def _env_list(key: str, default: str) -> list[str]:
 
 
 def _default_web_origins() -> str:
+    # BFF port first: the production build is served by the BFF itself, so the
+    # browser talks to one origin only. The 5173+ ranges stay for `npm run dev`.
+    origins = [f"http://127.0.0.1:{BFF_PORT}", f"http://localhost:{BFF_PORT}"]
     ports = list(dict.fromkeys([*range(5173, 5301), *range(3000, 3021)]))
-    origins: list[str] = []
     for port in ports:
         origins.append(f"http://127.0.0.1:{port}")
         origins.append(f"http://localhost:{port}")

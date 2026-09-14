@@ -487,3 +487,12 @@ async def package_job_cancel(job_id: str, request: Request):
     if not _is_loopback_host(request.client.host if request.client else None) or (origin and origin not in config.WEB_ORIGINS):
         raise HTTPException(403, '只允许本机页面停止安装')
     return await get_runtime().router.dispatch('package_cancel', {'job_id':job_id})
+
+# -- Static web hosting (production build) ---------------------------------
+# The BFF serves the built SPA itself, so the browser sees a single origin.
+# `npm run dev` inside apps/web stays available for development on 5173.
+_WEB_DIST = config.PROJECT_ROOT / 'apps' / 'web' / 'dist'
+if _WEB_DIST.is_dir():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount('/', StaticFiles(directory=_WEB_DIST, html=True), name='web')

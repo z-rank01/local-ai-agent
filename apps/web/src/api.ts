@@ -14,8 +14,10 @@ import type {
   WorkspaceUploadResponse,
 } from './types';
 
+// Same-origin by default (BFF serves the production build); the Vite dev
+// server on 5173 still talks to the BFF on 9510 unless overridden.
 export const DEFAULT_BASE_URL =
-  import.meta.env.VITE_LOCAL_AI_AGENT_API_URL ?? 'http://127.0.0.1:9510';
+  import.meta.env.VITE_LOCAL_AI_AGENT_API_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:9510' : '');
 
 async function requestJson<T>(path: string, init?: RequestInit, baseUrl = DEFAULT_BASE_URL): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, init);
