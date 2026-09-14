@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Check that all required tools are installed for local-ai-agent.
@@ -37,19 +37,6 @@ $results = @(
     (Test-Tool -Label "Node.js"        -Command "node"   -Arguments @("--version")),
     (Test-Tool -Label "npm"            -Command "npm"    -Arguments @("--version"))
 )
-
-# Textual check (non-fatal warning)
-Write-Host ""
-try {
-    $textualVer = python -c "import textual; print(textual.__version__)" 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host ("  [PASS] {0,-18} {1}" -f "Textual:", "v$($textualVer.Trim())") -ForegroundColor Green
-    } else {
-        Write-Host ("  [WARN] {0,-18} not installed (run: pip install -r requirements.txt)" -f "Textual:") -ForegroundColor Yellow
-    }
-} catch {
-    Write-Host ("  [WARN] {0,-18} not installed (run: pip install -r requirements.txt)" -f "Textual:") -ForegroundColor Yellow
-}
 
 # httpx check (non-fatal warning)
 try {

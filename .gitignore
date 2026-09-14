@@ -14,11 +14,7 @@ build/
 # Data — runtime user data, managed separately (workspace has its own git)
 data/
 
-# Node / Ink frontend artefacts
-apps/cli-ink/node_modules/
-apps/cli-ink/dist/
-apps/cli-ink/.turbo/
-apps/cli-ink/*.tsbuildinfo
+# Node / Web frontend artefacts
 apps/web/node_modules/
 apps/web/dist/
 apps/web/*.tsbuildinfo

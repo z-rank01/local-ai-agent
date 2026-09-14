@@ -68,7 +68,7 @@ WORKSPACE_PATH = Path(_env("WORKSPACE_PATH", str(_PROJECT_ROOT / "data" / "works
 TOOLS_DIR = Path(_env("TOOLS_DIR", str(_PROJECT_ROOT / "config" / "tools")))
 POLICY_PATH = Path(_env("POLICY_PATH", str(_PROJECT_ROOT / "config" / "policy.yaml")))
 LOG_PATH = Path(_env("LOG_PATH", str(_PROJECT_ROOT / "data" / "logs" / "audit.jsonl")))
-PROMPTS_DIR = Path(_env("PROMPTS_DIR", str(_PROJECT_ROOT / "gateway" / "prompts")))
+PROMPTS_DIR = Path(_env("PROMPTS_DIR", str(_PROJECT_ROOT / "config" / "prompts")))
 DB_PATH = Path(_env("DB_PATH", str(_PROJECT_ROOT / "data" / "conversations.db")))
 
 # ── Service URLs ─────────────────────────────────────────────────────────

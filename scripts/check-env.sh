@@ -47,7 +47,6 @@ check_tool "npm"            npm --version
 
 # Python package checks (non-fatal warnings)
 echo ""
-check_python_pkg "Textual" "textual" "$PYTHON_CMD"
 check_python_pkg "httpx"   "httpx"   "$PYTHON_CMD"
 if bff_deps=$($PYTHON_CMD -c "import fastapi, uvicorn; print(f'fastapi {fastapi.__version__}, uvicorn {uvicorn.__version__}')" 2>/dev/null); then
     printf "  [PASS] %-18s %s\n" "BFF deps:" "$bff_deps"
