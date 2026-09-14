@@ -454,6 +454,29 @@ async def heartbeat(request: Request) -> dict:
         raise HTTPException(403, '仅允许本机页面心跳')
     app.state.auto_exit.observe_heartbeat(time.monotonic())
     return {'ok': True, 'auto_exit': app.state.auto_exit.enabled}
+
+@app.get('/api/keepalive')
+async def keepalive(request: Request):
+    """Server-sent liveness stream: the page holds this connection open.
+    A background/minimised tab does not throttle it, unlike timers; when
+    every connection is gone the auto-exit grace period starts."""
+    if not _is_loopback_host(request.client.host if request.client else None):
+        raise HTTPException(403, '仅允许本机页面保持连接')
+    state = app.state.auto_exit
+
+    async def event_stream():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                yield ': ping\n\n'
+                state.observe_heartbeat(time.monotonic())
+                await asyncio.sleep(5)
+        finally:
+            pass  # The request scope ends on disconnect; nothing to clean up.
+
+    return StreamingResponse(event_stream(), media_type='text/event-stream',
+                               headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 async def _auto_exit_watcher() -> None:
     import logging
     log = logging.getLogger(__name__)

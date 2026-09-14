@@ -9,7 +9,7 @@ import {
   fetchModels,
   fetchProviders,
   fetchStatus,
-  sendHeartbeat,
+  DEFAULT_BASE_URL,
   shutdownStack,
   streamChat,
   streamEditMessage,
@@ -1997,16 +1997,12 @@ export default function App() {
   useEffect(() => {
     void loadBootstrap();
   }, [loadBootstrap]);
-  // Keep-alive: closing the page stops heartbeats and the backend shuts
-  // the whole stack down automatically after a short grace period.
+  // Keep-alive: an SSE connection held open by this page. Closing the page
+  // drops it and the backend shuts the whole stack down after a grace
+  // period; unlike timers, server push is not throttled in background tabs.
   useEffect(() => {
-    const beat = () => {
-      if (document.visibilityState !== 'visible') return;
-      void sendHeartbeat().catch(() => {});
-    };
-    beat();
-    const timer = window.setInterval(beat, 5000);
-    return () => window.clearInterval(timer);
+    const source = new EventSource(`${DEFAULT_BASE_URL}/api/keepalive`);
+    return () => source.close();
   }, []);
   useEffect(() => {
     if (loading) {
