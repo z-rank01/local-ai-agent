@@ -53,6 +53,8 @@ async def lifespan(_: FastAPI):
         enabled=config.AUTO_EXIT_ON_CLOSE,
         timeout_seconds=config.HEARTBEAT_TIMEOUT_SECONDS,
     )
+    from core.skills_service import skill_switches
+    await skill_switches.restore(runtime)
     watcher = asyncio.create_task(_auto_exit_watcher()) if config.AUTO_EXIT_ON_CLOSE else None
     try:
         yield
@@ -131,6 +133,30 @@ async def stock_service_action(request: Request):
         raise HTTPException(409, str(exc) if isinstance(exc, ValueError) else '本地服务配置或凭据不可读') from exc
     except __import__('httpx').HTTPError as exc:
         raise HTTPException(503, '股票服务连接失败，请刷新状态') from exc
+@app.get('/api/admin/skills')
+async def skills_status(request: Request):
+    if not _is_loopback_host(request.client.host if request.client else None):
+        raise HTTPException(403, '仅允许本机查看技能开关')
+    from core.skills_service import skill_switches
+    return skill_switches.status(get_runtime())
+@app.post('/api/admin/skills')
+async def skills_toggle(request: Request):
+    require_local_control(request)
+    if get_chat_service()._active_conversations:
+        raise HTTPException(409, '聊天正在执行，请等待本轮结束后再切换技能')
+    from core.skills_service import skill_switches
+    try:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get('websearch'), bool):
+            raise ValueError('请求体须为 {"websearch": true 或 false}')
+        return await skill_switches.set_websearch(
+            get_runtime(), body['websearch'],
+            lambda: bool(get_chat_service()._active_conversations))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
 def _is_loopback_host(host: str | None) -> bool:
     if not host:
         return False
@@ -181,8 +207,6 @@ async def shutdown_stack(request: Request) -> dict:
     if not _is_loopback_host(request.client.host if request.client else None) or (origin and origin not in config.WEB_ORIGINS):
         raise HTTPException(403, detail='仅允许本机 Web 停止服务')
     return await _request_stack_shutdown()
-
-
 async def _request_stack_shutdown() -> dict:
     """Graceful full exit: stock backend, web leftovers, tool containers, then us."""
     targets = _stack_shutdown_targets()
@@ -424,16 +448,12 @@ async def _stop_tool_containers() -> None:
         pass  # Docker CLI unavailable — nothing to stop.
     except Exception:
         log.exception('Failed to stop tool containers; continuing shutdown')
-
-
 @app.post('/api/heartbeat')
 async def heartbeat(request: Request) -> dict:
     if not _is_loopback_host(request.client.host if request.client else None):
         raise HTTPException(403, '仅允许本机页面心跳')
     app.state.auto_exit.observe_heartbeat(time.monotonic())
     return {'ok': True, 'auto_exit': app.state.auto_exit.enabled}
-
-
 async def _auto_exit_watcher() -> None:
     import logging
     log = logging.getLogger(__name__)
@@ -460,8 +480,6 @@ async def _auto_exit_watcher() -> None:
             return
         except Exception:
             log.exception('Auto-exit attempt failed; will retry')
-
-
 # -- Static web hosting (production build) ---------------------------------
 # The BFF serves the built SPA itself, so the browser sees a single origin.
 # `npm run dev` inside apps/web stays available for development on 5173.
