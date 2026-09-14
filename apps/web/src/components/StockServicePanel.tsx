@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {DEFAULT_BASE_URL} from '../api';
 
 type Step = {id: string; status: string; body: {day?: string; error?: string; attempts?: number}};
@@ -29,6 +29,9 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
   const [stateDir, setStateDir] = useState('simulation');
   const [port, setPort] = useState('8765');
   const [busy, setBusy] = useState(false);
+  const mutating = useRef(false);
+  const revision = useRef(0);
+  const [pendingAction, setPendingAction] = useState('');
   const [error, setError] = useState('');
   const [challenge, setChallenge] = useState('');
   const [query, setQuery] = useState('');
@@ -37,20 +40,26 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
     let active = true;
     let first = true;
     const refresh = async () => {
+      if (mutating.current) return;
+      const requestRevision = ++revision.current;
       try {
         const value = await serviceRequest();
-        if (!active) return;
+        if (!active || requestRevision !== revision.current) return;
         setStatus(value);
         if (first) {
           setRoot(value.settings.root); setStateDir(value.settings.state_dir); setPort(String(value.settings.port)); first = false;
         }
-      } catch (e) { if (active) setError(String(e)); }
+      } catch (e) { if (active && requestRevision === revision.current) setError(String(e)); }
     };
     void refresh();
     const timer = setInterval(() => void refresh(), 5000);
     return () => {active = false; clearInterval(timer);};
   }, []);
   const act = async (action: string, extra: Record<string, unknown> = {}) => {
+    if (mutating.current) return;
+    mutating.current = true;
+    ++revision.current;
+    setPendingAction(action);
     setBusy(true); setError('');
     try {
       const result = await serviceRequest({action, ...extra});
@@ -60,7 +69,7 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
       onChanged?.();
       if (action === 'operator') setQuery('');
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally {setBusy(false);}
+    finally {mutating.current = false; setBusy(false); setPendingAction('');}
   };
   const steps = status?.recovery?.steps ?? [];
   return <section className="stock-service-panel">
@@ -79,7 +88,7 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
       <button disabled={busy || status?.online} onClick={() => void act('start')}>开启股票后台</button>
       <button disabled={busy || !status?.online || status?.worker?.enabled} onClick={() => void act('worker_start')}>开启任务执行</button>
       <button disabled={busy || !status?.online || !status?.worker?.enabled} onClick={() => void act('worker_pause')}>暂停任务执行</button>
-      <button disabled={busy || !status?.online} onClick={() => void act('stop')}>关闭股票后台</button>
+      <button disabled={busy || !status?.online} onClick={() => void act('stop')}>{pendingAction === 'stop' ? '正在关闭股票后台…' : '关闭股票后台'}</button>
     </div>
     {status?.message && !status.online && <p>{status.message}</p>}
     {status?.online && <>

@@ -172,11 +172,23 @@ class StockService:
             elif action == 'start':
                 await self.start(runtime)
             elif action == 'stop':
-                await self.request('/api/control/status')  # Verify identity before mutation.
-                await self.request('/api/control/action', {'action': 'shutdown'})
+                try:
+                    await self.request('/api/control/status')  # Verify identity before mutation.
+                except httpx.ConnectError:
+                    pass  # Already stopped: repeated close is safe.
+                else:
+                    await self.request('/api/control/action', {'action': 'shutdown'})
+                    # Shutdown is acknowledged before the backend actually exits.
+                    # Do not report success while its listener is still alive.
+                    try:
+                        await asyncio.wait_for(self.wait_until_stopped(), timeout=10)
+                    except asyncio.TimeoutError:
+                        raise ValueError('股票后台尚未退出，请稍后刷新状态') from None
                 await self.attach(runtime, False)
                 self.settings['enabled'] = False
                 self.save()
+                return {'settings': self.settings.copy(), 'online': False, 'url': self.url,
+                        'message': '股票后台已关闭，聊天可继续使用'}
             elif action in ('worker_start', 'worker_pause', 'recover', 'prepare_resume', 'confirm_resume', 'operator'):
                 await self.request('/api/control/status')
                 result = await self.request('/api/control/action', body)
@@ -188,6 +200,20 @@ class StockService:
             else:
                 raise ValueError('未知服务操作')
             return await self.status()
+
+    async def wait_until_stopped(self):
+        while True:
+            try:
+                _, writer = await asyncio.wait_for(
+                    asyncio.open_connection('127.0.0.1', self.settings['port']), timeout=3)
+            except ConnectionRefusedError:
+                return
+            except asyncio.TimeoutError:
+                pass  # An unresponsive listener is not proof of shutdown.
+            else:
+                writer.close()
+                await writer.wait_closed()
+            await asyncio.sleep(0.1)
 
 
 stock_service = StockService()

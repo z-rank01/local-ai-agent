@@ -53,6 +53,58 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, '聊天'):
             await self.service.action(None, {'action': 'start'}, lambda: True)
 
+    async def test_stop_waits_for_delayed_exit_and_returns_offline(self):
+        server = await asyncio.start_server(lambda r, w: w.close(), '127.0.0.1', 0)
+        self.service.settings.update(port=server.sockets[0].getsockname()[1], enabled=True)
+        self.service.request = AsyncMock(side_effect=[{}, {'status': 'shutting_down'}])
+        self.service.attach = AsyncMock()
+        closing = asyncio.create_task(self.service.action(None, {'action': 'stop'}))
+        try:
+            await asyncio.sleep(0.2)
+            self.assertFalse(closing.done(), 'Must wait beyond the shutdown acknowledgement')
+            self.service.attach.assert_not_awaited()
+            server.close()
+            await server.wait_closed()
+            result = await asyncio.wait_for(closing, 8)
+            self.assertFalse(result['online'])
+            self.assertFalse(self.service.read_settings()['enabled'])
+            self.service.attach.assert_awaited_once_with(None, False)
+        finally:
+            server.close()
+            await server.wait_closed()
+            if not closing.done():
+                closing.cancel()
+                await asyncio.gather(closing, return_exceptions=True)
+
+    async def test_stop_already_offline_is_idempotent(self):
+        self.service.settings['enabled'] = True
+        self.service.request = AsyncMock(side_effect=httpx.ConnectError('refused'))
+        self.service.attach = AsyncMock()
+        for _ in range(2):
+            result = await self.service.action(None, {'action': 'stop'})
+            self.assertFalse(result['online'])
+            self.assertFalse(result['settings']['enabled'])
+
+    async def test_stop_does_not_treat_timeout_or_wrong_workspace_as_offline(self):
+        for error in (httpx.ReadTimeout('timeout'), ValueError('另一个状态目录')):
+            self.service.settings['enabled'] = True
+            self.service.request = AsyncMock(side_effect=error)
+            self.service.attach = AsyncMock()
+            with self.assertRaises(type(error)):
+                await self.service.action(None, {'action': 'stop'})
+            self.service.attach.assert_not_awaited()
+            self.assertTrue(self.service.settings['enabled'])
+
+    async def test_stop_timeout_does_not_report_success(self):
+        self.service.settings['enabled'] = True
+        self.service.request = AsyncMock(side_effect=[{}, {'status': 'shutting_down'}])
+        self.service.wait_until_stopped = AsyncMock(side_effect=asyncio.TimeoutError)
+        self.service.attach = AsyncMock()
+        with self.assertRaisesRegex(ValueError, '尚未退出'):
+            await self.service.action(None, {'action': 'stop'})
+        self.service.attach.assert_not_awaited()
+        self.assertTrue(self.service.settings['enabled'])
+
     async def test_control_rejects_foreign_origin(self):
         from bff.app import app
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=('127.0.0.1', 1)), base_url='http://test') as c:
