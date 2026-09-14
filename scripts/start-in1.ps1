@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $in1Root = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $in1Root
 $in1Python = Join-Path $in1Root '.conda/python.exe'
-if (-not (Test-Path -LiteralPath $in1Python)) { throw 'Install the project Python environment first; see docs/IN1运行与验证.md.' }
+if (-not (Test-Path -LiteralPath $in1Python)) { throw 'Install the project Python environment first; see 本地AI-Agents部署流程.md.' }
 foreach ($in1Dir in @('workspace','logs','trash')) { New-Item -ItemType Directory -Force -Path (Join-Path $in1Root "data/in1/$in1Dir") | Out-Null }
 if ($Build) { docker compose -f compose.in1.yml up -d --build } else { docker compose -f compose.in1.yml up -d }
 if ($LASTEXITCODE -ne 0) { throw 'IN1 Docker services failed to start' }

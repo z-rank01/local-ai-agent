@@ -7,6 +7,8 @@
 
 ## 0. 快速开始
 
+日常统一入口为 `scripts/start-daily.ps1`，每日操作见[日常运行指南](docs/日常运行指南.md)。下方 `quick-start.ps1` 和 IN1 为保留启动方式；安装完成后日常使用统一入口。
+
 Windows PowerShell：
 
 ```powershell
@@ -156,11 +158,11 @@ docker compose --profile websearch down   # 含搜索服务
 
 ---
 
-## 3. ⚠️ 两条启动路径（最容易踩坑的地方）
+## 3. 保留启动方式与 IN1 隔离环境
 
-仓库有**两套并存的启动方式**，端口、工作区、解释器都不同，**不能同时运行**。
+除日常统一入口外，以下两种启动方式继续保留。它们与日常入口共用 Web/BFF 端口，不能同时运行。
 
-| | **路径 A：日常使用** | **路径 B：IN1 隔离环境** |
+| | **路径 A：原通用入口** | **路径 B：IN1 隔离环境** |
 | --- | --- | --- |
 | 入口 | `.\scripts\quick-start.ps1` | `.\scripts\start-in1.ps1` |
 | Compose 文件 | `docker-compose.yml` | `compose.in1.yml` |
@@ -176,7 +178,7 @@ docker compose --profile websearch down   # 含搜索服务
 **为什么路径 B 要额外准备 Python 环境**：`start-in1.ps1` 硬编码使用仓库内的 `.conda/python.exe`，而 **`.conda/` 不在版本控制中**——刚 clone 下来并不存在。缺失时脚本直接报错：
 
 ```
-Install the project Python environment first; see docs/IN1运行与验证.md.
+Install the project Python environment first; see 本地AI-Agents部署流程.md.
 ```
 
 准备方式（任意 Python 3.11+）：
@@ -216,6 +218,12 @@ npm ci --prefix apps/web
 需要改这些值时，用路径 A，或直接编辑 `scripts/run_in1.py`。
 
 ---
+
+### 3.1 IN1 隔离环境维护
+
+在 Web 顶部选择模型，在“模型设置”保存密钥与授权。密钥不回显；隔离工作区默认授权不覆盖已保存的用户选择。
+
+服务代码更新后，工具容器用 `docker compose -f compose.in1.yml restart` 重启；BFF 代码更新需退出后重跑 `scripts/start-in1.ps1`。页面“关闭 Python 后端”只停止 BFF；“退出前端与后端”用于退出整套 Web 服务，股票任务需先收尾。停止隔离工具容器使用 `docker compose -f compose.in1.yml stop`。这些操作不删除隔离会话库或工作区。
 
 ## 4. `quick-start.ps1` 启动参数
 
@@ -414,12 +422,12 @@ local-ai-agent/
 | 文档 | 内容 |
 | --- | --- |
 | [`docs/README.md`](./docs/README.md) | 文档入口与当前工程状态 |
-| [`docs/IN1运行与验证.md`](./docs/IN1运行与验证.md) | 路径 B 的启动细节、验证记录与测试命令 |
-| [`docs/IN1验收案例.md`](./docs/IN1验收案例.md) | 功能验收用例 |
+| [`docs/历史/开发与验收记录-2026-09.md`](./docs/历史/开发与验收记录-2026-09.md) | 历史实现、环境与验收证据 |
+| [`docs/回归验证指南.md`](./docs/回归验证指南.md) | 聊天、工具与股票服务回归方法 |
 | [`docs/股票能力接入.md`](./docs/股票能力接入.md) | 股票能力接入的分阶段计划 |
 | [`docs/harness能力盘点.md`](./docs/harness能力盘点.md) | 本仓库作为 agent harness 的能力盘点 |
 
 
-## 日常统一入口（N2，2026-09-14 新增）
+## 11. 日常统一入口
 
-首次安装完成后，运行 `scripts/start-daily.ps1` 打开 Web。在右侧“股票服务”配置仓库与状态目录，开启/暂停任务执行，处理恢复摘要。脚本不强制启动 Ollama，使用既有模型配置；配置和开关选择本地保存。旧 IN1 环境继续保留，两个启动模式不能同时占用 9510。详细操作与独立验收见 [N2 日常运行与验收](docs/N2日常运行与验收.md)。
+首次安装完成后，运行 `scripts/start-daily.ps1` 打开 Web。在右侧“股票服务”配置仓库与状态目录，开启/暂停任务执行，处理恢复摘要。脚本不强制启动 Ollama，使用既有模型配置；配置和开关选择本地保存。旧 IN1 环境继续保留，两个启动模式不能同时占用 9510。每日操作见 [日常运行指南](docs/日常运行指南.md)。
