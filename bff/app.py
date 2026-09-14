@@ -156,7 +156,6 @@ async def skills_toggle(request: Request):
         raise HTTPException(409, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
-
 def _is_loopback_host(host: str | None) -> bool:
     if not host:
         return False
@@ -192,6 +191,7 @@ def _stack_shutdown_targets() -> dict[str, list[int]]:
 def schedule_stack_shutdown(targets: dict[str, list[int]]) -> None:
     async def terminate() -> None:
         await asyncio.sleep(0.5)
+        await _stop_tool_containers()
         for name in ('web', 'stock-bridge'):
             for pid in targets.get(name, []):
                 try:
