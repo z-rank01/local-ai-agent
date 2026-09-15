@@ -44,7 +44,10 @@ class StockService:
         return {'root': value.get('root', os.environ.get('STOCK_PROJECT_ROOT', '')),
                 'state_dir': value.get('state_dir', os.environ.get('STOCK_STATE_DIR', 'simulation')),
                 'port': value.get('port', int(os.environ.get('STOCK_SERVICE_PORT', '8765'))),
-                'enabled': value.get('enabled', False), 'worker': value.get('worker', False)}
+                'enabled': value.get('enabled', False),
+                # Task execution defaults to ON when the skill is enabled;
+                # users pause it explicitly from the Web panel.
+                'worker': value.get('worker', True)}
 
     def save(self):
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)
