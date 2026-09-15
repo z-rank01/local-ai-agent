@@ -60,6 +60,14 @@ class SkillSwitches:
             detail = (stderr or b'').decode('utf-8', 'replace').strip()[:400]
             raise RuntimeError(detail or f'docker compose {" ".join(args)} 退出码 {proc.returncode}')
 
+    async def _websearch_healthy(self) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=3, trust_env=False) as client:
+                response = await client.get(config.SKILL_WEBSEARCH_URL.rstrip('/') + '/health')
+            return response.status_code == 200
+        except httpx.HTTPError:
+            return False
+
     async def _wait_websearch(self, timeout: float = 120.0) -> None:
         deadline = asyncio.get_running_loop().time() + timeout
         last_error: Exception | None = None
@@ -116,7 +124,19 @@ class SkillSwitches:
         if not self.websearch_enabled:
             return
         try:
-            await self.set_websearch(runtime, True)
+            if await self._websearch_healthy():
+                # Containers survived (or were already started); only the tool
+                # registry needs to catch up with the saved switch.
+                self.apply_to(runtime, True)
+                return
+            # Do not go through set_websearch here: its no-op shortcut only
+            # looks at the registry, which the env flag may already have
+            # seeded, and would skip actually starting the containers.
+            async with self.lock:
+                await self._compose('up', '-d')
+                await self._wait_websearch()
+                self.apply_to(runtime, True)
+                self.save()
         except Exception:
             logger.exception('Web search skill restore failed; toggle it from the Web page')
 

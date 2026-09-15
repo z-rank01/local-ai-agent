@@ -123,6 +123,38 @@ class SkillSwitchesTests(unittest.TestCase):
             asyncio_run(svc.set_websearch(runtime, False))
         self.assertEqual(calls, [])
 
+    def test_restore_starts_containers_when_backend_is_down(self):
+        # Saved switch on + env-seeded registry, but containers are down
+        # (e.g. after a machine reboot): restore must really bring them up.
+        runtime = fake_runtime(enabled=True)
+        svc = self.make_service(saved={'websearch': True})
+        calls = []
+        async def fake_compose(*args, **kwargs):
+            calls.append(args)
+        async def fake_wait():
+            return None
+        async def unhealthy():
+            return False
+        with patch.object(svc, '_compose', fake_compose), \
+                patch.object(svc, '_wait_websearch', fake_wait), \
+                patch.object(svc, '_websearch_healthy', unhealthy):
+            asyncio_run(svc.restore(runtime))
+        self.assertEqual(calls, [('up', '-d')])
+
+    def test_restore_only_flips_registry_when_backend_is_healthy(self):
+        runtime = fake_runtime(enabled=False)
+        svc = self.make_service(saved={'websearch': True})
+        calls = []
+        async def fake_compose(*args, **kwargs):
+            calls.append(args)
+        async def healthy():
+            return True
+        with patch.object(svc, '_compose', fake_compose), \
+                patch.object(svc, '_websearch_healthy', healthy):
+            asyncio_run(svc.restore(runtime))
+        self.assertEqual(calls, [])
+        self.assertIn('web_search', runtime.tool_registry.known_tools)
+
 
 def asyncio_run(coro):
     import asyncio
