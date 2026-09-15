@@ -225,6 +225,24 @@ class ResearchChainActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('name', result['error'])
         self.assertEqual(calls, [])
 
+    async def test_submit_rejects_multiple_targets_in_one_call(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', '帮我研究一下比亚迪、贵州茅台和宁德时代')
+        by_name = await bridge.call_tool('stock_research_submit', {'name': '比亚迪/贵州茅台/宁德时代'}, 'c')
+        self.assertIn('一次只能提交一个标的', by_name['error'])
+        self.assertIn('分别调用', by_name['error'])
+        by_symbol = await bridge.call_tool('stock_research_submit', {'symbol': '002594,600519'}, 'c')
+        self.assertIn('一次只能提交一个标的', by_symbol['error'])
+        self.assertEqual(calls, [])
+
+    async def test_submit_single_target_still_passes_validation(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', '帮我研究一下比亚迪、贵州茅台和宁德时代')
+        result = await bridge.call_tool('stock_research_submit', {'name': '比亚迪'}, 'c')
+        self.assertNotIn('一次只能提交一个标的', result.get('error', ''))
+
     async def test_boundary_is_terminal_for_the_turn(self):
         calls = []
         bridge = self.bridge(make_broker(calls, step_responses=[

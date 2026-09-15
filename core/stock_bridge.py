@@ -118,6 +118,14 @@ class StockBridge:
                 return {'error': 'symbol 和 name 只能二选一：给 6 位股票代码或用户说出的股票名称。'}
             if not symbol and not name:
                 return {'error': '必须提供 symbol（6 位股票代码）或 name（股票名称）之一；用户只说名称时用 name 原样传入。'}
+            multi_separators = ('/', '\\', '、', '，', ',', '；', ';')
+            if name is not None:
+                cleaned = name.strip()
+                if any(sep in cleaned for sep in multi_separators):
+                    return {'error': '一次只能提交一个标的：name 只填一个股票名称。要研究多只股票，请对每只分别调用一次本工具（名称必须出现在用户本轮消息中）。'}
+            if symbol is not None and isinstance(symbol, str):
+                if any(sep in symbol for sep in multi_separators) or ' ' in symbol:
+                    return {'error': '一次只能提交一个标的：symbol 只填一个 6 位代码。要研究多只股票，请对每只分别调用一次本工具。'}
             if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > 40):
                 return {'error': 'name 必须是不超过 40 字的股票名称。'}
             if symbol is not None and (not isinstance(symbol, str) or not _SYMBOL_RE.match(symbol)):
