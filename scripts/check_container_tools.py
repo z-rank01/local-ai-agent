@@ -85,6 +85,44 @@ async def main():
         await check('disconnect stops child process', not marker_path.exists())
         packets, result = await stream('shell_exec', {'command': "id -u; test ! -e /var/run/docker.sock; test ! -e /app/.env; touch /app/container-check-must-fail"})
         await check('nonroot readonly and no host credentials mount', result['exit_code'] != 0 and result['stdout'].strip() == '1001')
+
+        # ── IN4.16: Agent Skills (SKILL.md) packages ──────────────────────
+        import shutil
+        pkg_dir = WORKSPACE / 'skills' / 'container-check-pkg'
+        bad_dir = WORKSPACE / 'skills' / 'container-check-bad'
+        for stale in (pkg_dir, bad_dir):
+            if stale.exists():
+                shutil.rmtree(stale)
+        (pkg_dir / 'references').mkdir(parents=True)
+        (pkg_dir / 'scripts').mkdir(parents=True)
+        (pkg_dir / 'SKILL.md').write_text(
+            '---\nname: container-check-pkg\ndescription: 合成标准技能包，用于容器集成检查\n---\n\n# 指南正文\n\n用于验证渐进披露。\n',
+            encoding='utf-8')
+        (pkg_dir / 'references' / 'guide.md').write_text('指南内容', encoding='utf-8')
+        (pkg_dir / 'scripts' / 'hello.py').write_text('print("hi")', encoding='utf-8')
+        bad_dir.mkdir(parents=True)
+        (bad_dir / 'SKILL.md').write_text('---\nname: container-check-bad\n---\nno description\n', encoding='utf-8')
+        try:
+            listing = (await post(RUNNER_PORT, 'skill_list', {})).json()
+            skills = listing.get('skills', [])
+            entry = next((s for s in skills if s.get('name') == 'container-check-pkg'), None)
+            await check('SKILL.md package discovered', entry is not None and entry.get('kind') == 'skill_md')
+            await check('package listing hides body (progressive disclosure)', entry is not None and 'body' not in entry and '指南正文' not in json.dumps(entry, ensure_ascii=False))
+            bad = next((s for s in skills if s.get('name') == 'container-check-bad'), None)
+            await check('invalid package reported with error', bad is not None and bad.get('valid') is False and 'description' in bad.get('error', ''))
+            info = (await post(RUNNER_PORT, 'skill_info', {'skill_name': 'container-check-pkg'})).json()
+            await check('package info exposes body and reference list', '指南正文' in info.get('body', '') and 'references/guide.md' in info.get('references', []))
+            await check('package info carries injection-defense note', '参考' in info.get('security_note', ''))
+            guided = (await post(RUNNER_PORT, 'skill_run', {'skill_name': 'container-check-pkg', 'params': {}})).json()
+            await check('package run refused with actionable guidance', guided.get('kind') == 'skill_md' and 'skill_info' in guided.get('error', ''))
+            removed = (await post(RUNNER_PORT, 'skill_unregister', {'skill_name': 'container-check-pkg'})).json()
+            await check('package unregistered via skill_unregister', removed.get('success') is True and not pkg_dir.exists())
+            listing2 = (await post(RUNNER_PORT, 'skill_list', {})).json()
+            await check('package disappears after unregister', not any(s.get('name') == 'container-check-pkg' for s in listing2.get('skills', [])))
+        finally:
+            for stale in (pkg_dir, bad_dir):
+                if stale.exists():
+                    shutil.rmtree(stale)
     output = {'passed': len(results), 'checks': results, 'real_model_calls': 0}
     (ROOT / 'data' / 'tool-checks.json').write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(output, ensure_ascii=False))

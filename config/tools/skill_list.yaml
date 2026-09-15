@@ -2,7 +2,14 @@ name: skill_list
 backend: skill-runner
 tier: core
 short_description: "List available skills."
-description: "List all custom skills registered in /workspace/skills/. Call this before skill_run to discover available skill names and their parameters."
+description: |
+  列出 /workspace/skills/ 下全部技能。两种形态共存：
+  (1) Python 技能（*.py，含 SKILL_METADATA 与 run()，可用 skill_run 执行）；
+  (2) Agent Skills 标准技能包（一个目录含 SKILL.md + 可选 references/ scripts/ assets/，
+      kind=skill_md，用 skill_info 阅读说明，references 用 file_read 按需读取，
+      scripts 用 shell_exec/code_exec 执行）。
+  返回每项的名称、描述与形态标记；不合规的技能包以 valid=false 和错误原因列出，不会被静默忽略。
+  调用 skill_run 前先用本工具发现可用技能名。
 parameters:
   type: object
   properties: {}

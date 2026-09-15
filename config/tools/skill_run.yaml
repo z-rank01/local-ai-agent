@@ -2,17 +2,21 @@ name: skill_run
 backend: skill-runner
 tier: extended
 short_description: "Run a custom skill."
-description: "Run a custom skill from /workspace/skills/ by name. The skill must already exist as a .py file with SKILL_METADATA and a run() function."
+description: |
+  运行 /workspace/skills/ 下已存在的 Python 技能（含 SKILL_METADATA 与 run() 函数）。
+  对 SKILL.md 标准技能包（方法型）不可用：它没有 run()，会返回引导说明——
+  请改用 skill_info 阅读其说明与资源清单，references 用 file_read 按需读取，
+  scripts 用 shell_exec/code_exec 执行（执行前先审查脚本内容）。
 parameters:
   type: object
   properties:
     skill_name:
       type: string
-      description: "Skill filename without .py extension (e.g. 'word_count')"
+      description: "Python 技能名（不含 .py 后缀，如 'word_count'）"
     params:
       type: object
-      description: "Parameters to pass to the skill's run() function"
+      description: "传给技能 run() 函数的参数"
     timeout:
       type: integer
-      description: "Execution timeout in seconds"
+      description: "执行超时秒数"
   required: ["skill_name"]
