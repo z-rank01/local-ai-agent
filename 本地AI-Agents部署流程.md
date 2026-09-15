@@ -39,7 +39,7 @@ python -m pip install -r requirements.txt
 一键自检（逐项 PASS/FAIL，缺项时退出码 1）：
 
 ```powershell
-.\scripts\check-env.ps1        # Linux/macOS: ./scripts/check-env.sh
+.\scripts\check-env.ps1        # 环境自检
 ```
 
 **Ollama（仅本地模型需要）**：`OLLAMA_MODEL` 必须与 `ollama list` 完全一致，否则模型不可用。使用云端模型不要求 Ollama 在线；推荐模型 `qwen3.5:27b`（需 24GB+ 显存），低显存用 `qwen2.5:7b`。
@@ -72,13 +72,13 @@ python -m pip install -e .
 .\scripts\start-daily.ps1        # 或双击 启动.bat
 ```
 
-脚本按顺序完成：
+脚本按步骤输出 `[0/5]`～`[5/5]` 进度（工作区初始化、Docker 与工具容器、Web 界面、聊天服务、Ollama、打开浏览器），成功后打印访问地址与退出提示：
 
-1. 检查 Docker Desktop（未运行则自动拉起，最长等 120 秒）
-2. `docker compose up -d`：skill-files / skill-runner（联网搜索容器由页面开关按需拉起）
+1. 初始化工作区（仅首次；含 git init 与首次提交）
+2. 检查 Docker Desktop（未运行则自动拉起，最长等 120 秒）并 `docker compose up -d`
 3. `apps/web/dist` 缺失时自动 `npm ci && npm run build`（之后代码更新可手动 `npm run build --prefix apps/web` 或 `-RebuildWeb`）
-4. 启动聊天后端（`scripts/run_daily.py`，BFF 同时托管 Web 界面，单端口 9510）
-5. 按上次保存的开关恢复股票后台与联网技能
+4. 启动聊天后端（`scripts/run_daily.py`，BFF 同时托管 Web 界面，单端口 9510），按上次保存的开关恢复股票后台与联网技能
+5. 拉起 Ollama（未运行时自动 `ollama serve`；未安装则提示仅云端模型可用，不阻断）
 6. 打开浏览器
 
 ### 2.4 访问与验证
