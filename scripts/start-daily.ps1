@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # 唯一日常入口：启动工具容器 + BFF（含网页），打开浏览器。
 # 已运行时重复执行只会打开浏览器，不会重复启动服务。
 param([switch]$Build, [switch]$SkipTools, [switch]$RebuildWeb)
@@ -10,17 +10,26 @@ Set-Location -LiteralPath $dailyRoot
 $dailyLogs = Join-Path $dailyRoot 'data/logs'
 New-Item -ItemType Directory -Force -Path $dailyLogs | Out-Null
 if (-not $SkipTools) {
-    docker info *> $null
-    if ($LASTEXITCODE -ne 0) {
-        $dailyDocker = Join-Path $env:ProgramFiles 'Docker/Docker/Docker Desktop.exe'
-        if (-not (Test-Path -LiteralPath $dailyDocker)) { throw 'Docker Desktop is missing. Use -SkipTools for chat/control only.' }
-        Start-Process -FilePath $dailyDocker -WindowStyle Hidden
-        $dailyDeadline = (Get-Date).AddSeconds(120)
-        do { Start-Sleep -Seconds 2; docker info *> $null } until ($LASTEXITCODE -eq 0 -or (Get-Date) -gt $dailyDeadline)
-        if ($LASTEXITCODE -ne 0) { throw 'Docker did not become ready.' }
+    # Native commands write to the error stream on failure; with
+    # $ErrorActionPreference='Stop' that would abort before the checks below,
+    # so probe Docker with a relaxed preference and inspect $LASTEXITCODE.
+    $dailyEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        docker info *> $null
+        if ($LASTEXITCODE -ne 0) {
+            $dailyDocker = Join-Path $env:ProgramFiles 'Docker/Docker/Docker Desktop.exe'
+            if (-not (Test-Path -LiteralPath $dailyDocker)) { throw 'Docker Desktop is missing. Use -SkipTools for chat/control only.' }
+            Start-Process -FilePath $dailyDocker -WindowStyle Hidden
+            $dailyDeadline = (Get-Date).AddSeconds(120)
+            do { Start-Sleep -Seconds 2; docker info *> $null } until ($LASTEXITCODE -eq 0 -or (Get-Date) -gt $dailyDeadline)
+            if ($LASTEXITCODE -ne 0) { throw 'Docker did not become ready.' }
+        }
+        if ($Build) { docker compose up -d --build } else { docker compose up -d }
+        if ($LASTEXITCODE -ne 0) { throw 'Tool containers failed to start.' }
+    } finally {
+        $ErrorActionPreference = $dailyEap
     }
-    if ($Build) { docker compose up -d --build } else { docker compose up -d }
-    if ($LASTEXITCODE -ne 0) { throw 'Tool containers failed to start.' }
 }
 # The BFF serves the production build; create it once unless requested otherwise.
 $dailyIndex = Join-Path $dailyRoot 'apps/web/dist/index.html'
