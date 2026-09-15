@@ -46,12 +46,16 @@ export function SkillsPanel({onChanged}: {onChanged?: () => void}) {
   return <section className="skills-panel">
     <h2>技能</h2>
     <div className="skill-row">
-      <span>联网搜索</span>
-      <button type="button" className="ghost-button tiny" disabled={busy} onClick={() => void toggle()}>
-        {busy ? '切换中…' : enabled ? '已开启 · 点击关闭' : '已关闭 · 点击开启'}
+      <div className="skill-row-main">
+        <span className="skill-name">联网搜索</span>
+        <span className={enabled ? 'skill-badge on' : 'skill-badge'}>{enabled ? '已开启' : '已关闭'}</span>
+      </div>
+      <button type="button" className={enabled ? 'switch-button on' : 'switch-button'}
+        disabled={busy} onClick={() => void toggle()}>
+        {busy ? '切换中…' : enabled ? '关闭' : '开启'}
       </button>
     </div>
-    <p className="status-hint">开启后可让模型联网检索与读取网页；首次开启需要启动搜索容器，可能要等几秒。</p>
+    <p className="status-hint">开启后模型可联网检索与读取网页；首次启动搜索容器需等待几秒。</p>
     {error && <p role="alert" className="error-banner">{error}</p>}
   </section>;
 }

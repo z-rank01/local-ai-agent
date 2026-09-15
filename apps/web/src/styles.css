@@ -2405,12 +2405,117 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .package-task-list p {margin: 6px 0;}
 .package-task-list pre {white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-height: 160px; overflow: auto;}
 /* Daily operations stay readable in the narrow inspector. */
-.stock-service-panel { border-top: 1px solid var(--border, #ddd); margin-top: 16px; padding-top: 12px; }
-.stock-service-panel label { display: block; margin: 8px 0; }
-.stock-service-panel input, .stock-service-panel textarea { display: block; width: 100%; box-sizing: border-box; }
-.stock-service-panel button { padding: 7px 10px; margin: 4px 4px 4px 0; cursor: pointer; border: 1px solid #d8d7d2; border-radius: 8px; background: #fafaf8; color: #292822; font: inherit; font-size: 12px; }
-.stock-service-panel button:hover:enabled { background: #efeee9; }
-.stock-service-panel input, .stock-service-panel textarea { padding: 8px; border: 1px solid #d8d7d2; border-radius: 6px; font: inherit; }
-.stock-service-panel button:disabled { opacity: .5; cursor: default; }
-.stock-service-panel details { margin: 10px 0; }
+/* ---- Skill panels: web search & stock (shared design language) ---- */
+.skills-panel .skill-row, .stock-service-panel .skill-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.skill-row-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.skill-name { font-size: 13px; color: var(--text); }
+.skill-badge {
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.skill-badge.on {
+  color: var(--ok);
+  background: rgba(38, 122, 83, 0.09);
+  border-color: rgba(38, 122, 83, 0.28);
+}
+.switch-button {
+  flex: none;
+  padding: 5px 16px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-soft);
+  color: var(--muted);
+  transition: background var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
+}
+.switch-button:hover:enabled { border-color: var(--accent); color: var(--accent); }
+.switch-button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+.switch-button.on:hover:enabled { background: var(--accent-strong); border-color: var(--accent-strong); color: #ffffff; }
+.stock-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.stock-summary b { color: var(--text); font-weight: 600; }
+.panel-details { margin: 10px 0 0; }
+.panel-details > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text);
+  user-select: none;
+}
+.panel-details > summary::-webkit-details-marker { display: none; }
+.panel-details > summary::before {
+  content: 'B8';
+  flex: none;
+  color: var(--muted-soft);
+  font-size: 11px;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+.panel-details[open] > summary::before { transform: rotate(90deg); }
+.panel-details > summary:hover { color: var(--text-strong); }
+.details-meta {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-details-body {
+  display: grid;
+  gap: 8px;
+  margin: 2px 0 6px 19px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--line);
+}
+.panel-details.nested { margin-top: 4px; }
+.panel-details.nested > summary { font-size: 12.5px; color: var(--muted); }
+.panel-details.nested > summary:hover { color: var(--text); }
+.panel-details label { display: grid; gap: 4px; margin: 4px 0; font-size: 12px; color: var(--muted); }
+.panel-details input, .panel-details textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.panel-details input:focus-visible, .panel-details textarea:focus-visible {
+  outline: 2px solid rgba(95, 91, 218, 0.35);
+  outline-offset: 1px;
+}
 .stock-service-panel p, .stock-operator-reply { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; }
+.stock-service-panel .status-actions { margin-top: 4px; }

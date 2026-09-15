@@ -73,56 +73,86 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
   };
   const steps = status?.recovery?.steps ?? [];
   const online = !!status?.online;
-  const action = (name: string) => (pendingAction === name ? '…' : '');
+  const completed = steps.filter(s => s.status === 'COMPLETED').length;
+  const problems = status?.recovery?.problems ?? [];
+  const humanTasks = status?.recovery?.human_tasks ?? [];
+  const recoveryOpen = !!challenge || problems.length > 0;
   return <section className="stock-service-panel">
     <h2>股票技能</h2>
     <div className="skill-row">
-      <span>{online ? '已开启' : '已关闭'}</span>
-      <button type="button" className="ghost-button tiny" disabled={busy}
-        onClick={() => void act(online ? 'stop' : 'start')}>
-        {busy ? '切换中…' : online ? `关闭股票技能${action('stop')}` : '开启股票技能'}
+      <div className="skill-row-main">
+        <span className="skill-name">股票后台</span>
+        <span className={online ? 'skill-badge on' : 'skill-badge'}>{online ? '已开启' : '已关闭'}</span>
+      </div>
+      <button type="button" className={online ? 'switch-button on' : 'switch-button'}
+        disabled={busy} onClick={() => void act(online ? 'stop' : 'start')}>
+        {busy ? '切换中…' : online ? '关闭' : '开启'}
       </button>
     </div>
-    {online && <>
-      <p>任务执行:{status?.worker?.draining ? '正在收尾' : status?.worker?.enabled ? '已开启' : '已暂停'}</p>
-      {status?.runtime && <><p>业务模式：{label(status.runtime.mode)} · 已核对至 {status.runtime.last_completed_day ?? '尚无记录'}</p></>}
-    </>}
-    {!online && status?.message && <p>{status.message}</p>}
-    {!online && !status?.settings.root && <p className="status-hint">首次使用请在下方“高级管理 → 连接配置”中填写股票仓库路径。</p>}
-    <details>
-      <summary>高级管理</summary>
-      <details><summary>连接配置（首次设置）</summary>
-        <label>股票仓库路径<input value={root} onChange={e => setRoot(e.target.value)} placeholder="D:\Stock_Agent_Workspace" /></label>
-        <label>状态目录<input value={stateDir} onChange={e => setStateDir(e.target.value)} /></label>
-        <label>端口<input type="number" value={port} onChange={e => setPort(e.target.value)} /></label>
-        <p>日常目录为 simulation；验收请使用独立目录，避免切错账户。</p>
-        <button disabled={busy || online} onClick={() => void act('configure', {root, state_dir: stateDir, port: Number(port)})}>保存配置</button>
-      </details>
-      <div className="status-actions">
-        <button disabled={busy || online} onClick={() => void act('start')}>开启股票后台</button>
-        <button disabled={busy || !online || status?.worker?.enabled} onClick={() => void act('worker_start')}>开启任务执行</button>
-        <button disabled={busy || !online || !status?.worker?.enabled} onClick={() => void act('worker_pause')}>暂停任务执行</button>
-        <button disabled={busy || !online} onClick={() => void act('stop')}>{pendingAction === 'stop' ? '正在关闭股票后台…' : '关闭股票后台'}</button>
-      </div>
-      {online && <>
-        <h3>恢复与待办</h3>
-        <p>{steps.filter(s => s.status === 'COMPLETED').length} / {steps.length} 个交易日已核对 · {label(status.recovery?.batch?.status ?? '无恢复批次')}</p>
-        <p>历史数据标为事后取得，离线期间未实时监控。恢复不自动重发模型请求。</p>
-        {status.recovery?.problems.map(p => <p key={p} role="status">{p}</p>)}
+    {online && status?.runtime ? <div className="stock-summary">
+      <span>任务执行 <b>{status.worker?.draining ? '正在收尾' : status.worker?.enabled ? '已开启' : '已暂停'}</b></span>
+      <span>业务模式 <b>{label(status.runtime.mode)}</b></span>
+      <span>已核对至 <b>{status.runtime.last_completed_day ?? '尚无记录'}</b></span>
+    </div> : null}
+    {!online && status?.message ? <p className="status-hint">{status.message}</p> : null}
+    {!online && !status?.settings.root ? <p className="status-hint">首次使用请在下方“高级管理 → 连接配置”保存股票仓库路径。</p> : null}
+
+    {online ? <details className="panel-details" open={recoveryOpen}>
+      <summary>恢复与待办<span className="details-meta">{completed}/{steps.length} 已核对 · {label(status?.recovery?.batch?.status ?? '无恢复批次')}</span></summary>
+      <div className="panel-details-body">
+        <p className="status-hint">历史数据标为事后取得，离线期间未实时监控；恢复不自动重发模型请求。</p>
+        {problems.map(p => <p key={p} role="status" className="status-hint">{p}</p>)}
+        {humanTasks.map(t => <p key={t.id} className="status-hint">{t.body.message ?? t.kind}</p>)}
         <div className="status-actions">
-          <button disabled={busy || status.worker?.busy} onClick={() => void act('recover')}>补跑 / 重试恢复</button>
-          <button disabled={busy || status.worker?.busy || !!status.recovery?.problems.length} onClick={() => void act('prepare_resume')}>核对并恢复运行</button>
+          <button type="button" className="ghost-button tiny" disabled={busy || status?.worker?.busy} onClick={() => void act('recover')}>补跑 / 重试恢复</button>
+          <button type="button" className="ghost-button tiny" disabled={busy || status?.worker?.busy || !!problems.length} onClick={() => void act('prepare_resume')}>核对并恢复运行</button>
         </div>
-        {challenge && <div role="alert"><p>确认已核对以上恢复结果与待办？恢复后允许正常研究；新订单仍需逐笔确认。</p><button disabled={busy} onClick={() => void act('confirm_resume', {challenge})}>确认恢复</button><button onClick={() => setChallenge('')}>取消</button></div>}
-        <details><summary>逐日恢复记录</summary>{steps.map(s => <p key={s.id}>{s.body.day} · {label(s.status)}{s.body.error ? `：${s.body.error}` : ''}</p>)}</details>
-        {status.recovery?.human_tasks.map(t => <p key={t.id}>{t.body.message ?? t.kind}</p>)}
-        <details><summary>人工操作（直接提交，不经过模型）</summary>
-          <p>可输入“帮助”“账户”“权益待办”“恢复运行”“初始化 100000”。需要确认的操作会返回一次性确认指令；复制到此处提交。</p>
-          <textarea aria-label="人工操作内容" value={query} onChange={e => setQuery(e.target.value)} />
-          <button disabled={busy || !query.trim()} onClick={() => void act('operator', {query, request_id: crypto.randomUUID()})}>提交人工操作</button>
-          {reply && <pre className="stock-operator-reply">{reply}</pre>}
+        {challenge ? <div role="alert"><p className="status-hint">确认已核对以上恢复结果与待办？恢复后允许正常研究；新订单仍需逐笔确认。</p>
+          <div className="status-actions">
+            <button type="button" className="ghost-button tiny" disabled={busy} onClick={() => void act('confirm_resume', {challenge})}>确认恢复</button>
+            <button type="button" className="ghost-button tiny" onClick={() => setChallenge('')}>取消</button>
+          </div>
+        </div> : null}
+      </div>
+    </details> : null}
+
+    <details className="panel-details">
+      <summary>高级管理</summary>
+      <div className="panel-details-body">
+        <details className="panel-details nested">
+          <summary>连接配置<span className="details-meta">{status?.settings.root ? `${status.settings.state_dir} · ${status.settings.port}` : '首次使用'}</span></summary>
+          <div className="panel-details-body">
+            <label>股票仓库路径<input value={root} onChange={e => setRoot(e.target.value)} placeholder="D:\Stock_Agent_Workspace" /></label>
+            <label>状态目录<input value={stateDir} onChange={e => setStateDir(e.target.value)} /></label>
+            <label>端口<input type="number" value={port} onChange={e => setPort(e.target.value)} /></label>
+            <p className="status-hint">日常目录为 simulation；验收请使用独立目录，避免切错账户。修改前请先关闭股票技能。</p>
+            <div className="status-actions">
+              <button type="button" className="ghost-button tiny" disabled={busy || online} onClick={() => void act('configure', {root, state_dir: stateDir, port: Number(port)})}>保存配置</button>
+            </div>
+          </div>
         </details>
-      </>}
+        {online ? <div className="status-actions">
+          <button type="button" className="ghost-button tiny" disabled={busy || status?.worker?.enabled} onClick={() => void act('worker_start')}>开启任务执行</button>
+          <button type="button" className="ghost-button tiny" disabled={busy || !status?.worker?.enabled} onClick={() => void act('worker_pause')}>暂停任务执行</button>
+        </div> : null}
+        {online ? <details className="panel-details nested">
+          <summary>逐日恢复记录</summary>
+          <div className="panel-details-body">
+            {steps.map(s => <p key={s.id} className="status-hint">{s.body.day} · {label(s.status)}{s.body.error ? `：${s.body.error}` : ''}</p>)}
+          </div>
+        </details> : null}
+        {online ? <details className="panel-details nested">
+          <summary>人工操作<span className="details-meta">直接提交，不经过模型</span></summary>
+          <div className="panel-details-body">
+            <p className="status-hint">可输入“帮助”“账户”“权益待办”“恢复运行”“初始化 100000”。需要确认的操作会返回一次性确认指令；复制到此处提交。</p>
+            <textarea aria-label="人工操作内容" value={query} onChange={e => setQuery(e.target.value)} />
+            <div className="status-actions">
+              <button type="button" className="ghost-button tiny" disabled={busy || !query.trim()} onClick={() => void act('operator', {query, request_id: crypto.randomUUID()})}>提交</button>
+            </div>
+            {reply && <pre className="stock-operator-reply">{reply}</pre>}
+          </div>
+        </details> : null}
+      </div>
     </details>
     {error && <p role="alert" className="error-banner">{error}</p>}
   </section>;
