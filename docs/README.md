@@ -14,6 +14,7 @@
 | 批次 | 状态 |
 | --- | --- |
 | 单一入口改造（先于 IN4.16） | ✅ 已实现并自测：唯一入口 `启动.bat`/`scripts/start-daily.ps1`（BFF @9510 同源托管 Web）；页面技能开关（联网搜索 `core/skills_service.py`、股票技能单开关）；退出唯一路径=页面"退出"或关闭页面（15 秒自动全退含容器，`core/auto_exit.py`）；IN1 会话库并入 `data/conversations.db`，旧入口与 legacy 界面（TUI/Ink CLI/gateway）移除；规则见根目录 `AGENTS.md`。 |
+| IN4.16 技能结构对齐 | ✅ 已实现并实测（2026-09-15，待人工验收）：Agent Skills（SKILL.md）包零改代码可发现，`skill_list` 渐进披露（清单无正文）、`skill_info` 返回正文+资源清单+注入防护、`skill_run` 引导、wb-finance-skill 端到端可用；容器检查 26 项、离线 132 项全过；详见[股票能力接入](./股票能力接入.md)。 |
 
 | 阶段 | 状态 |
 | --- | --- |
