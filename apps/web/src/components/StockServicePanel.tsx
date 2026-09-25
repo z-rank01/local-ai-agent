@@ -2,6 +2,8 @@ import {useEffect, useRef, useState} from 'react';
 import {DEFAULT_BASE_URL} from '../api';
 
 type Step = {id: string; status: string; body: {day?: string; error?: string; attempts?: number}};
+type PositionReview = {id: string; day: string; status: string; symbol: string; reasons: string[];
+  review: {status?: string; verdict?: string | null; report?: string; missing?: string[]; decision_id?: string}};
 type ServiceStatus = {
   online: boolean; message?: string;
   settings: {root: string; state_dir: string; port: number; enabled: boolean; worker: boolean};
@@ -9,6 +11,8 @@ type ServiceStatus = {
   runtime?: {mode: string; reason: string; last_completed_day: string | null};
   recovery?: {batch: {status: string; from_day: string; to_day: string} | null; steps: Step[]; problems: string[];
     human_tasks: {id: string; kind: string; body: {message?: string}}[]};
+  position_reviews?: PositionReview[];
+  position_review_open_count?: number;
 };
 
 const labels: Record<string, string> = {UNINITIALIZED: '未初始化', ACTIVE: '正常运行', AWAY_READONLY: '离开 · 只读', RECOVERING: '恢复核对中', NEEDS_REVIEW: '需要核查', PENDING: '等待执行', RUNNING: '执行中', COMPLETED: '已完成', BLOCKED: '有阻塞'};
@@ -76,6 +80,9 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
   const completed = steps.filter(s => s.status === 'COMPLETED').length;
   const problems = status?.recovery?.problems ?? [];
   const humanTasks = status?.recovery?.human_tasks ?? [];
+  const reviewsAvailable = Array.isArray(status?.position_reviews);
+  const positionReviews = status?.position_reviews ?? [];
+  const openReviews = status?.position_review_open_count ?? positionReviews.filter(r => r.status === 'OPEN').length;
   const recoveryOpen = !!challenge || problems.length > 0;
   return <section className="stock-service-panel">
     <h2>股票技能</h2>
@@ -113,6 +120,24 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
             <button type="button" className="ghost-button tiny" onClick={() => setChallenge('')}>取消</button>
           </div>
         </div> : null}
+      </div>
+    </details> : null}
+
+    {online ? <details className="panel-details">
+      <summary>持仓监督<span className="details-meta">{reviewsAvailable ? `${openReviews} 项待核查 · 最近 ${positionReviews.length} 项` : '后台状态未同步'}</span></summary>
+      <div className="panel-details-body">
+        {!reviewsAvailable ? <p className="status-hint">当前股票后台尚未提供持仓监督状态；待后台更新并完成任务收尾后再查看。</p> : null}
+        {reviewsAvailable && positionReviews.length === 0 ? <p className="status-hint">暂无持仓监督记录；无持仓时不会触发 B04。</p> : null}
+        {positionReviews.map(item => <details key={item.id} className="panel-details nested">
+          <summary>{item.symbol || '历史记录'} · {item.day} · {item.status === 'OPEN' ? '待核查' : '已有监督结论'}
+            <span className="details-meta">{item.review.verdict ?? item.review.status ?? ''}</span></summary>
+          <div className="panel-details-body">
+            {item.reasons?.length ? <p className="status-hint">触发：{item.reasons.join('；')}</p> : null}
+            {item.review.report ? <pre className="stock-operator-reply">{item.review.report}</pre> : null}
+            {item.review.missing?.length ? <p className="status-hint">缺失：{item.review.missing.join('；')}</p> : null}
+            {item.review.decision_id ? <p className="status-hint">订单草案须人工核对。在下方“人工操作”输入 <code>审查 {item.review.decision_id}</code>，按返回提示继续。</p> : null}
+          </div>
+        </details>)}
       </div>
     </details> : null}
 
