@@ -36,6 +36,13 @@ def _find_action(params):
     return action
 
 
+def _candidate_find_action(params):
+    action = {'action': 'find', 'kind': 'scan'}
+    if params.get('page') is not None:
+        action['page'] = params['page']
+    return action
+
+
 def _report_action(params):
     return {'action': 'view', 'kind': 'job',
             'reference': {'type': 'task', 'token': params.get('reference', '')}}
@@ -57,6 +64,13 @@ def _submit_action(params):
     return action
 
 
+def _screen_action(params):
+    action = {'action': 'submit', 'kind': 'scan'}
+    if params.get('filters'):
+        action['filters'] = params['filters']
+    return action
+
+
 def _reference_action(action_name):
     def build(params):
         return {'action': action_name, 'reference': {'type': 'task', 'token': params.get('reference', '')}}
@@ -66,8 +80,10 @@ def _reference_action(action_name):
 _TOOL_ACTIONS = {
     'stock_account_view': _account_action,
     'stock_research_find': _find_action,
+    'stock_candidate_find': _candidate_find_action,
     'stock_report_read': _report_action,
     'stock_research_submit': _submit_action,
+    'stock_candidate_screen': _screen_action,
     'stock_research_cancel': _reference_action('cancel_research'),
     'stock_research_resume': _reference_action('resume_research'),
 }
@@ -110,7 +126,7 @@ class StockBridge:
         if tool in _REFERENCE_TOOLS:
             reference = params.get('reference', '')
             if not isinstance(reference, str) or not _REFERENCE_RE.match(reference):
-                return {'error': f'reference 必须是本会话 stock_research_find 返回的 64 位任务引用；请先调用 stock_research_find 获取。'}
+                return {'error': 'reference 必须是本会话 stock_research_find 或 stock_candidate_find 返回的 64 位任务引用；请先查找任务。'}
         if tool == 'stock_research_submit':
             symbol = params.get('symbol')
             name = params.get('name')

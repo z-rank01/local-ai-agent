@@ -1,0 +1,13 @@
+name: stock_candidate_find
+backend: stock-bridge
+tier: extended
+short_description: "查找本会话已有的股票候选筛选任务。"
+description: >
+  分页查找本会话已有的候选筛选任务，不创建任务。
+  返回状态和安全任务引用；将 reference 交给 stock_report_read 读取结果。
+parameters:
+  type: object
+  properties:
+    page:
+      type: integer
+      description: "页码，从 1 开始，每页 8 条"

@@ -1,0 +1,30 @@
+name: stock_candidate_screen
+backend: stock-bridge
+tier: extended
+short_description: "按价格和涨跌幅条件建立 A 股候选研究池。"
+description: >
+  建立异步候选研究池。只支持当前新浪快照可核对的最新价（元）和涨跌幅（%）上下限；
+  可不填 filters 建默认流动性池。数值必须逐项来自用户本轮原话，不得自行补条件。
+  程序排除 ST、退市标记及无效成交额，再按成交额排序；条件结果不会自动启动付费个股研究。
+  快照只有时分秒，逐行行情日期未确认，不能把抓取时间当行情日期，结果不构成买入建议。
+  当前不支持 PE、PB、ROE 条件；用户要求这些条件时请说明缺少可核对字段。
+  返回的是任务回执，完成后请按本会话任务查询和读取结果。
+parameters:
+  type: object
+  properties:
+    filters:
+      type: object
+      additionalProperties: false
+      properties:
+        min_price:
+          type: number
+          description: "用户原话中的最低价格，元，须大于零"
+        max_price:
+          type: number
+          description: "用户原话中的最高价格，元，须大于零"
+        min_change_pct:
+          type: number
+          description: "用户原话中的最低涨跌幅，百分数，可为负"
+        max_change_pct:
+          type: number
+          description: "用户原话中的最高涨跌幅，百分数，可为负"

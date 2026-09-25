@@ -36,8 +36,12 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.service.attach(runtime, True)
         self.assertIs(runtime.stock_bridge, runtime.router._stock_bridge)
         self.assertIn('stock_research_submit', registry.known_tools)
+        self.assertIn('stock_candidate_screen', registry.known_tools)
+        self.assertIn('stock_candidate_find', registry.known_tools)
         await self.service.attach(runtime, False)
         self.assertNotIn('stock_research_submit', registry.known_tools)
+        self.assertNotIn('stock_candidate_screen', registry.known_tools)
+        self.assertNotIn('stock_candidate_find', registry.known_tools)
         self.assertIsNone(runtime.router._stock_bridge)
 
     async def test_busy_stop_keeps_bridge_and_settings(self):

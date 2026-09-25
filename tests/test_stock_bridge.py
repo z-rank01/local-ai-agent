@@ -173,6 +173,30 @@ class ResearchChainActionTests(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(client.aclose)
         return StockBridge('http://paper.test', 'secret-token', client=client)
 
+    async def test_candidate_screen_maps_to_existing_scan_task(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'screen-turn', '筛选价格 10 元以上且涨幅小于 3% 的股票')
+        await bridge.call_tool('stock_candidate_screen',
+            {'filters': {'min_price': 10, 'max_change_pct': 3}}, 'c')
+        step = [c for c in calls if c['path'].endswith('/step')][0]
+        self.assertEqual(step['json']['tool_call'],
+            {'action': 'submit', 'kind': 'scan',
+             'filters': {'min_price': 10, 'max_change_pct': 3}})
+
+    async def test_candidate_find_maps_to_scan_and_uses_report_reference(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls, step_responses=[
+            ok_step({'kind': 'task_search', 'items': [{'reference': REF}]}),
+            ok_step({'task_status': 'SUCCEEDED'}, local=True, seq=2)]))
+        bridge.set_turn('c', 'screen-read', '查看刚才的候选结果')
+        await bridge.call_tool('stock_candidate_find', {}, 'c')
+        await bridge.call_tool('stock_report_read', {'reference': REF}, 'c')
+        steps = [c['json']['tool_call'] for c in calls if c['path'].endswith('/step')]
+        self.assertEqual(steps, [
+            {'action': 'find', 'kind': 'scan'},
+            {'action': 'view', 'kind': 'job', 'reference': {'type': 'task', 'token': REF}}])
+
     async def test_submit_mapping_and_capsule_receipt(self):
         calls = []
         capsule = {'action': 'submit', 'kind': 'research', 'status': 'QUEUED', 'operation': 'CREATED', 'symbol': '600150'}
