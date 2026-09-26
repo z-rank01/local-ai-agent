@@ -17,6 +17,29 @@ Set-Location -LiteralPath $dailyRoot
 $dailyLogs = Join-Path $dailyRoot 'data/logs'
 New-Item -ItemType Directory -Force -Path $dailyLogs | Out-Null
 
+# Use the stock service's configured loopback Ollama endpoint when available.
+$dailyOllamaUrl = 'http://127.0.0.1:11434'
+$dailyServicesFile = Join-Path $dailyRoot 'data/private/daily-services.json'
+if (Test-Path -LiteralPath $dailyServicesFile) {
+    $dailyServices = Get-Content -LiteralPath $dailyServicesFile -Raw | ConvertFrom-Json
+    if ($dailyServices.root) {
+        $dailyStockConfig = Join-Path ([string]$dailyServices.root) 'config/local.json'
+        if (Test-Path -LiteralPath $dailyStockConfig) {
+            $dailyStockSettings = Get-Content -LiteralPath $dailyStockConfig -Raw | ConvertFrom-Json
+            if ($dailyStockSettings.ollama_base_url) { $dailyOllamaUrl = [string]$dailyStockSettings.ollama_base_url }
+        }
+    }
+}
+$dailyOllamaUri = $null
+if (-not [Uri]::TryCreate($dailyOllamaUrl, [UriKind]::Absolute, [ref]$dailyOllamaUri) -or
+        $dailyOllamaUri.Scheme -ne 'http' -or $dailyOllamaUri.Host -ne '127.0.0.1' -or
+        $dailyOllamaUri.Port -lt 1024 -or $dailyOllamaUri.Port -gt 65535 -or
+        $dailyOllamaUri.AbsolutePath -notin @('', '/')) {
+    throw 'Ollama address must be a 127.0.0.1 loopback URL with a valid port.'
+}
+$dailyOllamaUrl = $dailyOllamaUrl.TrimEnd('/')
+$env:OLLAMA_BASE_URL = $dailyOllamaUrl
+
 Write-Host ''
 Write-Host '  Local AI Agent - starting' -ForegroundColor White
 Write-Host ''
@@ -81,14 +104,17 @@ try {
 
     # -- [3/5] chat backend ----------------------------------------------------
     Write-Host '  [3/5] Chat service' -ForegroundColor Cyan
-    $dailyListener = Get-NetTCPConnection -LocalPort 9510 -State Listen -ErrorAction SilentlyContinue
-    if ($dailyListener) {
-        try {
-            $dailyStatus = Invoke-RestMethod 'http://127.0.0.1:9510/api/status' -TimeoutSec 5
-            if (-not $dailyStatus.daily_services) { throw 'Port 9510 belongs to a non-daily backend. Stop it before starting daily mode.' }
-            Write-Ok 'already running'
-        } catch { throw $_ }
+    $dailyReady = $false
+    try {
+        $dailyStatus = Invoke-RestMethod 'http://127.0.0.1:9510/api/status' -TimeoutSec 5
+        $dailyReady = [bool]$dailyStatus.daily_services
+    } catch {}
+    if ($dailyReady) {
+        Write-Ok 'already running'
     } else {
+        if (Get-NetTCPConnection -LocalPort 9510 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 9510 belongs to a non-daily backend. Stop it before starting daily mode.'
+        }
         Write-Step 'starting chat service...'
         Start-Process -FilePath $dailyPython -ArgumentList @('scripts/run_daily.py') -WorkingDirectory $dailyRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $dailyLogs 'daily-bff.log') -RedirectStandardError (Join-Path $dailyLogs 'daily-bff.err.log')
         $dailyReady = $false
@@ -106,14 +132,25 @@ try {
 
 # -- [4/5] Ollama (local models; cloud works without it) ---------------------
 Write-Host '  [4/5] Ollama (local models)' -ForegroundColor Cyan
-$ollamaUp = [bool](Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue)
+$ollamaUp = $false
+try { $ollamaUp = [bool](Invoke-RestMethod ($dailyOllamaUrl + '/api/tags') -TimeoutSec 4) } catch {}
 if ($ollamaUp) {
     Write-Ok 'running'
 } elseif (Get-Command ollama -ErrorAction SilentlyContinue) {
     Write-Step 'starting ollama serve...'
-    Start-Process -FilePath 'ollama' -ArgumentList @('serve') -WindowStyle Hidden
+    $dailyOldOllamaHost = $env:OLLAMA_HOST
+    try {
+        $env:OLLAMA_HOST = '127.0.0.1:' + $dailyOllamaUri.Port
+        Start-Process -FilePath 'ollama' -ArgumentList @('serve') -WindowStyle Hidden
+    } finally {
+        if ($null -eq $dailyOldOllamaHost) { Remove-Item Env:OLLAMA_HOST -ErrorAction SilentlyContinue }
+        else { $env:OLLAMA_HOST = $dailyOldOllamaHost }
+    }
     $dailyDeadline = (Get-Date).AddSeconds(45)
-    do { Start-Sleep -Seconds 2; $ollamaUp = [bool](Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue) } until ($ollamaUp -or (Get-Date) -gt $dailyDeadline)
+    do {
+        Start-Sleep -Seconds 2
+        try { $ollamaUp = [bool](Invoke-RestMethod ($dailyOllamaUrl + '/api/tags') -TimeoutSec 4) } catch { $ollamaUp = $false }
+    } until ($ollamaUp -or (Get-Date) -gt $dailyDeadline)
     if ($ollamaUp) { Write-Ok 'started' } else { Write-Warn2 'did not become ready in time; local models stay unavailable until Ollama runs' }
 } else {
     Write-Warn2 'not installed; only cloud models are usable'
@@ -121,8 +158,12 @@ if ($ollamaUp) {
 
 # -- [5/5] open browser --------------------------------------------------------
 Write-Host '  [5/5] Open browser' -ForegroundColor Cyan
-Start-Process 'http://127.0.0.1:9510'
-Write-Ok 'http://127.0.0.1:9510'
+try {
+    Start-Process 'http://127.0.0.1:9510'
+    Write-Ok 'http://127.0.0.1:9510'
+} catch {
+    Write-Warn2 'Browser could not open automatically; use http://127.0.0.1:9510'
+}
 
 Write-Host ''
 Write-Host '  Started. Daily Web: http://127.0.0.1:9510' -ForegroundColor Green

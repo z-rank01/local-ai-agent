@@ -8,7 +8,7 @@
 | Python ≥ 3.11 | BFF 与工具依赖 | `python --version` |
 | Node.js ≥ 18、npm | 首次构建 Web | `node --version`、`npm --version` |
 | Docker Desktop / Compose | 文件、执行与搜索工具容器 | `docker compose version` |
-| Ollama（按需） | 仅本地模型需要 | `ollama list` |
+| Ollama（按需） | 本地聊天模型和每日市场事件正文分析需要；单一启动器读取已连接股票仓库配置的回环端口 | `ollama list` |
 | Git | 仓库与工作区版本管理 | `git --version` |
 
 ## 首次安装
