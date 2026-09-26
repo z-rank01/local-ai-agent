@@ -43,8 +43,9 @@ def _candidate_find_action(params):
     return action
 
 
-def _market_brief_action(_params):
-    return {'action': 'submit', 'kind': 'market_brief'}
+def _market_brief_action(params):
+    return {'action': 'submit', 'kind': 'market_brief',
+            **({'refresh': True} if params.get('refresh') is True else {})}
 
 
 def _market_brief_find_action(params):

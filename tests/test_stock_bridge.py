@@ -61,6 +61,14 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             {'action': 'find', 'kind': 'market_brief', 'page': 1},
         ])
 
+    async def test_market_brief_refresh_requires_explicit_tool_parameter(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('refresh-conv', 'refresh-request', '刷新每日市场简报')
+        await bridge.call_tool('stock_market_brief', {'refresh': True}, 'refresh-conv')
+        steps = [call['json']['tool_call'] for call in calls if call['path'].endswith('/step')]
+        self.assertEqual(steps, [{'action': 'submit', 'kind': 'market_brief', 'refresh': True}])
+
     async def test_lifecycle_identity_and_attachment_harvest(self):
         calls = []
         reply = '本轮工具处理已结束，已取得的结果见下方。\n\n---\n\n#### 本轮本地结果\n\n报告全文一\n\n---\n\n报告全文二'
