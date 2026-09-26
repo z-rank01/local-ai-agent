@@ -737,7 +737,7 @@ class ChatSessionService:
         thinking_open = False
         active_tools = {}
         stock_bridge = self._runtime.stock_bridge
-        stock_pending_local = []   # call_ids whose step flagged local_result_available, in order
+        stock_pending_local = {}   # broker sequence -> call_id for local-only results
         stock_tool_rows = {}       # call_id -> saved tool row id
         if stock_bridge is not None and not answer_only:
             stock_bridge.set_turn(conversation.id, request_id or run_id,
@@ -797,8 +797,11 @@ class ChatSessionService:
                         active_tools.pop(data['call_id'], None)
                         if stock_bridge is not None:
                             stock_tool_rows[data['call_id']] = saved.id
-                            if isinstance(data.get('result'), dict) and data['result'].get('local_result_available'):
-                                stock_pending_local.append(data['call_id'])
+                            result = data.get('result')
+                            if isinstance(result, dict) and result.get('local_result_available'):
+                                sequence = result.get('broker_sequence')
+                                if isinstance(sequence, int):
+                                    stock_pending_local[sequence] = data['call_id']
                         yield emit('tool.completed', block_id=data['call_id'], message_id=saved.id,
                             data={**data, 'params': display_params, 'detail': data.get('result_preview',''), 'headline': event.text})
                     elif event.kind == 'error':
@@ -832,18 +835,20 @@ class ChatSessionService:
     async def _finish_stock_turn(self, conversation_id, pending, tool_rows, emit):
         """Finish the turn's broker session and attach harvested local-only results.
 
-        Attachment texts arrive in step order and pair with the calls that flagged
-        local_result_available; on a count mismatch (broker dedupes identical
-        details) everything goes to the last flagged call rather than misaligning.
+        Broker step numbers preserve ownership even when other steps have no
+        attachment or report text contains Markdown separators.
         """
         bridge = self._runtime.stock_bridge
         if bridge is None:
             return
-        texts = await bridge.finish_turn(conversation_id)
-        if not texts or not pending:
+        results = await bridge.finish_turn(conversation_id)
+        if not results or not pending:
             return
-        pairs = list(zip(pending, texts)) if len(texts) == len(pending) else [(pending[-1], '\n\n---\n\n'.join(texts))]
-        for call_id, text in pairs:
+        for item in results:
+            call_id = pending.get(item['sequence'])
+            text = item['text']
+            if not call_id:
+                continue
             message_id = tool_rows.get(call_id)
             if not message_id:
                 continue

@@ -324,8 +324,13 @@ function ToolDetail({
     : undefined;
   const searchPayload = block.label === 'conversation_search' ? structuredToolPayload<ConversationSearchPayload>(block) : null;
   const readPayload = block.label === 'conversation_read' ? structuredToolPayload<ConversationReadPayload>(block) : null;
-  const structuredResultText = block.toolResult !== undefined && block.toolResult !== null
-    ? formatToolParamValue(block.toolResult)
+  const localResult = (block.toolResult as {local_result?: unknown} | null | undefined)?.local_result;
+  const displayToolResult = block.toolResult && typeof block.toolResult === 'object' && !Array.isArray(block.toolResult)
+    ? Object.fromEntries(Object.entries(block.toolResult as Record<string, unknown>)
+        .filter(([key]) => key !== 'local_result' && key !== 'broker_sequence'))
+    : block.toolResult;
+  const structuredResultText = displayToolResult !== undefined && displayToolResult !== null
+    ? formatToolParamValue(displayToolResult)
     : '';
   const searchQuery = typeof block.params?.query === 'string'
     ? block.params.query
@@ -412,6 +417,11 @@ function ToolDetail({
         </ToolDetailSection>
       ) : null}
       {stockObservation ? <StockObservation observation={stockObservation} tool={block.label} /> : null}
+      {typeof localResult === 'string' ? (
+        <ToolDetailSection title="报告正文（本地，未发送给模型）">
+          <MarkdownMessage content={localResult} />
+        </ToolDetailSection>
+      ) : null}
       {hasParams ? (
         <ToolDetailSection title="参数">
           <dl className="tool-params-list">
@@ -427,11 +437,6 @@ function ToolDetail({
       <ToolDetailSection title={block.status === 'running' ? '执行中' : '结果'}>
         {renderToolResult()}
       </ToolDetailSection>
-      {typeof (block.toolResult as {local_result?: unknown} | null | undefined)?.local_result === 'string' ? (
-        <ToolDetailSection title="完整报告（本地，未发送给模型）">
-          <MarkdownMessage content={(block.toolResult as {local_result: string}).local_result} />
-        </ToolDetailSection>
-      ) : null}
     </div>
   );
 }
@@ -566,6 +571,7 @@ function buildAssistantTimeline(
     const toolKey = block.label || 'tool';
     const attempt = (toolAttempts.get(toolKey) ?? 0) + 1;
     toolAttempts.set(toolKey, attempt);
+    const hasLocalResult = typeof (block.toolResult as {local_result?: unknown} | null | undefined)?.local_result === 'string';
     const badges: string[] = [];
     if (attempt > 1) {
       badges.push(`第 ${attempt} 次调用`);
@@ -573,12 +579,17 @@ function buildAssistantTimeline(
     if ((block.status ?? groupStatus) === 'error') {
       badges.push('失败节点');
     }
+    if (hasLocalResult) {
+      badges.push(block.label === 'stock_report_read' ? '报告正文' : '本地结果');
+    }
     return {
       id: block.id,
       stepNumber,
       kind: 'tool',
       title: `调用 ${block.label}`,
-      subtitle: block.summary || (block.toolResult != null ? '结构化结果已保存' : block.text ? '已返回结果' : '等待结果'),
+      subtitle: hasLocalResult && block.label === 'stock_report_read'
+        ? '报告正文已保存，点击查看'
+        : block.summary || (block.toolResult != null ? '结构化结果已保存' : block.text ? '已返回结果' : '等待结果'),
       status: block.status ?? groupStatus,
       elapsed: block.elapsed,
       collapsible: Boolean(block.collapsible),
@@ -792,7 +803,7 @@ function AssistantTranscriptItem({
                       <span className="assistant-timeline-meta">
                         {entry.elapsed ? <span>{formatToolElapsed(entry.elapsed)}</span> : null}
                         {entry.status ? <span className={`status-pill status-${entry.status}`}>{entry.status}</span> : null}
-                        <span>{entry.collapsed ? '展开' : '查看'}</span>
+                        <span>{entry.collapsed && entry.badges.includes('报告正文') ? '查看报告' : entry.collapsed ? '展开' : '查看'}</span>
                       </span>
                     </button>
                   ) : (
@@ -811,13 +822,21 @@ function AssistantTranscriptItem({
                       </span>
                     </div>
                   )}
+                  {!entry.collapsed && entry.badges.includes('报告正文') ? (
+                    <div className="assistant-timeline-report">
+                      <ToolDetail block={ordered.find((block) => block.id === entry.id)!}
+                        loadingLabel="正在读取报告..." onOpenConversation={onOpenConversation} />
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ol>
           </section>
         ) : null}
         <div className="assistant-sections">
-          {ordered.map((block) => <AssistantSection key={block.id} block={block} onToggle={onToggle} onOpenConversation={onOpenConversation} />)}
+          {ordered.filter((block) => !(showTimeline && block.kind === 'tool' && block.label === 'stock_report_read'
+            && typeof (block.toolResult as {local_result?: unknown} | null | undefined)?.local_result === 'string'))
+            .map((block) => <AssistantSection key={block.id} block={block} onToggle={onToggle} onOpenConversation={onOpenConversation} />)}
           {!hasAnswer && status === 'running' ? <LoadingDots label="正在等待模型输出..." /> : null}
         </div>
         <footer className="message-actions">

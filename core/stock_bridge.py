@@ -19,8 +19,6 @@ logger = logging.getLogger("core.stock_bridge")
 
 ACTOR = 'local-ai-agent'
 
-_LOCAL_RESULT_MARKER = '#### 本轮本地结果'
-_DETAIL_SEPARATOR = '\n\n---\n\n'
 _REFERENCE_RE = re.compile(r'^[0-9a-f]{64}$')
 
 
@@ -220,14 +218,11 @@ class StockBridge:
             'status': status,
             'code': step.get('code', ''),
             'local_result_available': bool(step.get('local_result_available')),
+            'broker_sequence': step.get('sequence'),
         }
 
-    async def finish_turn(self, conversation_id: str) -> list[str]:
-        """Finish the turn's broker session and harvest local-only attachment texts.
-
-        Returns attachment texts in step order (matching the calls whose results
-        carried local_result_available). Safe to call with no session.
-        """
+    async def finish_turn(self, conversation_id: str) -> list[dict]:
+        """Finish the turn and return local results keyed to broker step numbers."""
         state = self._turns.pop(conversation_id, None)
         if not state or state['ticket'] is None or state['finished']:
             return []
@@ -239,11 +234,10 @@ class StockBridge:
         except _BridgeError as exc:
             logger.warning('stock bridge finish failed: %s', exc)
             return []
-        reply = resp.get('reply', '')
-        if _LOCAL_RESULT_MARKER not in reply:
-            return []
-        section = reply.split(_LOCAL_RESULT_MARKER, 1)[1].strip()
-        return [part.strip() for part in section.split(_DETAIL_SEPARATOR) if part.strip()]
+        results = resp.get('local_results', [])
+        return [item for item in results if isinstance(item, dict)
+                and isinstance(item.get('sequence'), int)
+                and isinstance(item.get('text'), str) and item['text']]
 
     async def close(self) -> None:
         await self._client.aclose()

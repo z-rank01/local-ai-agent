@@ -867,6 +867,15 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .assistant-timeline-button:focus-visible .assistant-timeline-main strong {
   color: #ffffff;
 }
+.assistant-timeline-report {
+  min-width: 0;
+  margin: 8px 6px 4px;
+  padding: 12px;
+  border: 1px solid rgba(96, 211, 148, 0.22);
+  border-radius: 10px;
+  background: rgba(96, 211, 148, 0.045);
+  overflow-wrap: anywhere;
+}
 .assistant-timeline-item.is-error .assistant-timeline-main strong {
   color: #ffd7dc;
 }

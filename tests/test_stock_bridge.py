@@ -13,7 +13,7 @@ REF = 'a' * 64
 TICKET = 'b' * 32
 
 
-def make_broker(calls, *, step_responses=None, finish_reply='', status=200):
+def make_broker(calls, *, step_responses=None, finish_reply='', finish_local_results=None, status=200):
     state = {'steps': 0}
 
     def handler(request):
@@ -32,7 +32,9 @@ def make_broker(calls, *, step_responses=None, finish_reply='', status=200):
             state['steps'] += 1
             return httpx.Response(200, json=response)
         if path.endswith('/finish'):
-            return httpx.Response(200, json={'route': 'direct', 'reply': finish_reply, 'cloud_observation': {}})
+            return httpx.Response(200, json={'route': 'direct', 'reply': finish_reply,
+                                              'local_results': finish_local_results or [],
+                                              'cloud_observation': {}})
         return httpx.Response(404, json={'error': 'not found'})
     return handler
 
@@ -71,18 +73,19 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_lifecycle_identity_and_attachment_harvest(self):
         calls = []
-        reply = '本轮工具处理已结束，已取得的结果见下方。\n\n---\n\n#### 本轮本地结果\n\n报告全文一\n\n---\n\n报告全文二'
+        report = '报告全文一\n\n---\n\n报告全文二'
         bridge = self.bridge(make_broker(calls,
             step_responses=[ok_step({'kind': 'task_search', 'items': [{'reference': REF}]}),
                             ok_step({'task_status': 'SUCCEEDED'}, local=True, seq=2)],
-            finish_reply=reply))
+            finish_local_results=[{'sequence': 2, 'text': report}]))
         bridge.set_turn('conv-1', 'req-1', '看看巨人网络的研究')
         found = await bridge.call_tool('stock_research_find', {'symbol': '002558'}, 'conv-1')
         self.assertEqual(found['model_observation']['items'][0]['reference'], REF)
         read = await bridge.call_tool('stock_report_read', {'reference': REF}, 'conv-1')
         self.assertTrue(read['local_result_available'])
+        self.assertEqual(read['broker_sequence'], 2)
         texts = await bridge.finish_turn('conv-1')
-        self.assertEqual(texts, ['报告全文一', '报告全文二'])
+        self.assertEqual(texts, [{'sequence': 2, 'text': report}])
 
         prepare = calls[0]
         self.assertTrue(prepare['path'].endswith('/prepare'))
@@ -381,6 +384,35 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
     """Service-level turn wiring with a stub bridge; no broker or model calls."""
     asyncSetUp = test_in1.ServiceTests.asyncSetUp
 
+    async def test_local_results_keep_step_ownership_with_missing_and_repeated_details(self):
+        class FinishedBridge:
+            async def finish_turn(self, _cid):
+                return [
+                    {'sequence': 3, 'text': '报告正文\n\n---\n\n后续章节'},
+                    {'sequence': 1, 'text': '相同摘要'},
+                    {'sequence': 6, 'text': '相同摘要'},
+                ]
+            async def close(self): pass
+        self.runtime.stock_bridge = FinishedBridge()
+        conv = self.runtime.store.create_conversation(title='附件配对')
+        ids = {}
+        for sequence, name in ((1, 'stock_market_brief'), (3, 'stock_report_read'),
+                               (6, 'stock_candidate_screen')):
+            row = self.runtime.store.add_message(conv.id, role='tool', content=name,
+                                                 tool_name=name, tool_result={})
+            ids[sequence] = row.id
+        pending = {sequence: f'call-{sequence}' for sequence in ids}
+        rows = {call_id: ids[sequence] for sequence, call_id in pending.items()}
+        events = [event async for event in self.service._finish_stock_turn(
+            conv.id, pending, rows, lambda event, **kwargs: (event, kwargs))]
+        saved = {m.tool_name: m.tool_result['local_result']
+                 for m in self.service.get_messages(conv.id) if m.role == 'tool'}
+        self.assertEqual(saved['stock_report_read'], '报告正文\n\n---\n\n后续章节')
+        self.assertEqual(saved['stock_market_brief'], '相同摘要')
+        self.assertEqual(saved['stock_candidate_screen'], '相同摘要')
+        self.assertEqual([event[1]['block_id'] for event in events],
+                         ['call-3', 'call-1', 'call-6'])
+
     def install_bridge(self, texts):
         from core.tool_registry import ToolRegistry
         parent = self
@@ -396,13 +428,13 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
             async def call_tool(self, tool, params, session_id):
                 self.turns.append(('call', tool, session_id))
                 return {'model_observation': {'task_status': 'SUCCEEDED'}, 'status': 'TOOL_RETURNED',
-                        'code': 'OK', 'local_result_available': True}
+                        'code': 'OK', 'local_result_available': True, 'broker_sequence': 1}
             async def finish_turn(self, cid):
                 if not self.open:
                     return []
                 self.turns.append(('finish', cid))
                 self.open = False
-                return list(texts)
+                return [{'sequence': i + 1, 'text': text} for i, text in enumerate(texts)]
             async def close(self): pass
         stub = StubBridge()
         registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://x')
@@ -496,10 +528,10 @@ class StockPrivacyTests(unittest.IsolatedAsyncioTestCase):
             def has_open_turn(self, cid): return self.open
             async def call_tool(self, tool, params, session_id):
                 return {'model_observation': {'task_status': 'SUCCEEDED'}, 'status': 'TOOL_RETURNED',
-                        'code': 'OK', 'local_result_available': True}
+                        'code': 'OK', 'local_result_available': True, 'broker_sequence': 1}
             async def finish_turn(self, cid):
                 self.open = False
-                return [marker]
+                return [{'sequence': 1, 'text': marker}]
             async def close(self): pass
         stub = StubBridge()
         self.runtime.stock_bridge = stub
