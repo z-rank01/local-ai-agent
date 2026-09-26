@@ -1,0 +1,12 @@
+name: stock_market_brief
+backend: stock-bridge
+tier: extended
+short_description: "获取空仓也可用的每日市场简报任务。"
+description: >
+  请求最近交易日的市场简报；若今日任务已由后台生成则复用，不依据持仓数量决定是否执行。
+  简报核对有日期的沪深300行情、全市场公告标题目录和证监会要闻列表，分别报告来源、日期和缺口。
+  返回任务受理或已有任务状态；尚未完成时用 stock_market_brief_find 查询，
+  再用 stock_report_read 读取完整本地报告。简报不是公司推荐或交易指令。
+parameters:
+  type: object
+  properties: {}

@@ -1,0 +1,13 @@
+name: stock_market_brief_find
+backend: stock-bridge
+tier: extended
+short_description: "查找本会话已有的每日市场简报任务。"
+description: >
+  查找本会话的每日市场简报任务，不创建新任务。
+  将返回的 reference 交给 stock_report_read 读取报告。
+parameters:
+  type: object
+  properties:
+    page:
+      type: integer
+      description: "页码，从 1 开始，每页 8 条"

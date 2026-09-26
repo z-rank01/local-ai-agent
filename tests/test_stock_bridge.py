@@ -49,6 +49,18 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(client.aclose)
         return StockBridge('http://paper.test', 'secret-token', client=client)
 
+    async def test_market_brief_submit_and_find(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('brief-conv', 'brief-request', '看看每日市场简报')
+        await bridge.call_tool('stock_market_brief', {}, 'brief-conv')
+        await bridge.call_tool('stock_market_brief_find', {'page': 1}, 'brief-conv')
+        steps = [call['json']['tool_call'] for call in calls if call['path'].endswith('/step')]
+        self.assertEqual(steps, [
+            {'action': 'submit', 'kind': 'market_brief'},
+            {'action': 'find', 'kind': 'market_brief', 'page': 1},
+        ])
+
     async def test_lifecycle_identity_and_attachment_harvest(self):
         calls = []
         reply = '本轮工具处理已结束，已取得的结果见下方。\n\n---\n\n#### 本轮本地结果\n\n报告全文一\n\n---\n\n报告全文二'

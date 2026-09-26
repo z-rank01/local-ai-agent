@@ -1,10 +1,10 @@
 name: stock_report_read
 backend: stock-bridge
 tier: extended
-short_description: "读取本会话已有研究或候选任务的报告（只读）。"
+short_description: "读取本会话已有研究、候选或市场简报任务的报告（只读）。"
 description: >
-  按 reference 读取本会话已有研究或候选任务的报告摘要与状态，不会重跑任务。
-  reference 必须是本会话 stock_research_find 或 stock_candidate_find 返回的 64 位任务引用，不要编造。
+  按 reference 读取本会话已有研究、候选或每日市场简报任务的报告摘要与状态，不会重跑任务。
+  reference 必须是本会话股票任务查找工具返回的 64 位任务引用，不要编造。
   返回中 task_status（程序执行）、business_status（业务裁决）、data_quality（数据质量）
   是三种不同事实，解释时不能混淆；候选报告中的 available_at 只是快照抓取时间，逐行行情日期未确认。
   完整报告正文作为本地附件直接在界面展示，不会进入模型历史；内容不构成投资建议。
@@ -13,6 +13,6 @@ parameters:
   properties:
     reference:
       type: string
-      description: "本会话 stock_research_find 或 stock_candidate_find 返回的 64 位任务引用"
+      description: "本会话股票任务查找工具返回的 64 位任务引用"
   required:
     - reference
