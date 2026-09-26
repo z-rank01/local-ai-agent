@@ -7,7 +7,7 @@ description: >
   reference 必须是本会话股票任务查找工具返回的 64 位任务引用，不要编造。
   返回中 task_status（程序执行）、business_status（业务裁决）、data_quality（数据质量）
   是三种不同事实，解释时不能混淆；候选报告中的 available_at 只是快照抓取时间，逐行行情日期未确认。
-  完整报告正文作为本地附件直接在界面展示，不会进入模型历史；内容不构成投资建议。
+  报告正文作为本地附件在界面展示，长报告可能分页；模型看不到正文，不能声称已读完或展示了全部页。内容不构成投资建议。
 parameters:
   type: object
   properties:

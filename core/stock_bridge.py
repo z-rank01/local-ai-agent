@@ -212,7 +212,7 @@ class StockBridge:
             elif step.get('code'):
                 # Direct/local routes carry no model-visible projection; tell the model
                 # the outcome code so it never has to guess from an empty object.
-                observation = {'code': step['code'], 'note': '该结果没有模型可见字段；完整内容已作为本地附件直接展示给用户。'}
+                observation = {'code': step['code'], 'note': '该结果没有模型可见字段；详细内容仅在本地附件展示，长报告可能分页。'}
         return {
             'model_observation': observation,
             'status': status,

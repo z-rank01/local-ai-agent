@@ -325,6 +325,7 @@ function ToolDetail({
   const searchPayload = block.label === 'conversation_search' ? structuredToolPayload<ConversationSearchPayload>(block) : null;
   const readPayload = block.label === 'conversation_read' ? structuredToolPayload<ConversationReadPayload>(block) : null;
   const localResult = (block.toolResult as {local_result?: unknown} | null | undefined)?.local_result;
+  const isLocalStockReport = block.label === 'stock_report_read' && typeof localResult === 'string';
   const displayToolResult = block.toolResult && typeof block.toolResult === 'object' && !Array.isArray(block.toolResult)
     ? Object.fromEntries(Object.entries(block.toolResult as Record<string, unknown>)
         .filter(([key]) => key !== 'local_result' && key !== 'broker_sequence'))
@@ -411,18 +412,18 @@ function ToolDetail({
   };
   return (
     <div className="tool-detail">
-      {block.summary ? (
+      {block.summary && !isLocalStockReport ? (
         <ToolDetailSection title="摘要">
           <p className="tool-summary">{block.summary}</p>
         </ToolDetailSection>
       ) : null}
-      {stockObservation ? <StockObservation observation={stockObservation} tool={block.label} /> : null}
+      {stockObservation && !isLocalStockReport ? <StockObservation observation={stockObservation} tool={block.label} /> : null}
       {typeof localResult === 'string' ? (
         <ToolDetailSection title="报告正文（本地，未发送给模型）">
           <MarkdownMessage content={localResult} />
         </ToolDetailSection>
       ) : null}
-      {hasParams ? (
+      {hasParams && !isLocalStockReport ? (
         <ToolDetailSection title="参数">
           <dl className="tool-params-list">
             {Object.entries(block.params ?? {}).map(([key, value]) => (
@@ -434,9 +435,11 @@ function ToolDetail({
           </dl>
         </ToolDetailSection>
       ) : null}
-      <ToolDetailSection title={block.status === 'running' ? '执行中' : '结果'}>
-        {renderToolResult()}
-      </ToolDetailSection>
+      {!isLocalStockReport ? (
+        <ToolDetailSection title={block.status === 'running' ? '执行中' : '结果'}>
+          {renderToolResult()}
+        </ToolDetailSection>
+      ) : null}
     </div>
   );
 }
