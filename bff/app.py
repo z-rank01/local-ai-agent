@@ -118,6 +118,20 @@ async def stock_service_status(request: Request):
         raise HTTPException(403, '仅允许本机查看服务控制')
     from core.stock_service import stock_service
     return await stock_service.status()
+@app.get('/api/admin/stock-models')
+async def stock_analysis_models(request: Request):
+    if not _is_loopback_host(request.client.host if request.client else None):
+        raise HTTPException(403, '仅允许本机查看分析模型')
+    from core.market_research import available_models
+    return await available_models(get_runtime())
+@app.post('/api/internal/market-event-analysis', include_in_schema=False)
+async def market_event_analysis(request: Request):
+    from core.market_research import authorize, generate
+    authorize(request)
+    body = await request.json()
+    if not isinstance(body, dict) or set(body) != {'provider', 'model', 'prompt', 'material'}:
+        raise HTTPException(422, '分析请求字段无效')
+    return await generate(get_runtime(), body['provider'], body['model'], body['prompt'], body['material'])
 @app.post('/api/admin/stock-service')
 async def stock_service_action(request: Request):
     require_local_control(request)

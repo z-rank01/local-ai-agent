@@ -192,7 +192,14 @@ class StockService:
                 self.save()
                 return {'settings': self.settings.copy(), 'online': False, 'url': self.url,
                         'message': '股票后台已关闭，聊天可继续使用'}
-            elif action in ('worker_start', 'worker_pause', 'recover', 'prepare_resume', 'confirm_resume', 'operator'):
+            elif action in ('worker_start', 'worker_pause', 'recover', 'prepare_resume', 'confirm_resume', 'operator', 'market_model_configure'):
+                if action == 'market_model_configure':
+                    model = body.get('model')
+                    from .market_research import available_models
+                    catalog = await available_models(runtime)
+                    if not isinstance(model, dict) or set(model) != {'provider', 'model'} or not any(
+                            item['provider'] == model['provider'] and item['model'] == model['model'] for item in catalog):
+                        raise ValueError('所选简报分析模型未安装或未配置密钥')
                 await self.request('/api/control/status')
                 result = await self.request('/api/control/action', body)
                 if action in ('worker_start', 'worker_pause', 'recover'):

@@ -6,6 +6,7 @@ type PositionReview = {id: string; day: string; status: string; symbol: string; 
   review: {status?: string; verdict?: string | null; report?: string; missing?: string[]; decision_id?: string}};
 type ServiceStatus = {
   online: boolean; message?: string;
+  market_model?: {provider: string; model: string};
   settings: {root: string; state_dir: string; port: number; enabled: boolean; worker: boolean};
   worker?: {enabled: boolean; draining: boolean; busy: boolean};
   runtime?: {mode: string; reason: string; last_completed_day: string | null};
@@ -29,6 +30,7 @@ async function serviceRequest(body?: Record<string, unknown>) {
 
 export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
+  const [marketModels, setMarketModels] = useState<{id: string; provider: string; model: string; kind: string}[]>([]);
   const [root, setRoot] = useState('');
   const [stateDir, setStateDir] = useState('simulation');
   const [port, setPort] = useState('8765');
@@ -56,6 +58,9 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
       } catch (e) { if (active && requestRevision === revision.current) setError(String(e)); }
     };
     void refresh();
+    void fetch(`${DEFAULT_BASE_URL}/api/admin/stock-models`).then(r => r.json()).then(value => {
+      if (active && Array.isArray(value)) setMarketModels(value);
+    }).catch(() => {});
     const timer = setInterval(() => void refresh(), 5000);
     return () => {active = false; clearInterval(timer);};
   }, []);
@@ -103,6 +108,16 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
     </div> : null}
     {!online && status?.message ? <p className="status-hint">{status.message}</p> : null}
     {!online && !status?.settings.root ? <p className="status-hint">首次使用请在下方“高级管理 → 连接配置”保存股票仓库路径。</p> : null}
+    {online ? <div className="stock-summary">
+      <label htmlFor="stock-market-model">每日简报分析模型</label>
+      <select id="stock-market-model" aria-label="每日简报分析模型" disabled={busy}
+        value={`${status?.market_model?.provider ?? 'ollama'}:${status?.market_model?.model ?? 'gemma4:26b'}`}
+        onChange={e => {const choice = marketModels.find(m => m.id === e.target.value);
+          if (choice) void act('market_model_configure', {model: {provider: choice.provider, model: choice.model}});}}>
+        {marketModels.map(m => <option key={m.id} value={m.id}>{m.kind === 'cloud' ? '云端' : '本地'} · {m.provider} / {m.model}</option>)}
+      </select>
+      <span>仅影响新入队简报；当前对话模型独立。</span>
+    </div> : null}
 
     {online ? <details className="panel-details" open={recoveryOpen}>
       <summary>恢复与待办<span className="details-meta">{completed}/{steps.length} 已核对 · {label(status?.recovery?.batch?.status ?? '无恢复批次')}</span></summary>

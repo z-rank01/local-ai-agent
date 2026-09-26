@@ -1255,7 +1255,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [inspectorWidth, setInspectorWidth] = useState(360);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.innerWidth <= 1180);
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadAppearanceSettings());
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
