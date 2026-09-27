@@ -91,6 +91,25 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             {'action': 'theme_research', 'reference': {'type': 'task', 'token': REF},
              'event_id': 'c' * 16}, {'action': 'find', 'kind': 'theme_research'}])
 
+    async def test_tracking_tools_keep_task_and_track_references_separate(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('track-conv', 'track-request', '关注光通信扩产')
+        await bridge.call_tool('stock_track_follow',
+                               {'reference': REF, 'kind': 'theme', 'name': '光通信扩产'}, 'track-conv')
+        await bridge.call_tool('stock_track_find', {'search': '光通信'}, 'track-conv')
+        await bridge.call_tool('stock_track_read', {'reference': REF, 'page': 2}, 'track-conv')
+        await bridge.call_tool('stock_track_ignore', {'reference': REF}, 'track-conv')
+        await bridge.call_tool('stock_track_review_find', {}, 'track-conv')
+        steps = [call['json']['tool_call'] for call in calls if call['path'].endswith('/step')]
+        self.assertEqual(steps, [
+            {'action': 'track_follow', 'kind': 'theme', 'search': '光通信扩产',
+             'reference': {'type': 'task', 'token': REF}},
+            {'action': 'track_find', 'search': '光通信'},
+            {'action': 'track_read', 'reference': {'type': 'track', 'token': REF}, 'page': 2},
+            {'action': 'track_ignore', 'reference': {'type': 'track', 'token': REF}},
+            {'action': 'find', 'kind': 'track_review'}])
+
     async def test_market_brief_refresh_requires_explicit_tool_parameter(self):
         calls = []
         bridge = self.bridge(make_broker(calls))

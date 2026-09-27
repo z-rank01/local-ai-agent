@@ -1,0 +1,16 @@
+name: stock_track_find
+backend: stock-bridge
+tier: extended
+short_description: "查找已关注或忽略的主题与公司。"
+description: >
+  查询跨日研究跟踪，返回本会话安全引用、状态和最新变化；每页 8 条。
+  不创建研究，也不改变关注状态。使用 stock_track_read 读取观点历史。
+parameters:
+  type: object
+  properties:
+    search:
+      type: string
+      description: "可选：主题名或六位公司代码"
+    page:
+      type: integer
+      minimum: 1

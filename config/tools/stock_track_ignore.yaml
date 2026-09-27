@@ -1,0 +1,15 @@
+name: stock_track_ignore
+backend: stock-bridge
+tier: extended
+short_description: "忽略已跟踪对象并保留历史。"
+description: >
+  用户本轮明确说要忽略某主题或公司时调用。先用 stock_track_find 取得本会话
+  跟踪引用；用户原话中须含该对象名称或代码。旧版本继续可查。
+parameters:
+  type: object
+  properties:
+    reference:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      description: "stock_track_find 返回的本会话安全引用"
+  required: [reference]

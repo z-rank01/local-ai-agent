@@ -60,6 +60,34 @@ def _theme_research_find_action(params):
     return action
 
 
+def _track_review_find_action(params):
+    action = {'action': 'find', 'kind': 'track_review'}
+    if params.get('page') is not None:
+        action['page'] = params['page']
+    return action
+
+
+def _track_find_action(params):
+    return {'action': 'track_find',
+            **({'search': params['search']} if params.get('search') else {}),
+            **({'page': params['page']} if params.get('page') is not None else {})}
+
+
+def _track_follow_action(params):
+    return {'action': 'track_follow', 'kind': params.get('kind'),
+            'reference': {'type': 'task', 'token': params.get('reference', '')},
+            **({'search': params['name']} if params.get('name') else {}),
+            **({'symbol': params['symbol']} if params.get('symbol') else {})}
+
+
+def _track_reference_action(action_name):
+    def build(params):
+        return {'action': action_name,
+                'reference': {'type': 'track', 'token': params.get('reference', '')},
+                **({'page': params['page']} if action_name == 'track_read' and params.get('page') is not None else {})}
+    return build
+
+
 def _theme_research_action(params):
     return {'action': 'theme_research',
             'reference': {'type': 'task', 'token': params.get('reference', '')},
@@ -122,6 +150,11 @@ _TOOL_ACTIONS = {
     'stock_candidate_find': _candidate_find_action,
     'stock_market_brief_find': _market_brief_find_action,
     'stock_theme_research_find': _theme_research_find_action,
+    'stock_track_review_find': _track_review_find_action,
+    'stock_track_find': _track_find_action,
+    'stock_track_follow': _track_follow_action,
+    'stock_track_ignore': _track_reference_action('track_ignore'),
+    'stock_track_read': _track_reference_action('track_read'),
     'stock_theme_research_submit': _theme_research_action,
     'stock_report_read': _report_action,
     'stock_public_evidence_find': _public_evidence_find_action,
@@ -138,7 +171,8 @@ _SYMBOL_RE = re.compile(r'^\d{6}$')
 _RESEARCH_MODES = {'reuse', 'continue', 'redo'}
 _REFERENCE_TOOLS = {'stock_report_read', 'stock_research_cancel', 'stock_research_resume',
                     'stock_market_brief_continue', 'stock_public_evidence_find',
-                    'stock_public_evidence_read', 'stock_theme_research_submit'}
+                    'stock_public_evidence_read', 'stock_theme_research_submit',
+                    'stock_track_follow', 'stock_track_ignore', 'stock_track_read'}
 
 
 class StockBridge:

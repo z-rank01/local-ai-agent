@@ -1,0 +1,13 @@
+name: stock_track_review_find
+backend: stock-bridge
+tier: extended
+short_description: "查找跨日观点复查任务和报告。"
+description: >
+  只查询本会话收到的跨日复查任务；返回安全任务引用，交给 stock_report_read
+  查看本地人类可读报告。未关注对象时不会有复查任务。
+parameters:
+  type: object
+  properties:
+    page:
+      type: integer
+      minimum: 1

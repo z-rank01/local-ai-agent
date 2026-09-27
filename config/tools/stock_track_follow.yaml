@@ -1,0 +1,26 @@
+name: stock_track_follow
+backend: stock-bridge
+tier: extended
+short_description: "关注已完成主题研究中的主题或已核验公司。"
+description: >
+  仅在用户本轮明确要求关注或跟踪某个主题或六位代码时调用。
+  reference 来自 stock_theme_research_find；主题 name 或公司 symbol 必须出现在用户原话中。
+  公司须已有同代码公告的业务关联核验；关注不代表通过候选或买入审查。
+parameters:
+  type: object
+  properties:
+    reference:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      description: "本会话已完成主题研究的安全引用"
+    kind:
+      type: string
+      enum: [theme, company]
+    name:
+      type: string
+      description: "kind=theme 时填写研究报告中的主题名称，须见于用户原话"
+    symbol:
+      type: string
+      pattern: "^[0-9]{6}$"
+      description: "kind=company 时填写已核验六位代码，须见于用户原话"
+  required: [reference, kind]
