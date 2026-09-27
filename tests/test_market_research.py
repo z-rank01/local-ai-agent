@@ -13,18 +13,26 @@ PUBLIC = [{'event_id': 'E1', 'title': '公开政策', 'published': '2026-09-26',
 
 
 class Registry:
-    _static_specs = [{'id': 'qwen:qwen3.8-max', 'provider_id': 'qwen', 'model': 'qwen3.8-max',
+    _static_specs = [{'id': 'qwen:qwen3.8-max', 'provider_id': 'qwen', 'provider_name': '通义千问', 'model': 'qwen3.8-max',
                       'kind': 'cloud', 'capabilities': ['text'], 'api_key_env': 'DASHSCOPE_API_KEY'},
-                     {'id': 'qwen:qwen3.8-omni-flash', 'provider_id': 'qwen',
+                     {'id': 'qwen:qwen3.8-omni-flash', 'provider_id': 'qwen', 'provider_name': '通义千问',
                       'model': 'qwen3.8-omni-flash', 'kind': 'cloud',
                       'capabilities': ['audio'], 'api_key_env': 'DASHSCOPE_API_KEY'}]
-    async def catalog(self):
-        return []
+    specs = _static_specs + [
+        {'id': 'qwen:stepfun/step-5-preview', 'provider_id': 'qwen',
+         'provider_name': '通义千问', 'model': 'stepfun/step-5-preview', 'kind': 'cloud',
+         'api_key_env': 'DASHSCOPE_API_KEY', 'base_url': 'https://example.aliyuncs.com/v1'},
+        {'id': 'qwen:qwen3.8-omni-flash-realtime', 'provider_id': 'qwen',
+         'provider_name': '通义千问', 'model': 'qwen3.8-omni-flash-realtime', 'kind': 'cloud',
+         'api_key_env': 'DASHSCOPE_API_KEY'},
+    ]
+
+    async def catalog(self, refresh=False):
+        return self.specs
 
     def resolve(self, provider, model):
-        assert (provider, model) == ('qwen', 'qwen3.8-max')
-        return ({'id': 'qwen:' + model, 'kind': 'cloud', 'provider_id': 'qwen', 'model': model,
-                 'api_key_env': 'DASHSCOPE_API_KEY', 'base_url': 'https://example.aliyuncs.com/v1'}, None)
+        spec = next(s for s in self.specs if s['provider_id'] == provider and s['model'] == model)
+        return ({**spec, 'base_url': 'https://example.aliyuncs.com/v1'}, None)
 
 
 class Runtime:
@@ -89,14 +97,32 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0][1]['Authorization'], 'Bearer configured-secret')
         self.assertNotIn('cash', str(calls[0][2]))
 
-    async def test_selector_lists_only_installed_generation_and_registered_cloud_text(self):
+    async def test_discovered_text_models_are_selectable_but_specialized_models_are_not(self):
         with patch('core.market_research.read_key', return_value='configured-secret'), \
              patch('core.market_research._probe_ollama_models', new_callable=AsyncMock,
                    return_value=['bge-m3:latest', 'gemma4:26b']), \
              patch('core.market_research.httpx.AsyncClient', return_value=ShowClient()):
             models = await available_models(Runtime())
         self.assertEqual({item['id'] for item in models},
-                         {'ollama:gemma4:26b', 'qwen:qwen3.8-max'})
+                         {'ollama:gemma4:26b', 'qwen:qwen3.8-max',
+                          'qwen:stepfun/step-5-preview'})
+        self.assertTrue(all(item['status'] == 'configured' for item in models))
+
+    async def test_missing_key_is_visible_but_disabled(self):
+        with patch('core.market_research.read_key', return_value=''), \
+             patch('core.market_research._probe_ollama_models', new_callable=AsyncMock,
+                   return_value=[]):
+            models = await available_models(Runtime())
+        self.assertEqual({item['status'] for item in models}, {'missing_key'})
+
+    async def test_discovered_cloud_model_uses_prompt_json_without_unsupported_format(self):
+        calls = []
+        with patch('core.market_research.read_key', return_value='configured-secret'), \
+             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)):
+            result = await generate(Runtime(), 'qwen', 'stepfun/step-5-preview', '只输出 JSON', PUBLIC)
+        self.assertEqual(result['usage']['total_tokens'], 120)
+        self.assertEqual(calls[0][2]['model'], 'stepfun/step-5-preview')
+        self.assertNotIn('response_format', calls[0][2])
 
 
 if __name__ == '__main__':

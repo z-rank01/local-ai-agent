@@ -13,6 +13,15 @@ from .providers import _NON_CHAT_MODEL, _probe_ollama_models, read_key
 from .stock_service import stock_service
 
 PUBLIC_HOSTS = {'www.csrc.gov.cn', 'www.ndrc.gov.cn', 'pdf.dfcfw.com', 'data.eastmoney.com'}
+_SPECIALIZED_MODEL = re.compile(r'omni|realtime|livetranslate|(?:^|[-_/])(?:mt|vl)(?:[-_/]|$)', re.IGNORECASE)
+
+
+def _cloud_text_model(spec):
+    capabilities = spec.get('capabilities')
+    return (spec.get('kind') == 'cloud' and
+            (capabilities is None or 'text' in capabilities) and
+            not _NON_CHAT_MODEL.search(spec.get('model', '')) and
+            not _SPECIALIZED_MODEL.search(spec.get('model', '')))
 
 
 def _event_schema():
@@ -45,13 +54,14 @@ def authorize(request: Request):
         raise HTTPException(401, '简报分析凭据无效')
 
 
-async def available_models(runtime):
-    # Provider discovery lists audio, translation and experimental endpoints too.
-    # Cloud research is enabled only by an explicit text entry in models.json.
-    cloud = [{'id': s['id'], 'provider': s['provider_id'], 'model': s['model'], 'kind': 'cloud'}
-             for s in runtime.models._static_specs
-             if s['kind'] == 'cloud' and 'text' in s.get('capabilities', []) and
-             read_key(s.get('api_key_env', ''))]
+async def available_models(runtime, *, refresh=False):
+    # Use the same provider catalog as conversation model selection.  Discovered
+    # cloud chat models inherit the provider's existing key and compatible URL.
+    specs = await runtime.models.catalog(refresh=refresh)
+    cloud = [{'id': s['id'], 'provider': s['provider_id'],
+              'provider_name': s['provider_name'], 'model': s['model'], 'kind': 'cloud',
+              'status': 'configured' if read_key(s.get('api_key_env', '')) else 'missing_key'}
+             for s in specs if _cloud_text_model(s)]
     names = await _probe_ollama_models(config.OLLAMA_BASE_URL) or []
     local = []
     async with httpx.AsyncClient(timeout=httpx.Timeout(5, connect=2), trust_env=False) as client:
@@ -65,7 +75,9 @@ async def available_models(runtime):
                     continue
             except (httpx.HTTPError, ValueError):
                 continue
-            local.append({'id': 'ollama:' + name, 'provider': 'ollama', 'model': name, 'kind': 'local'})
+            local.append({'id': 'ollama:' + name, 'provider': 'ollama',
+                          'provider_name': 'Ollama', 'model': name, 'kind': 'local',
+                          'status': 'configured'})
     return local + cloud
 
 
@@ -103,20 +115,19 @@ async def generate(runtime, provider, model, prompt, material):
         spec, _ = runtime.models.resolve(provider, model)
     except ValueError:
         raise HTTPException(422, '所选分析模型不可用') from None
-    if spec['kind'] != 'cloud' or _NON_CHAT_MODEL.search(spec['model']):
+    if not _cloud_text_model(spec):
         raise HTTPException(422, '云端分析只接受已配置的文本模型')
-    if spec['id'] not in {s['id'] for s in runtime.models._static_specs
-                          if s['kind'] == 'cloud' and 'text' in s.get('capabilities', [])}:
-        raise HTTPException(422, '请先在模型目录登记该文本分析模型')
     key = read_key(spec.get('api_key_env', ''))
     if not key:
         raise HTTPException(422, '该云端模型未配置密钥')
     payload = {'model': spec['model'], 'messages': [
         {'role': 'system', 'content': prompt}, {'role': 'user', 'content': __import__('json').dumps(material, ensure_ascii=False)}],
-        'stream': False, 'max_tokens': 4096, 'response_format': {'type': 'json_object'}}
+        'stream': False, 'max_tokens': 4096}
     if spec['provider_id'] == 'qwen' and re.match(r'^qwen3\.(?:7|8)-(?:max|flash)', spec['model']):
         payload['response_format'] = {'type': 'json_schema', 'json_schema': {
             'name': 'market_event', 'strict': True, 'schema': _event_schema()}}
+    elif spec['provider_id'] == 'qwen' and spec['model'] == 'qwen3.5-flash':
+        payload['response_format'] = {'type': 'json_object'}
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=10), trust_env=False) as client:
             response = await client.post(spec['base_url'].rstrip('/') + '/chat/completions',

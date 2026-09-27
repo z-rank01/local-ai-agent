@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import {DEFAULT_BASE_URL} from '../api';
+import {ModelPicker} from './ModelPicker';
 
 type Step = {id: string; status: string; body: {day?: string; error?: string; attempts?: number}};
 type PositionReview = {id: string; day: string; status: string; symbol: string; reasons: string[];
@@ -30,7 +31,9 @@ async function serviceRequest(body?: Record<string, unknown>) {
 
 export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
-  const [marketModels, setMarketModels] = useState<{id: string; provider: string; model: string; kind: string}[]>([]);
+  const [marketModels, setMarketModels] = useState<{id: string; provider: string; provider_name: string;
+    model: string; kind: string; status: string}[]>([]);
+  const [modelsRefreshing, setModelsRefreshing] = useState(false);
   const [root, setRoot] = useState('');
   const [stateDir, setStateDir] = useState('simulation');
   const [port, setPort] = useState('8765');
@@ -42,6 +45,17 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
   const [challenge, setChallenge] = useState('');
   const [query, setQuery] = useState('');
   const [reply, setReply] = useState('');
+  const refreshMarketModels = async (force = false) => {
+    setModelsRefreshing(true);
+    try {
+      const response = await fetch(`${DEFAULT_BASE_URL}/api/admin/stock-models${force ? '?refresh=1' : ''}`);
+      if (!response.ok) throw new Error('读取简报分析模型失败');
+      const value: unknown = await response.json();
+      if (!Array.isArray(value)) throw new Error('简报分析模型列表格式无效');
+      setMarketModels(value);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setModelsRefreshing(false); }
+  };
   useEffect(() => {
     let active = true;
     let first = true;
@@ -58,9 +72,7 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
       } catch (e) { if (active && requestRevision === revision.current) setError(String(e)); }
     };
     void refresh();
-    void fetch(`${DEFAULT_BASE_URL}/api/admin/stock-models`).then(r => r.json()).then(value => {
-      if (active && Array.isArray(value)) setMarketModels(value);
-    }).catch(() => {});
+    void refreshMarketModels();
     const timer = setInterval(() => void refresh(), 5000);
     return () => {active = false; clearInterval(timer);};
   }, []);
@@ -89,6 +101,12 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
   const positionReviews = status?.position_reviews ?? [];
   const openReviews = status?.position_review_open_count ?? positionReviews.filter(r => r.status === 'OPEN').length;
   const recoveryOpen = !!challenge || problems.length > 0;
+  const marketProviders = Array.from(new Set(marketModels.map(m => m.provider))).map(provider => {
+    const group = marketModels.filter(m => m.provider === provider);
+    return {id: provider, name: group[0].provider_name, kind: group[0].kind,
+      models: group.map(m => ({id: m.id, name: m.model, provider_id: m.provider,
+        provider_name: m.provider_name, status: m.status}))};
+  });
   return <section className="stock-service-panel">
     <h2>股票技能</h2>
     <div className="skill-row">
@@ -108,15 +126,15 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
     </div> : null}
     {!online && status?.message ? <p className="status-hint">{status.message}</p> : null}
     {!online && !status?.settings.root ? <p className="status-hint">首次使用请在下方“高级管理 → 连接配置”保存股票仓库路径。</p> : null}
-    {online ? <div className="stock-summary">
-      <label htmlFor="stock-market-model">每日简报分析模型</label>
-      <select id="stock-market-model" aria-label="每日简报分析模型" disabled={busy}
+    {online ? <div className="stock-model-section">
+      <span className="stock-model-label">每日简报分析模型</span>
+      <ModelPicker providers={marketProviders}
         value={`${status?.market_model?.provider ?? 'ollama'}:${status?.market_model?.model ?? 'gemma4:26b'}`}
-        onChange={e => {const choice = marketModels.find(m => m.id === e.target.value);
-          if (choice) void act('market_model_configure', {model: {provider: choice.provider, model: choice.model}});}}>
-        {marketModels.map(m => <option key={m.id} value={m.id}>{m.kind === 'cloud' ? '云端' : '本地'} · {m.provider} / {m.model}</option>)}
-      </select>
-      <span>仅影响新入队简报；当前对话模型独立。</span>
+        ariaLabel="选择每日简报分析模型" disabled={busy}
+        onChange={id => {const choice = marketModels.find(m => m.id === id);
+          if (choice) void act('market_model_configure', {model: {provider: choice.provider, model: choice.model}});}}
+        onRefresh={() => refreshMarketModels(true)} refreshing={modelsRefreshing} />
+      <span className="status-hint">仅影响新入队简报；对话模型独立。未配置密钥的云端型号暂不可选。</span>
     </div> : null}
 
     {online ? <details className="panel-details" open={recoveryOpen}>

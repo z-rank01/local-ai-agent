@@ -119,11 +119,11 @@ async def stock_service_status(request: Request):
     from core.stock_service import stock_service
     return await stock_service.status()
 @app.get('/api/admin/stock-models')
-async def stock_analysis_models(request: Request):
+async def stock_analysis_models(request: Request, refresh: int = 0):
     if not _is_loopback_host(request.client.host if request.client else None):
         raise HTTPException(403, '仅允许本机查看分析模型')
     from core.market_research import available_models
-    return await available_models(get_runtime())
+    return await available_models(get_runtime(), refresh=bool(refresh))
 @app.post('/api/internal/market-event-analysis', include_in_schema=False)
 async def market_event_analysis(request: Request):
     from core.market_research import authorize, generate

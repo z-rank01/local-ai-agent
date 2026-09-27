@@ -198,7 +198,8 @@ class StockService:
                     from .market_research import available_models
                     catalog = await available_models(runtime)
                     if not isinstance(model, dict) or set(model) != {'provider', 'model'} or not any(
-                            item['provider'] == model['provider'] and item['model'] == model['model'] for item in catalog):
+                            item['provider'] == model['provider'] and item['model'] == model['model'] and
+                            item['status'] == 'configured' for item in catalog):
                         raise ValueError('所选简报分析模型未安装或未配置密钥')
                 await self.request('/api/control/status')
                 result = await self.request('/api/control/action', body)

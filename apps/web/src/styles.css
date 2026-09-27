@@ -2479,6 +2479,11 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   color: var(--muted);
 }
 .stock-summary b { color: var(--text); font-weight: 600; }
+.stock-model-section { display: grid; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.stock-model-label { color: var(--text); font-size: 13px; font-weight: 600; }
+.stock-model-section .model-picker { width: 100%; min-width: 0; max-width: 100%; }
+.stock-model-section .model-picker-menu { top: auto; bottom: calc(100% + 6px); }
+.stock-model-section .status-hint { margin: 0; }
 .panel-details { margin: 10px 0 0; }
 .panel-details > summary {
   cursor: pointer;
