@@ -3,7 +3,7 @@ backend: stock-bridge
 tier: extended
 short_description: "读取本会话已有研究、候选或市场简报任务的报告（只读）。"
 description: >
-  按 reference 读取本会话已有研究、候选或每日市场简报任务的报告摘要与状态，不会重跑任务。
+  按 reference 读取本会话已有研究、候选、每日简报或主题机会研究任务的报告摘要与状态，不会重跑任务。
   reference 必须是本会话股票任务查找工具返回的 64 位任务引用，不要编造。
   返回中 task_status（程序执行）、business_status（业务裁决）、data_quality（数据质量）
   是三种不同事实，解释时不能混淆；候选报告中的 available_at 只是快照抓取时间，逐行行情日期未确认。

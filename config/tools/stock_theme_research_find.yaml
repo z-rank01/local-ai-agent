@@ -1,0 +1,14 @@
+name: stock_theme_research_find
+backend: stock-bridge
+tier: extended
+short_description: "查找本会话已有的主题机会研究任务。"
+description: >
+  只查找已提交的主题研究，不创建任务。返回的 reference 交给 stock_report_read
+  读取任务状态和本地人类可读报告。
+parameters:
+  type: object
+  properties:
+    page:
+      type: integer
+      minimum: 1
+      description: "页码，每页 8 条"

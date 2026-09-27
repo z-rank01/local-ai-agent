@@ -79,6 +79,18 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(steps[1]['event_id'], 'b' * 16)
         self.assertNotIn('method_id', str(steps))
 
+    async def test_theme_task_uses_frozen_brief_reference_and_event(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('theme-conv', 'theme-request', '研究产业链', method_id='kimi-chain')
+        await bridge.call_tool('stock_theme_research_submit',
+                               {'reference': REF, 'event_id': 'c' * 16}, 'theme-conv')
+        await bridge.call_tool('stock_theme_research_find', {}, 'theme-conv')
+        steps = [c['json']['tool_call'] for c in calls if c['path'].endswith('/step')]
+        self.assertEqual(steps, [
+            {'action': 'theme_research', 'reference': {'type': 'task', 'token': REF},
+             'event_id': 'c' * 16}, {'action': 'find', 'kind': 'theme_research'}])
+
     async def test_market_brief_refresh_requires_explicit_tool_parameter(self):
         calls = []
         bridge = self.bridge(make_broker(calls))

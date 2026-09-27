@@ -53,6 +53,19 @@ def _market_brief_find_action(params):
     return action
 
 
+def _theme_research_find_action(params):
+    action = {'action': 'find', 'kind': 'theme_research'}
+    if params.get('page') is not None:
+        action['page'] = params['page']
+    return action
+
+
+def _theme_research_action(params):
+    return {'action': 'theme_research',
+            'reference': {'type': 'task', 'token': params.get('reference', '')},
+            **({'event_id': params['event_id']} if params.get('event_id') else {})}
+
+
 def _report_action(params):
     return {'action': 'view', 'kind': 'job',
             'reference': {'type': 'task', 'token': params.get('reference', '')},
@@ -108,6 +121,8 @@ _TOOL_ACTIONS = {
     'stock_research_find': _find_action,
     'stock_candidate_find': _candidate_find_action,
     'stock_market_brief_find': _market_brief_find_action,
+    'stock_theme_research_find': _theme_research_find_action,
+    'stock_theme_research_submit': _theme_research_action,
     'stock_report_read': _report_action,
     'stock_public_evidence_find': _public_evidence_find_action,
     'stock_public_evidence_read': _public_evidence_read_action,
@@ -123,7 +138,7 @@ _SYMBOL_RE = re.compile(r'^\d{6}$')
 _RESEARCH_MODES = {'reuse', 'continue', 'redo'}
 _REFERENCE_TOOLS = {'stock_report_read', 'stock_research_cancel', 'stock_research_resume',
                     'stock_market_brief_continue', 'stock_public_evidence_find',
-                    'stock_public_evidence_read'}
+                    'stock_public_evidence_read', 'stock_theme_research_submit'}
 
 
 class StockBridge:

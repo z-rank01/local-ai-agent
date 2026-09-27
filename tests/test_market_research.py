@@ -69,6 +69,29 @@ class PublicSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await public_search(runtime, {'symbol': '000001', 'name': '公开公司',
             'source': 'csrc'}), {'status': 'DISABLED', 'urls': []})
 
+    async def test_public_industry_question_does_not_include_company_or_private_text(self):
+        runtime = SearchRuntime()
+        result = await public_search(runtime, {'symbol': '000001', 'name': '公开公司',
+            'source': 'csrc', 'purpose': 'industry_background', 'terms': ['光通信', '产业政策']})
+        self.assertEqual(result['status'], 'OK')
+        self.assertEqual(runtime.calls[0][1]['query'], '光通信 产业政策 site:www.csrc.gov.cn')
+        await public_search(runtime, {'symbol': '', 'name': '', 'source': 'csrc',
+            'purpose': 'industry_background', 'terms': ['光通信']})
+        self.assertEqual(runtime.calls[1][1]['query'], '光通信 site:www.csrc.gov.cn')
+        with self.assertRaises(HTTPException):
+            await public_search(runtime, {'symbol': '000001', 'name': '公开公司',
+                'source': 'csrc', 'purpose': 'industry_background', 'terms': ['private/account']})
+
+    async def test_public_industry_question_does_not_include_company_or_private_text(self):
+        runtime = SearchRuntime()
+        result = await public_search(runtime, {'symbol': '000001', 'name': '公开公司',
+            'source': 'csrc', 'purpose': 'industry_background', 'terms': ['光通信', '产业政策']})
+        self.assertEqual(result['status'], 'OK')
+        self.assertEqual(runtime.calls[0][1]['query'], '光通信 产业政策 site:www.csrc.gov.cn')
+        with self.assertRaises(HTTPException):
+            await public_search(runtime, {'symbol': '000001', 'name': '公开公司',
+                'source': 'csrc', 'purpose': 'industry_background', 'terms': ['private/account']})
+
 
 class Response:
     def raise_for_status(self):

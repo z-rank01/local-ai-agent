@@ -58,17 +58,27 @@ def authorize(request: Request):
 
 async def public_search(runtime, body):
     """Search only a trusted public stock identity; snippets are never evidence."""
-    if not isinstance(body, dict) or set(body) != {'symbol', 'name', 'source'}:
+    base = {'symbol', 'name', 'source'}
+    expanded = base | {'purpose', 'terms'}
+    if not isinstance(body, dict) or set(body) not in (base, expanded):
         raise HTTPException(422, '公开搜索参数无效')
     symbol, name, source = body['symbol'], body['name'], body['source']
-    if (not isinstance(symbol, str) or not re.fullmatch(r'\d{6}', symbol) or
-            not isinstance(name, str) or not re.fullmatch(r'[\u4e00-\u9fffA-Za-z0-9（）()·]{2,40}', name) or
-            not isinstance(source, str) or source not in LOOKUP_HOSTS):
+    purpose, terms = body.get('purpose', 'company_direct'), body.get('terms', [])
+    public_theme = (purpose == 'industry_background' and source in ('csrc', 'ndrc')
+                    and symbol == '' and name == '' and bool(terms))
+    if (not public_theme and (not isinstance(symbol, str) or not re.fullmatch(r'\d{6}', symbol) or
+            not isinstance(name, str) or not re.fullmatch(r'[\u4e00-\u9fffA-Za-z0-9（）()·]{2,40}', name)) or
+            not isinstance(source, str) or source not in LOOKUP_HOSTS or
+            not isinstance(purpose, str) or purpose not in {'industry_background', 'company_direct', 'benefit_link'} or
+            not isinstance(terms, list) or len(terms) > 4 or
+            any(not isinstance(term, str) or
+                not re.fullmatch(r'[\u4e00-\u9fffA-Za-z0-9（）()·-]{2,24}', term) for term in terms)):
         raise HTTPException(422, '仅可查询公开证券和核准来源')
     if 'web_search' not in runtime.tool_registry.known_tools:
         return {'status': 'DISABLED', 'urls': []}
     host = LOOKUP_HOSTS[source]
-    query = f'{symbol} {name} site:{host}'
+    query = (' '.join(terms) + (' ' + symbol + ' ' + name if purpose != 'industry_background' else '')
+             if terms else f'{symbol} {name}') + f' site:{host}'
     try:
         found = await runtime.router.dispatch('web_search', {'query': query, 'max_results': 12},
                                               session_id='stock-public-research')
