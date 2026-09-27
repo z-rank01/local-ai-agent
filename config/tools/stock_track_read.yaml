@@ -3,8 +3,9 @@ backend: stock-bridge
 tier: extended
 short_description: "读取某主题或公司跨日研究版本。"
 description: >
-  先用 stock_track_find 获取安全引用；按页读取原研究判断、新证据带来的变化、
-  来源、反证和缺口。每页最多两个历史版本；如需核对完整事件原文，使用版本中的
+  先用 stock_track_find 获取安全引用；按页读取原研究判断、当前判断、新证据带来的变化、
+  来源、反证、缺口和最近复查状态。无关联新证据时可能没有新增观点版本。
+  每页最多两个历史版本；如需核对完整事件原文，使用版本中的
   brief_reference 调用 stock_public_evidence_find/read。这是公开研究，不是交易建议。
 parameters:
   type: object

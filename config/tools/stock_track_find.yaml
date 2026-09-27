@@ -3,7 +3,8 @@ backend: stock-bridge
 tier: extended
 short_description: "查找已关注或忽略的主题与公司。"
 description: >
-  查询跨日研究跟踪，返回本会话安全引用、状态和最新变化；每页 8 条。
+  查询跨日研究跟踪，返回本会话安全引用、状态、最新观点变化和最近复查时间；每页 8 条。
+  没有相关新证据的复查只更新检查记录，不新增观点版本。
   不创建研究，也不改变关注状态。使用 stock_track_read 读取观点历史。
 parameters:
   type: object
