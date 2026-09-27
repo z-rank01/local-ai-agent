@@ -55,7 +55,8 @@ def _market_brief_find_action(params):
 
 def _report_action(params):
     return {'action': 'view', 'kind': 'job',
-            'reference': {'type': 'task', 'token': params.get('reference', '')}}
+            'reference': {'type': 'task', 'token': params.get('reference', '')},
+            **({'page': params['page']} if params.get('page') is not None else {})}
 
 
 def _submit_action(params):
@@ -141,6 +142,9 @@ class StockBridge:
             reference = params.get('reference', '')
             if not isinstance(reference, str) or not _REFERENCE_RE.match(reference):
                 return {'error': 'reference 必须是本会话 stock_research_find、stock_candidate_find 或 stock_market_brief_find 返回的 64 位任务引用；请先查找任务。'}
+        if tool == 'stock_report_read' and params.get('page') is not None and (
+                type(params['page']) is not int or params['page'] < 1):
+            return {'error': '报告页码必须是从 1 开始的整数。'}
         if tool == 'stock_research_submit':
             symbol = params.get('symbol')
             name = params.get('name')

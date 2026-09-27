@@ -71,6 +71,17 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         steps = [call['json']['tool_call'] for call in calls if call['path'].endswith('/step')]
         self.assertEqual(steps, [{'action': 'submit', 'kind': 'market_brief', 'refresh': True}])
 
+    async def test_report_read_can_request_later_page(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('paged-report', 'page-request', '查看报告第 2 页')
+        await bridge.call_tool('stock_report_read', {'reference': REF, 'page': 2}, 'paged-report')
+        steps = [call['json']['tool_call'] for call in calls if call['path'].endswith('/step')]
+        self.assertEqual(steps, [{'action': 'view', 'kind': 'job',
+                                  'reference': {'type': 'task', 'token': REF}, 'page': 2}])
+        self.assertIn('页码', (await bridge.call_tool('stock_report_read',
+            {'reference': REF, 'page': 0}, 'paged-report'))['error'])
+
     async def test_lifecycle_identity_and_attachment_harvest(self):
         calls = []
         report = '报告全文一\n\n---\n\n报告全文二'

@@ -14,5 +14,9 @@ parameters:
     reference:
       type: string
       description: "本会话股票任务查找工具返回的 64 位任务引用"
+    page:
+      type: integer
+      minimum: 1
+      description: "报告页码；默认第 1 页。根据上一页末尾的页数提示继续读取。"
   required:
     - reference
