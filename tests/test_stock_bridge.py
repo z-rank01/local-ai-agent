@@ -73,12 +73,16 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_report_read_can_request_later_page(self):
         calls = []
-        bridge = self.bridge(make_broker(calls))
+        summary = {'kind': 'market_brief', 'events': [{'title': '首页事件'}]}
+        bridge = self.bridge(make_broker(calls, step_responses=[ok_step(summary)]))
         bridge.set_turn('paged-report', 'page-request', '查看报告第 2 页')
-        await bridge.call_tool('stock_report_read', {'reference': REF, 'page': 2}, 'paged-report')
+        result = await bridge.call_tool('stock_report_read', {'reference': REF, 'page': 2}, 'paged-report')
         steps = [call['json']['tool_call'] for call in calls if call['path'].endswith('/step')]
         self.assertEqual(steps, [{'action': 'view', 'kind': 'job',
                                   'reference': {'type': 'task', 'token': REF}, 'page': 2}])
+        self.assertEqual(result['model_observation']['requested_page'], 2)
+        self.assertNotIn('events', result['model_observation'])
+        self.assertIn('本地附件', result['model_observation']['evidence_scope'])
         self.assertIn('页码', (await bridge.call_tool('stock_report_read',
             {'reference': REF, 'page': 0}, 'paged-report'))['error'])
 
