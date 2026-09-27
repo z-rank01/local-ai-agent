@@ -135,6 +135,18 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('页码', (await bridge.call_tool('stock_report_read',
             {'reference': REF, 'page': 0}, 'paged-report'))['error'])
 
+    async def test_market_brief_page_one_keeps_source_scopes_distinct(self):
+        bridge = self.bridge(make_broker([], step_responses=[ok_step({
+            'kind': 'market_brief', 'failed_dates': ['2026-09-24'],
+            'events': [{'source': 'industry', 'title': '发改委文章'}]})]))
+        bridge.set_turn('source-scope', 'source-request', '读取简报')
+        result = await bridge.call_tool('stock_report_read', {'reference': REF}, 'source-scope')
+        scope = result['model_observation']['source_scope']
+        self.assertIn('公告失败日期只对应本项目的东方财富公告 API 目录', scope)
+        self.assertIn('不是证监会或交易所网站的公告接口', scope)
+        self.assertIn('发改委、证监会文章是独立来源', scope)
+        self.assertIn('不展示字段名或 JSON 数组', scope)
+
     async def test_lifecycle_identity_and_attachment_harvest(self):
         calls = []
         report = '报告全文一\n\n---\n\n报告全文二'

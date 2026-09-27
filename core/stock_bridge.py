@@ -306,6 +306,12 @@ class StockBridge:
                 observation = dict(observation)
                 observation['requested_page'] = page
                 observation['evidence_scope'] = 'events 是整份简报的少量公开证据摘要，不代表某一页的完整正文。'
+                observation['source_scope'] = ('公告失败日期只对应本项目的东方财富公告 API 目录，'
+                                               '不是证监会或交易所网站的公告接口；'
+                                               '发改委、证监会文章是独立来源。'
+                                               '对比版本时只陈述可核对的状态与原文，不推测差异原因。'
+                                               '面向用户用中文名称和日期列表说明，不展示字段名或 JSON 数组；'
+                                               '不能核对报告顺序时不要猜测序号。')
         return {
             'model_observation': observation,
             'status': status,
