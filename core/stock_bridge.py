@@ -220,15 +220,22 @@ class StockBridge:
                 # the outcome code so it never has to guess from an empty object.
                 observation = {'code': step['code'], 'note': '该结果没有模型可见字段；详细内容仅在本地附件展示，长报告可能分页。'}
         if tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief':
-            observation = dict(observation)
-            observation['requested_page'] = params.get('page', 1)
-            observation['evidence_scope'] = (
-                'events 是整份简报的少量公开证据摘要，不代表所请求页的正文。'
-                '所请求页已作为本地附件交给用户；不能据此断言该页与其他页相同，'
-                '也不能声称已读到附件内未出现在摘要中的具体内容。'
-            )
-            if observation['requested_page'] > 1:
-                observation.pop('events', None)
+            page = params.get('page', 1)
+            if page > 1:
+                # The stock broker's public projection summarizes the whole
+                # brief, while the requested page is delivered locally at turn
+                # end.  Do not let the model treat that summary as page text.
+                observation = {
+                    'kind': 'market_brief_page', 'requested_page': page,
+                    'detail_available': 'YES' if step.get('local_result_available') else 'NO',
+                    'page_reading': '第 {page} 页正文仅作为本地附件交给用户，模型没有该页正文。'
+                                    '请直接告知无法概述或推测该页内容，不要列出“可能包含”的事件或沿用其他页摘要。'
+                                    '用户可展开附件，或给出具体标题/片段供进一步解释。'.format(page=page),
+                }
+            else:
+                observation = dict(observation)
+                observation['requested_page'] = page
+                observation['evidence_scope'] = 'events 是整份简报的少量公开证据摘要，不代表某一页的完整正文。'
         return {
             'model_observation': observation,
             'status': status,

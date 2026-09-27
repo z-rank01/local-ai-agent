@@ -81,8 +81,10 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(steps, [{'action': 'view', 'kind': 'job',
                                   'reference': {'type': 'task', 'token': REF}, 'page': 2}])
         self.assertEqual(result['model_observation']['requested_page'], 2)
+        self.assertEqual(result['model_observation']['kind'], 'market_brief_page')
         self.assertNotIn('events', result['model_observation'])
-        self.assertIn('本地附件', result['model_observation']['evidence_scope'])
+        self.assertIn('本地附件', result['model_observation']['page_reading'])
+        self.assertIn('不要列出', result['model_observation']['page_reading'])
         self.assertIn('页码', (await bridge.call_tool('stock_report_read',
             {'reference': REF, 'page': 0}, 'paged-report'))['error'])
 
