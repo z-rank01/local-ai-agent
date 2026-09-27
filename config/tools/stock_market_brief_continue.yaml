@@ -1,0 +1,16 @@
+name: stock_market_brief_continue
+backend: stock-bridge
+tier: extended
+short_description: "明确续读每日市场简报尚未深读的公开事件。"
+description: >
+  仅当用户本轮明确要求续读或查看下一批事件时调用。先用 stock_market_brief_find
+  获取本会话已完成简报的安全 reference，再提交续读。后台沿用该版本的目录快照与分析模型，
+  只分析下一批，生成可查的新报告版本并保留旧报告；不读取账户或执行交易。
+parameters:
+  type: object
+  properties:
+    reference:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      description: "本会话 stock_market_brief_find 返回的已完成简报任务引用"
+  required: [reference]

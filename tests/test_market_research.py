@@ -1,10 +1,11 @@
 """Background research transport must use only public source text and configured keys."""
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
-from core.market_research import _event_schema, available_models, generate, public_material
+from core.market_research import _event_schema, available_models, generate, public_material, public_search
 
 
 PUBLIC = [{'event_id': 'E1', 'title': '公开政策', 'published': '2026-09-26',
@@ -38,6 +39,35 @@ class Registry:
 
 class Runtime:
     models = Registry()
+
+
+class SearchRuntime:
+    def __init__(self, enabled=True):
+        self.tool_registry = type('Tools', (), {'known_tools': {'web_search'} if enabled else set()})()
+        self.calls = []
+        async def dispatch(tool, params, session_id):
+            self.calls.append((tool, params, session_id))
+            return {'results': [
+                {'url': 'https://www.csrc.gov.cn/csrc/official.html', 'snippet': 'untrusted'},
+                {'url': 'https://attacker.example/private'},
+                {'url': 'http://www.csrc.gov.cn/insecure'}]}
+        self.router = SimpleNamespace(dispatch=dispatch)
+
+
+class PublicSearchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_identity_only_and_host_filter(self):
+        runtime = SearchRuntime()
+        result = await public_search(runtime, {'symbol': '000001', 'name': '公开公司', 'source': 'csrc'})
+        self.assertEqual(result, {'status': 'OK', 'urls': ['https://www.csrc.gov.cn/csrc/official.html']})
+        self.assertEqual(runtime.calls[0][1]['query'], '000001 公开公司 site:www.csrc.gov.cn')
+        with self.assertRaises(HTTPException):
+            await public_search(runtime, {'symbol': '000001', 'name': '公开公司',
+                                          'source': 'csrc', 'private_account': 'secret'})
+
+    async def test_disabled_search_does_not_fetch(self):
+        runtime = SearchRuntime(False)
+        self.assertEqual(await public_search(runtime, {'symbol': '000001', 'name': '公开公司',
+            'source': 'csrc'}), {'status': 'DISABLED', 'urls': []})
 
 
 class Response:
@@ -127,16 +157,16 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('max_tokens', calls[0][2])
         self.assertNotIn('response_format', calls[0][2])
 
-    async def test_provider_length_finish_is_not_accepted_as_complete_analysis(self):
+    async def test_provider_length_finish_preserves_partial_output_for_continuation(self):
         calls = []
         with patch('core.market_research.read_key', return_value='configured-secret'), \
              patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)), \
              patch.object(Response, 'json', return_value={
                  'choices': [{'message': {'content': '{"events":'}, 'finish_reason': 'length'}]}):
-            with self.assertRaises(HTTPException) as error:
-                await generate(Runtime(), 'qwen', 'qwen3.8-max', '只输出 JSON', PUBLIC)
-        self.assertEqual(error.exception.status_code, 502)
-        self.assertIn('上限', error.exception.detail)
+            result = await generate(Runtime(), 'qwen', 'qwen3.8-max', '只输出 JSON', PUBLIC)
+        self.assertEqual(result['status'], 'TRUNCATED')
+        self.assertEqual(result['text'], '{"events":')
+        self.assertEqual(result['model_params']['max_tokens'], 8192)
 
 
 if __name__ == '__main__':

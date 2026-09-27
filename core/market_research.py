@@ -13,6 +13,8 @@ from .providers import _NON_CHAT_MODEL, _probe_ollama_models, read_key
 from .stock_service import stock_service
 
 PUBLIC_HOSTS = {'www.csrc.gov.cn', 'www.ndrc.gov.cn', 'pdf.dfcfw.com', 'data.eastmoney.com'}
+LOOKUP_HOSTS = {'csrc': 'www.csrc.gov.cn', 'ndrc': 'www.ndrc.gov.cn',
+                'announcement': 'data.eastmoney.com'}
 _SPECIALIZED_MODEL = re.compile(r'omni|realtime|livetranslate|(?:^|[-_/])(?:mt|vl)(?:[-_/]|$)', re.IGNORECASE)
 
 
@@ -54,6 +56,37 @@ def authorize(request: Request):
         raise HTTPException(401, '简报分析凭据无效')
 
 
+async def public_search(runtime, body):
+    """Search only a trusted public stock identity; snippets are never evidence."""
+    if not isinstance(body, dict) or set(body) != {'symbol', 'name', 'source'}:
+        raise HTTPException(422, '公开搜索参数无效')
+    symbol, name, source = body['symbol'], body['name'], body['source']
+    if (not isinstance(symbol, str) or not re.fullmatch(r'\d{6}', symbol) or
+            not isinstance(name, str) or not re.fullmatch(r'[\u4e00-\u9fffA-Za-z0-9（）()·]{2,40}', name) or
+            not isinstance(source, str) or source not in LOOKUP_HOSTS):
+        raise HTTPException(422, '仅可查询公开证券和核准来源')
+    if 'web_search' not in runtime.tool_registry.known_tools:
+        return {'status': 'DISABLED', 'urls': []}
+    host = LOOKUP_HOSTS[source]
+    query = f'{symbol} {name} site:{host}'
+    try:
+        found = await runtime.router.dispatch('web_search', {'query': query, 'max_results': 12},
+                                              session_id='stock-public-research')
+    except Exception:
+        return {'status': 'UNAVAILABLE', 'urls': []}
+    if not isinstance(found, dict) or found.get('error'):
+        return {'status': 'UNAVAILABLE', 'urls': []}
+    rows = found.get('results')
+    urls = []
+    for row in rows if isinstance(rows, list) else []:
+        url = row.get('url') or row.get('link') if isinstance(row, dict) else None
+        parsed = urlparse(url) if isinstance(url, str) else None
+        if (parsed and parsed.scheme == 'https' and parsed.hostname == host and
+                not parsed.username and not parsed.password and url not in urls):
+            urls.append(url)
+    return {'status': 'OK', 'urls': urls}
+
+
 async def available_models(runtime, *, refresh=False):
     # Use the same provider catalog as conversation model selection.  Discovered
     # cloud chat models inherit the provider's existing key and compatible URL.
@@ -85,7 +118,8 @@ def public_material(material):
     if not isinstance(material, list) or len(material) != 1 or not isinstance(material[0], dict):
         raise HTTPException(422, '每次只能分析一个公开事件正文块')
     item = material[0]
-    if set(item) != {'event_id', 'title', 'published', 'source', 'url', 'excerpts'}:
+    base_fields = {'event_id', 'title', 'published', 'source', 'url', 'excerpts'}
+    if set(item) not in (base_fields, base_fields | {'chunk_findings'}):
         raise HTTPException(422, '公开证据字段无效')
     parsed = urlparse(item['url']) if isinstance(item['url'], str) else None
     if (not parsed or parsed.scheme != 'https' or parsed.hostname not in PUBLIC_HOSTS or
@@ -103,6 +137,27 @@ def public_material(material):
                 not isinstance(span['text'], str) or not span['text'] or len(span['text']) > 1200 or
                 not isinstance(span['location'], str) or len(span['location']) > 100):
             raise HTTPException(422, '正文位置无效')
+    if 'chunk_findings' in item:
+        findings = item['chunk_findings']
+        if not isinstance(findings, list) or not findings or len(findings) > 4000:
+            raise HTTPException(422, '跨块分析材料无效')
+        for finding in findings:
+            if (not isinstance(finding, dict) or
+                    set(finding) != {'facts', 'impact', 'counter', 'watch', 'gaps'} or
+                    not isinstance(finding['facts'], list) or
+                    not isinstance(finding['gaps'], list) or
+                    any(not isinstance(gap, str) for gap in finding['gaps'])):
+                raise HTTPException(422, '跨块分析材料无效')
+            for fact in finding['facts']:
+                if (not isinstance(fact, dict) or set(fact) != {'excerpt_id', 'quote'} or
+                        not isinstance(fact['excerpt_id'], str) or not isinstance(fact['quote'], str)):
+                    raise HTTPException(422, '跨块事实无效')
+            for key in ('impact', 'counter', 'watch'):
+                part = finding[key]
+                if (not isinstance(part, dict) or set(part) != {'text', 'evidence'} or
+                        not isinstance(part['text'], str) or not isinstance(part['evidence'], list) or
+                        any(not isinstance(ref, str) for ref in part['evidence'])):
+                    raise HTTPException(422, '跨块判断无效')
     return material
 
 
@@ -137,13 +192,16 @@ async def generate(runtime, provider, model, prompt, material):
                 headers={'Authorization': 'Bearer ' + key}, json=payload)
             response.raise_for_status()
             answer = response.json()
-        content = answer['choices'][0]['message']['content']
-        if answer['choices'][0].get('finish_reason') == 'length':
-            raise HTTPException(502, '云端模型输出达到上限，分析未完成')
-        if not isinstance(content, str) or not content:
+        choice = answer['choices'][0]
+        content = choice['message']['content']
+        if not isinstance(content, str) or (not content and choice.get('finish_reason') != 'length'):
             raise ValueError('empty content')
         usage = answer.get('usage') if isinstance(answer.get('usage'), dict) else {}
-        return {'text': content, 'usage': {k: usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens')
-                                          if type(usage.get(k)) is int}}
+        return {'status': 'TRUNCATED' if choice.get('finish_reason') == 'length' else 'COMPLETE',
+                'text': content, 'finish_reason': choice.get('finish_reason'),
+                'model_params': {'max_tokens': payload.get('max_tokens'),
+                                 'response_format': payload.get('response_format', {}).get('type')},
+                'usage': {k: usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens')
+                          if type(usage.get(k)) is int}}
     except (httpx.HTTPError, KeyError, IndexError, ValueError):
         raise HTTPException(502, '云端分析调用失败或返回无效内容；不会自动改用其他模型') from None
