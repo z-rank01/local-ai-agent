@@ -1,0 +1,31 @@
+name: stock_public_evidence_read
+backend: stock-bridge
+tier: extended
+short_description: "按事件读取可追溯的公开原文和分析。"
+description: >
+  event_id 必须来自 stock_public_evidence_find。读取本事件的来源、日期、
+  事实引文、分析、反证、观察事项和有位置的原文段落。长正文用 next_cursor 续取。
+  只有原文 excerpt.text 或 facts.quote 中连续出现的字串才可加引号称为逐字引文；
+  不得删词、拼接或规范化 PDF 空格后仍称逐字引文。摘短句时也须保持原样，
+  优先摘取 10 到 30 字、无需改动引号或空格的连续子串，并在输出前逐字符核对；
+  无法保证时只作明确标注的转述。给出对应 excerpt_id 与 location。
+  不要把行业背景当成某公司受益的直接证据。
+  source 是事件类别，不是发布机构。引用来源时使用 source_provenance 和实际 URL；
+  公告 PDF 链接属于提供方附件时，不得自行称其来自证券交易所或监管机构。
+  source_provenance 描述取数渠道，不等于已核实的原发布机构。
+  此工具不发送私有账户或完整 F01，也不重新运行研究。
+parameters:
+  type: object
+  properties:
+    reference:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      description: "stock_market_brief_find 返回的本会话安全任务引用"
+    event_id:
+      type: string
+      pattern: "^[0-9a-f]{16}$"
+      description: "stock_public_evidence_find 返回的事件编号"
+    cursor:
+      type: string
+      description: "上一次结果的 next_cursor；不要自行编造"
+  required: [reference, event_id]

@@ -55,6 +55,20 @@ export function sendHeartbeat(baseUrl = DEFAULT_BASE_URL): Promise<{ok: boolean;
 
 export type SkillsStatus = {websearch: {enabled: boolean; active: boolean; url: string}};
 
+export type ResearchMethod = {id: string; title: string; roles: string[]; source: string; source_version: string; version: string};
+
+export function fetchResearchMethods(baseUrl = DEFAULT_BASE_URL): Promise<{methods: ResearchMethod[]}> {
+  return requestJson<{methods: ResearchMethod[]}>('/api/research-methods', undefined, baseUrl);
+}
+
+export function updateResearchMethod(conversationId: string, methodId: string,
+  baseUrl = DEFAULT_BASE_URL): Promise<ConversationSummary> {
+  return requestJson<ConversationSummary>(`/api/conversations/${conversationId}/research-method`, {
+    method: 'PUT', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({method_id: methodId}),
+  }, baseUrl);
+}
+
 export function fetchSkills(baseUrl = DEFAULT_BASE_URL): Promise<SkillsStatus> {
   return requestJson<SkillsStatus>('/api/admin/skills', undefined, baseUrl);
 }

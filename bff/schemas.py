@@ -13,6 +13,11 @@ class ConversationSummary(BaseModel):
     model: str
     created_at: str
     updated_at: str
+    research_method: str = "auto"
+
+
+class ResearchMethodChoice(BaseModel):
+    method_id: str = Field(min_length=1, max_length=60)
 
 
 class MessageRecord(BaseModel):

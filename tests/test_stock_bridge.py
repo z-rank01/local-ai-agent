@@ -63,6 +63,22 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             {'action': 'find', 'kind': 'market_brief', 'page': 1},
         ])
 
+    async def test_public_evidence_tools_and_trusted_method(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('evidence-conv', 'evidence-request', '追问公告', method_id='kimi-chain')
+        await bridge.call_tool('stock_public_evidence_find',
+                               {'reference': REF, 'report_page': 2, 'search': '产能'}, 'evidence-conv')
+        await bridge.call_tool('stock_public_evidence_read',
+                               {'reference': REF, 'event_id': 'b' * 16, 'cursor': '20:abc'}, 'evidence-conv')
+        prepare = next(c['json'] for c in calls if c['path'].endswith('/prepare'))
+        self.assertEqual(prepare['method_id'], 'kimi-chain')
+        steps = [c['json']['tool_call'] for c in calls if c['path'].endswith('/step')]
+        self.assertEqual(steps[0]['action'], 'public_evidence_find')
+        self.assertEqual(steps[0]['report_page'], 2)
+        self.assertEqual(steps[1]['event_id'], 'b' * 16)
+        self.assertNotIn('method_id', str(steps))
+
     async def test_market_brief_refresh_requires_explicit_tool_parameter(self):
         calls = []
         bridge = self.bridge(make_broker(calls))
@@ -437,7 +453,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self):
                 self.turns = []
                 self.open = False
-            def set_turn(self, cid, rid, query=''):
+            def set_turn(self, cid, rid, query='', method_id='auto'):
                 self.turns.append(('set', cid, rid, query))
                 self.open = True
             def has_open_turn(self, cid):
@@ -541,7 +557,7 @@ class StockPrivacyTests(unittest.IsolatedAsyncioTestCase):
         parent = self
         class StubBridge:
             def __init__(self): self.open = False
-            def set_turn(self, cid, rid, query=''): self.open = True
+            def set_turn(self, cid, rid, query='', method_id='auto'): self.open = True
             def has_open_turn(self, cid): return self.open
             async def call_tool(self, tool, params, session_id):
                 return {'model_observation': {'task_status': 'SUCCEEDED'}, 'status': 'TOOL_RETURNED',

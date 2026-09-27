@@ -1,10 +1,18 @@
 import {useEffect, useRef, useState} from 'react';
-import {fetchSkills, setWebsearch} from '../api';
+import {fetchResearchMethods, fetchSkills, setWebsearch, updateResearchMethod} from '../api';
+import type {ResearchMethod} from '../api';
+import type {ConversationSummary} from '../types';
 
-export function SkillsPanel({onChanged}: {onChanged?: () => void}) {
+export function SkillsPanel({onChanged, conversation, onMethodChanged}: {
+  onChanged?: () => void;
+  conversation?: ConversationSummary;
+  onMethodChanged?: (conversation: ConversationSummary) => void;
+}) {
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [methods, setMethods] = useState<ResearchMethod[]>([]);
+  const [methodBusy, setMethodBusy] = useState(false);
   const mutating = useRef(false);
 
   useEffect(() => {
@@ -16,6 +24,12 @@ export function SkillsPanel({onChanged}: {onChanged?: () => void}) {
         if (active) setEnabled(status.websearch.enabled);
       } catch {
         // Backend not ready yet; the next interval retries.
+      }
+      try {
+        const response = await fetchResearchMethods();
+        if (active) setMethods(response.methods);
+      } catch {
+        if (active) setMethods([]);
       }
     };
     void refresh();
@@ -43,6 +57,19 @@ export function SkillsPanel({onChanged}: {onChanged?: () => void}) {
     }
   };
 
+  const selectMethod = async (methodId: string) => {
+    if (!conversation || methodBusy) return;
+    setMethodBusy(true);
+    setError('');
+    try {
+      onMethodChanged?.(await updateResearchMethod(conversation.id, methodId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMethodBusy(false);
+    }
+  };
+
   return <section className="skills-panel">
     <h2>技能</h2>
     <div className="skill-row">
@@ -56,6 +83,16 @@ export function SkillsPanel({onChanged}: {onChanged?: () => void}) {
       </button>
     </div>
     <p className="status-hint">开启后模型可联网检索与读取网页；首次启动搜索容器需等待几秒。</p>
+    <label className="research-method-field">
+      <span>本会话研究方法</span>
+      <select value={conversation?.research_method ?? 'auto'}
+        disabled={!conversation || methodBusy || methods.length === 0}
+        onChange={(event) => void selectMethod(event.target.value)}>
+        <option value="auto">自动编排</option>
+        {methods.map((method) => <option key={method.id} value={method.id}>{method.title}</option>)}
+      </select>
+    </label>
+    <p className="status-hint">只影响本会话后续解释和明确提交的新研究任务；不适用的职责使用自动方法。</p>
     {error && <p role="alert" className="error-banner">{error}</p>}
   </section>;
 }

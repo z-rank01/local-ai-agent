@@ -45,6 +45,7 @@ class Conversation:
     model: str
     created_at: str
     updated_at: str
+    research_method: str = "auto"
     messages: list[Message] = field(default_factory=list)
 
 
@@ -80,6 +81,7 @@ _MIGRATIONS: list[str] = [
     "SELECT 1;",
     "SELECT 1;",
     "ALTER TABLE messages ADD COLUMN metadata TEXT NOT NULL DEFAULT '';",
+    "ALTER TABLE conversations ADD COLUMN research_method TEXT NOT NULL DEFAULT 'auto';",
 ]
 
 
@@ -180,6 +182,7 @@ class ConversationStore:
                 model=row["model"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
+                research_method=row["research_method"],
             )
             msgs = conn.execute(
                 "SELECT * FROM messages WHERE conversation_id = ? AND active = 1 ORDER BY created_at",
@@ -240,6 +243,7 @@ class ConversationStore:
                     model=r["model"],
                     created_at=r["created_at"],
                     updated_at=r["updated_at"],
+                    research_method=r["research_method"],
                 )
                 for r in rows
             ]
@@ -250,6 +254,15 @@ class ConversationStore:
                 "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
                 (title, self._now(), conv_id),
             )
+
+    def set_research_method(self, conv_id: str, method_id: str) -> None:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE conversations SET research_method=?, updated_at=? WHERE id=?",
+                (method_id, self._now(), conv_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError('conversation not found')
 
     def delete_conversation(self, conv_id: str) -> None:
         with self._connect() as conn:

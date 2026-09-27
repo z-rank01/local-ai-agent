@@ -40,7 +40,7 @@
 
 | 数据 | 位置与约定 |
 | --- | --- |
-| 会话 | `data/conversations.db` |
+| 会话 | `data/conversations.db`；研究方法选择由增量迁移保存在同一会话表，启动时自动升级 |
 | 用户工作区 | `data/workspace/` |
 | 模型调用账本 | `data/model-calls.sqlite` |
 | 本机密钥与开关 | `data/private/`；不提交 |

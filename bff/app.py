@@ -25,6 +25,7 @@ from .schemas import (
     ModelInfo,
     ProviderInfo,
     RegenerateRequest,
+    ResearchMethodChoice,
     UIStreamEvent,
     UpdateConversationRequest,
     WorkspaceDeleteResponse,
@@ -255,6 +256,10 @@ async def list_conversations(
     query: str | None = None,
 ) -> list[ConversationSummary]:
     return get_chat_service().list_conversations(limit=limit, offset=offset, query=query)
+
+@app.get('/api/research-methods')
+async def research_methods():
+    return {'methods': await get_chat_service().research_methods()}
 @app.post("/api/conversations", response_model=ConversationSummary, status_code=201)
 async def create_conversation(request: CreateConversationRequest) -> ConversationSummary:
     return get_chat_service().create_conversation(request.title, request.model)
@@ -267,6 +272,10 @@ async def update_conversation(
     request: UpdateConversationRequest,
 ) -> ConversationSummary:
     return get_chat_service().update_conversation_title(conversation_id, request.title)
+
+@app.put('/api/conversations/{conversation_id}/research-method', response_model=ConversationSummary)
+async def update_research_method(conversation_id: str, request: ResearchMethodChoice) -> ConversationSummary:
+    return await get_chat_service().update_research_method(conversation_id, request.method_id)
 @app.delete("/api/conversations/{conversation_id}", status_code=204)
 async def delete_conversation(conversation_id: str) -> Response:
     get_chat_service().delete_conversation(conversation_id)

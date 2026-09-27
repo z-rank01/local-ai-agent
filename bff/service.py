@@ -165,6 +165,22 @@ class ChatSessionService:
         self._store.update_conversation_title(conversation_id, title)
         return self.get_conversation(conversation_id)
 
+    async def research_methods(self) -> list[dict]:
+        from core.stock_service import stock_service
+        try:
+            rows = (await stock_service.request('/api/control/methods'))['methods']
+        except (ValueError, OSError, httpx.HTTPError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return [{key: row[key] for key in ('id', 'title', 'roles', 'source', 'source_version', 'version')}
+                for row in rows]
+
+    async def update_research_method(self, conversation_id: str, method_id: str) -> ConversationSummary:
+        self._require_conversation(conversation_id)
+        if method_id != 'auto' and method_id not in {row['id'] for row in await self.research_methods()}:
+            raise HTTPException(status_code=422, detail='研究方法不存在')
+        self._store.set_research_method(conversation_id, method_id)
+        return self.get_conversation(conversation_id)
+
     def delete_conversation(self, conversation_id: str) -> None:
         self._require_conversation(conversation_id)
         self._store.delete_conversation(conversation_id)
@@ -728,6 +744,19 @@ class ChatSessionService:
                 llm.spec = {**spec, 'options': options}
         messages = self._store.messages_as_dicts(conversation.id, cloud=cloud)
         agent = self._runtime.agent_for(spec, llm)
+        method_id = conversation.research_method
+        if method_id != 'auto':
+            from core.stock_service import stock_service
+            try:
+                rows = (await stock_service.request('/api/control/methods'))['methods']
+                selected = next((row for row in rows if row['id'] == method_id), None)
+                if selected:
+                    agent.extra_system_sections = [
+                        '本会话人工选择的研究方法：' + selected['title'] + '，版本 ' + selected['version'] +
+                        '。仅在当前问题适用时采用。方法帮助提问和核查，不能代替事实、来源或股票交易门禁。\n' +
+                        selected['content']]
+            except (ValueError, OSError, httpx.HTTPError):
+                pass
         agent.allow_tools = not answer_only
         agent.workspace_cloud_allowed = workspace_allowed
         base = dict(conversation_id=conversation.id, run_id=run_id)
@@ -741,7 +770,8 @@ class ChatSessionService:
         stock_tool_rows = {}       # call_id -> saved tool row id
         if stock_bridge is not None and not answer_only:
             stock_bridge.set_turn(conversation.id, request_id or run_id,
-                next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), ''))
+                next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), ''),
+                method_id=method_id)
         def emit(event, **kwargs):
             return UIStreamEvent(event=event, **base, **kwargs)
         def save(role, content='', **kwargs):
@@ -884,6 +914,7 @@ class ChatSessionService:
             model=conversation.model,
             created_at=conversation.created_at,
             updated_at=conversation.updated_at,
+            research_method=conversation.research_method,
         )
 
     @staticmethod

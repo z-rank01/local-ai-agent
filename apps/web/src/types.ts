@@ -15,6 +15,7 @@ export type ConversationSummary = {
   model: string;
   created_at: string;
   updated_at: string;
+  research_method: string;
 };
 
 export type MessageRecord = {

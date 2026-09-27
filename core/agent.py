@@ -221,7 +221,8 @@ class Agent:
                 except Exception:
                     pass
             if not messages or messages[0].get("role") != "system":
-                messages.insert(0, {"role": "system", "content": self.prompt_builder.build(extra_sections=ws_sections)})
+                messages.insert(0, {"role": "system", "content": self.prompt_builder.build(
+                    extra_sections=ws_sections + list(getattr(self, 'extra_system_sections', [])))})
             messages = await self.context_mgr.process(messages)
             tool_defs = self.registry.get_definitions(tier=self.tool_tier, use_short_desc=False)
             if cloud and not getattr(self, 'workspace_cloud_allowed', config.WORKSPACE_CLOUD_ALLOWED):

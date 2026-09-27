@@ -457,6 +457,7 @@ function readConversationSummary(event: UIStreamEvent): ConversationSummary | nu
         model: item.model ?? '',
         created_at: item.created_at,
         updated_at: item.updated_at,
+        research_method: item.research_method ?? 'auto',
       }
     : null;
 }
@@ -2196,7 +2197,10 @@ export default function App() {
           </div>
           <p className="status-hint">关闭此页面也会自动停止全部服务。</p>
         </section>
-        <SkillsPanel onChanged={() => void loadBootstrap()} />
+        <SkillsPanel onChanged={() => void loadBootstrap()}
+          conversation={conversations.find((item) => item.id === conversationId)}
+          onMethodChanged={(updated) => setConversations((current) => current.map((item) =>
+            item.id === updated.id ? updated : item))} />
         <StockServicePanel onChanged={() => void loadBootstrap()} />
       </aside>
       {inspectorCollapsed ? (

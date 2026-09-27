@@ -59,6 +59,21 @@ def _report_action(params):
             **({'page': params['page']} if params.get('page') is not None else {})}
 
 
+def _public_evidence_find_action(params):
+    return {'action': 'public_evidence_find',
+            'reference': {'type': 'task', 'token': params.get('reference', '')},
+            **({'search': params['search']} if params.get('search') else {}),
+            **({'report_page': params['report_page']} if params.get('report_page') is not None else {}),
+            **({'cursor': params['cursor']} if params.get('cursor') else {})}
+
+
+def _public_evidence_read_action(params):
+    return {'action': 'public_evidence_read',
+            'reference': {'type': 'task', 'token': params.get('reference', '')},
+            'event_id': params.get('event_id'),
+            **({'cursor': params['cursor']} if params.get('cursor') else {})}
+
+
 def _submit_action(params):
     action = {'action': 'submit', 'kind': 'research'}
     mode = params.get('research_mode')
@@ -94,6 +109,8 @@ _TOOL_ACTIONS = {
     'stock_candidate_find': _candidate_find_action,
     'stock_market_brief_find': _market_brief_find_action,
     'stock_report_read': _report_action,
+    'stock_public_evidence_find': _public_evidence_find_action,
+    'stock_public_evidence_read': _public_evidence_read_action,
     'stock_research_submit': _submit_action,
     'stock_candidate_screen': _screen_action,
     'stock_market_brief': _market_brief_action,
@@ -105,7 +122,8 @@ _TOOL_ACTIONS = {
 _SYMBOL_RE = re.compile(r'^\d{6}$')
 _RESEARCH_MODES = {'reuse', 'continue', 'redo'}
 _REFERENCE_TOOLS = {'stock_report_read', 'stock_research_cancel', 'stock_research_resume',
-                    'stock_market_brief_continue'}
+                    'stock_market_brief_continue', 'stock_public_evidence_find',
+                    'stock_public_evidence_read'}
 
 
 class StockBridge:
@@ -120,11 +138,13 @@ class StockBridge:
         # by the BFF's exclusive_turn guard, so a plain dict is race-free.
         self._turns: dict[str, dict] = {}
 
-    def set_turn(self, conversation_id: str, request_id: str | None, query: str = '') -> None:
+    def set_turn(self, conversation_id: str, request_id: str | None, query: str = '',
+                 method_id: str = 'auto') -> None:
         """Open the per-turn context. Call once per accepted user message."""
         self._turns[conversation_id] = {
             'request_id': request_id or f'turn:{uuid.uuid4().hex}',
             'query': (query or '（股票只读查询）')[:16000],
+            'method_id': method_id,
             'ticket': None,
             'sequence': 0,
             'finished': False,
@@ -228,9 +248,10 @@ class StockBridge:
                 observation = {
                     'kind': 'market_brief_page', 'requested_page': page,
                     'detail_available': 'YES' if step.get('local_result_available') else 'NO',
-                    'page_reading': '第 {page} 页正文仅作为本地附件交给用户，模型没有该页正文。'
-                                    '请直接告知无法概述或推测该页内容，不要列出“可能包含”的事件或沿用其他页摘要。'
-                                    '用户可展开附件，或给出具体标题/片段供进一步解释。'.format(page=page),
+                    'page_reading': '第 {page} 页正文作为本地附件交给用户。'
+                                    '如需解释页内事件，请继续调用 stock_public_evidence_find(report_page={page})，'
+                                    '再用 stock_public_evidence_read 读取事件；未核对前不要列出页内事件，'
+                                    '无法确认映射时明确说明。'.format(page=page),
                 }
             else:
                 observation = dict(observation)
@@ -268,7 +289,7 @@ class StockBridge:
     async def _prepare(self, state: dict, conversation_id: str) -> None:
         resp = await self._post('/api/master/broker/prepare', {
             'query': state['query'], 'actor': ACTOR, 'conversation': conversation_id,
-            'request_id': state['request_id'],
+            'request_id': state['request_id'], 'method_id': state['method_id'],
         })
         state['ticket'] = resp['ticket']
 

@@ -1,0 +1,32 @@
+name: stock_public_evidence_find
+backend: stock-bridge
+tier: extended
+short_description: "查找整份每日简报中的公开事件证据。"
+description: >
+  先用 stock_market_brief_find 获取本会话已完成简报的 reference。
+  再按标题、公司代码、原文词语或报告页查找公开事件。结果覆盖整份已分析简报，
+  每次返回一页，next_cursor 非空时继续读取。页内事件只能在 page_mapping 为
+  CONFIRMED 时断言；UNCONFIRMED 时要说明页码无法核对。
+  unread_count 是原目录中未深读的候选数，不是此会话未读数；
+  missing_count 是分析缺口条目数，不等于失败公告篇数。
+  failed_dates 是公告采集失败的日历日期，可能为休市日，不得称作交易日。
+  失败日期和缺口保留。完整 F01 仍只在本地附件展示。
+parameters:
+  type: object
+  properties:
+    reference:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      description: "stock_market_brief_find 返回的本会话安全任务引用"
+    search:
+      type: string
+      maxLength: 80
+      description: "可选：事件标题、公司代码或原文关键词"
+    report_page:
+      type: integer
+      minimum: 1
+      description: "可选：只找已核对映射到这一报告页的事件"
+    cursor:
+      type: string
+      description: "上一次结果的 next_cursor；不要自行编造"
+  required: [reference]
