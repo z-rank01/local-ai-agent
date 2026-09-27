@@ -90,7 +90,7 @@ def public_material(material):
     parsed = urlparse(item['url']) if isinstance(item['url'], str) else None
     if (not parsed or parsed.scheme != 'https' or parsed.hostname not in PUBLIC_HOSTS or
             parsed.username or parsed.password or item['source'] not in ('policy', 'industry', 'announcement') or
-            not isinstance(item['title'], str) or len(item['title']) > 300 or
+            not isinstance(item['title'], str) or len(item['title']) > 2000 or
             not isinstance(item['published'], str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', item['published']) or
             not isinstance(item['event_id'], str) or not re.fullmatch(r'[A-Za-z0-9:]+', item['event_id'])):
         raise HTTPException(422, '公开事件来源无效')
@@ -122,7 +122,10 @@ async def generate(runtime, provider, model, prompt, material):
         raise HTTPException(422, '该云端模型未配置密钥')
     payload = {'model': spec['model'], 'messages': [
         {'role': 'system', 'content': prompt}, {'role': 'user', 'content': __import__('json').dumps(material, ensure_ascii=False)}],
-        'stream': False, 'max_tokens': 4096}
+        'stream': False}
+    output_limit = spec.get('analysis_max_tokens')
+    if type(output_limit) is int and output_limit > 0:
+        payload['max_tokens'] = output_limit
     if spec['provider_id'] == 'qwen' and re.match(r'^qwen3\.(?:7|8)-(?:max|flash)', spec['model']):
         payload['response_format'] = {'type': 'json_schema', 'json_schema': {
             'name': 'market_event', 'strict': True, 'schema': _event_schema()}}
@@ -135,6 +138,8 @@ async def generate(runtime, provider, model, prompt, material):
             response.raise_for_status()
             answer = response.json()
         content = answer['choices'][0]['message']['content']
+        if answer['choices'][0].get('finish_reason') == 'length':
+            raise HTTPException(502, '云端模型输出达到上限，分析未完成')
         if not isinstance(content, str) or not content:
             raise ValueError('empty content')
         usage = answer.get('usage') if isinstance(answer.get('usage'), dict) else {}

@@ -14,7 +14,8 @@ PUBLIC = [{'event_id': 'E1', 'title': '公开政策', 'published': '2026-09-26',
 
 class Registry:
     _static_specs = [{'id': 'qwen:qwen3.8-max', 'provider_id': 'qwen', 'provider_name': '通义千问', 'model': 'qwen3.8-max',
-                      'kind': 'cloud', 'capabilities': ['text'], 'api_key_env': 'DASHSCOPE_API_KEY'},
+                      'kind': 'cloud', 'capabilities': ['text'], 'api_key_env': 'DASHSCOPE_API_KEY',
+                      'analysis_max_tokens': 8192},
                      {'id': 'qwen:qwen3.8-omni-flash', 'provider_id': 'qwen', 'provider_name': '通义千问',
                       'model': 'qwen3.8-omni-flash', 'kind': 'cloud',
                       'capabilities': ['audio'], 'api_key_env': 'DASHSCOPE_API_KEY'}]
@@ -94,6 +95,7 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][2]['response_format']['type'], 'json_schema')
         self.assertEqual(calls[0][2]['model'], 'qwen3.8-max')
+        self.assertEqual(calls[0][2]['max_tokens'], 8192)
         self.assertEqual(calls[0][1]['Authorization'], 'Bearer configured-secret')
         self.assertNotIn('cash', str(calls[0][2]))
 
@@ -122,7 +124,19 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
             result = await generate(Runtime(), 'qwen', 'stepfun/step-5-preview', '只输出 JSON', PUBLIC)
         self.assertEqual(result['usage']['total_tokens'], 120)
         self.assertEqual(calls[0][2]['model'], 'stepfun/step-5-preview')
+        self.assertNotIn('max_tokens', calls[0][2])
         self.assertNotIn('response_format', calls[0][2])
+
+    async def test_provider_length_finish_is_not_accepted_as_complete_analysis(self):
+        calls = []
+        with patch('core.market_research.read_key', return_value='configured-secret'), \
+             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)), \
+             patch.object(Response, 'json', return_value={
+                 'choices': [{'message': {'content': '{"events":'}, 'finish_reason': 'length'}]}):
+            with self.assertRaises(HTTPException) as error:
+                await generate(Runtime(), 'qwen', 'qwen3.8-max', '只输出 JSON', PUBLIC)
+        self.assertEqual(error.exception.status_code, 502)
+        self.assertIn('上限', error.exception.detail)
 
 
 if __name__ == '__main__':
