@@ -305,7 +305,13 @@ class StockBridge:
             else:
                 observation = dict(observation)
                 observation['requested_page'] = page
-                observation['evidence_scope'] = 'events 是整份简报的少量公开证据摘要，不代表某一页的完整正文。'
+                observation['evidence_scope'] = ('events 只是整份简报的少量公开证据预览，既不是本页清单，'
+                                                 '也不是全部已分析事件；不得把预览条数写成已深读总数。'
+                                                 '未深读目录数量未在此观察中给出时请明确说未知，'
+                                                 '引导查看本地完整报告；不得推断所示 PDF 原文未读取。')
+                observation['attachment_scope'] = ('本地附件只包含本次请求的第 1 页；整份报告可能分页。'
+                                                   '不要说全部正文已在这一页；如需后续页，继续调用 '
+                                                   'stock_report_read(page=2 等)。')
                 observation['source_scope'] = ('公告失败日期只对应本项目的东方财富公告 API 目录，'
                                                '不是证监会或交易所网站的公告接口；'
                                                '发改委、证监会文章是独立来源。'

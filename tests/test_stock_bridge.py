@@ -146,6 +146,8 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('不是证监会或交易所网站的公告接口', scope)
         self.assertIn('发改委、证监会文章是独立来源', scope)
         self.assertIn('不展示字段名或 JSON 数组', scope)
+        self.assertIn('不得把预览条数写成已深读总数', result['model_observation']['evidence_scope'])
+        self.assertIn('本地附件只包含本次请求的第 1 页', result['model_observation']['attachment_scope'])
 
     async def test_lifecycle_identity_and_attachment_harvest(self):
         calls = []
