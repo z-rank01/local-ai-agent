@@ -104,13 +104,37 @@ def _parse_tool_args(raw_args: Any) -> dict:
     return raw_args if isinstance(raw_args, dict) else {}
 
 
-def _format_prefetch_content(fname: str, content: str, max_chars: int = 10_000) -> str:
-    text = content[:max_chars] + ("\n...[截断]" if len(content) > max_chars else "")
-    return f"【文件: {fname}】\n{text}"
+def _format_prefetch_content(fname: str, content: str, max_chars: int) -> str:
+    """One prefetched file: its real content, and how to finish reading it.
+
+    The previous form silently cut at a fixed 10k characters and said only
+    "[截断]", so a model could treat half a data file as the whole file.  Any cut
+    now states the total size and the exact call that returns the rest.
+    """
+    total = len(content)
+    if max_chars <= 0 or total <= max_chars:
+        return f"【文件: {fname}】\n{content}"
+    head = content[:max_chars]
+    return (
+        f"【文件: {fname}】（本页 {max_chars}/{total} 字符）\n{head}\n"
+        f"...[本页到此为止，文件共 {total} 字符，尚未读完]"
+        f"\n请用 file_read(path=\"/workspace/.../{fname}\", offset={max_chars}) 继续读取剩余内容；"
+        "读完之前不要把本页当作完整文件下结论。"
+    )
 
 
-# Upper bound on files injected by one turn's prefetch.
+# Upper bound on files injected by one turn's prefetch, and the shared character
+# budget those files draw from.  Prefetch is an optimisation (it saves the model a
+# read turn), not a safety mechanism: the bound exists so one vague mention cannot
+# pull a whole directory into the context, and prefetched text lands in a *user*
+# message, which compaction never rewrites.  Raise PREFETCH_MAX_CHARS if your
+# documents are routinely larger.
 _MAX_PREFETCH_FILES = 3
+
+
+def _prefetch_budget() -> int:
+    from . import config
+    return max(0, getattr(config, "PREFETCH_MAX_CHARS", 60_000))
 
 
 def _format_tool_result_preview(result: Any, max_chars: int = 1600) -> str:
@@ -497,11 +521,16 @@ class Agent:
             return None
 
         # Bound the injection so one vague mention cannot pull the whole
-        # workspace into the context window.
+        # workspace into the context window; the budget is shared across files so
+        # a later file still gets a fair share rather than being dropped.
         target_files = target_files[:_MAX_PREFETCH_FILES]
+        remaining = _prefetch_budget()
 
         parts: list[str] = []
         for dir_path, fname in target_files:
+            if remaining <= 0:
+                logger.info("prefetch: budget exhausted, skipping %s/%s", dir_path, fname)
+                continue
             try:
                 result = await self.router.dispatch(
                     "file_read", {"path": f"{dir_path}/{fname}"}, session_id
@@ -511,9 +540,11 @@ class Agent:
                 content: str = result.get("content", "")
                 if not content:
                     continue
-                formatted = _format_prefetch_content(fname, content)
+                formatted = _format_prefetch_content(fname, content, remaining)
+                remaining -= min(len(content), remaining)
                 parts.append(formatted)
-                logger.info("prefetch: injected %s/%s (%d chars)", dir_path, fname, len(formatted))
+                logger.info("prefetch: injected %s/%s (%d of %d chars, budget left %d)",
+                            dir_path, fname, min(len(content), len(formatted)), len(content), remaining)
             except Exception as exc:
                 logger.warning("prefetch: could not read %s/%s: %s", dir_path, fname, exc)
 

@@ -104,6 +104,11 @@ TOOL_TIER = _env("TOOL_TIER", "all")
 # Tool-call rounds per request before the agent is asked to wrap up.
 AGENT_MAX_ROUNDS = _env_int("AGENT_MAX_ROUNDS", 12)
 
+# Shared character budget for files auto-injected into one turn's context.  This
+# is a quality/cost knob, not a security limit: prefetched text sits in a user
+# message that compaction never rewrites, so it stays in history for the session.
+PREFETCH_MAX_CHARS = _env_int("PREFETCH_MAX_CHARS", 60000)
+
 # Optional stock read-only bridge; stock tools are only registered when a URL is set.
 STOCK_BRIDGE_URL = _env("STOCK_BRIDGE_URL", "")
 STOCK_BRIDGE_TOKEN = _env("STOCK_BRIDGE_TOKEN", "")

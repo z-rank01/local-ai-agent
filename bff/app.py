@@ -1,6 +1,7 @@
 """FastAPI app exposing a stable frontend-facing protocol."""
 from __future__ import annotations
 import asyncio
+import logging
 import os
 import signal
 import subprocess
@@ -37,6 +38,17 @@ from .schemas import (
     WorkspaceTreeResponse,
     WorkspaceUploadResponse,
 )
+
+# uvicorn configures only its own loggers, so application loggers such as
+# core.agent had no handler and their INFO lines (prefetch, compaction) were
+# dropped -- a silent failure was invisible in the daily log.  Configure the root
+# logger once, leaving uvicorn's own loggers untouched.
+logging.basicConfig(
+    level=os.environ.get('LOG_LEVEL', 'INFO').upper(),
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     runtime = get_runtime()

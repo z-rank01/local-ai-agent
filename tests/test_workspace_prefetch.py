@@ -26,21 +26,106 @@ class _Model:
 class _Router:
     """Answers file_list/file_read the way the real router would."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, names=None, content=None):
         self.parent = parent
+        self.names = names or [FILE_NAME]
+        self.content = content
 
     async def dispatch(self, tool, params, session_id='default'):
         self.parent.dispatches.append((tool, params.get('directory') or params.get('path')))
         if tool == 'file_list':
             if params.get('directory') != '/workspace/docs':
                 return {'entries': []}
-            return {'entries': [{'name': FILE_NAME, 'type': 'file', 'size': len(SECRET)}]}
+            return {'entries': [{'name': name, 'type': 'file', 'size': 0} for name in self.names]}
         if tool == 'file_read':
-            return {'content': SECRET, 'sha256': 'x' * 64, 'path': params.get('path')}
+            body = self.content if self.content is not None else SECRET
+            return {'content': body, 'sha256': 'x' * 64, 'path': params.get('path')}
         raise AssertionError(f'unexpected tool {tool}')
 
     async def dispatch_stream(self, *args):
         raise AssertionError('no tool calls expected in these tests')
+
+
+class PrefetchBudgetTests(unittest.IsolatedAsyncioTestCase):
+    """A prefetched read must never look like the whole file when it is not."""
+
+    def agent(self):
+        parent = self
+
+        class Model(_Model):
+            def __init__(self):
+                super().__init__(parent)
+
+        class Router(_Router):
+            def __init__(self):
+                super().__init__(parent)
+
+        async def process(messages):
+            return messages
+
+        self.inputs, self.dispatches = [], []
+        return Agent(llm=Model(), router=Router(),
+                     registry=SimpleNamespace(get_definitions=lambda **kw: []),
+                     audit=SimpleNamespace(record=lambda *a: None),
+                     context_mgr=SimpleNamespace(process=process),
+                     prompt_builder=SimpleNamespace(build=lambda **kw: 'system'), max_rounds=2)
+
+    async def _run_prefetch(self, agent, query):
+        return await agent._prefetch_file_context(query, 'session')
+
+    async def test_small_file_is_injected_whole(self):
+        agent = self.agent()
+        with patch.object(config, 'PREFETCH_MAX_CHARS', 60_000):
+            out = await self._run_prefetch(agent, f'看一下 {FILE_NAME}')
+        self.assertIn(SECRET, out)
+        self.assertNotIn('尚未读完', out)
+
+    async def test_oversized_file_states_total_and_how_to_continue(self):
+        body = ''.join(f'row-{i:05d}\n' for i in range(4000))
+        agent = self.agent()
+        agent.router.content = body
+        with patch.object(config, 'PREFETCH_MAX_CHARS', 5_000):
+            out = await self._run_prefetch(agent, f'看一下 {FILE_NAME}')
+        self.assertIn('尚未读完', out)
+        self.assertIn(f'文件共 {len(body)} 字符', out)
+        self.assertIn('offset=5000', out)
+        self.assertIn('file_read', out)
+        # The model must be told the page is partial, not merely that it was cut.
+        self.assertNotIn('...[截断]', out)
+
+    async def test_budget_covers_a_real_workspace_file_entirely(self):
+        """The regression that started this: a 20k CSV must arrive complete."""
+        csv = Path(config.WORKSPACE_PATH) / 'data' / '600519_daily.csv'
+        if not csv.exists():
+            self.skipTest('workspace CSV not present')
+        body = csv.read_text(encoding='utf-8')
+        from core.agent import _format_prefetch_content
+        out = _format_prefetch_content(csv.name, body, config.PREFETCH_MAX_CHARS)
+        self.assertNotIn('尚未读完', out)
+        self.assertIn(body, out)
+
+    async def test_budget_is_shared_across_files(self):
+        names = ['a.txt', 'b.txt', 'c.txt']
+        parent = self
+
+        class Router(_Router):
+            def __init__(self):
+                super().__init__(parent, names=names, content='x' * 1000)
+
+        agent = self.agent()
+        agent.router = Router()
+        with patch.object(config, 'PREFETCH_MAX_CHARS', 1_500):
+            out = await self._run_prefetch(agent, '看一下 a.txt 和 b.txt 和 c.txt')
+        # 1500 chars of budget, capped at 3 files: the third must not be silently
+        # over-filled, and nothing may exceed the shared budget by much.
+        self.assertLessEqual(len(out), 1_500 + 600)
+        self.assertIn('尚未读完', out)
+
+    async def test_zero_budget_injects_nothing(self):
+        agent = self.agent()
+        with patch.object(config, 'PREFETCH_MAX_CHARS', 0):
+            out = await self._run_prefetch(agent, f'看一下 {FILE_NAME}')
+        self.assertIsNone(out)
 
 
 class PrefetchGateTests(unittest.IsolatedAsyncioTestCase):
