@@ -179,12 +179,14 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.runtime.close)
         self.service = ChatSessionService(self.runtime)
         self.seen = []
+        self.seen_tools = []
         parent = self
         class FakeModel:
             cloud=True
             model='qwen3.5-flash'
             async def chat_stream_with_tools(self,messages,tools=None):
                 parent.seen.append(json.loads(json.dumps(messages)))
+                parent.seen_tools.append([row['function']['name'] for row in (tools or [])])
                 yield 'hello',None
                 yield '',{'role':'assistant','content':'hello'}
             async def close(self): pass
@@ -209,11 +211,16 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.stock_bridge = StubBridge()
         request = ChatRequest(message='获取当前市场简报，不刷新，打开第 1、2 页与旧版对比。',
                               model='qwen:qwen3.5-flash')
-        events = [event async for event in self.service.stream_chat(request)]
+        definitions = [{'type': 'function', 'function': {'name': name, 'parameters': {'type': 'object'}}}
+                       for name in ('stock_market_brief_find', 'stock_report_read',
+                                    'stock_public_evidence_find', 'stock_market_brief')]
+        with patch.object(self.runtime.tool_registry, 'get_definitions', return_value=definitions):
+            events = [event async for event in self.service.stream_chat(request)]
         visible = ''.join(event.data.get('text', '') for event in events
                           if event.event == 'assistant.delta')
         self.assertIn('尚未核对到两份', visible)
         self.assertNotIn('hello', visible)
+        self.assertEqual(self.seen_tools[-1], ['stock_market_brief_find', 'stock_report_read'])
         answers = [m.content for m in self.service.get_messages(events[0].conversation_id)
                    if m.role == 'assistant']
         self.assertEqual(answers, [visible])

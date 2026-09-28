@@ -773,6 +773,11 @@ class ChatSessionService:
         brief_comparison = (BriefComparison() if stock_bridge is not None and not answer_only
                             and brief_comparison_requested(turn_query) else None)
         brief_failed = False
+        if brief_comparison is not None:
+            # The verified renderer only needs version lookup and report pages.
+            # Withhold unrelated tools so the model cannot spend the broker's
+            # six-step limit on evidence searches that this request did not ask for.
+            agent.allowed_tool_names = {'stock_market_brief_find', 'stock_report_read'}
         if stock_bridge is not None and not answer_only:
             stock_bridge.set_turn(conversation.id, request_id or run_id,
                 turn_query,

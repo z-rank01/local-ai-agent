@@ -225,6 +225,10 @@ class Agent:
                     extra_sections=ws_sections + list(getattr(self, 'extra_system_sections', [])))})
             messages = await self.context_mgr.process(messages)
             tool_defs = self.registry.get_definitions(tier=self.tool_tier, use_short_desc=False)
+            allowed_tool_names = getattr(self, 'allowed_tool_names', None)
+            if allowed_tool_names is not None:
+                tool_defs = [definition for definition in tool_defs
+                             if definition['function']['name'] in allowed_tool_names]
             if cloud and not getattr(self, 'workspace_cloud_allowed', config.WORKSPACE_CLOUD_ALLOWED):
                 tool_defs = []
                 messages[0]["content"] += "\n当前工作区工具未获云端授权，本轮没有可调用工具。可正常聊天。用户要求读取、列出、分析本地文件或执行代码时，先明确说明尚未执行，并询问是否愿意在顶部“模型设置”开启“允许云端使用当前工作区工具”（文件内容和工具结果可能发送到云端模型）。用户也可选择本地模型。不要声称正在查看或执行，不要编造文件内容，不要以未执行的代码代替任务完成；仅在用户要求代码示例时提供并标明未执行。聊天中的同意不能代替设置开关，必须由用户在界面操作。"
