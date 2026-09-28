@@ -117,6 +117,68 @@ def _compact_text(text: str, *, limit: int) -> str:
     return normalized[: limit - 1] + "…"
 
 
+# Headings the writeback model rewords slightly between turns ("…风险审计" vs
+# "…风险审计要点") must merge, not accumulate: duplicates inflate MEMORY.md past
+# the injection cap, which then hides the newest entries from the model.
+_TITLE_NOISE = re.compile(r"[\s\-_—·:：,，.。;；!！?？()（）\[\]【】<>《》\"'`#*]")
+_KIND_TAG = re.compile(r"^\[(?:user|project|reference)\]\s*")
+_HEADING_PREFIX = re.compile(r"^#+\s*")
+
+
+def _title_key(text: str) -> str:
+    """Normalise a heading *line* to the topic it names, dropping the kind tag.
+
+    The kind tag must go first: it is identical across entries of the same kind,
+    so keeping it would make every such pair look like a shared prefix and
+    silently collapse unrelated topics into one.  Pass a single heading line,
+    never a whole entry — body text is not stripped and would join the key.
+    """
+    line = (text or "").strip().splitlines()[0] if (text or "").strip() else ""
+    stripped = _HEADING_PREFIX.sub("", line)
+    stripped = _KIND_TAG.sub("", stripped)
+    return _TITLE_NOISE.sub("", stripped)
+
+
+def _classify_title(match: str, key: str) -> int:
+    """0 = distinct topic; 1 = same topic whose heading was reworded.
+
+    Comparison happens on ``_title_key`` output so the shared kind tag and
+    punctuation cannot masquerade as a shared topic.
+    """
+    left, right = _title_key(match), _title_key(key)
+    if not left or not right:
+        return 0
+    if left == right:
+        return 1
+    shorter, longer = sorted((left, right), key=len)
+    if len(shorter) < 6:
+        return 0
+    prefix = 0
+    while prefix < len(shorter) and shorter[prefix] == longer[prefix]:
+        prefix += 1
+    # A long shared prefix means the same topic restated; a coincidental one or
+    # two characters (e.g. two different "供应链…" notes) must stay separate.
+    return 1 if prefix >= 6 and prefix / len(shorter) >= 0.6 else 0
+
+
+def _tail_window(text: str, limit: int) -> str:
+    """Keep the file's header plus the most recent characters, and say so.
+
+    Cutting the head instead would drop exactly the newest memories, because
+    writeback appends at the end.
+    """
+    if len(text) <= limit:
+        return text
+    head, _, _ = text.partition("\n## ")
+    head = head.rstrip()
+    marker = f"…(较早的记忆已省略 {len(text) - limit} 字符)"
+    if head and len(head) < limit // 2:
+        room = limit - len(head) - len(marker) - 2
+        if room > 0:
+            return f"{head}\n{marker}\n{text[-room:]}"
+    return f"{marker}\n{text[-(limit - len(marker) - 1):]}"
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -163,10 +225,21 @@ def _merge_shared_entry(existing: str, entry: str) -> str:
         return existing
     if entry in base:
         return existing
-    if heading in base:
-        pattern = re.compile(rf"{re.escape(heading)}[\s\S]*?(?=\n## \[|\Z)")
-        replaced = pattern.sub(entry.strip() + "\n", base, count=1)
-        return replaced.rstrip() + "\n"
+    key = _title_key(heading)
+    if key:
+        # Match on the full heading line, so a [user] entry is never mistaken
+        # for the [project] entry whose title happens to normalise the same.
+        for match in re.findall(r"^##\s+(.*)$", base, flags=re.MULTILINE):
+            if not _classify_title(match.strip(), heading):
+                continue
+            # Same topic (possibly reworded): the new text supersedes the old.
+            # An identical entry already returned above, so reaching here means
+            # the body changed and must replace rather than accumulate.
+            pattern = re.compile(rf"^##\s+{re.escape(match.strip())}[\s\S]*?(?=\n##|\Z)", re.MULTILINE)
+            replaced = pattern.sub(entry.strip() + "\n", base, count=1)
+            if replaced != base:
+                return replaced.rstrip() + "\n"
+            break
     if not base.endswith("\n"):
         base += "\n"
     return base + "\n" + entry.strip() + "\n"
@@ -401,9 +474,7 @@ class MemoryManager:
             if isinstance(result, dict):
                 content = result.get("content", "")
                 if content and not result.get("error"):
-                    if len(content) > _MAX_MEMORY_CHARS:
-                        content = content[:_MAX_MEMORY_CHARS] + "\n...(记忆索引已截断)"
-                    return f"## Workspace 记忆\n\n{content}"
+                    return f"## Workspace 记忆\n\n{_tail_window(content, _MAX_MEMORY_CHARS)}"
         except FileNotFoundError:
             logger.debug("No memory index at %s", SHARED_MEMORY_INDEX)
         except Exception as exc:
@@ -424,9 +495,7 @@ class MemoryManager:
             if isinstance(result, dict):
                 content = result.get("content", "")
                 if content and not result.get("error"):
-                    if len(content) > _MAX_CONVERSATION_CHARS:
-                        content = content[:_MAX_CONVERSATION_CHARS] + "\n...(当前对话记忆已截断)"
-                    return f"## 当前对话记忆\n\n{content}"
+                    return f"## 当前对话记忆\n\n{_tail_window(content, _MAX_CONVERSATION_CHARS)}"
         except FileNotFoundError:
             logger.debug("No conversation memory for %s", conversation_key)
         except Exception as exc:
