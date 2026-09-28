@@ -38,6 +38,9 @@ operations:
 execution:
   max_code_chars: 40000
   max_command_chars: 5000
+  # Must be >= PYTHON_EXEC_TIMEOUT / SHELL_EXEC_TIMEOUT in .env (the executor's
+  # real caps).  If this were lower, the policy would advertise a timeout the
+  # runner silently clamps, and the model would plan for time it never gets.
   max_timeout_seconds: 300
   denied_code_fragments:
     - "__import__"

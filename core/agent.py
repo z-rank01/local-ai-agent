@@ -109,6 +109,10 @@ def _format_prefetch_content(fname: str, content: str, max_chars: int = 10_000) 
     return f"【文件: {fname}】\n{text}"
 
 
+# Upper bound on files injected by one turn's prefetch.
+_MAX_PREFETCH_FILES = 3
+
+
 def _format_tool_result_preview(result: Any, max_chars: int = 1600) -> str:
     try:
         text = json.dumps(result, ensure_ascii=False, default=str, indent=2)
@@ -223,6 +227,15 @@ class Agent:
             if not messages or messages[0].get("role") != "system":
                 messages.insert(0, {"role": "system", "content": self.prompt_builder.build(
                     extra_sections=ws_sections + list(getattr(self, 'extra_system_sections', [])))})
+            # Prefetch referenced workspace files into this turn.  Local content may
+            # only reach a cloud model when the workspace grant is on, mirroring the
+            # memory gate above (IN1.4 boundary).
+            workspace_granted = getattr(self, 'workspace_cloud_allowed', config.WORKSPACE_CLOUD_ALLOWED)
+            if not cloud or workspace_granted:
+                try:
+                    messages = await self._inject_context_into_messages(messages, session_id)
+                except Exception:
+                    logger.warning('Workspace prefetch skipped')
             messages = await self.context_mgr.process(messages)
             tool_defs = self.registry.get_definitions(tier=self.tool_tier, use_short_desc=False)
             allowed_tool_names = getattr(self, 'allowed_tool_names', None)
@@ -435,6 +448,8 @@ class Agent:
         self, user_content: str, session_id: str
     ) -> str | None:
         """Detect workspace file references and pre-fetch their contents."""
+        if not hasattr(self.router, 'dispatch'):
+            return None
         _PREFETCH_HINTS = (
             "workspace", "data/", "docs/", "reports/",
             "文件", "文档", "报告", "数据",
@@ -472,6 +487,10 @@ class Agent:
 
         if not target_files:
             return None
+
+        # Bound the injection so one vague mention cannot pull the whole
+        # workspace into the context window.
+        target_files = target_files[:_MAX_PREFETCH_FILES]
 
         parts: list[str] = []
         for dir_path, fname in target_files:

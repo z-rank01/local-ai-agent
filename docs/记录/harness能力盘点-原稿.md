@@ -89,6 +89,8 @@ git 追溯（`git log -S` + 提交间 `git grep`）：
 
 **修法**：恢复调用 **+ 补云端门控** **+ 与 `workspace_cloud_allowed` 开关语义一致**；或彻底删函数并同步改 `股票能力接入.md` 的 IN1.4。**不能维持现状**——文档说它在跑，代码里它是死的。
 
+> **已修复（2026-09-28）**：按上面第一种修法执行。`core/agent.py` 的 `run()` 现在在构造 system prompt 后调用 `_inject_context_into_messages`，门控条件为 `if not cloud or workspace_granted:`，其中 `workspace_granted` 取 `workspace_cloud_allowed`（与云端工具开关同源），并限制单轮最多注入 `_MAX_PREFETCH_FILES = 3` 个文件。回归测试：`tests/test_workspace_prefetch.py`（未授权云端不注入且不调用工作区工具、已授权云端注入、本地模型无需授权注入、无关提问不预取）。
+
 ## 四、补齐顺序
 
 ### 第 1 优先：对齐 Agent Skills 技能结构（前置 IN4.4/IN4.5）
