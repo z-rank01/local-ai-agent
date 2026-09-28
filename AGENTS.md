@@ -33,18 +33,26 @@ docker compose up -d             # 工具容器（websearch profile 由页面开
 
 改动工具面后，用容器自己的 schema 自查最快：`Invoke-RestMethod http://127.0.0.1:9101/openapi.json` 看 `ReadRequest` 是否含新参数。
 
-### 谁来重启：让用户自己起，不要由 AI 会话代跑
+### 股票后台起不来：先查 WAL 残留，别急着怀疑权限
 
-**AI/工具会话启动的进程带文件约束，写不了 `D:\Stock_Agent_Workspace`。** 实测（2026-09-28）：
+`data/logs/stock-service.err.log` 出现下面任一条时，**先按 WAL 残留处理**：
 
-| 启动来源 | 能否写股票状态目录 |
-| --- | --- |
-| 用户自己的终端跑 `启动.bat` | 可以 |
-| AI 会话里跑 `scripts/start-daily.ps1`（conda python） | **不可以**——`simulation/` 下创建文件 `PermissionError 13`，SQLite 读写全部失败 |
+```
+sqlite3.OperationalError: unable to open database file          (打开阶段)
+sqlite3.OperationalError: attempt to write a readonly database  (schema 写入阶段)
+```
 
-后果很具体：BFF 本身能起来、页面能开、聊天能用，但**它 fork 的股票后台会在 `Store(state_dir/'state.sqlite')` 处崩**，页面"股票技能"显示未运行，启动返回 409。日志证据在 `data/logs/stock-service.err.log`（`unable to open database file`）。
+**处置步骤**（三步，2026-09-28 实测有效）：
 
-所以：需要重启/重建**用户自己的栈**时，给出命令**让用户在自己的终端执行**；AI 会话只做只读核查，或明确告知"我起的进程带约束，股票侧不会工作"。
+1. 退出整个栈（页面"退出"或关页面），确认没有 `run_paper` 进程
+2. 删掉状态目录下的 **`state.sqlite-shm`** 与 **`state.sqlite-wal`**（WAL 模式的锁文件）。**不要碰 `state.sqlite`**
+3. 重新启动；`Store()` 会重建这两个文件
+
+判断安全：`state.sqlite-wal` 为 0 字节时删除无数据风险；若它非 0，说明可能有未合并的已提交事务，**先整目录备份再删**。
+
+**成因**：上一次后台进程被强杀（`Stop-Process`、探针 `terminate()`、崩溃）时，`-shm`/`-wal` 会以不一致状态留在磁盘上，后续进程**读得动却写不进**——表现就是"库是好的，一启动却报只读"。库本身通常完好；先用 `PRAGMA integrity_check` 与 `Store()` 冒烟确认，再谈恢复。
+
+> **曾被误判**：一度结论为"AI 会话启动的进程带文件约束写不了股票目录"，依据是当时探针在 `simulation/` 下建文件报 `PermissionError 13`。用户用**自己的终端**重启后同样失败，该结论被推翻；真正原因是上面的 WAL 残留，`PermissionError` 那次是探针自身路径问题。**不要再用"AI 会话的进程受约束"解释股票后台启动失败。**
 
 ## 结构速览
 
