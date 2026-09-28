@@ -78,6 +78,7 @@ class AppStatus(BaseModel):
     model_calls_used: int = 0
     model_call_limit: int = 0
     workspace_cloud_allowed: bool = False
+    cloud_write_allowed: bool = False
     status: str = "ok"
     model: str
     workspace_path: str

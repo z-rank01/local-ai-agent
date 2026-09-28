@@ -46,13 +46,18 @@ class RuntimeServices:
         cloud = spec['kind'] == 'cloud'
         # Never auto-read shared local memory into a cloud session.
         from copy import copy
+        from .model_settings import cloud_write_allowed, workspace_allowed
         router = copy(self.router)
         router.cloud = cloud
-        return Agent(llm=llm, router=router, registry=self.tool_registry,
+        agent = Agent(llm=llm, router=router, registry=self.tool_registry,
             audit=self.audit, context_mgr=ContextManager(context_window=config.CONTEXT_WINDOW,
             compact_threshold=config.COMPACT_THRESHOLD, llm=llm), prompt_builder=self.prompt_builder,
             memory=None if cloud else self.memory, tool_tier=config.TOOL_TIER,
             max_rounds=config.AGENT_MAX_ROUNDS)
+        # Grant state travels with the agent so the tool list follows the switch.
+        agent.workspace_cloud_allowed = workspace_allowed()
+        agent.cloud_write_allowed = cloud_write_allowed()
+        return agent
 
 
 def build_runtime() -> RuntimeServices:

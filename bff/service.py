@@ -103,6 +103,7 @@ class ChatSessionService:
             daily_services=__import__('os').environ.get('DAILY_SERVICES') == '1',
             model_calls_used=budget["used"], model_call_limit=budget["limit"],
             workspace_cloud_allowed=model_settings.workspace_allowed(),
+            cloud_write_allowed=model_settings.cloud_write_allowed(),
             model=self._runtime.models.default,
             workspace_path=str(self._workspace_root),
             tools=tools,
@@ -726,6 +727,7 @@ class ChatSessionService:
         spec, llm = self._select_model(conversation)
         cloud = spec['kind'] == 'cloud'
         workspace_allowed = model_settings.workspace_allowed()
+        cloud_write_allowed = model_settings.cloud_write_allowed()
         # Explicit thinking setting only; "default" leaves the client untouched so
         # static options apply and discovered models use the provider default.
         thinking_state = model_settings.thinking_setting(spec) if thinking_capability(spec) else None
@@ -760,6 +762,7 @@ class ChatSessionService:
                 pass
         agent.allow_tools = not answer_only
         agent.workspace_cloud_allowed = workspace_allowed
+        agent.cloud_write_allowed = cloud_write_allowed
         base = dict(conversation_id=conversation.id, run_id=run_id)
         meta = {'model': spec['id'], 'cloud_safe': cloud or workspace_allowed}
         response_meta = dict(response_to_message_id=response_to_message_id, version_number=response_version_number)
@@ -798,7 +801,8 @@ class ChatSessionService:
             return self._store.add_message(conversation.id, role=role, content=content, **response_meta, **kwargs)
         try:
             yield emit('model.selected', data={'model': spec['id'], 'cloud': cloud,
-                'workspace_cloud_allowed': workspace_allowed})
+                'workspace_cloud_allowed': workspace_allowed,
+                'cloud_write_allowed': cloud_write_allowed})
             async with aclosing(agent.run(messages, conversation.id, conversation.id)) as events:
                 async for event in events:
                     if event.kind == 'token':

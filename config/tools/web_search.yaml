@@ -1,6 +1,7 @@
 name: web_search
 backend: skill-websearch
 tier: core
+cloud: read
 short_description: "Search the internet."
 description: >
   搜索互联网获取实时信息。返回搜索结果列表，包含标题、链接和摘要。

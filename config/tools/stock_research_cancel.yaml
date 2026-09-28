@@ -1,6 +1,7 @@
 name: stock_research_cancel
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "请求停止本会话一个研究任务（异步生效）。"
 description: >
   请求停止本会话一个研究任务（按 stock_research_find 返回的 64 位任务引用）。

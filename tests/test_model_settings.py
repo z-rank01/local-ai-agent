@@ -106,9 +106,13 @@ class StreamSettingsTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(model_settings, 'settings_path', lambda: Path(self.tmp.name)/'settings.json'):
             spec = next(s for s in self.runtime.models.specs if s['provider_id']=='qwen')
             payloads=[]
+            emitted={'tool': False}
             def handler(request):
                 body=json.loads(request.content); payloads.append(body)
-                if body.get('tools') and len(payloads)==2:
+                has_write_tools=bool(body.get('tools')) and any(
+                    t['function']['name']=='code_exec' for t in body['tools'])
+                if has_write_tools and not emitted['tool']:
+                    emitted['tool']=True
                     delta={'reasoning_content':'test reasoning','tool_calls':[{'index':0,**test_in1.CALL}]}
                     finish='tool_calls'
                 else:
@@ -126,10 +130,25 @@ class StreamSettingsTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn('tools',payloads[0])
                 self.assertFalse(payloads[0]['enable_thinking'])
                 self.assertIn('模型设置',payloads[0]['messages'][0]['content'])
+                # Read grant alone: read-only tools reach the cloud, write tools stay home.
                 model_settings.update_settings(spec['id'],thinking=True,workspace=True)
+                events=[e async for e in self.service.stream_chat(ChatRequest(message='read only',model=spec['id']))]
+                read_names={t['function']['name'] for t in payloads[1]['tools']}
+                self.assertIn('file_read',read_names)
+                self.assertIn('stock_report_read',read_names)
+                self.assertNotIn('code_exec',read_names)
+                self.assertNotIn('file_write',read_names)
+                self.assertNotIn('shell_exec',read_names)
+                # The read-only turn cannot execute even if the model asks for code.
+                self.assertNotIn('tool.started',[e.event for e in events])
+                # Both grants: the write/execute tools appear too.
+                model_settings.update_settings(spec['id'],cloud_write=True)
                 events=[e async for e in self.service.stream_chat(ChatRequest(message='calculate',model=spec['id']))]
-                self.assertTrue(payloads[1]['tools'])
-                self.assertTrue(payloads[1]['enable_thinking'])
+                write_names={t['function']['name'] for t in payloads[2]['tools']}
+                self.assertIn('code_exec',write_names)
+                self.assertIn('file_write',write_names)
+                self.assertIn('file_read',write_names)
+                self.assertTrue(payloads[2]['enable_thinking'])
                 names=[e.event for e in events]
                 self.assertIn('reasoning.delta',names)
                 self.assertIn('tool.started',names)

@@ -404,6 +404,7 @@ class ModelSettingsRequest(BaseModel):
     thinking_enabled: bool | None = None
     thinking_budget: int | None = None
     workspace_cloud_allowed: bool | None = None
+    workspace_cloud_write_allowed: bool | None = None
 @app.patch('/api/model-settings')
 async def set_model_settings(payload: ModelSettingsRequest, request: Request):
     origin = request.headers.get('origin')
@@ -428,6 +429,14 @@ async def set_model_settings(payload: ModelSettingsRequest, request: Request):
             raise HTTPException(422, '思考强度需为 128~131072 的整数 token 数')
     if payload.workspace_cloud_allowed is not None and spec['kind'] != 'cloud':
         raise HTTPException(422, '本地模型无需云端授权')
+    if payload.workspace_cloud_write_allowed is not None:
+        if spec['kind'] != 'cloud':
+            raise HTTPException(422, '本地模型无需云端授权')
+        if payload.workspace_cloud_write_allowed:
+            from core.model_settings import workspace_allowed
+            if not (payload.workspace_cloud_allowed if payload.workspace_cloud_allowed is not None
+                    else workspace_allowed()):
+                raise HTTPException(422, '请先允许云端读取工作区，再开启写入与执行')
     from core.model_settings import update_settings
     changes = {}
     if 'thinking_enabled' in fields:
@@ -436,6 +445,8 @@ async def set_model_settings(payload: ModelSettingsRequest, request: Request):
         changes['budget'] = payload.thinking_budget
     if payload.workspace_cloud_allowed is not None:
         changes['workspace'] = payload.workspace_cloud_allowed
+    if payload.workspace_cloud_write_allowed is not None:
+        changes['cloud_write'] = payload.workspace_cloud_write_allowed
     update_settings(spec['id'], **changes)
     return {'status': 'saved'}
 @app.get('/api/package-jobs')

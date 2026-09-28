@@ -1,6 +1,7 @@
 name: conversation_search
 backend: local-runtime
 tier: core
+cloud: read
 short_description: "Search previous conversations by topic."
 description: >
   搜索其他历史会话，按会话标题和消息内容匹配关键词。

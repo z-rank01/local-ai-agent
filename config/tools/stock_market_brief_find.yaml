@@ -1,6 +1,7 @@
 name: stock_market_brief_find
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "查找股票状态库保留的每日市场简报历史版本。"
 description: >
   查找同一股票状态库中的每日市场简报版本，包括其他 Web 会话创建的旧版；不创建或刷新任务。

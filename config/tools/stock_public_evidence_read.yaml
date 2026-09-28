@@ -1,6 +1,7 @@
 name: stock_public_evidence_read
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "按事件读取可追溯的公开原文和分析。"
 description: >
   event_id 必须来自 stock_public_evidence_find。读取本事件的来源、日期、

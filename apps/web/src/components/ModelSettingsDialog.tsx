@@ -9,7 +9,7 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
 }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
-  const changeSetting = async (change: {thinking_enabled?: boolean | null; thinking_budget?: number | null; workspace_cloud_allowed?: boolean}) => {
+  const changeSetting = async (change: {thinking_enabled?: boolean | null; thinking_budget?: number | null; workspace_cloud_allowed?: boolean; workspace_cloud_write_allowed?: boolean}) => {
     if (!model || !status) return;
     setSaving(true); setNotice('');
     try {
@@ -111,14 +111,23 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
             ) : null}
             {model.provider_id !== 'ollama' ? <>
               <label className="capability-toggle">
-                <span>允许云端使用当前工作区工具</span>
-                <input type="checkbox" role="switch" aria-label="允许云端使用当前工作区工具" checked={status?.workspace_cloud_allowed ?? false}
+                <span>允许云端读取当前工作区文件</span>
+                <input type="checkbox" role="switch" aria-label="允许云端读取当前工作区文件" checked={status?.workspace_cloud_allowed ?? false}
                   disabled={saving || busy || !status}
                   onChange={event => void changeSetting({workspace_cloud_allowed: event.target.checked})} />
               </label>
-              <p>开启即允许云端模型调用工作区工具；读取的文件内容与工具结果可能发送给所选云端服务，工具可执行代码及修改文件。授权适用于此工作区的所有云端模型及会话，重启后保留。</p>
+              <p>开启即允许云端模型<b>读取</b>工作区：列出与读取文件、联网检索、查询历史会话与股票报告。读取的文件内容与工具结果可能发送给所选云端服务。</p>
+              {status?.workspace_cloud_allowed ? <>
+                <label className="capability-toggle">
+                  <span>允许云端写入与执行</span>
+                  <input type="checkbox" role="switch" aria-label="允许云端写入与执行" checked={status?.cloud_write_allowed ?? false}
+                    disabled={saving || busy || !status}
+                    onChange={event => void changeSetting({workspace_cloud_write_allowed: event.target.checked})} />
+                </label>
+                <p>单独开启后才允许云端模型<b>修改工作区</b>：写入与编辑文件、删除文件、执行代码与命令、提交 git。关闭后仍保留上面的只读能力。</p>
+              </> : null}
               <p className="capability-workspace">工作区：{status?.workspace_path ?? '正在连接…'}</p>
-              <p>关闭后停止后续工具调用；此前已发送的内容不会撤回。若任务要求只读，仍应遵守只读要求。</p>
+              <p>授权适用于此工作区的所有云端模型及会话，重启后保留。关闭读取授权会同时撤销写入授权；此前已发送的内容不会撤回。若任务要求只读，仍应遵守只读要求。</p>
             </> : <p>本地模型可使用工作区工具，无需云端授权。</p>}
             {busy ? <p>正在生成回答，开关暂不可修改；停止或完成后再更改。</p> : null}
             {notice ? <p role="status">{notice}</p> : null}
@@ -128,7 +137,9 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
             : <ModelCredentials key={model.provider_id} model={model} onSaved={onSaved} />}
         </> : <p>模型列表尚未加载，请关闭窗口后重试。</p>}
         <div className="model-settings-notes">
-          <p>{status?.workspace_cloud_allowed ? '云端会接收聊天与当前工作区的工具结果，请只使用允许发送的资料。' : '云端当前仅可聊天，本地文件与工具结果尚未授权发送。'}</p>
+          <p>{!status?.workspace_cloud_allowed ? '云端当前仅可聊天，本地文件与工具结果尚未授权发送。'
+            : status?.cloud_write_allowed ? '云端可读取并修改当前工作区（含执行代码）；请只使用允许发送的资料。'
+            : '云端仅可读取当前工作区；写入与执行尚未授权。'}</p>
           <p>本批云端请求：{status?.model_calls_used ?? 0} / {status?.model_call_limit || '不限'}（包含失败尝试）</p>
         </div>
       </div>

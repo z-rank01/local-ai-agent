@@ -15,6 +15,8 @@ logger = logging.getLogger("core.tool_registry")
 
 _WEBSEARCH_BACKEND = "skill-websearch"
 _STOCK_BRIDGE_BACKEND = "stock-bridge"
+# Fail-safe: a tool must declare `cloud: read` to be reachable from a cloud model.
+_DEFAULT_CLOUD_TIER = "write"
 
 _DEFAULT_MAX_RESULT_CHARS: dict[str, int] = {
     "package_list": 20000,
@@ -76,13 +78,25 @@ class ToolRegistry:
     def get_backend(self, tool_name: str) -> str:
         return self._tools[tool_name]["backend"]
 
-    def get_definitions(self, *, tier: str = "all",
-                        use_short_desc: bool = False) -> list[dict[str, Any]]:
-        """Return tool definitions in OpenAI function-calling format."""
+    def get_cloud_tier(self, tool_name: str) -> str:
+        """``read`` or ``write``.  Undeclared tools are treated as ``write`` so a
+        newly added tool never becomes cloud-reachable by accident."""
+        return self._tools.get(tool_name, {}).get("cloud", _DEFAULT_CLOUD_TIER)
+
+    def get_definitions(self, *, tier: str = "all", use_short_desc: bool = False,
+                        allow_write: bool = True) -> list[dict[str, Any]]:
+        """Return tool definitions in OpenAI function-calling format.
+
+        ``allow_write=False`` withholds the tools that modify the workspace or
+        execute code, so a cloud model can be granted read access without also
+        granting writes.
+        """
         defs = []
         for tool in self._tools.values():
             tool_tier = tool.get("tier", "core")
             if tier != "all" and tool_tier != tier:
+                continue
+            if not allow_write and self.get_cloud_tier(tool["name"]) != "read":
                 continue
 
             params = tool.get("parameters", {"type": "object", "properties": {}})

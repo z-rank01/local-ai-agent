@@ -1,6 +1,7 @@
 name: stock_research_submit
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "提交一个股票研究任务（按代码或股票名称，排队异步执行）。"
 description: >
   提交某只 A 股的研究任务，立即返回受理回执（QUEUED），研究由后台异步执行。

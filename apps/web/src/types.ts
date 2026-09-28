@@ -2,6 +2,7 @@ export type AppStatus = {
   model_calls_used?: number;
   model_call_limit?: number;
   workspace_cloud_allowed?: boolean;
+  cloud_write_allowed?: boolean;
   status: string;
   model: string;
   workspace_path: string;

@@ -1,6 +1,7 @@
 name: file_read
 backend: skill-files
 tier: core
+cloud: read
 short_description: "Read a file."
 description: >-
   读取工作区内文件的内容，Excel 与 PDF 会自动转成文本。

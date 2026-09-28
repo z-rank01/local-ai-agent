@@ -1,6 +1,7 @@
 name: stock_public_evidence_find
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "查找整份每日简报中的公开事件证据。"
 description: >
   先用 stock_market_brief_find 获取本会话已完成简报的 reference。

@@ -237,14 +237,22 @@ class Agent:
                 except Exception:
                     logger.warning('Workspace prefetch skipped')
             messages = await self.context_mgr.process(messages)
-            tool_defs = self.registry.get_definitions(tier=self.tool_tier, use_short_desc=False)
+            # A cloud session gets the tools its grant covers: nothing without the
+            # workspace grant, read-only tools with it, and write/execute tools only
+            # once that second grant is on.  Local models are unrestricted.
+            allow_write = bool(getattr(self, 'cloud_write_allowed', config.CLOUD_WRITE_ALLOWED))
+            tool_defs = self.registry.get_definitions(
+                tier=self.tool_tier, use_short_desc=False,
+                allow_write=(not cloud) or allow_write)
             allowed_tool_names = getattr(self, 'allowed_tool_names', None)
             if allowed_tool_names is not None:
                 tool_defs = [definition for definition in tool_defs
                              if definition['function']['name'] in allowed_tool_names]
-            if cloud and not getattr(self, 'workspace_cloud_allowed', config.WORKSPACE_CLOUD_ALLOWED):
+            if cloud and not workspace_granted:
                 tool_defs = []
-                messages[0]["content"] += "\n当前工作区工具未获云端授权，本轮没有可调用工具。可正常聊天。用户要求读取、列出、分析本地文件或执行代码时，先明确说明尚未执行，并询问是否愿意在顶部“模型设置”开启“允许云端使用当前工作区工具”（文件内容和工具结果可能发送到云端模型）。用户也可选择本地模型。不要声称正在查看或执行，不要编造文件内容，不要以未执行的代码代替任务完成；仅在用户要求代码示例时提供并标明未执行。聊天中的同意不能代替设置开关，必须由用户在界面操作。"
+                messages[0]["content"] += "\n当前工作区工具未获云端授权，本轮没有可调用工具。可正常聊天。用户要求读取、列出、分析本地文件或执行代码时，先明确说明尚未执行，并询问是否愿意在顶部“模型设置”开启“允许云端读取当前工作区文件”（文件内容和工具结果可能发送到云端模型）。用户也可选择本地模型。不要声称正在查看或执行，不要编造文件内容，不要以未执行的代码代替任务完成；仅在用户要求代码示例时提供并标明未执行。聊天中的同意不能代替设置开关，必须由用户在界面操作。"
+            elif cloud and not allow_write:
+                messages[0]["content"] += "\n本轮云端只获授权读取工作区，写入与执行类工具未开放（修改文件、运行代码或命令均不可用）。可以读取、列出和转换文件、联网检索。用户要求写入、修改或执行时，先说明该权限未开启，并请其在顶部“模型设置”单独开启“允许云端写入与执行”；不要用读取结果冒充已完成写入，也不要提供未执行的代码当作结果。"
             if not self.allow_tools:
                 tool_defs = []
                 messages[0]['content'] += '\n本次仅重新组织回答，使用已有工具结果，不重复执行工具；如需重新执行请用户另发一轮指令。'

@@ -1,6 +1,7 @@
 name: skill_list
 backend: skill-runner
 tier: core
+cloud: read
 short_description: "List available skills."
 description: |
   列出 /workspace/skills/ 下全部技能。两种形态共存：

@@ -114,6 +114,9 @@ WEB_FETCH_BUDGET = _env_int("WEB_FETCH_BUDGET", 2)
 
 # Only explicitly designated workspaces may supply tool results to cloud models.
 WORKSPACE_CLOUD_ALLOWED = _env_bool("WORKSPACE_CLOUD_ALLOWED", False)
+# Second, independent grant: cloud models may modify the workspace / run code.
+# Kept separate so read access never implies write access.
+CLOUD_WRITE_ALLOWED = _env_bool("CLOUD_WRITE_ALLOWED", False)
 
 # ── Logging ──────────────────────────────────────────────────────────────
 

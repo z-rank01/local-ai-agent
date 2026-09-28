@@ -1,6 +1,7 @@
 name: skill_run
 backend: skill-runner
 tier: extended
+cloud: write
 short_description: "Run a custom skill."
 description: |
   运行 /workspace/skills/ 下已存在的 Python 技能（含 SKILL_METADATA 与 run() 函数）。

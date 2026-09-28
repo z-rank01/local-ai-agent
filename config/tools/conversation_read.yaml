@@ -1,6 +1,7 @@
 name: conversation_read
 backend: local-runtime
 tier: core
+cloud: read
 short_description: "Read messages from a previous conversation."
 description: >
   读取指定历史会话的最近若干条消息，便于基于旧对话内容继续回答。

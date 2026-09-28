@@ -1,6 +1,7 @@
 name: stock_theme_research_find
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "查找本会话已有的主题机会研究任务。"
 description: >
   只查找已提交的主题研究，不创建任务。返回的 reference 交给 stock_report_read

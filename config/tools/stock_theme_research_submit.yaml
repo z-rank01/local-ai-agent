@@ -1,6 +1,7 @@
 name: stock_theme_research_submit
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "从已完成市场简报启动主题、产业链与公司关联研究。"
 description: >
   只有用户明确要求研究趋势、产业链、机会或公司关联时调用。

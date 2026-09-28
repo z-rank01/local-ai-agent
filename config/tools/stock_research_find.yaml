@@ -1,6 +1,7 @@
 name: stock_research_find
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "查找本会话已有的股票研究任务（只读）。"
 description: >
   分页查找本会话内已有的股票研究任务，不会创建新任务。返回任务引用、状态、标的与时间。

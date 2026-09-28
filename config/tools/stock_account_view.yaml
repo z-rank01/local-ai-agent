@@ -1,6 +1,7 @@
 name: stock_account_view
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "查看股票模拟账户（只读）。"
 description: >
   查看股票模拟账户的授权事实：现金、各持仓的数量与账面成本、账户状态与观察时间。

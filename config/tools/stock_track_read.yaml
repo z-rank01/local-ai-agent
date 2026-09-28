@@ -1,6 +1,7 @@
 name: stock_track_read
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "读取某主题或公司跨日研究版本。"
 description: >
   先用 stock_track_find 获取安全引用；按页读取原研究判断、当前判断、新证据带来的变化、

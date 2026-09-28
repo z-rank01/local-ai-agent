@@ -1,6 +1,7 @@
 name: stock_track_find
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "查找已关注或忽略的主题与公司。"
 description: >
   查询跨日研究跟踪，返回本会话安全引用、状态、最新观点变化和最近复查时间；每页 8 条。

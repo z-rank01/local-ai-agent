@@ -1,6 +1,7 @@
 name: stock_market_brief_continue
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "明确续读每日市场简报尚未深读的公开事件。"
 description: >
   仅当用户本轮明确要求续读或查看下一批事件时调用。先用 stock_market_brief_find

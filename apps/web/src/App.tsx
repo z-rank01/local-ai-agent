@@ -2005,7 +2005,7 @@ export default function App() {
             <button type="button" className="ghost-button topbar-button" aria-haspopup="dialog"
               aria-expanded={modelSettingsOpen} onClick={() => setModelSettingsOpen(true)}>模型设置</button>
             {selectedModel?.provider_id !== 'ollama' ? <button type="button" className="ghost-button topbar-button capability-status"
-              onClick={() => setModelSettingsOpen(true)}>{status?.workspace_cloud_allowed ? '工具已开启' : '工具未开启'} · {selectedModel?.thinking_enabled == null ? '思考默认' : selectedModel.thinking_enabled ? '思考开' : '思考关'}</button> : null}
+              onClick={() => setModelSettingsOpen(true)}>{!status?.workspace_cloud_allowed ? '工具未开启' : status?.cloud_write_allowed ? '工具可写入' : '工具仅只读'} · {selectedModel?.thinking_enabled == null ? '思考默认' : selectedModel.thinking_enabled ? '思考开' : '思考关'}</button> : null}
             {conversationId ? (
               <div className="export-menu" ref={exportMenuRef}>
                 <button
@@ -2151,7 +2151,7 @@ export default function App() {
         <AppearanceSettingsPanel value={effectiveAppearance} onChange={updateAppearance} onReset={resetAppearance} />
         <section>
           <h2>模型</h2>
-          <p>{selectedModel?.provider_id === 'ollama' ? '本地模型 · 工作区工具可用' : status?.workspace_cloud_allowed ? '云端工作区工具已开启，文件内容和工具结果可能发送到所选云端模型。' : '云端工作区工具未开启；文件分析或代码执行前，请打开模型设置授权。'}</p>
+          <p>{selectedModel?.provider_id === 'ollama' ? '本地模型 · 工作区工具可用' : !status?.workspace_cloud_allowed ? '云端工作区工具未开启；文件分析或代码执行前，请打开模型设置授权。' : status?.cloud_write_allowed ? '云端可读取并修改当前工作区（含执行代码），文件内容和工具结果可能发送到所选云端模型。' : '云端仅可读取当前工作区；写入与执行需在模型设置中单独开启。'}</p>
           {selectedModel ? (
             <div className="model-card">
               <strong>{selectedModel.name}</strong>

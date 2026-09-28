@@ -1,6 +1,7 @@
 name: shell_exec
 backend: skill-runner
 tier: core
+cloud: write
 short_description: "Run a shell command."
 description: "在 Linux 容器 /bin/sh 中执行命令，可搜索文件、运行脚本与测试。工作目录必须在 /workspace 内。这不是 Windows CMD 或 PowerShell。输出、退出码、超时和截断会返回；较长命令逐段显示输出。"
 parameters:

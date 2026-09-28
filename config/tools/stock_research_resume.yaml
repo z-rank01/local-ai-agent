@@ -1,6 +1,7 @@
 name: stock_research_resume
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "恢复一个中断的研究任务（条件严格）。"
 description: >
   恢复本会话一个已中断的研究任务（按 stock_research_find 返回的 64 位任务引用）。

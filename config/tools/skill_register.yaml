@@ -1,6 +1,7 @@
 name: skill_register
 backend: skill-runner
 tier: extended
+cloud: write
 short_description: "Register a new skill."
 description: |
   注册一个新技能。验证技能脚本格式是否正确（必须包含 SKILL_METADATA 和 run 函数），

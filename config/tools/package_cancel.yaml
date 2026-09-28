@@ -1,6 +1,7 @@
 name: package_cancel
 backend: skill-runner
 tier: core
+cloud: write
 description: "Cancel a background installation ONLY when the user requests stopping it. Partial installed files may remain; inspect package_list afterwards."
 parameters:
   type: object

@@ -1,6 +1,7 @@
 name: stock_track_ignore
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "忽略已跟踪对象并保留历史。"
 description: >
   用户本轮明确说要忽略某主题或公司时调用。先用 stock_track_find 取得本会话

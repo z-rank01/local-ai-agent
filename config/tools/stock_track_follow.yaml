@@ -1,6 +1,7 @@
 name: stock_track_follow
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "关注已完成主题研究中的主题或已核验公司。"
 description: >
   仅在用户本轮明确要求关注或跟踪某个主题或六位代码时调用。

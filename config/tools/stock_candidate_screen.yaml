@@ -1,6 +1,7 @@
 name: stock_candidate_screen
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "按价格和涨跌幅条件建立 A 股候选研究池。"
 description: >
   建立异步候选研究池。只支持当前新浪快照可核对的最新价（元）和涨跌幅（%）上下限；

@@ -1,6 +1,7 @@
 name: stock_candidate_find
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "查找本会话已有的股票候选筛选任务。"
 description: >
   分页查找本会话已有的候选筛选任务，不创建任务。

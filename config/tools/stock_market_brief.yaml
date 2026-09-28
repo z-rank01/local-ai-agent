@@ -1,6 +1,7 @@
 name: stock_market_brief
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "获取空仓也可用的每日市场简报任务。"
 description: >
   请求最近交易日的市场简报；默认复用当日任务。只有用户本轮明确要求刷新或重试时设 refresh=true。

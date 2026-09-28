@@ -1,6 +1,7 @@
 name: stock_track_review_find
 backend: stock-bridge
 tier: extended
+cloud: read
 short_description: "查找跨日观点复查任务和报告。"
 description: >
   只查询本会话收到的跨日复查任务；返回安全任务引用，交给 stock_report_read
