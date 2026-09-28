@@ -188,12 +188,18 @@ class StockBridge:
         self._turns: dict[str, dict] = {}
 
     def set_turn(self, conversation_id: str, request_id: str | None, query: str = '',
-                 method_id: str = 'auto') -> None:
-        """Open the per-turn context. Call once per accepted user message."""
+                 method_id: str = 'auto', *, allow_report_body: bool = False) -> None:
+        """Open the per-turn context. Call once per accepted user message.
+
+        ``allow_report_body`` mirrors the workspace cloud grant: when the model may
+        read workspace files, it may also read rendered report pages, so the stock
+        side is told to return the page body instead of metadata only.
+        """
         self._turns[conversation_id] = {
             'request_id': request_id or f'turn:{uuid.uuid4().hex}',
             'query': (query or '（股票只读查询）')[:16000],
             'method_id': method_id,
+            'allow_report_body': bool(allow_report_body),
             'ticket': None,
             'sequence': 0,
             'finished': False,
@@ -302,14 +308,26 @@ class StockBridge:
             ]
             observation['display_scope'] = ('任务引用只用于下一次内部报告读取，不向用户展示。'
                                             '回答只比较已读取版本的日期、资讯范围、来源失败记录和分析情况。')
-        if tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief':
+        if tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief_page':
+            # The stock side returned the rendered page body for this authorised
+            # turn.  Pass it through untouched: the model read the page, so it may
+            # explain it.  The attachment still reaches the user for exact values.
+            page = params.get('page', 1)
+            observation['page_reading'] = (
+                '以上 body 是本地报告的第 {page} 页正文，已随本轮交给模型阅读；'
+                '引用其中的数字、日期或状态时必须与正文一致，不要改写或四舍五入。'
+                '整份报告可能分页，page_count 是总页数；需要后续页时继续读取下一页。'
+                '涉及公司公告的自查、声明或预计时写明来自公司公告，'
+                '不要表述为已独立证实；用户未要求时不要展示任务引用哈希或工具名。'
+            ).format(page=page)
+        elif tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief':
             page = params.get('page', 1)
             if page > 1:
                 # The stock broker's public projection summarizes the whole
                 # brief, while the requested page is delivered locally at turn
                 # end.  Do not let the model treat that summary as page text.
                 observation = {
-                    'kind': 'market_brief_page', 'requested_page': page,
+                    'kind': 'market_brief_page_meta', 'requested_page': page,
                     'detail_available': 'YES' if step.get('local_result_available') else 'NO',
                     'page_reading': '第 {page} 页正文已作为本地附件交给用户，模型未读取附件正文。'
                                     '如需解释页内事件，先核对该页与公开事件的映射，再逐事件读取原文证据；'
@@ -402,6 +420,7 @@ class StockBridge:
         resp = await self._post('/api/master/broker/prepare', {
             'query': state['query'], 'actor': ACTOR, 'conversation': conversation_id,
             'request_id': state['request_id'], 'method_id': state['method_id'],
+            'report_body_scope': 'cloud' if state.get('allow_report_body') else 'local',
         })
         state['ticket'] = resp['ticket']
 

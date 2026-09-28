@@ -794,7 +794,8 @@ class ChatSessionService:
         if stock_bridge is not None and not answer_only:
             stock_bridge.set_turn(conversation.id, request_id or run_id,
                 turn_query,
-                method_id=method_id)
+                method_id=method_id,
+                allow_report_body=bool(workspace_allowed))
         def emit(event, **kwargs):
             return UIStreamEvent(event=event, **base, **kwargs)
         def save(role, content='', **kwargs):

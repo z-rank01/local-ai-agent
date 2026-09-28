@@ -140,12 +140,37 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(steps, [{'action': 'view', 'kind': 'job',
                                   'reference': {'type': 'task', 'token': REF}, 'page': 2}])
         self.assertEqual(result['model_observation']['requested_page'], 2)
-        self.assertEqual(result['model_observation']['kind'], 'market_brief_page')
+        # Without the report-body grant the model still gets metadata only.
+        self.assertEqual(result['model_observation']['kind'], 'market_brief_page_meta')
         self.assertNotIn('events', result['model_observation'])
         self.assertIn('本地附件', result['model_observation']['page_reading'])
         self.assertIn('不要列出', result['model_observation']['page_reading'])
         self.assertIn('页码', (await bridge.call_tool('stock_report_read',
             {'reference': REF, 'page': 0}, 'paged-report'))['error'])
+
+    async def test_report_read_returns_page_body_when_granted(self):
+        calls = []
+        page = {'kind': 'market_brief_page', 'requested_page': 1, 'page_count': 3,
+                'page_chars': 12, 'body': '第 1 页正文内容', 'detail_available': 'YES'}
+        bridge = self.bridge(make_broker(calls, step_responses=[ok_step(page)]))
+        bridge.set_turn('body-report', 'body-request', '解释这份报告', allow_report_body=True)
+        result = await bridge.call_tool('stock_report_read', {'reference': REF}, 'body-report')
+        observation = result['model_observation']
+        self.assertEqual(observation['kind'], 'market_brief_page')
+        self.assertEqual(observation['body'], '第 1 页正文内容')
+        self.assertEqual(observation['page_count'], 3)
+        self.assertIn('已随本轮交给模型阅读', observation['page_reading'])
+        # The grant is frozen into the prepare call the stock side receives.
+        prepare = next(call for call in calls if call['path'].endswith('/prepare'))
+        self.assertEqual(prepare['json']['report_body_scope'], 'cloud')
+
+    async def test_report_body_is_not_requested_without_the_grant(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls, step_responses=[ok_step({'kind': 'market_brief'})]))
+        bridge.set_turn('local-report', 'local-request', '解释这份报告')
+        await bridge.call_tool('stock_report_read', {'reference': REF}, 'local-report')
+        prepare = next(call for call in calls if call['path'].endswith('/prepare'))
+        self.assertEqual(prepare['json']['report_body_scope'], 'local')
 
     async def test_market_brief_page_one_keeps_source_scopes_distinct(self):
         bridge = self.bridge(make_broker([], step_responses=[ok_step({
@@ -528,7 +553,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self):
                 self.turns = []
                 self.open = False
-            def set_turn(self, cid, rid, query='', method_id='auto'):
+            def set_turn(self, cid, rid, query='', method_id='auto', **kwargs):
                 self.turns.append(('set', cid, rid, query))
                 self.open = True
             def has_open_turn(self, cid):
@@ -677,7 +702,7 @@ class StockPrivacyTests(unittest.IsolatedAsyncioTestCase):
         parent = self
         class StubBridge:
             def __init__(self): self.open = False
-            def set_turn(self, cid, rid, query='', method_id='auto'): self.open = True
+            def set_turn(self, cid, rid, query='', method_id='auto', **kwargs): self.open = True
             def has_open_turn(self, cid): return self.open
             async def call_tool(self, tool, params, session_id):
                 return {'model_observation': {'task_status': 'SUCCEEDED'}, 'status': 'TOOL_RETURNED',
