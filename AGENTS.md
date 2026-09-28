@@ -15,12 +15,23 @@
 
 ```powershell
 .\scripts\start-daily.ps1        # 启动（= 双击 启动.bat）；重复运行只开浏览器
+.\scripts\start-daily.ps1 -Build # 改了 skills/** 后必须用这个重建工具容器镜像
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 208 项通过、1 项跳过）
+.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 213 项通过、1 项跳过）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
+
+## 改完代码后怎么让它生效（三种，别搞混）
+
+| 改了什么 | 怎么生效 | 不生效时的表现 |
+| --- | --- | --- |
+| `core/**`、`bff/**`、`config/**` | 重启聊天后端（`stop-backend.ps1` 再 `start-daily.ps1`）；uvicorn 无 `--reload` | 新字段/新逻辑静默不生效；旧 Pydantic 模型会**静默忽略未知字段并返回成功** |
+| `skills/**`（工具容器内代码） | **`start-daily.ps1 -Build`**（重建镜像并重建容器） | 容器仍跑旧代码：新工具参数被忽略（例如 `file_read` 的 `offset` 无效、直接返回全文） |
+| `apps/web/**` | `npm run build --prefix apps/web` + 刷新页面 | 页面仍是旧 bundle |
+
+改动工具面后，用容器自己的 schema 自查最快：`Invoke-RestMethod http://127.0.0.1:9101/openapi.json` 看 `ReadRequest` 是否含新参数。
 
 ## 结构速览
 
