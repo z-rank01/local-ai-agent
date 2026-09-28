@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 # 唯一日常入口：准备环境 → 启动工具容器与聊天服务（含网页）→ 打开浏览器。
 # 已运行时重复执行只会打开浏览器，不会重复启动服务。
 param([switch]$Build, [switch]$SkipTools, [switch]$RebuildWeb)
@@ -44,10 +44,10 @@ Write-Host ''
 Write-Host '  Local AI Agent - starting' -ForegroundColor White
 Write-Host ''
 
-# -- [0/5] workspace ---------------------------------------------------------
+# -- [0/6] workspace ---------------------------------------------------------
 $workspace = Join-Path $dailyRoot 'data/workspace'
 if (-not (Test-Path -LiteralPath (Join-Path $workspace '.git'))) {
-    Write-Host '  [0/5] Workspace' -ForegroundColor Cyan
+    Write-Host '  [0/6] Workspace' -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path $workspace | Out-Null
     foreach ($d in @('data', 'docs', 'reports', 'skills')) {
         New-Item -ItemType Directory -Force -Path (Join-Path $workspace $d) | Out-Null
@@ -63,12 +63,12 @@ if (-not (Test-Path -LiteralPath (Join-Path $workspace '.git'))) {
     Write-Ok 'workspace initialized (data/workspace)'
 }
 
-# -- [1/5] Docker + tool containers ------------------------------------------
+# -- [1/6] Docker + tool containers ------------------------------------------
 $dailyEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
     if (-not $SkipTools) {
-        Write-Host '  [1/5] Docker & tool containers' -ForegroundColor Cyan
+        Write-Host '  [1/6] Docker & tool containers' -ForegroundColor Cyan
         docker info *> $null
         if ($LASTEXITCODE -ne 0) {
             Write-Step 'starting Docker Desktop...'
@@ -85,8 +85,8 @@ try {
         Write-Ok 'containers up (skill-files, skill-runner; web search starts from the page toggle)'
     }
 
-    # -- [2/5] Web build ------------------------------------------------------
-    Write-Host '  [2/5] Web UI' -ForegroundColor Cyan
+    # -- [2/6] Web build ------------------------------------------------------
+    Write-Host '  [2/6] Web UI' -ForegroundColor Cyan
     $dailyIndex = Join-Path $dailyRoot 'apps/web/dist/index.html'
     if ($RebuildWeb -or -not (Test-Path -LiteralPath $dailyIndex)) {
         Write-Step 'building apps/web (first time may take a minute)...'
@@ -102,8 +102,69 @@ try {
         Write-Ok 'web bundle present (use -RebuildWeb after UI code changes)'
     }
 
-    # -- [3/5] chat backend ----------------------------------------------------
-    Write-Host '  [3/5] Chat service' -ForegroundColor Cyan
+    # -- [3/6] stock backend ---------------------------------------------------
+    # Started HERE, as a top-level process, on purpose.  A stock backend spawned by
+    # the chat backend cannot write the stock repository on this machine (measured
+    # 2026-09-28: PermissionError 13 on simulation/, then SQLite "unable to open
+    # database file"), while the same executable started from this launcher writes it
+    # fine.  The restriction follows the process tree, so no amount of nesting inside
+    # the chat backend escapes it.  Order matters: the backend must be up before the
+    # chat backend starts, otherwise the chat backend takes the failing path itself.
+    Write-Host '  [3/6] Stock backend' -ForegroundColor Cyan
+    $dailyStockSettingsFile = Join-Path $dailyRoot 'data/private/daily-services.json'
+    $dailyStock = $null
+    if (Test-Path -LiteralPath $dailyStockSettingsFile) {
+        $dailyStock = Get-Content -LiteralPath $dailyStockSettingsFile -Raw | ConvertFrom-Json
+    }
+    if (-not $dailyStock -or -not $dailyStock.enabled -or -not $dailyStock.root) {
+        Write-Ok 'not configured or switched off (chat only)'
+    } else {
+        $dailyStockRoot = [string]$dailyStock.root
+        $dailyStockPort = if ($dailyStock.port) { [int]$dailyStock.port } else { 8765 }
+        $dailyStockState = Join-Path $dailyStockRoot ([string]$dailyStock.state_dir)
+        $dailyStockPython = Join-Path $dailyStockRoot '.venv-paper/Scripts/python.exe'
+        $dailyStockScript = Join-Path $dailyStockRoot 'scripts/run_paper.py'
+
+        $dailyStockUp = $false
+        try { $null = Invoke-RestMethod "http://127.0.0.1:$dailyStockPort/health" -TimeoutSec 3; $dailyStockUp = $true } catch {}
+        if ($dailyStockUp) {
+            Write-Ok "already running on 127.0.0.1:$dailyStockPort"
+        } elseif (-not (Test-Path -LiteralPath $dailyStockPython) -or -not (Test-Path -LiteralPath $dailyStockScript)) {
+            Write-Warn2 "stock python or run_paper.py missing under $dailyStockRoot; start it from the page after fixing the path"
+        } elseif (Get-NetTCPConnection -LocalPort $dailyStockPort -State Listen -ErrorAction SilentlyContinue) {
+            Write-Warn2 "port $dailyStockPort is taken by something else; not touching it"
+        } else {
+            Write-Step 'starting stock backend...'
+            $dailyStockProc = Start-Process -FilePath $dailyStockPython `
+                -ArgumentList @('-X', 'utf8', $dailyStockScript, '--state-dir', $dailyStockState, '--port', "$dailyStockPort", '--no-worker') `
+                -WorkingDirectory $dailyStockRoot -WindowStyle Hidden `
+                -RedirectStandardOutput (Join-Path $dailyLogs 'stock-service.log') `
+                -RedirectStandardError (Join-Path $dailyLogs 'stock-service.err.log') -PassThru
+            if ($dailyStockProc) { $env:STOCK_LAUNCHER_PID = "$($dailyStockProc.Id)" }
+            $dailyStockDeadline = (Get-Date).AddSeconds(45)
+            do {
+                Start-Sleep -Milliseconds 750
+                try { $null = Invoke-RestMethod "http://127.0.0.1:$dailyStockPort/health" -TimeoutSec 3; $dailyStockUp = $true } catch {}
+            } until ($dailyStockUp -or (Get-Date) -gt $dailyStockDeadline)
+            if ($dailyStockUp) {
+                Write-Ok "started on 127.0.0.1:$dailyStockPort"
+                if ($dailyStock.worker) {
+                    try {
+                        $dailyToken = (Get-Content -LiteralPath (Join-Path $dailyStockState '.paper-control-token') -Raw).Trim()
+                        $null = Invoke-RestMethod "http://127.0.0.1:$dailyStockPort/api/control/action" -Method Post `
+                            -Headers @{ Authorization = "Bearer $dailyToken" } -ContentType 'application/json' `
+                            -Body '{"action":"worker_start"}' -TimeoutSec 10
+                        Write-Ok 'task execution resumed'
+                    } catch { Write-Warn2 "backend is up but worker_start failed: $($_.Exception.Message)" }
+                }
+            } else {
+                Write-Warn2 'did not become ready; see data/logs/stock-service.err.log'
+            }
+        }
+    }
+
+    # -- [4/6] chat backend ----------------------------------------------------
+    Write-Host '  [4/6] Chat service' -ForegroundColor Cyan
     $dailyReady = $false
     try {
         $dailyStatus = Invoke-RestMethod 'http://127.0.0.1:9510/api/status' -TimeoutSec 5
@@ -130,8 +191,8 @@ try {
     $ErrorActionPreference = $dailyEap
 }
 
-# -- [4/5] Ollama (local models; cloud works without it) ---------------------
-Write-Host '  [4/5] Ollama (local models)' -ForegroundColor Cyan
+# -- [5/6] Ollama (local models; cloud works without it) ---------------------
+Write-Host '  [5/6] Ollama (local models)' -ForegroundColor Cyan
 $ollamaUp = $false
 try { $ollamaUp = [bool](Invoke-RestMethod ($dailyOllamaUrl + '/api/tags') -TimeoutSec 4) } catch {}
 if ($ollamaUp) {
@@ -156,8 +217,8 @@ if ($ollamaUp) {
     Write-Warn2 'not installed; only cloud models are usable'
 }
 
-# -- [5/5] open browser --------------------------------------------------------
-Write-Host '  [5/5] Open browser' -ForegroundColor Cyan
+# -- [6/6] open browser --------------------------------------------------------
+Write-Host '  [6/6] Open browser' -ForegroundColor Cyan
 try {
     Start-Process 'http://127.0.0.1:9510'
     Write-Ok 'http://127.0.0.1:9510'

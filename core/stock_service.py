@@ -6,13 +6,33 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
 
 import httpx
 
 from . import config
 from .stock_bridge import StockBridge
 from .tool_registry import ToolRegistry
+
+# Pid of the stock backend that scripts/start-daily.ps1 started, so the chat backend
+# can tell "the launcher owns it" from "nobody owns it".
+LAUNCHER_PID_ENV = 'STOCK_LAUNCHER_PID'
+
+
+def launcher_owns_backend(port: int) -> bool:
+    """True when this process was started by the launcher rather than by the page.
+
+    scripts/start-daily.ps1 exports the backend's pid into the chat backend's
+    environment; the page-driven path does not, so a missing or dead pid means the
+    backend would have to be spawned here -- which cannot write the stock repository.
+    """
+    raw = os.environ.get(LAUNCHER_PID_ENV, '').strip()
+    if not raw.isdigit():
+        return False
+    try:
+        os.kill(int(raw), 0)   # signal 0 only checks that the process exists
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 class StockService:
@@ -126,24 +146,19 @@ class StockService:
                 writer.close()
                 await writer.wait_closed()
                 raise ValueError('端口已被占用；请关闭旧股票服务或更换端口，不会终止未知进程')
-            python = root / '.venv-paper/Scripts/python.exe'
-            if not python.exists():
-                raise ValueError('股票 Python 环境不存在，请先完成首次环境安装')
-            logs = config._PROJECT_ROOT / 'data/logs'
-            logs.mkdir(parents=True, exist_ok=True)
-            with (logs / 'stock-service.log').open('ab') as out, (logs / 'stock-service.err.log').open('ab') as err:
-                self.child = subprocess.Popen([str(python), '-X', 'utf8', str(root / 'scripts/run_paper.py'),
-                                              '--state-dir', str(state), '--port', str(self.settings['port']), '--no-worker'],
-                                             cwd=root, stdout=out, stderr=err,
-                                             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
-            for _ in range(40):
-                await asyncio.sleep(0.25)
-                if self.child.poll() is not None:
-                    raise ValueError('股票后台启动失败，请查看 data/logs/stock-service.err.log')
-                if (await self.status())['online']:
-                    break
-            else:
-                raise ValueError('股票后台仍未就绪，请稍后刷新状态；不会重复启动')
+            # The backend must not be spawned from here.  Measured 2026-09-28: a
+            # process created by this backend cannot write the stock repository
+            # (PermissionError 13 on simulation/, then SQLite "unable to open
+            # database file"), and the restriction follows the whole process tree --
+            # cmd, a batch hop and powershell Start-Process all failed the same way.
+            # scripts/start-daily.ps1 starts it as a top-level process instead, which
+            # works.  Say so plainly rather than failing with a buried traceback.
+            if not launcher_owns_backend(self.settings['port']):
+                raise ValueError(
+                    '股票后台需要由启动器启动（当前版本不再由聊天后端派生，'
+                    '因为那样启动的进程无法写入股票仓库）。'
+                    '请关闭页面与聊天后端，然后重新双击 启动.bat。')
+            raise ValueError('股票后台未就绪，请稍后刷新状态；不会重复启动。')
         if self.settings['worker']:
             await self.request('/api/control/action', {'action': 'worker_start'})
         await self.attach(runtime, True)
