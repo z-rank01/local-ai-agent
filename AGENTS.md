@@ -33,26 +33,44 @@ docker compose up -d             # 工具容器（websearch profile 由页面开
 
 改动工具面后，用容器自己的 schema 自查最快：`Invoke-RestMethod http://127.0.0.1:9101/openapi.json` 看 `ReadRequest` 是否含新参数。
 
-### 股票后台起不来：先查 WAL 残留，别急着怀疑权限
+### 股票后台由启动器启动，不由聊天后端派生（2026-09-28 起）
 
-`data/logs/stock-service.err.log` 出现下面任一条时，**先按 WAL 残留处理**：
+`scripts/start-daily.ps1` 的第 3 步以**顶层进程**启动股票后台（`Start-Process`），并在就绪后恢复任务执行；聊天后端**不再**自己派生它。原因与证据：
+
+| 启动来源 | 结果 |
+| --- | --- |
+| 启动器 `Start-Process`（顶层进程） | ✅ 后台正常读写 `simulation/` |
+| 聊天后端 `subprocess.Popen` 派生 | ❌ 子进程写股票仓库被拒 → SQLite `unable to open database file` |
+
+**限制沿整棵进程树继承**，下面这些"绕一层"的写法**全部实测失败**，不要再试：
+
+```
+subprocess.Popen(列表) / cmd /c "…" / cmd /c start "" /b … / 写 .bat 再 cmd /c 该bat /
+powershell Start-Process …（由聊天后端调用）
+```
+
+`schtasks`（计划任务）也被拒（`Access is denied`），不能用作兜底。
+
+因此：页面"股票技能"的**启动**按钮只会给出明确指引（"请重新双击 启动.bat"），不再尝试派生；**停止**仍走控制接口优雅关闭，可用。要恢复后台，就重新走唯一入口。
+
+`STOCK_LAUNCHER_PID` 由启动器写入聊天后端环境，`core/stock_service.launcher_owns_backend()` 用它区分"启动器拥有"与"无人拥有"，避免又退回派生路径。
+
+### 仍要留意：WAL 残留会让后台启动失败
+
+`data/logs/stock-service.err.log` 出现任一情形时，先清 WAL 锁文件：
 
 ```
 sqlite3.OperationalError: unable to open database file          (打开阶段)
 sqlite3.OperationalError: attempt to write a readonly database  (schema 写入阶段)
 ```
 
-**处置步骤**（三步，2026-09-28 实测有效）：
+1. 退出整个栈，确认没有 `run_paper` 进程
+2. 删掉状态目录下的 **`state.sqlite-shm`** 与 **`state.sqlite-wal`**。**不要碰 `state.sqlite`**
+3. 重新启动
 
-1. 退出整个栈（页面"退出"或关页面），确认没有 `run_paper` 进程
-2. 删掉状态目录下的 **`state.sqlite-shm`** 与 **`state.sqlite-wal`**（WAL 模式的锁文件）。**不要碰 `state.sqlite`**
-3. 重新启动；`Store()` 会重建这两个文件
+`state.sqlite-wal` 为 0 字节时删除无风险；非 0 时先整目录备份。成因是上次进程被强杀导致锁文件状态不一致，库本身通常完好（先用 `PRAGMA integrity_check` 确认）。
 
-判断安全：`state.sqlite-wal` 为 0 字节时删除无数据风险；若它非 0，说明可能有未合并的已提交事务，**先整目录备份再删**。
-
-**成因**：上一次后台进程被强杀（`Stop-Process`、探针 `terminate()`、崩溃）时，`-shm`/`-wal` 会以不一致状态留在磁盘上，后续进程**读得动却写不进**——表现就是"库是好的，一启动却报只读"。库本身通常完好；先用 `PRAGMA integrity_check` 与 `Store()` 冒烟确认，再谈恢复。
-
-> **曾被误判**：一度结论为"AI 会话启动的进程带文件约束写不了股票目录"，依据是当时探针在 `simulation/` 下建文件报 `PermissionError 13`。用户用**自己的终端**重启后同样失败，该结论被推翻；真正原因是上面的 WAL 残留，`PermissionError` 那次是探针自身路径问题。**不要再用"AI 会话的进程受约束"解释股票后台启动失败。**
+> **诊断史（避免重犯）**：这个问题曾被两次误判——先归因于"AI 会话的进程受约束"（对了一半：限制真实存在，但不止于 AI 会话），后归因于"WAL 残留"（也真实，但不是根因）。**根因是限制沿进程树继承**，所以任何从聊天后端派生的写法都会失败。判断依据只看一条：后台是否由**启动器顶层进程**启动。
 
 ## 结构速览
 
