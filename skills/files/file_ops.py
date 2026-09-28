@@ -13,6 +13,22 @@ from path_guard import PathGuard
 _XLSX_SUFFIXES = {".xlsx", ".xls", ".xlsm", ".xlsb"}
 _PDF_SUFFIXES = {".pdf"}
 
+# Character window for one read. Files larger than this are delivered in pages:
+# the response carries total_chars/next_offset so the caller can continue instead
+# of silently losing the tail. 0 disables the cap (single-shot read).
+def _read_char_limit() -> int:
+    try:
+        return int(os.environ.get("FILE_READ_MAX_CHARS", "200000"))
+    except (TypeError, ValueError):
+        return 200000
+
+
+_PAGE_MARKER = (
+    "\n[本页为第 {start}-{end} 字符，共 {total} 字符；"
+    "继续读取请传 offset={next_offset}]"
+)
+_TAIL_MARKER = "\n[已读到文件末尾：第 {start}-{end} 字符，共 {total} 字符]"
+
 # Known text file extensions — read directly with encoding detection.
 _TEXT_SUFFIXES = {
     ".txt", ".csv", ".tsv", ".json", ".jsonl", ".xml", ".yaml", ".yml",
@@ -77,7 +93,8 @@ class FileOps:
 
     _FALLBACK_ENCODINGS = ("utf-8", "gbk", "gb2312", "gb18030", "big5", "latin-1")
 
-    def read(self, path: str, encoding: str = "utf-8") -> dict:
+    def read(self, path: str, encoding: str = "utf-8", *,
+             offset: int = 0, max_chars: int | None = None) -> dict:
         resolved = self._guard.resolve(path)
         if not resolved.exists():
             raise FileNotFoundError(f"File not found: {path!r}")
@@ -89,33 +106,65 @@ class FileOps:
         digest = hashlib.sha256(raw).hexdigest()
         suffix = resolved.suffix.lower()
 
-        # Built-in converters for common formats
+        # Built-in converters for common formats. Extraction happens first so the
+        # character window always applies to text, never to raw bytes.
         if suffix in _XLSX_SUFFIXES:
-            return {"content": _read_excel_as_text(resolved), "sha256": digest, "path": path}
-        if suffix in _PDF_SUFFIXES:
-            return {"content": _read_pdf_as_text(resolved), "sha256": digest, "path": path}
-
-        # Known text extensions or small files: try text decoding
-        if suffix in _TEXT_SUFFIXES or not _is_binary(raw):
+            text, extra = _read_excel_as_text(resolved), {}
+        elif suffix in _PDF_SUFFIXES:
+            text, extra = _read_pdf_as_text(resolved), {}
+        elif suffix in _TEXT_SUFFIXES or not _is_binary(raw):
             encodings = (encoding,) + tuple(
                 e for e in self._FALLBACK_ENCODINGS if e != encoding
             )
+            text, extra = None, {}
             for enc in encodings:
                 try:
-                    return {'content':raw.decode(enc), 'sha256':digest, 'encoding':enc, 'path':path}
+                    text = raw.decode(enc)
+                    extra = {"encoding": enc}
+                    break
                 except (UnicodeDecodeError, LookupError):
                     continue
-            return {'content':raw.decode("utf-8", errors="replace"), 'sha256':digest,
-                    'encoding':'utf-8+replace', 'path':path}
+            if text is None:
+                text = raw.decode("utf-8", errors="replace")
+                extra = {"encoding": "utf-8+replace"}
+        else:
+            # Unsupported binary file — return structured metadata
+            return {
+                "unsupported": True,
+                "extension": suffix,
+                "path": path,
+                "size": len(raw),
+                "hint": f"此文件类型({suffix})需要转换器，请通过 file_convert 处理",
+            }
 
-        # Unsupported binary file — return structured metadata
-        return {
-            "unsupported": True,
-            "extension": suffix,
-            "path": path,
-            "size": len(raw),
-            "hint": f"此文件类型({suffix})需要转换器，请通过 file_convert 处理",
-        }
+        return self._window(text, path, digest, offset, max_chars, extra)
+
+    @staticmethod
+    def _window(text: str, path: str, digest: str, offset: int,
+                max_chars: int | None, extra: dict) -> dict:
+        """Slice extracted text into one page and describe how to fetch the next."""
+        total = len(text)
+        limit = max_chars if isinstance(max_chars, int) and max_chars > 0 else _read_char_limit()
+        if limit <= 0:
+            limit = total or 1
+
+        if offset >= total:
+            return {"content": f"[offset={offset} 已在文件末尾（共 {total} 字符）；"
+                               "如需重读请传更小的 offset]",
+                    "sha256": digest, "path": path,
+                    "total_chars": total, "next_offset": None, **extra}
+
+        end = min(offset + limit, total)
+        body = text[offset:end]
+        complete = end >= total
+        marker = (_TAIL_MARKER if complete else _PAGE_MARKER).format(
+            start=offset, end=end, total=total,
+            next_offset=end if not complete else None)
+        return {"content": body + marker, "sha256": digest, "path": path,
+                "total_chars": total,
+                "next_offset": None if complete else end,
+                "range": {"start": offset, "end": end, "total": total},
+                **extra}
 
     def write(self, path: str, content: str, encoding: str = "utf-8") -> dict:
         resolved = self._guard.resolve(path)

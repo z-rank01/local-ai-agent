@@ -32,6 +32,13 @@ _git = GitOps(_WORKSPACE)
 
 _AUTO_GIT = os.environ.get("AUTO_GIT_COMMIT", "true").lower() == "true"
 
+# Hard ceiling for one read page; the caller-facing default lives in file_ops.
+_DEFAULT_READ_LIMIT = 200_000
+
+
+def _read_limit() -> int:
+    return _coerce_int(os.environ.get("FILE_READ_MAX_CHARS"), _DEFAULT_READ_LIMIT, "FILE_READ_MAX_CHARS")
+
 
 def _coerce_int(value: object, default: int, label: str) -> int:
     try:
@@ -106,6 +113,8 @@ async def startup_cleanup():
 
 class ReadRequest(BaseModel):
     path: str
+    offset: int | None = None
+    max_chars: int | None = None
 
 
 class WriteRequest(BaseModel):
@@ -145,13 +154,22 @@ async def health():
 @app.post("/tool/file_read")
 async def file_read(req: ReadRequest):
     try:
-        result = _file_ops.read(req.path)
+        offset = req.offset or 0
+        if offset < 0:
+            raise HTTPException(status_code=409, detail="offset 必须是不小于 0 的整数")
+        max_chars = req.max_chars
+        if max_chars is not None and (not isinstance(max_chars, int) or max_chars < 1):
+            raise HTTPException(status_code=409, detail="max_chars 必须是正整数")
+        limit = min(max_chars, _read_limit()) if max_chars else _read_limit()
+        result = _file_ops.read(req.path, offset=offset, max_chars=limit)
         # read() returns structured dicts whose sha256 hashes the exact bytes served.
         if isinstance(result, dict):
             return result
         return {"content": str(result), "path": req.path}
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
+    except HTTPException:
+        raise
     except (FileNotFoundError, IsADirectoryError) as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:

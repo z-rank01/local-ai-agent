@@ -13,3 +13,4 @@ parameters:
       type: integer
       description: "Timeout in seconds, up to policy limit"
   required: ["code"]
+max_result_chars: 32000

@@ -16,3 +16,4 @@ parameters:
       description: "最大返回字符数（默认20000，最大50000）"
   required:
     - url
+max_result_chars: 50000

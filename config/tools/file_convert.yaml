@@ -10,3 +10,4 @@ parameters:
       type: string
       description: "文件绝对路径，以 /workspace 开头"
   required: ["path"]
+max_result_chars: 200000

@@ -10,3 +10,4 @@ parameters:
       type: string
       description: "Directory path starting with /workspace"
   required: ["directory"]
+max_result_chars: 16000

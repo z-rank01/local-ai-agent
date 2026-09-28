@@ -16,3 +16,4 @@ parameters:
       type: string
       description: "Working directory inside /workspace; defaults to /workspace."
   required: ["command"]
+max_result_chars: 16000
