@@ -17,6 +17,7 @@ import httpx
 from fastapi import HTTPException
 
 from core import config, model_settings
+from core.brief_comparison import BriefComparison, requested as brief_comparison_requested
 from core.conversation_store import Conversation, ConversationStore, Message
 from core.input_utils import ImportedFile, ingest_local_file_paths
 from core.providers import thinking_capability
@@ -768,9 +769,13 @@ class ChatSessionService:
         stock_bridge = self._runtime.stock_bridge
         stock_pending_local = {}   # broker sequence -> call_id for local-only results
         stock_tool_rows = {}       # call_id -> saved tool row id
+        turn_query = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
+        brief_comparison = (BriefComparison() if stock_bridge is not None and not answer_only
+                            and brief_comparison_requested(turn_query) else None)
+        brief_failed = False
         if stock_bridge is not None and not answer_only:
             stock_bridge.set_turn(conversation.id, request_id or run_id,
-                next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), ''),
+                turn_query,
                 method_id=method_id)
         def emit(event, **kwargs):
             return UIStreamEvent(event=event, **base, **kwargs)
@@ -795,13 +800,17 @@ class ChatSessionService:
                             yield emit('reasoning.delta', block_id=thinking_block, data={'text': token})
                         else:
                             text += token
-                            yield emit('assistant.delta', block_id=block, data={'text': token, 'model': spec['id']})
+                            if brief_comparison is None:
+                                yield emit('assistant.delta', block_id=block, data={'text': token, 'model': spec['id']})
                     elif event.kind == 'message':
                         message = event.data['message']
-                        save('protocol', metadata={**meta, 'message': message})
+                        protocol = ({**message, 'content': ''}
+                                    if brief_comparison is not None and message['role'] == 'assistant'
+                                    else message)
+                        save('protocol', metadata={**meta, 'message': protocol})
                         if message['role'] == 'assistant':
                             final_text = message.get('content') or text
-                            if final_text or reasoning:
+                            if brief_comparison is None and (final_text or reasoning):
                                 saved = save('assistant', final_text, thinking=reasoning, metadata=meta)
                                 yield emit('assistant.completed', block_id=block, message_id=saved.id,
                                     data={'text': final_text, 'model': spec['id']})
@@ -821,6 +830,8 @@ class ChatSessionService:
                         yield emit('tool.progress', block_id=event.data['call_id'], data=event.data)
                     elif event.kind == 'tool_end':
                         data = event.data
+                        if brief_comparison is not None:
+                            brief_comparison.accept(data)
                         display_params = _redact_params(data.get('params', {}))
                         saved = save('tool', '[' + data['status'] + '] ' + data['name'] + (' 已完成' if data['status']=='ok' else ' 执行失败') + '\n' + data.get('result_preview',''), tool_name=data['name'],
                             tool_result=data.get('result'), metadata={**meta, 'params': display_params, 'status': data['status']})
@@ -835,15 +846,48 @@ class ChatSessionService:
                         yield emit('tool.completed', block_id=data['call_id'], message_id=saved.id,
                             data={**data, 'params': display_params, 'detail': data.get('result_preview',''), 'headline': event.text})
                     elif event.kind == 'error':
-                        partial = text + ('\n\n' if text else '') + '本轮未完成：' + event.text
+                        partial = ('版本对比未完成；请查看已打开的本地附件并稍后重试。'
+                                   if brief_comparison is not None else
+                                   text + ('\n\n' if text else '') + '本轮未完成：' + event.text)
+                        brief_failed = True
                         saved = save('assistant', partial, thinking=reasoning, metadata={**meta, 'status':'error'})
-                        text = ''
+                        text, reasoning = '', ''
                         yield emit('assistant.completed', block_id=block, message_id=saved.id,
                             data={'text': partial, 'model':spec['id'], 'status':'error'})
                         yield emit('error', data={'message': event.text})
+            if brief_comparison is not None and stock_bridge is not None and not brief_failed:
+                for reference, page in brief_comparison.missing_required_reads():
+                    call_id = uuid.uuid4().hex
+                    params = {'reference': reference, 'page': page}
+                    yield emit('tool.started', block_id=call_id,
+                        data={'call_id': call_id, 'name': 'stock_report_read',
+                              'params': params, 'summary': '核对简报版本'})
+                    result = await stock_bridge.call_tool('stock_report_read', params, conversation.id)
+                    status = 'error' if result.get('error') else 'ok'
+                    tool_data = {'call_id': call_id, 'name': 'stock_report_read',
+                                 'params': params, 'status': status, 'result': result}
+                    brief_comparison.accept(tool_data)
+                    saved = save('tool', '核对简报版本：' + ('已读取' if status == 'ok' else '未完成'),
+                                 tool_name='stock_report_read', tool_result=result,
+                                 metadata={**meta, 'params': params, 'status': status})
+                    stock_tool_rows[call_id] = saved.id
+                    sequence = result.get('broker_sequence')
+                    if result.get('local_result_available') and isinstance(sequence, int):
+                        stock_pending_local[sequence] = call_id
+                    yield emit('tool.completed', block_id=call_id, message_id=saved.id,
+                        data={**tool_data, 'detail': '版本读取已核对', 'headline': '核对简报版本'})
+                    if status == 'error':
+                        break
             if stock_bridge is not None and not answer_only:
                 async for stock_event in self._finish_stock_turn(conversation.id, stock_pending_local, stock_tool_rows, emit):
                     yield stock_event
+            if brief_comparison is not None and not brief_failed:
+                verified_text = brief_comparison.render()
+                saved = save('assistant', verified_text, metadata=meta)
+                yield emit('assistant.delta', block_id=block, data={'text': verified_text, 'model': spec['id']})
+                yield emit('assistant.completed', block_id=block, message_id=saved.id,
+                    data={'text': verified_text, 'model': spec['id']})
+                text, reasoning = '', ''
             latest = self._require_conversation(conversation.id)
             yield emit('conversation.updated', data={'conversation':self._conversation_summary(latest).model_dump()})
             yield emit('session.completed')
@@ -854,7 +898,9 @@ class ChatSessionService:
                     pass
             # Disconnects/stop preserve partial output and terminal tool states.
             if text or reasoning:
-                save('assistant', text + '\n\n[生成已中断]', thinking=reasoning, metadata={**meta,'status':'interrupted'})
+                interrupted = ('版本对比已中断；已取得的附件仍可查看。' if brief_comparison is not None
+                               else text + '\n\n[生成已中断]')
+                save('assistant', interrupted, thinking=reasoning, metadata={**meta,'status':'interrupted'})
             for tool in active_tools.values():
                 result = {**tool.get('partial', {}), 'error':'执行已中断，请核查已有结果；不会自动重跑。'}
                 save('protocol', metadata={**meta, 'message':{'role':'tool', 'tool_call_id':tool['call_id'],

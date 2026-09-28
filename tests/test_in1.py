@@ -200,6 +200,24 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         _ = [e async for e in self.service.stream_chat(ChatRequest(conversation_id=cid,message='again'))]
         self.assertEqual([m['role'] for m in self.seen[-1] if m['role']!='system'],['user','assistant','user'])
 
+    async def test_explicit_brief_comparison_does_not_stream_unverified_model_claims(self):
+        class StubBridge:
+            def set_turn(self, *_args, **_kwargs): pass
+            def has_open_turn(self, _conversation_id): return False
+            async def finish_turn(self, _conversation_id): return []
+            async def close(self): pass
+        self.runtime.stock_bridge = StubBridge()
+        request = ChatRequest(message='获取当前市场简报，不刷新，打开第 1、2 页与旧版对比。',
+                              model='qwen:qwen3.5-flash')
+        events = [event async for event in self.service.stream_chat(request)]
+        visible = ''.join(event.data.get('text', '') for event in events
+                          if event.event == 'assistant.delta')
+        self.assertIn('尚未核对到两份', visible)
+        self.assertNotIn('hello', visible)
+        answers = [m.content for m in self.service.get_messages(events[0].conversation_id)
+                   if m.role == 'assistant']
+        self.assertEqual(answers, [visible])
+
     async def test_model_switch_routes_actual_client_and_edit(self):
         spec={'id':'alternate:mock','provider_id':'alternate','provider_name':'Test','model':'mock','kind':'cloud','base_url':'https://example.invalid','api_key_env':'IN1_FAKE_KEY'}
         self.runtime.models.specs.append(spec)

@@ -63,6 +63,18 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             {'action': 'find', 'kind': 'market_brief', 'page': 1},
         ])
 
+    async def test_market_brief_find_keeps_reference_internal_and_simplifies_status(self):
+        bridge = self.bridge(make_broker([], step_responses=[ok_step({
+            'kind': 'task_search', 'total': 1, 'items': [{
+                'reference': REF, 'status': 'SUCCEEDED', 'created_at': '2026-09-28T00:00:07+08:00',
+                'updated_at': '2026-09-28T00:37:27+08:00', 'unread': 'YES'}]})]))
+        bridge.set_turn('brief-find', 'brief-find-request', '对比简报')
+        result = await bridge.call_tool('stock_market_brief_find', {'page': 1}, 'brief-find')
+        item = result['model_observation']['items'][0]
+        self.assertEqual(item, {'reference': REF, 'created_at': '2026-09-28T00:00:07+08:00',
+                                'execution': '可读取'})
+        self.assertIn('不向用户展示', result['model_observation']['display_scope'])
+
     async def test_public_evidence_tools_and_trusted_method(self):
         calls = []
         bridge = self.bridge(make_broker(calls))
@@ -137,7 +149,8 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_market_brief_page_one_keeps_source_scopes_distinct(self):
         bridge = self.bridge(make_broker([], step_responses=[ok_step({
-            'kind': 'market_brief', 'failed_dates': ['2026-09-24'],
+            'kind': 'market_brief', 'target_date': '2026-09-24',
+            'failed_dates': ['2026-09-24'],
             'news_start': '2026-09-24', 'news_end': '2026-09-28',
             'analysis_status': 'PARTIAL',
             'events': [{'source': 'industry', 'title': '发改委文章'}]})]))
@@ -147,14 +160,22 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('公告失败日期只对应本项目的东方财富公告 API 目录', scope)
         self.assertIn('不是证监会或交易所网站的公告接口', scope)
         self.assertIn('发改委、证监会文章是独立来源', scope)
+        self.assertIn('不能断言旧问题已经解决', scope)
         self.assertIn('不展示字段名或 JSON 数组', scope)
-        self.assertIn('不得把预览条数写成已深读总数', result['model_observation']['evidence_scope'])
+        self.assertIn('先核对报告页与公开事件的映射', result['model_observation']['evidence_scope'])
         self.assertIn('本地附件只包含本次请求的第 1 页', result['model_observation']['attachment_scope'])
         self.assertIn('不是报告生成或发布日期', result['model_observation']['interpretation_scope'])
         self.assertIn('未有独立来源时不可写成已核实事实', result['model_observation']['interpretation_scope'])
-        self.assertEqual(result['model_observation']['news_end'], '2026-09-28')
+        self.assertIn('资讯核对截止日：2026-09-28', result['model_observation']['news_window_description'])
+        self.assertIn('最近交易日：2026-09-24', result['model_observation']['trading_day_description'])
         self.assertIn('2026-09-24', result['model_observation']['announcement_directory_coverage'])
         self.assertIn('部分完成', result['model_observation']['analysis_status_description'])
+        self.assertIn('不能据此判断两版缺口相同', result['model_observation']['analysis_status_description'])
+        self.assertNotIn('events', result['model_observation'])
+        self.assertIn('未读取本地附件正文', result['model_observation']['evidence_scope'])
+        self.assertIn('不得从报告读取结果比较第 1 页事件', result['model_observation']['evidence_scope'])
+        self.assertNotIn('news_end', result['model_observation'])
+        self.assertNotIn('target_date', result['model_observation'])
         self.assertNotIn('failed_dates', result['model_observation'])
         self.assertNotIn('analysis_status', result['model_observation'])
 

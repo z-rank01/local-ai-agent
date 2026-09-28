@@ -288,6 +288,17 @@ class StockBridge:
                 # Direct/local routes carry no model-visible projection; tell the model
                 # the outcome code so it never has to guess from an empty object.
                 observation = {'code': step['code'], 'note': '该结果没有模型可见字段；详细内容仅在本地附件展示，长报告可能分页。'}
+        if tool == 'stock_market_brief_find' and isinstance(observation, dict) and observation.get('kind') == 'task_search':
+            status_labels = {'SUCCEEDED': '可读取', 'QUEUED': '排队中', 'RUNNING': '运行中',
+                             'FAILED': '失败', 'CANCELLED': '已取消'}
+            observation = dict(observation)
+            observation['items'] = [
+                {'reference': item.get('reference'), 'created_at': item.get('created_at'),
+                 'execution': status_labels.get(item.get('status'), '状态待核对')}
+                for item in (observation.get('items') or []) if isinstance(item, dict)
+            ]
+            observation['display_scope'] = ('任务引用只用于下一次内部报告读取，不向用户展示。'
+                                            '回答只比较已读取版本的日期、资讯范围、来源失败记录和分析情况。')
         if tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief':
             page = params.get('page', 1)
             if page > 1:
@@ -297,22 +308,34 @@ class StockBridge:
                 observation = {
                     'kind': 'market_brief_page', 'requested_page': page,
                     'detail_available': 'YES' if step.get('local_result_available') else 'NO',
-                    'page_reading': '第 {page} 页正文作为本地附件交给用户。'
-                                    '如需解释页内事件，请继续调用 stock_public_evidence_find(report_page={page})，'
-                                    '再用 stock_public_evidence_read 读取事件；未核对前不要列出页内事件，'
+                    'page_reading': '第 {page} 页正文已作为本地附件交给用户，模型未读取附件正文。'
+                                    '如需解释页内事件，先核对该页与公开事件的映射，再逐事件读取原文证据；'
+                                    '未核对前不要列出页内事件，'
                                     '无法确认映射时明确说明。'.format(page=page),
                 }
             else:
                 observation = dict(observation)
+                # The public event preview describes the whole brief, not this
+                # report page.  Keep page comparisons tied to the dedicated
+                # evidence finder, which can confirm page-to-event mappings.
+                observation.pop('events', None)
+                target_date = observation.pop('target_date', None)
+                if isinstance(target_date, str):
+                    observation['trading_day_description'] = f'行情锚定的最近交易日：{target_date}。'
+                news_start = observation.pop('news_start', None)
+                news_end = observation.pop('news_end', None)
+                if isinstance(news_start, str) and isinstance(news_end, str):
+                    observation['news_window_description'] = (
+                        f'资讯核对区间：{news_start} 至 {news_end}；资讯核对截止日：{news_end}。')
                 failed_dates = observation.pop('failed_dates', None)
                 if isinstance(failed_dates, list):
                     dates = [day for day in failed_dates if isinstance(day, str)]
                     observation['announcement_directory_coverage'] = (
                         '东方财富公告目录失败日期：' + ('、'.join(dates) if dates else '未记录') +
-                        '。未记录失败日期不等于全市场公告已全部覆盖。')
+                        ('。' if dates else '。本版未记录失败，不代表旧版失败已补采或全市场公告全部覆盖。'))
                 status_labels = {
                     'OK': '本次事件分析已完成；不代表全市场公告全部覆盖',
-                    'PARTIAL': '本次事件分析部分完成，仍有缺口；详情见本地报告',
+                    'PARTIAL': '本次事件分析部分完成，仍有缺口；不能据此判断两版缺口相同，详情见本地报告',
                     'MODEL_PENDING_REVIEW': '模型结果待核查；详情见本地报告',
                     'BUDGET_EXHAUSTED': '分析因预算边界未完成；详情见本地报告',
                 }
@@ -320,23 +343,25 @@ class StockBridge:
                 if analysis_status in status_labels:
                     observation['analysis_status_description'] = status_labels[analysis_status]
                 observation['requested_page'] = page
-                observation['evidence_scope'] = ('events 只是整份简报的少量公开证据预览，既不是本页清单，'
-                                                 '也不是全部已分析事件；不得把预览条数写成已深读总数。'
-                                                 '未深读目录数量未在此观察中给出时请明确说未知，'
-                                                 '引导查看本地完整报告；不得推断所示 PDF 原文未读取。')
+                observation['evidence_scope'] = ('模型只读到版本元信息，未读取本地附件正文；不得声称已读报告正文。'
+                                                 '此摘要没有页内事件清单；不得从报告读取结果比较第 1 页事件。'
+                                                 '若需解释或对比页内事件，先核对报告页与公开事件的映射，'
+                                                 '再逐事件读取原文证据。'
+                                                 '无法确认映射时只比较已核对的版本元信息。')
                 observation['attachment_scope'] = ('本地附件只包含本次请求的第 1 页；整份报告可能分页。'
-                                                   '不要说全部正文已在这一页；如需后续页，继续调用 '
-                                                   'stock_report_read(page=2 等)。')
+                                                   '不要说全部正文已在这一页；如需后续页，继续读取下一页。')
                 observation['source_scope'] = ('公告失败日期只对应本项目的东方财富公告 API 目录，'
                                                '不是证监会或交易所网站的公告接口；'
                                                '发改委、证监会文章是独立来源。'
                                                '对比版本时只陈述可核对的状态与原文，不推测差异原因。'
+                                               '旧版有失败日期而新版未记录，只能说明各版本状态，'
+                                               '不能断言旧问题已经解决。'
                                                '面向用户用中文名称和日期列表说明，不展示字段名或 JSON 数组；'
                                                '不能核对报告顺序时不要猜测序号。')
                 observation['interpretation_scope'] = (
-                    'target_date 是行情对应的最近交易日，不是报告生成或发布日期；'
-                    'news_start 至 news_end 是资讯核对区间，news_end 才是资讯截止日；'
-                    '报告版本时间须按任务查找结果中的 created_at 说明。'
+                    '行情锚定的最近交易日不是报告生成或发布日期；'
+                    '资讯核对截止日已在中文摘要中给出；'
+                    '报告版本时间须按查找结果中的创建时间说明。'
                     '读三个报告页可能只涉及两个版本，应按版本数量表述。'
                     '公司公告中的自查、声明或预计只能归因于公司，未有独立来源时不可写成已核实事实。'
                     '用户未要求时不要显示任务引用哈希或工具调用名。')
