@@ -33,6 +33,20 @@ docker compose up -d             # 工具容器（websearch profile 由页面开
 
 改动工具面后，用容器自己的 schema 自查最快：`Invoke-RestMethod http://127.0.0.1:9101/openapi.json` 看 `ReadRequest` 是否含新参数。
 
+### 谁来重启：让用户自己起，不要由 AI 会话代跑
+
+**AI/工具会话启动的进程带文件约束，写不了 `D:\Stock_Agent_Workspace`。** 实测（2026-09-28）：
+
+| 启动来源 | 能否写股票状态目录 |
+| --- | --- |
+| 用户自己的终端跑 `启动.bat` | 可以 |
+| AI 会话里跑 `scripts/start-daily.ps1`（conda python） | **不可以**——`simulation/` 下创建文件 `PermissionError 13`，SQLite 读写全部失败 |
+
+后果很具体：BFF 本身能起来、页面能开、聊天能用，但**它 fork 的股票后台会在 `Store(state_dir/'state.sqlite')` 处崩**，页面"股票技能"显示未运行，启动返回 409。日志证据在 `data/logs/stock-service.err.log`（`unable to open database file`）。
+
+所以：需要重启/重建**用户自己的栈**时，给出命令**让用户在自己的终端执行**；AI 会话只做只读核查，或明确告知"我起的进程带约束，股票侧不会工作"。
+
+
 ## 结构速览
 
 - `bff/app.py`：HTTP 层（聊天、会话、工作区、模型、技能开关、股票服务管理、心跳、退出）。退出语义：**先股票优雅收尾 → 停 docker 容器 → 杀本进程**。

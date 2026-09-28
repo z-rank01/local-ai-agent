@@ -9,6 +9,7 @@ import httpx
 from core import config, model_settings
 from core.llm_client import LLMClient
 from core.providers import CompatibleClient, CallBudget, thinking_capability
+from core.tool_registry import ToolRegistry
 from bff.schemas import ChatRequest
 from tests import test_in1
 
@@ -103,7 +104,14 @@ class SettingsTests(unittest.IsolatedAsyncioTestCase):
 class StreamSettingsTests(unittest.IsolatedAsyncioTestCase):
     asyncSetUp = test_in1.ServiceTests.asyncSetUp
     async def test_settings_control_transport_and_tool_timeline(self):
-        with patch.object(model_settings, 'settings_path', lambda: Path(self.tmp.name)/'settings.json'):
+        # The registry only loads stock tools when a bridge URL is configured, and
+        # the daily .env deliberately leaves that to the page-managed connector, so
+        # this test must supply its own rather than depend on the machine's setup.
+        with patch.object(model_settings, 'settings_path', lambda: Path(self.tmp.name)/'settings.json'), \
+                patch.object(config, 'STOCK_BRIDGE_URL', 'http://127.0.0.1:1'):
+            self.runtime.tool_registry._tools = ToolRegistry(
+                config.TOOLS_DIR, enable_websearch=config.ENABLE_WEBSEARCH,
+                stock_bridge_url='http://127.0.0.1:1')._tools
             spec = next(s for s in self.runtime.models.specs if s['provider_id']=='qwen')
             payloads=[]
             emitted={'tool': False}
