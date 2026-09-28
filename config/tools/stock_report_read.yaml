@@ -11,6 +11,8 @@ description: >
   每日市场简报返回的 events 只是预览，不代表指定页；需要解释整份简报、后续页或具体事件时，
   请调用 stock_public_evidence_find，再按 event_id 调用 stock_public_evidence_read。
   每日简报的 target_date 是行情锚定的最近交易日，不是报告发布日期；报告版本时间看查找结果的 created_at。
+  每日简报的 news_start 至 news_end 是资讯核对区间，news_end 是资讯截止日；三个报告页可能只属于两个版本。
+  公告目录失败日期和分析状态使用返回的中文说明，不输出内部字段名或英文状态码。
   对公司公告的自查、声明和预计要写成“公司公告称”，不能表述为已独立证实。
   用户未要求时，不在回答中展示任务哈希或工具名；新旧版必须分别读取后才可对比。
   页内事件仅在 page_mapping=CONFIRMED 时可断言；附件仍作为本地正文展示。内容不构成投资建议。

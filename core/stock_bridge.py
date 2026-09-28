@@ -304,6 +304,21 @@ class StockBridge:
                 }
             else:
                 observation = dict(observation)
+                failed_dates = observation.pop('failed_dates', None)
+                if isinstance(failed_dates, list):
+                    dates = [day for day in failed_dates if isinstance(day, str)]
+                    observation['announcement_directory_coverage'] = (
+                        '东方财富公告目录失败日期：' + ('、'.join(dates) if dates else '未记录') +
+                        '。未记录失败日期不等于全市场公告已全部覆盖。')
+                status_labels = {
+                    'OK': '本次事件分析已完成；不代表全市场公告全部覆盖',
+                    'PARTIAL': '本次事件分析部分完成，仍有缺口；详情见本地报告',
+                    'MODEL_PENDING_REVIEW': '模型结果待核查；详情见本地报告',
+                    'BUDGET_EXHAUSTED': '分析因预算边界未完成；详情见本地报告',
+                }
+                analysis_status = observation.pop('analysis_status', None)
+                if analysis_status in status_labels:
+                    observation['analysis_status_description'] = status_labels[analysis_status]
                 observation['requested_page'] = page
                 observation['evidence_scope'] = ('events 只是整份简报的少量公开证据预览，既不是本页清单，'
                                                  '也不是全部已分析事件；不得把预览条数写成已深读总数。'
@@ -320,7 +335,9 @@ class StockBridge:
                                                '不能核对报告顺序时不要猜测序号。')
                 observation['interpretation_scope'] = (
                     'target_date 是行情对应的最近交易日，不是报告生成或发布日期；'
+                    'news_start 至 news_end 是资讯核对区间，news_end 才是资讯截止日；'
                     '报告版本时间须按任务查找结果中的 created_at 说明。'
+                    '读三个报告页可能只涉及两个版本，应按版本数量表述。'
                     '公司公告中的自查、声明或预计只能归因于公司，未有独立来源时不可写成已核实事实。'
                     '用户未要求时不要显示任务引用哈希或工具调用名。')
         return {

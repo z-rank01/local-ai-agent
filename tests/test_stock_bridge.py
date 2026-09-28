@@ -138,6 +138,8 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_market_brief_page_one_keeps_source_scopes_distinct(self):
         bridge = self.bridge(make_broker([], step_responses=[ok_step({
             'kind': 'market_brief', 'failed_dates': ['2026-09-24'],
+            'news_start': '2026-09-24', 'news_end': '2026-09-28',
+            'analysis_status': 'PARTIAL',
             'events': [{'source': 'industry', 'title': '发改委文章'}]})]))
         bridge.set_turn('source-scope', 'source-request', '读取简报')
         result = await bridge.call_tool('stock_report_read', {'reference': REF}, 'source-scope')
@@ -150,6 +152,11 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('本地附件只包含本次请求的第 1 页', result['model_observation']['attachment_scope'])
         self.assertIn('不是报告生成或发布日期', result['model_observation']['interpretation_scope'])
         self.assertIn('未有独立来源时不可写成已核实事实', result['model_observation']['interpretation_scope'])
+        self.assertEqual(result['model_observation']['news_end'], '2026-09-28')
+        self.assertIn('2026-09-24', result['model_observation']['announcement_directory_coverage'])
+        self.assertIn('部分完成', result['model_observation']['analysis_status_description'])
+        self.assertNotIn('failed_dates', result['model_observation'])
+        self.assertNotIn('analysis_status', result['model_observation'])
 
     async def test_lifecycle_identity_and_attachment_harvest(self):
         calls = []
