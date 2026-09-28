@@ -33,44 +33,34 @@ docker compose up -d             # 工具容器（websearch profile 由页面开
 
 改动工具面后，用容器自己的 schema 自查最快：`Invoke-RestMethod http://127.0.0.1:9101/openapi.json` 看 `ReadRequest` 是否含新参数。
 
-### 股票后台由启动器启动，不由聊天后端派生（2026-09-28 起）
+### 股票后台起不来：先看是谁启动的它
 
-`scripts/start-daily.ps1` 的第 3 步以**顶层进程**启动股票后台（`Start-Process`），并在就绪后恢复任务执行；聊天后端**不再**自己派生它。原因与证据：
+**规则：股票后台只能由启动器以顶层进程启动，聊天后端不得派生它。** `scripts/start-daily.ps1` 第 3 步用 `Start-Process` 起它、等 `/health` 就绪、再按设置恢复任务执行；聊天后端的 `stock_service.start()` 只做检测，后台不在时提示"重新双击 启动.bat"。
+
+实测（2026-09-28，同一可执行文件、同一用户）：
 
 | 启动来源 | 结果 |
 | --- | --- |
-| 启动器 `Start-Process`（顶层进程） | ✅ 后台正常读写 `simulation/` |
-| 聊天后端 `subprocess.Popen` 派生 | ❌ 子进程写股票仓库被拒 → SQLite `unable to open database file` |
+| 启动器 `Start-Process`（顶层进程） | ✅ 正常读写 `simulation/` |
+| 聊天后端 `subprocess.Popen` 派生 | ❌ `PermissionError 13` → SQLite `unable to open database file` |
 
-**限制沿整棵进程树继承**，下面这些"绕一层"的写法**全部实测失败**，不要再试：
+限制**沿整棵进程树继承**，以下"绕一层"的写法全部实测失败，不要再试；`schtasks` 亦被拒（`Access is denied`）：
 
 ```
 subprocess.Popen(列表) / cmd /c "…" / cmd /c start "" /b … / 写 .bat 再 cmd /c 该bat /
 powershell Start-Process …（由聊天后端调用）
 ```
 
-`schtasks`（计划任务）也被拒（`Access is denied`），不能用作兜底。
+因此页面"股票技能"的**启动**按钮只给指引，**停止**仍走控制接口优雅关闭、可用。`STOCK_LAUNCHER_PID` 由启动器写入聊天后端环境，`launcher_owns_backend()` 据此区分"启动器拥有"与"无人拥有"。
 
-因此：页面"股票技能"的**启动**按钮只会给出明确指引（"请重新双击 启动.bat"），不再尝试派生；**停止**仍走控制接口优雅关闭，可用。要恢复后台，就重新走唯一入口。
+**排障顺序**：先确认后台是否由启动器启动（看启动器第 3 步是否打印 `[OK] started on 127.0.0.1:8765`）；若不是，重新双击 `启动.bat`。其次按下面的 SQLite 错误串分流：
 
-`STOCK_LAUNCHER_PID` 由启动器写入聊天后端环境，`core/stock_service.launcher_owns_backend()` 用它区分"启动器拥有"与"无人拥有"，避免又退回派生路径。
+| 日志里的错误 | 含义 | 处置 |
+| --- | --- | --- |
+| `unable to open database file` | 启动阶段就打不开库：多为 WAL 锁文件状态不一致 | 退出整个栈 → 删 `state.sqlite-shm` 与 `state.sqlite-wal`（**不要碰 `state.sqlite`**）→ 重启 |
+| `attempt to write a readonly database` | 库能读不能写，同上成因（schema 写入阶段） | 同上 |
 
-### 仍要留意：WAL 残留会让后台启动失败
-
-`data/logs/stock-service.err.log` 出现任一情形时，先清 WAL 锁文件：
-
-```
-sqlite3.OperationalError: unable to open database file          (打开阶段)
-sqlite3.OperationalError: attempt to write a readonly database  (schema 写入阶段)
-```
-
-1. 退出整个栈，确认没有 `run_paper` 进程
-2. 删掉状态目录下的 **`state.sqlite-shm`** 与 **`state.sqlite-wal`**。**不要碰 `state.sqlite`**
-3. 重新启动
-
-`state.sqlite-wal` 为 0 字节时删除无风险；非 0 时先整目录备份。成因是上次进程被强杀导致锁文件状态不一致，库本身通常完好（先用 `PRAGMA integrity_check` 确认）。
-
-> **诊断史（避免重犯）**：这个问题曾被两次误判——先归因于"AI 会话的进程受约束"（对了一半：限制真实存在，但不止于 AI 会话），后归因于"WAL 残留"（也真实，但不是根因）。**根因是限制沿进程树继承**，所以任何从聊天后端派生的写法都会失败。判断依据只看一条：后台是否由**启动器顶层进程**启动。
+`state.sqlite-wal` 为 0 字节时删除无风险；非 0 时先整目录备份。库本身通常完好，可用 `PRAGMA integrity_check` 确认。
 
 ## 结构速览
 
