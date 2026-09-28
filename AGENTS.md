@@ -17,7 +17,7 @@
 .\scripts\start-daily.ps1        # 启动（= 双击 启动.bat）；重复运行只开浏览器
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 117 项）
+.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 206 项通过、1 项跳过）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -28,7 +28,7 @@ docker compose up -d             # 工具容器（websearch profile 由页面开
 - `core/runtime.py`：`build_runtime()` 组装工具注册表/路由/模型目录；技能开关通过替换 `tool_registry._tools` 与 `router._backend_urls` 动态生效（注意保持 registry 对象同一性，见 `stock_service.attach` 与 `skills_service.apply_to` 的注释）。
 - `bff/service.py`：`ChatSessionService` 是会话/工作区/流式门面；`exclusive_turn` 保证单会话互斥，技能切换期间聊天 409。
 - 前端 `apps/web/src/App.tsx` 是单页全部主界面；右栏自上而下：工作区、外观、模型/Provider/工具、状态（唯一"退出"按钮）、技能面板、股票技能面板。
-- 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。
+- 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。正式内容只维护 `prompts/modules/01..07`；`prompts/system.txt` 只是 modules 缺失时的兜底占位，不要往里写正式提示词。
 
 ## 约定
 
