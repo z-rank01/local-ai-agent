@@ -39,7 +39,8 @@ class StockService:
     def __init__(self):
         self.settings_path = Path(os.environ.get('DAILY_SERVICES_SETTINGS', str(config._PROJECT_ROOT / 'data/private/daily-services.json')))
         self.lock = asyncio.Lock()
-        self.child = None
+        # No child handle: the backend is started by scripts/start-daily.ps1, never
+        # from here (see launcher_owns_backend).
         self.settings = self.read_settings()
 
     def read_settings(self):
