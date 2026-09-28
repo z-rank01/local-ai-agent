@@ -17,7 +17,7 @@
 .\scripts\start-daily.ps1        # 启动（= 双击 启动.bat）；重复运行只开浏览器
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 206 项通过、1 项跳过）
+.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 208 项通过、1 项跳过）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
