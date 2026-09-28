@@ -10,6 +10,9 @@ description: >
   报告正文作为本地附件在界面展示，长报告可能分页；模型看不到附件正文，不能声称已读完或展示了全部页。
   每日市场简报返回的 events 只是预览，不代表指定页；需要解释整份简报、后续页或具体事件时，
   请调用 stock_public_evidence_find，再按 event_id 调用 stock_public_evidence_read。
+  每日简报的 target_date 是行情锚定的最近交易日，不是报告发布日期；报告版本时间看查找结果的 created_at。
+  对公司公告的自查、声明和预计要写成“公司公告称”，不能表述为已独立证实。
+  用户未要求时，不在回答中展示任务哈希或工具名；新旧版必须分别读取后才可对比。
   页内事件仅在 page_mapping=CONFIRMED 时可断言；附件仍作为本地正文展示。内容不构成投资建议。
 parameters:
   type: object

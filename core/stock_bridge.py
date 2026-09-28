@@ -318,6 +318,11 @@ class StockBridge:
                                                '对比版本时只陈述可核对的状态与原文，不推测差异原因。'
                                                '面向用户用中文名称和日期列表说明，不展示字段名或 JSON 数组；'
                                                '不能核对报告顺序时不要猜测序号。')
+                observation['interpretation_scope'] = (
+                    'target_date 是行情对应的最近交易日，不是报告生成或发布日期；'
+                    '报告版本时间须按任务查找结果中的 created_at 说明。'
+                    '公司公告中的自查、声明或预计只能归因于公司，未有独立来源时不可写成已核实事实。'
+                    '用户未要求时不要显示任务引用哈希或工具调用名。')
         return {
             'model_observation': observation,
             'status': status,

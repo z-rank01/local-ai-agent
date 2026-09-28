@@ -148,6 +148,8 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('不展示字段名或 JSON 数组', scope)
         self.assertIn('不得把预览条数写成已深读总数', result['model_observation']['evidence_scope'])
         self.assertIn('本地附件只包含本次请求的第 1 页', result['model_observation']['attachment_scope'])
+        self.assertIn('不是报告生成或发布日期', result['model_observation']['interpretation_scope'])
+        self.assertIn('未有独立来源时不可写成已核实事实', result['model_observation']['interpretation_scope'])
 
     async def test_lifecycle_identity_and_attachment_harvest(self):
         calls = []

@@ -7,6 +7,8 @@ description: >
   空仓、休市日也可用：行情取最近交易日，资讯核对截至今天的公告目录、证监会和发改委列表，分别报告日期与缺口。
   返回任务受理或已有任务状态；尚未完成时用 stock_market_brief_find 查询，
   再用 stock_report_read 读取本地报告。刷新会生成新版本，旧报告仍可查；简报不是公司推荐或交易指令。
+  若用户同时要求比较历史版本，先用 stock_market_brief_find 查已保存的版本；
+  有当天版本就直接读取，缺当天版本再使用本工具默认复用/生成，不要为了查旧版而刷新。
 parameters:
   type: object
   properties:

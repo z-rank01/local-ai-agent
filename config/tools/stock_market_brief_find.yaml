@@ -1,10 +1,12 @@
 name: stock_market_brief_find
 backend: stock-bridge
 tier: extended
-short_description: "查找本会话已有的每日市场简报任务。"
+short_description: "查找股票状态库保留的每日市场简报历史版本。"
 description: >
-  查找本会话的每日市场简报任务，不创建新任务。
-  将返回的 reference 交给 stock_report_read 读取报告。
+  查找同一股票状态库中的每日市场简报版本，包括其他 Web 会话创建的旧版；不创建或刷新任务。
+  结果按创建时间从新到旧排列。返回的 reference 仅供当前会话使用，
+  将其交给 stock_report_read 逐版读取报告；未读取的版本不能臆测内容。
+  用户要求对比新旧版时先查找并读取对应版本；当前会话先前没有引用不代表旧版不存在。
 parameters:
   type: object
   properties:
