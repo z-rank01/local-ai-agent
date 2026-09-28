@@ -244,7 +244,8 @@ class StockBridge:
         if state.get('boundary'):
             # A broker boundary is terminal for the turn; short-circuit locally
             # instead of letting our sequence counter desync from the server.
-            return {'error': '本轮股票工具的步数或时间已达上限，已取得的结果保留，请基于已有结果回答。',
+            return {'error': ('旧版请求的工具步数已满。' if state['boundary'] == 'STEP_LIMIT' else
+                              '本轮处理窗口已到。') + '已取得的结果保留，请基于已有结果回答，后续可在下一轮继续。',
                     'status': state['boundary']}
         try:
             if state['ticket'] is None:
@@ -265,7 +266,9 @@ class StockBridge:
         if status in ('STEP_LIMIT', 'TIME_LIMIT'):
             # Boundary responses carry no tool/code/context keys by contract.
             state['boundary'] = status
-            return {'error': '本轮股票工具的步数或时间已达上限，已取得的结果保留，请基于已有结果回答。', 'status': status}
+            return {'error': ('旧版请求的工具步数已满。' if status == 'STEP_LIMIT' else
+                              '本轮处理窗口已到。') + '已取得的结果保留，请基于已有结果回答，后续可在下一轮继续。',
+                    'status': status}
         if status in ('INVALID_TOOL', 'RULE_BLOCKED') or guidance:
             code = reason_code or step.get('code') or status
             if guidance:
@@ -369,6 +372,7 @@ class StockBridge:
             'model_observation': observation,
             'status': status,
             'code': step.get('code', ''),
+            'broker_continue': step.get('continue', True),
             'local_result_available': bool(step.get('local_result_available')),
             'broker_sequence': step.get('sequence'),
         }

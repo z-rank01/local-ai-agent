@@ -386,6 +386,57 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.runs,0)
         self.assertEqual(events[-1].kind,'error')
 
+    async def test_stock_calls_continue_beyond_generic_round_limit(self):
+        calls = [{'id': f's{i}', 'type': 'function',
+                  'function': {'name': 'stock_public_evidence_read', 'arguments': '{}'}}
+                 for i in range(8)]
+        agent = self.agent([{'role': 'assistant', 'content': '', 'tool_calls': [call]}
+                            for call in calls] + [{'role': 'assistant', 'content': '证据已核对。'}],
+                           {'model_observation': {'evidence': 'public'}, 'status': 'TOOL_RETURNED'},
+                           max_rounds=3)
+        agent.registry = SimpleNamespace(get_definitions=lambda **kw: [
+            {'function': {'name': 'stock_public_evidence_read'}}])
+        agent.stock_loop_enabled = True
+        with patch.object(config, 'WORKSPACE_CLOUD_ALLOWED', True):
+            events = [event async for event in agent.run([{'role': 'user', 'content': '逐条读取公开证据'}])]
+        self.assertEqual(self.runs, 8)
+        self.assertEqual(events[-1].kind, 'done')
+        self.assertEqual(events[-1].text, '证据已核对。')
+
+    async def test_stock_time_boundary_keeps_completed_result_and_stops_new_calls(self):
+        clock = [100.0]
+        calls = [{'id': 's1', 'type': 'function',
+                  'function': {'name': 'stock_public_evidence_read', 'arguments': '{}'}}]
+        parent = self
+        class Model:
+            cloud = True
+            async def chat_stream_with_tools(self, messages, tools=None):
+                parent.inputs.append(json.loads(json.dumps(messages)))
+                if not any(m.get('role') == 'tool' for m in messages):
+                    yield '', {'role': 'assistant', 'content': '', 'tool_calls': calls}
+                else:
+                    self.assert_no_tools = not tools
+                    yield '', {'role': 'assistant', 'content': '已读一项；其余可继续。'}
+        class Router:
+            async def dispatch_stream(self, *args):
+                parent.runs += 1
+                clock[0] += 601
+                yield {'event': 'result', 'result': {'model_observation': {'read': 'one'},
+                                                   'status': 'TOOL_RETURNED'}}
+        async def process(messages): return messages
+        self.inputs = []; self.runs = 0
+        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(
+            get_definitions=lambda **kw: [{'function': {'name': 'stock_public_evidence_read'}}]),
+            audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=3)
+        agent.stock_loop_enabled = True
+        with patch.object(config, 'WORKSPACE_CLOUD_ALLOWED', True), patch('core.agent.time.monotonic', side_effect=lambda: clock[0]):
+            events = [event async for event in agent.run([{'role': 'user', 'content': '读取证据'}])]
+        self.assertEqual(self.runs, 1)
+        self.assertEqual(events[-1].kind, 'done')
+        self.assertIn('其余可继续', events[-1].text)
+        self.assertTrue(agent.llm.assert_no_tools)
+
     async def test_unapproved_workspace_cloud_blocks_tools(self):
         agent=self.agent([{'role':'assistant','content':'','tool_calls':[CALL]}, {'role':'assistant','content':'unavailable'}])
         with patch.object(config,'WORKSPACE_CLOUD_ALLOWED',False): _=[e async for e in agent.run([{'role':'user','content':'go'}])]

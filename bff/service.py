@@ -767,6 +767,17 @@ class ChatSessionService:
         thinking_open = False
         active_tools = {}
         stock_bridge = self._runtime.stock_bridge
+        if stock_bridge is not None and not answer_only:
+            agent.stock_loop_enabled = True
+            agent.stock_window_seconds = 600
+            agent.extra_system_sections = list(getattr(agent, 'extra_system_sections', [])) + [
+                '股票工具调用：先判断用户问题尚缺哪些可核对的证据，只为具体缺口查找或读取。'
+                '已有结果足够时直接回答；不要重复已成功的查找、读取或任务提交。'
+                '根据已返回的总页数停止读取，不请求不存在的页；任务引用只作工具参数，不在回答中展示。'
+                '参数错误可定向修正；结果未知不能自动重发。'
+                '本轮新步骤最多开放十分钟，到时说明已核对内容和未完成范围；'
+                '用户下一轮明确说“继续”时，根据本会话已保存的工具结果、来源和游标接续，'
+                '必要时重新查找有效引用，不刷新简报或重建已受理任务。']
         stock_pending_local = {}   # broker sequence -> call_id for local-only results
         stock_tool_rows = {}       # call_id -> saved tool row id
         turn_query = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
@@ -775,8 +786,7 @@ class ChatSessionService:
         brief_failed = False
         if brief_comparison is not None:
             # The verified renderer only needs version lookup and report pages.
-            # Withhold unrelated tools so the model cannot spend the broker's
-            # six-step limit on evidence searches that this request did not ask for.
+            # Withhold tools unrelated to this verified metadata comparison.
             agent.allowed_tool_names = {'stock_market_brief_find', 'stock_report_read'}
         if stock_bridge is not None and not answer_only:
             stock_bridge.set_turn(conversation.id, request_id or run_id,

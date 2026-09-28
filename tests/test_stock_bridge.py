@@ -238,7 +238,7 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         ]))
         bridge.set_turn('c', 'r', 'q')
         result = await bridge.call_tool('stock_account_view', {}, 'c')
-        self.assertIn('上限', result['error'])
+        self.assertIn('旧版请求的工具步数', result['error'])
 
         bridge = self.bridge(make_broker([], status=401))
         bridge.set_turn('c', 'r', 'q')
@@ -591,6 +591,51 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         before = len(stub.turns)
         _ = [e async for e in self.service.regenerate_chat(cid, request_id='stock-turn-3')]
         self.assertEqual(len(stub.turns), before)
+
+    async def test_next_turn_uses_saved_public_cursor_with_new_broker_turn(self):
+        stub = self.install_bridge([])
+        reference = 'a' * 64
+        event_id = 'b' * 16
+        calls = []
+        async def call_tool(tool, params, session_id):
+            calls.append((tool, dict(params), session_id))
+            observation = ({'kind': 'public_evidence_find', 'cursor': 'next:2'}
+                           if tool == 'stock_public_evidence_find' else
+                           {'kind': 'public_evidence_read', 'event_id': event_id})
+            return {'model_observation': observation, 'status': 'TOOL_RETURNED',
+                    'broker_sequence': 1, 'local_result_available': False}
+        stub.call_tool = call_tool
+        parent = self
+        class ContinueModel:
+            cloud = True
+            model = 'qwen3.5-flash'
+            async def chat_stream_with_tools(self, messages, tools=None):
+                current = messages[max(i for i, row in enumerate(messages) if row['role'] == 'user'):]
+                if any(row.get('role') == 'tool' for row in current):
+                    yield '', {'role': 'assistant', 'content': '本轮已完成读取。'}
+                    return
+                if current[0]['content'] == '继续':
+                    parent.assertIn('next:2', json.dumps(messages, ensure_ascii=False))
+                    name = 'stock_public_evidence_read'
+                    params = {'reference': reference, 'event_id': event_id, 'cursor': 'next:2'}
+                else:
+                    name = 'stock_public_evidence_find'
+                    params = {'reference': reference}
+                yield '', {'role': 'assistant', 'content': '', 'tool_calls': [
+                    {'id': 'call-' + name, 'type': 'function',
+                     'function': {'name': name, 'arguments': json.dumps(params)}}]}
+            async def close(self): pass
+        self.runtime.models.clients['qwen:qwen3.5-flash'] = ContinueModel()
+        first = [e async for e in self.service.stream_chat(ChatRequest(
+            message='查找证据', model='qwen3.5-flash', request_id='find-evidence'))]
+        cid = first[0].conversation_id
+        _ = [e async for e in self.service.stream_chat(ChatRequest(
+            conversation_id=cid, message='继续', model='qwen3.5-flash', request_id='read-next'))]
+        self.assertEqual([row[0] for row in calls],
+                         ['stock_public_evidence_find', 'stock_public_evidence_read'])
+        self.assertEqual(calls[1][1]['cursor'], 'next:2')
+        self.assertEqual([row[2] for row in stub.turns if row[0] == 'set'],
+                         ['find-evidence', 'read-next'])
 
     async def test_interrupt_finishes_bridge_session_without_events(self):
         stub = self.install_bridge(['X'])

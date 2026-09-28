@@ -242,11 +242,19 @@ class Agent:
             budgets = {'web_search': config.WEB_SEARCH_BUDGET, 'web_fetch': config.WEB_FETCH_BUDGET}
             execution_retries = 0
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
-            for round_number in range(self.max_rounds):
-                active = [d for d in tool_defs if counts.get(d['function']['name'], 0) < budgets.get(d['function']['name'], 1000)]
-                if round_number == self.max_rounds - 1:
+            round_number = 0
+            stock_deadline = None
+            while stock_deadline is not None or round_number < self.max_rounds:
+                active = [d for d in tool_defs if d['function']['name'] not in budgets or
+                          counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
+                stock_window_closed = stock_deadline is not None and time.monotonic() >= stock_deadline
+                generic_final_round = stock_deadline is None and round_number == self.max_rounds - 1
+                if stock_window_closed or generic_final_round:
                     active = []
-                    messages.append({"role": "user", "content": "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
+                    messages.append({"role": "user", "content":
+                        "[本轮股票处理窗口已到；请根据已取得的结果回答，明确未完成范围与下一轮如何继续。]"
+                        if stock_window_closed else
+                        "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
                 messages = await self.context_mgr.process(messages)
                 accumulated = None
                 async with aclosing(self.llm.chat_stream_with_tools(messages, active or None)) as stream:
@@ -268,8 +276,10 @@ class Agent:
                     reply = accumulated.get('content') or ''
                     if not reply:
                         raise RuntimeError('模型返回空回答，已有工具结果仍保留。')
-                    if tool_defs and self.allow_tools and unfinished_execution(reply, user_request):
-                        if execution_retries >= 2 or not active or round_number >= self.max_rounds - 1:
+                    if (not stock_window_closed and tool_defs and self.allow_tools and
+                            unfinished_execution(reply, user_request)):
+                        if (execution_retries >= 2 or not active or
+                                (stock_deadline is None and round_number >= self.max_rounds - 1)):
                             raise RuntimeError('模型只给出了待执行代码，没有完成所述操作。已有工具结果保留；代码未自动运行，任务尚未完成。')
                         execution_retries += 1
                         messages.append({'role': 'system', 'content': '执行检查：你刚才说要继续操作，却只输出了代码，代码块不会被执行。请根据用户原任务及只读/讨论等限制判断：若仍需且已获授权执行，使用实际工具调用继续；若用户只需要示例或存在阻碍，明确说明未执行及原因。不新增用户未授权的操作，不把代码示例当作已完成结果。'})
@@ -282,13 +292,38 @@ class Agent:
                             logger.warning('Local memory update failed')
                     yield AgentEvent('done', text=reply)
                     return
+                if stock_window_closed:
+                    # Do not execute unadvertised calls after the finalization
+                    # instruction. Complete their protocol envelopes locally.
+                    for call in calls:
+                        skipped = {'role': 'tool', 'tool_call_id': call['id'],
+                                   'tool_name': call['function']['name'],
+                                   'content': '{"error":"本轮窗口已到，此步骤未执行。"}'}
+                        messages.append(skipped)
+                        yield AgentEvent('message', data={'message': skipped})
+                    yield AgentEvent('done', text='本轮处理窗口已到，已取得的结果保留在会话中；'
+                                     '后续步骤尚未执行。请回复“继续”接续核查。')
+                    return
                 allowed = {d['function']['name'] for d in active}
-                async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed, budgets=budgets, counts=counts)) as events:
+                if (stock_deadline is None and getattr(self, 'stock_loop_enabled', False) and
+                        any(call['function']['name'].startswith('stock_') and
+                            call['function']['name'] in allowed for call in calls)):
+                    stock_deadline = time.monotonic() + getattr(self, 'stock_window_seconds', 600)
+                stock_boundary = False
+                async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
+                                                       budgets=budgets, counts=counts,
+                                                       stock_deadline=stock_deadline)) as events:
                     async for event in events:
-                        yield event
+                        if event.kind == 'stock_boundary':
+                            stock_boundary = True
+                        else:
+                            yield event
+                if stock_boundary:
+                    stock_deadline = 0.0
                 for call in calls:
                     name = call['function']['name']
                     counts[name] = counts.get(name, 0) + 1
+                round_number += 1
             yield AgentEvent('error', text='本轮调用已达到上限；已完成的工具结果保留，请继续追问。')
         except Exception as exc:
             logger.error('Agent loop failed: %s', type(exc).__name__)
@@ -314,10 +349,19 @@ class Agent:
 
     # ── Internal helpers ────────────────────────────────────────────────
 
-    async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None, budgets=None, counts=None):
+    async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None, budgets=None,
+                             counts=None, stock_deadline=None):
+        stock_boundary = False
         for tc in tool_calls:
             fn = tc.get('function', {})
             name = fn.get('name', '')
+            if stock_boundary or (stock_deadline is not None and time.monotonic() >= stock_deadline):
+                skipped = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name,
+                           'content': '{"error":"本轮处理窗口已到，此步骤未执行。"}'}
+                messages.append(skipped)
+                yield AgentEvent('message', data={'message': skipped})
+                stock_boundary = True
+                continue
             params = {}
             start = time.monotonic()
             try:
@@ -361,6 +405,11 @@ class Agent:
                 'name': name, 'call_id': tc['id'], 'params': params, 'status': status,
                 'elapsed': time.monotonic() - start, 'result': result, 'result_preview': _format_tool_result_preview(result)})
             self.audit.record('tool_loop', {'session_id': session_id, 'name': name, 'status': status})
+            if (name.startswith('stock_') and isinstance(result, dict) and
+                    (result.get('status') in ('TIME_LIMIT', 'STEP_LIMIT') or result.get('broker_continue') is False)):
+                stock_boundary = True
+        if stock_boundary:
+            yield AgentEvent('stock_boundary')
 
     async def _inject_context_into_messages(
         self, messages: list[dict], session_id: str
