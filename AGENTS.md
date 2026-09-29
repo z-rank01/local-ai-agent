@@ -19,7 +19,7 @@
 .\scripts\start-daily.ps1 -Build # 改了 skills/** 后必须用这个重建工具容器镜像
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 213 项通过、1 项跳过）
+.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 222 项通过、1 项跳过）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -52,7 +52,7 @@ subprocess.Popen(列表) / cmd /c "…" / cmd /c start "" /b … / 写 .bat 再 
 powershell Start-Process …（由聊天后端调用）
 ```
 
-因此页面"股票技能"的**启动**按钮在线时恢复工具，离线时由 127.0.0.1:9511 的启动器控制器执行固定的 stock_start 操作，再由聊天后端核验身份并恢复工具；BFF 始终不派生股票进程。控制器不可用时保存开启意图并给出重启启动器指引。**停止**仍走控制接口优雅关闭。STOCK_LAUNCHER_PID 记录启动器创建的股票后台进程，launcher_owns_backend() 用于确认返回的进程仍存活。
+因此页面"股票技能"的**启动**按钮在线时恢复工具，离线时由 127.0.0.1:9511 的启动器控制器执行固定的 stock_start 操作，再由聊天后端核验身份并恢复工具；BFF 始终不派生股票进程。控制器不可用时保存开启意图并给出重启启动器指引。**停止**仍走控制接口优雅关闭。`STOCK_LAUNCHER_PID` 只作诊断记录；后台是否可用一律以控制接口的 `status()` 为准（**不要用"端口有人在听"当身份判据**，那会把占用该端口的外来进程当成自己的后台）。
 
 **排障顺序**：先确认后台是否由启动器启动（看启动器第 4 步是否打印 `[OK] started on 127.0.0.1:8765`）；若不是，重新双击 `启动.bat`。其次按下面的 SQLite 错误串分流：
 
