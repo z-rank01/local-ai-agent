@@ -481,22 +481,8 @@ async def _stop_tool_containers() -> None:
     import logging
     log = logging.getLogger(__name__)
     try:
-        proc = await asyncio.create_subprocess_exec(
-            'docker', 'compose', '--profile', 'websearch', 'stop',
-            cwd=str(config.PROJECT_ROOT),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
-        except asyncio.TimeoutError:
-            proc.kill()
-            log.warning('docker compose stop timed out; continuing shutdown')
-            return
-        if proc.returncode:
-            log.warning('docker compose stop exited %s: %s', proc.returncode, (stderr or b'')[:300])
-    except FileNotFoundError:
-        pass  # Docker CLI unavailable — nothing to stop.
+        from core.service_supervisor import run_operation
+        await run_operation('stack_shutdown', timeout=100)
     except Exception:
         log.exception('Failed to stop tool containers; continuing shutdown')
 @app.post('/api/heartbeat')

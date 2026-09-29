@@ -16,17 +16,28 @@ type ServiceStatus = {
   position_reviews?: PositionReview[];
   position_review_open_count?: number;
 };
+type ServiceResponse = ServiceStatus & {challenge?: string; reply?: string};
 
 const labels: Record<string, string> = {UNINITIALIZED: '未初始化', ACTIVE: '正常运行', AWAY_READONLY: '离开 · 只读', RECOVERING: '恢复核对中', NEEDS_REVIEW: '需要核查', PENDING: '等待执行', RUNNING: '执行中', COMPLETED: '已完成', BLOCKED: '有阻塞'};
 const label = (s: string) => labels[s] ?? s;
 
-async function serviceRequest(body?: Record<string, unknown>) {
+async function serviceRequest(body?: Record<string, unknown>): Promise<ServiceResponse> {
   const res = await fetch(`${DEFAULT_BASE_URL}/api/admin/stock-service`, body ? {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
   } : undefined);
-  const value = await res.json();
-  if (!res.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '服务操作失败');
-  return value;
+  const raw = await res.text();
+  let value: unknown;
+  try { value = raw ? JSON.parse(raw) : null; }
+  catch { value = {detail: raw}; }
+  if (!res.ok) {
+    const detail = typeof value === 'object' && value !== null && 'detail' in value && typeof value.detail === 'string'
+      ? value.detail : `服务操作失败（HTTP ${res.status}）`;
+    throw new Error(detail);
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('股票服务返回了无效响应');
+  }
+  return value as ServiceResponse;
 }
 
 export function StockServicePanel({onChanged}: {onChanged?: () => void}) {

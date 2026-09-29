@@ -17,6 +17,7 @@ from pathlib import Path
 import httpx
 
 from . import config
+from .service_supervisor import run_operation
 from .tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -49,16 +50,11 @@ class SkillSwitches:
         tmp.replace(self.settings_path)
 
     async def _compose(self, *args: str, timeout: float = 150.0) -> None:
-        proc = await asyncio.create_subprocess_exec(
-            'docker', 'compose', '--profile', 'websearch', *args,
-            cwd=str(config._PROJECT_ROOT),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        if proc.returncode:
-            detail = (stderr or b'').decode('utf-8', 'replace').strip()[:400]
-            raise RuntimeError(detail or f'docker compose {" ".join(args)} 退出码 {proc.returncode}')
+        operations = {('up', '-d'): 'websearch_start', ('stop',): 'websearch_stop'}
+        operation = operations.get(tuple(args))
+        if operation is None:
+            raise ValueError('不支持的联网搜索容器操作')
+        await run_operation(operation, timeout=timeout + 15)
 
     async def _websearch_healthy(self) -> bool:
         try:
@@ -100,15 +96,15 @@ class SkillSwitches:
             if active_check and active_check():
                 raise ValueError('聊天正在执行，请等待本轮结束后再切换技能')
             already = ('web_search' in runtime.tool_registry.known_tools)
-            if enabled == self.websearch_enabled and already == enabled:
+            if enabled and enabled == self.websearch_enabled and already and await self._websearch_healthy():
                 return self.status(runtime)
             if enabled:
                 await self._compose('up', '-d')
                 await self._wait_websearch()
                 self.apply_to(runtime, True)
             else:
-                self.apply_to(runtime, False)
                 await self._compose('stop')
+                self.apply_to(runtime, False)
             self.websearch_enabled = enabled
             self.save()
             return self.status(runtime)
@@ -122,6 +118,15 @@ class SkillSwitches:
 
     async def restore(self, runtime) -> None:
         if not self.websearch_enabled:
+            # build_runtime() may have seeded the registry from ENABLE_WEBSEARCH;
+            # a saved page-level OFF switch must override that initial value.
+            self.apply_to(runtime, False)
+            try:
+                # Containers may have survived a previous BFF crash or a failed
+                # toggle. Reconcile the persisted OFF state at the next launch.
+                await self._compose('stop')
+            except Exception:
+                logger.exception('Web search containers could not be stopped during restore')
             return
         try:
             if await self._websearch_healthy():
@@ -138,6 +143,9 @@ class SkillSwitches:
                 self.apply_to(runtime, True)
                 self.save()
         except Exception:
+            # Fail closed when containers could not be restored. Keep the saved
+            # preference so the next explicit toggle or launcher run can retry.
+            self.apply_to(runtime, False)
             logger.exception('Web search skill restore failed; toggle it from the Web page')
 
 
