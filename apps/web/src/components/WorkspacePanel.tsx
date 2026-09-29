@@ -337,7 +337,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
             上级
           </button>
           <label className={`upload-button${uploading ? ' disabled' : ''}`}>
-            {uploading ? '上传中...' : '上传文件'}
+            {uploading ? '上传中…' : '上传文件'}
             <input
               type="file"
               multiple
@@ -360,7 +360,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
       <div key={listKey} className={listClassName} aria-busy={listBusy}>
         {viewMode === 'workspace' ? (
           <>
-            {loadingTree ? <div className="workspace-empty">正在读取目录...</div> : null}
+            {loadingTree ? <div className="workspace-empty">正在读取目录…</div> : null}
             {!loadingTree && entries.length === 0 ? <div className="workspace-empty">目录为空</div> : null}
             {entries.map((entry) => {
               const attached = attachedPaths.includes(entry.path);
@@ -417,7 +417,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
           </>
         ) : (
           <>
-            {loadingTrash ? <div className="workspace-empty">正在读取回收站...</div> : null}
+            {loadingTrash ? <div className="workspace-empty">正在读取回收站…</div> : null}
             {!loadingTrash && trashItems.length === 0 ? <div className="workspace-empty">回收站为空</div> : null}
             {trashItems.map((item) => (
               <div
@@ -468,7 +468,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
         </div>
         {viewMode === 'workspace' ? (
           <>
-            {loadingPreview ? <div className="workspace-empty">正在加载预览...</div> : null}
+            {loadingPreview ? <div className="workspace-empty">正在加载预览…</div> : null}
             {!loadingPreview && !preview ? <div className="workspace-empty">选择文件查看内容</div> : null}
             {!loadingPreview && preview ? (
               <div key={preview.path} className="preview-card">
@@ -488,7 +488,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
                     onClick={() => void deleteFile(preview.path, preview.name)}
                     disabled={Boolean(deletingPath)}
                   >
-                    {deletingPath === preview.path ? '删除中...' : '删除'}
+                    {deletingPath === preview.path ? '删除中…' : '删除'}
                   </button>
                   <a href={rawUrl} target="_blank" rel="noreferrer">打开</a>
                 </div>
@@ -509,7 +509,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
           </>
         ) : (
           <>
-            {loadingTrash ? <div className="workspace-empty">正在读取回收站...</div> : null}
+            {loadingTrash ? <div className="workspace-empty">正在读取回收站…</div> : null}
             {!loadingTrash && !selectedTrashEntry ? <div className="workspace-empty">选择已删除文件查看详情</div> : null}
             {!loadingTrash && selectedTrashEntry ? (
               <div key={selectedTrashEntry.operation_id} className="preview-card">
@@ -526,7 +526,7 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
                     onClick={() => void restoreTrashItem(selectedTrashEntry)}
                     disabled={Boolean(restoringOperationId) || !selectedTrashEntry.exists_in_trash}
                   >
-                    {restoringOperationId === selectedTrashEntry.operation_id ? '恢复中...' : '恢复到原位置'}
+                    {restoringOperationId === selectedTrashEntry.operation_id ? '恢复中…' : '恢复到原位置'}
                   </button>
                 </div>
                 <div className="trash-preview-meta">

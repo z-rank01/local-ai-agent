@@ -464,10 +464,8 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   font-size: 34px;
 }
 
-.empty-state h1 { margin: 0 0 10px; font-size: 34px; }
 .empty-state p { margin: 0; color: var(--muted); }
-.empty-grid { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
-.empty-grid span, .tag-row span, .tool-cloud span {
+.tag-row span, .tool-cloud span {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 6px 10px;
@@ -1025,10 +1023,6 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   top: 0;
 }
 .inspector * { min-width: 0; }
-.inspector-collapse-button {
-  width: 100%;
-  margin-bottom: 12px;
-}
 .inspector section {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -1083,13 +1077,6 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   display: grid;
   gap: 12px;
 }
-.appearance-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.appearance-panel-header h2 { margin: 0; }
 .appearance-field {
   display: grid;
   gap: 6px;
@@ -1638,8 +1625,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .conversation-actions button,
 .message-actions button,
 .message-version-switch button,
-.panel-collapse-button,
-.inspector-collapse-button {
+.panel-collapse-button {
   border-color: var(--line-strong);
   color: var(--text);
   background: var(--surface);
@@ -1771,7 +1757,6 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 }
 
 .status-pill,
-.empty-grid span,
 .tag-row span,
 .tool-cloud span,
 .assistant-timeline-step,
@@ -2245,8 +2230,6 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .model-credentials label {display: grid; gap: 6px; font-size: var(--text-base);}
 .model-credentials input {width: 100%; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text);}
 .model-credentials button {justify-self: start;}
-.model-settings-notes {margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line); font-size: var(--text-sm); color: var(--muted);}
-.model-settings-notes p {margin: 6px 0;}
 .model-settings-footer {display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--line); flex-shrink: 0;}
 .model-settings-dialog :focus-visible {outline: var(--ring-focus); outline-offset: 3px;}
 @media (max-width: 700px) {
@@ -2255,7 +2238,6 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   .topbar .model-picker {flex: 1; width: auto; min-width: 120px;}
 }
 
-.model-capability-settings {margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line);}
 .capability-toggle {display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: var(--text-base); font-weight: 600;}
 .capability-toggle input {appearance: none; flex: 0 0 40px; width: 40px; height: 24px; margin: 0; border: 1px solid var(--line-strong); border-radius: 999px; background: #d8d6d1; cursor: pointer; position: relative;}
 .capability-toggle input::before {content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface);}
@@ -2267,9 +2249,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .capability-static {color: var(--muted); font-weight: 400;}
 .capability-budget {display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: var(--text-md); margin: 4px 0 8px;}
 .capability-budget input {width: 140px; font: inherit; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface);}
-.model-capability-settings p {font-size: var(--text-sm); color: var(--muted); margin: 8px 0 16px;}
 .capability-workspace {overflow-wrap: anywhere;}
-.capability-status {font-size: var(--text-sm);}
 
 .package-tasks {padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: var(--text-sm); color: var(--muted);}
 .package-tasks summary {cursor: pointer; overflow-wrap: anywhere;}
@@ -2505,4 +2485,160 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   margin: 0;
   color: var(--muted);
   font-size: var(--text-md);
+}
+
+/* ---- U4: layout & information architecture ---- */
+/* Collapsible Panel component used for inspector sections. */
+.panel .panel-title { margin: 0; }
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--text-base);
+  font-weight: 700;
+}
+.panel-toggle:hover,
+.panel-toggle:focus-visible { color: var(--text); }
+.panel-chevron {
+  color: var(--muted-soft);
+  font-size: var(--text-xs);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+.panel-toggle[aria-expanded="true"] .panel-chevron { transform: rotate(90deg); }
+.panel-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+.panel-body { margin-top: calc(12px * var(--density-scale)); }
+.panel-subsection + .panel-subsection {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+.panel-subsection h3 {
+  margin: 0 0 8px;
+  font-size: var(--text-md);
+  color: var(--text-strong);
+}
+
+/* Sidebar footer: package tasks, service status, settings & the single exit entry. */
+.sidebar-footer {
+  border-top: 1px solid var(--line);
+  padding-top: calc(10px * var(--density-scale));
+}
+.sidebar-footer .package-tasks {
+  padding: 0 0 6px;
+  border-bottom: 0;
+}
+.sidebar-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.sidebar-footer-row .backend-status {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.sidebar-footer-actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+}
+
+/* Model settings dialog: status summary, grouped sections, folded help. */
+.model-settings-summary {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+.model-settings-note {
+  margin: 8px 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.model-settings-note.is-error { color: var(--danger); }
+.model-settings-section {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.model-settings-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.model-settings-section h3 {
+  margin: 0 0 10px;
+  font-size: var(--text-base);
+  color: var(--text-strong);
+}
+.model-settings-section p {
+  margin: 8px 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.model-settings-help {
+  margin: 6px 0 10px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.model-settings-help summary { cursor: pointer; }
+.model-settings-help summary:hover { color: var(--text); }
+.model-settings-help p { margin: 6px 0; }
+
+/* Empty state: first-step guidance with clickable example prompts. */
+.empty-welcome {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-lg);
+}
+.empty-examples {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: 22px;
+}
+.empty-example {
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-md);
+}
+.empty-example:hover,
+.empty-example:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.empty-hint {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* Appearance typography settings also reach tool output and timeline detail bodies. */
+.tool-output,
+.assistant-timeline-detail {
+  font-size: var(--content-font-size);
+  line-height: var(--content-line-height);
 }

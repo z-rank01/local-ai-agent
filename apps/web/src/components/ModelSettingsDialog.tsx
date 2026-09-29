@@ -8,10 +8,10 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
   model?: ModelInfo; status: AppStatus | null; busy?: boolean; onClose: () => void; onSaved: () => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<{text: string; kind: 'ok' | 'error'} | null>(null);
   const changeSetting = async (change: {thinking_enabled?: boolean | null; thinking_budget?: number | null; workspace_cloud_allowed?: boolean; workspace_cloud_write_allowed?: boolean}) => {
     if (!model || !status) return;
-    setSaving(true); setNotice('');
+    setSaving(true); setNotice(null);
     try {
       const response = await fetch(`${DEFAULT_BASE_URL}/api/model-settings`, {
         method: 'PATCH', headers: {'content-type': 'application/json'},
@@ -22,8 +22,8 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
         throw new Error(typeof body.detail === 'string' ? body.detail : '设置保存失败');
       }
       await onSaved();
-      setNotice('已保存，从下一条消息生效。请回到聊天继续原任务。');
-    } catch (error) {setNotice(error instanceof Error ? error.message : '设置保存失败');}
+      setNotice({text: '已保存，从下一条消息生效。请回到聊天继续原任务。', kind: 'ok'});
+    } catch (error) {setNotice({text: error instanceof Error ? error.message : '设置保存失败', kind: 'error'});}
     finally {setSaving(false);}
   };
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -52,7 +52,15 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
       <div className="model-settings-body">
         {model ? <>
           <div className="model-settings-current"><span>当前模型</span><strong>{model.name}</strong><span>{model.provider_name}</span></div>
-          <section className="model-capability-settings" aria-label="模型能力">
+          <p className="model-settings-summary">
+            权限：{model.provider_id === 'ollama' ? '本地工具可用，无需云端授权' : !status?.workspace_cloud_allowed ? '未开启' : status?.cloud_write_allowed ? '可写入' : '仅只读'}
+            {' · '}
+            思考：{model.thinking_enabled == null ? '默认' : model.thinking_enabled ? '开' : '关'}
+          </p>
+          {busy ? <p className="model-settings-note">正在生成回答，开关暂不可修改；停止或完成后再更改。</p> : null}
+          {notice ? <p role={notice.kind === 'error' ? 'alert' : 'status'} className={`model-settings-note${notice.kind === 'error' ? ' is-error' : ''}`}>{notice.text}</p> : null}
+          <section className="model-settings-section">
+            <h3>思考</h3>
             <div className="capability-toggle">
               <span>思考输出</span>
               {model.thinking_supported ? (
@@ -73,12 +81,15 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
                 <span className="capability-static">供应商默认</span>
               )}
             </div>
-            <p>{model.thinking_supported
-              ? '默认：静态目录按其配置、新发现模型按供应商默认行为运行；开启/关闭会显式发送供应商对应参数（如 Qwen 的 enable_thinking、Ollama 的 think）。按模型保存，独立于工具开关。'
-              : '使用供应商默认行为；该模型未提供思考开关（第三方托管模型不发送私有参数，避免静默无效），若默认返回思考内容仍会照常展示。'}</p>
-            {model.thinking_budget_supported ? (
-              <p>本模型支持思考强度（Qwen thinking_budget，思考 token 上限，典型 512~16384）；留空不限制，仅“开启”时生效。</p>
-            ) : null}
+            <details className="model-settings-help">
+              <summary>说明</summary>
+              <p>{model.thinking_supported
+                ? '默认：静态目录按其配置、新发现模型按供应商默认行为运行；开启/关闭会显式发送供应商对应参数（如 Qwen 的 enable_thinking、Ollama 的 think）。按模型保存，独立于工具开关。'
+                : '使用供应商默认行为；该模型未提供思考开关（第三方托管模型不发送私有参数，避免静默无效），若默认返回思考内容仍会照常展示。'}</p>
+              {model.thinking_budget_supported ? (
+                <p>本模型支持思考强度（Qwen thinking_budget，思考 token 上限，典型 512~16384）；留空不限制，仅“开启”时生效。</p>
+              ) : null}
+            </details>
             {model.thinking_budget_supported && model.thinking_enabled ? (
               <label className="capability-budget">
                 <span>思考强度（token）</span>
@@ -100,7 +111,7 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
                     }
                     const value = Number(raw);
                     if (!Number.isInteger(value) || value < 128 || value > 131072) {
-                      setNotice('思考强度需为 128~131072 的整数，未保存。');
+                      setNotice({text: '思考强度需为 128~131072 的整数，未保存。', kind: 'error'});
                       event.target.value = String(model.thinking_budget ?? '');
                       return;
                     }
@@ -109,39 +120,50 @@ export function ModelSettingsDialog({model, status, busy = false, onClose, onSav
                 />
               </label>
             ) : null}
-            {model.provider_id !== 'ollama' ? <>
+          </section>
+          {model.provider_id !== 'ollama' ? <>
+            <section className="model-settings-section">
+              <h3>云端读取授权</h3>
               <label className="capability-toggle">
                 <span>允许云端读取当前工作区文件</span>
                 <input type="checkbox" role="switch" aria-label="允许云端读取当前工作区文件" checked={status?.workspace_cloud_allowed ?? false}
                   disabled={saving || busy || !status}
                   onChange={event => void changeSetting({workspace_cloud_allowed: event.target.checked})} />
               </label>
-              <p>开启即允许云端模型<b>读取</b>工作区：列出与读取文件、联网检索、查询历史会话与股票报告。读取的文件内容与工具结果可能发送给所选云端服务。</p>
-              {status?.workspace_cloud_allowed ? <>
+              <details className="model-settings-help">
+                <summary>说明</summary>
+                <p>开启即允许云端模型<b>读取</b>工作区：列出与读取文件、联网检索、查询历史会话与股票报告。读取的文件内容与工具结果可能发送给所选云端服务。</p>
+                <p>授权适用于此工作区的所有云端模型及会话，重启后保留。关闭读取授权会同时撤销写入授权；此前已发送的内容不会撤回。若任务要求只读，仍应遵守只读要求。</p>
+              </details>
+              <p className="capability-workspace">工作区：{status?.workspace_path ?? '正在连接…'}</p>
+            </section>
+            {status?.workspace_cloud_allowed ? (
+              <section className="model-settings-section">
+                <h3>云端写入授权</h3>
                 <label className="capability-toggle">
                   <span>允许云端写入与执行</span>
                   <input type="checkbox" role="switch" aria-label="允许云端写入与执行" checked={status?.cloud_write_allowed ?? false}
                     disabled={saving || busy || !status}
                     onChange={event => void changeSetting({workspace_cloud_write_allowed: event.target.checked})} />
                 </label>
-                <p>单独开启后才允许云端模型<b>修改工作区</b>：写入与编辑文件、删除文件、执行代码与命令、提交 git。关闭后仍保留上面的只读能力。</p>
-              </> : null}
-              <p className="capability-workspace">工作区：{status?.workspace_path ?? '正在连接…'}</p>
-              <p>授权适用于此工作区的所有云端模型及会话，重启后保留。关闭读取授权会同时撤销写入授权；此前已发送的内容不会撤回。若任务要求只读，仍应遵守只读要求。</p>
-            </> : <p>本地模型可使用工作区工具，无需云端授权。</p>}
-            {busy ? <p>正在生成回答，开关暂不可修改；停止或完成后再更改。</p> : null}
-            {notice ? <p role="status">{notice}</p> : null}
+                <details className="model-settings-help">
+                  <summary>说明</summary>
+                  <p>单独开启后才允许云端模型<b>修改工作区</b>：写入与编辑文件、删除文件、执行代码与命令、提交 git。关闭后仍保留上面的只读能力。</p>
+                </details>
+              </section>
+            ) : null}
+          </> : <p className="model-settings-note">本地模型可使用工作区工具，无需云端授权。</p>}
+          <section className="model-settings-section">
+            <h3>密钥</h3>
+            {model.provider_id === 'ollama'
+              ? <p>本地 Ollama 模型无需 API Key。请确保 Ollama 服务已启动并已下载所选模型。</p>
+              : <ModelCredentials key={model.provider_id} model={model} onSaved={onSaved} />}
           </section>
-          {model.provider_id === 'ollama'
-            ? <p>本地 Ollama 模型无需 API Key。请确保 Ollama 服务已启动并已下载所选模型。</p>
-            : <ModelCredentials key={model.provider_id} model={model} onSaved={onSaved} />}
+          <section className="model-settings-section">
+            <h3>运行指标</h3>
+            <p>本批云端请求：{status?.model_calls_used ?? 0} / {status?.model_call_limit || '不限'}（包含失败尝试）</p>
+          </section>
         </> : <p>模型列表尚未加载，请关闭窗口后重试。</p>}
-        <div className="model-settings-notes">
-          <p>{!status?.workspace_cloud_allowed ? '云端当前仅可聊天，本地文件与工具结果尚未授权发送。'
-            : status?.cloud_write_allowed ? '云端可读取并修改当前工作区（含执行代码）；请只使用允许发送的资料。'
-            : '云端仅可读取当前工作区；写入与执行尚未授权。'}</p>
-          <p>本批云端请求：{status?.model_calls_used ?? 0} / {status?.model_call_limit || '不限'}（包含失败尝试）</p>
-        </div>
       </div>
       <footer className="model-settings-footer"><button type="button" className="secondary-button" onClick={onClose}>关闭</button></footer>
     </dialog>, document.body,

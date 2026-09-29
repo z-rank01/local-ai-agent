@@ -38,9 +38,13 @@ export function PackageTasks() {
   };
   if (!jobs.length && !error) return null;
   const active = jobs.filter(job => !job.completed);
+  const activeNames = active.flatMap(job => job.packages);
+  const activeSummary = active.length === 1
+    ? `后台安装中 · ${active[0].packages.join('、')} · 已等待 ${Math.floor(active[0].elapsed)} 秒`
+    : `后台安装中 · ${active.length} 个任务进行中：${activeNames.slice(0, 3).join('、')}${activeNames.length > 3 ? ' 等' : ''}`;
   return <section className="package-tasks" aria-label="后台安装任务">
     <details>
-      <summary>{active.length ? `后台安装中 · ${active[0].packages.join('、')} · 已等待 ${Math.floor(active[0].elapsed)} 秒` : '安装任务记录'}{error ? ' · 状态暂不可用' : ''}</summary>
+      <summary>{active.length ? activeSummary : '安装任务记录'}{error ? ' · 状态暂不可用' : ''}</summary>
       <div className="package-task-list">
         <p>安装无固定总时限，可继续聊天。停止回答不会停止安装；需要取消时使用下方按钮。</p>
         {error ? <p role="status">{error}</p> : null}

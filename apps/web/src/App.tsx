@@ -24,6 +24,7 @@ import {ModelPicker} from './components/ModelPicker';
 import {WorkspacePanel} from './components/WorkspacePanel';
 import {StockServicePanel} from './components/StockServicePanel';
 import {SkillsPanel} from './components/SkillsPanel';
+import {Panel} from './components/Panel';
 import type {
   AppStatus,
   ConversationSummary,
@@ -744,7 +745,7 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
       if (message.content) blocks.push({
         id: message.id,
         kind: 'assistant',
-        label: message.model || 'assistant',
+        label: message.model || '助手',
         text: message.content,
         messageId: message.id,
         createdAt: message.created_at,
@@ -782,18 +783,17 @@ function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBlock[] {
     }];
   });
 }
-function EmptyState() {
+function EmptyState({onPickExample}: {onPickExample: (text: string) => void}) {
   return (
     <div className="empty-state">
       <div className="empty-logo">✦</div>
-      <h1>Local AI Agent</h1>
-      <p>网页聊天界面已启用。选择会话或直接输入问题开始。</p>
-      <div className="empty-grid">
-        <span>流式输出</span>
-        <span>Markdown</span>
-        <span>工具调用</span>
-        <span>文件工作区</span>
+      <p className="empty-welcome">欢迎，可以直接提问，或从下面的示例开始。</p>
+      <div className="empty-examples">
+        {['读取工作区里的 CSV 并总结', '获取当前市场简报', '帮我查一个历史会话'].map((example) => (
+          <button key={example} type="button" className="empty-example" onClick={() => onPickExample(example)}>{example}</button>
+        ))}
       </div>
+      <p className="empty-hint">也可以在工作区面板上传文件，或在技能面板为本会话选择研究方法。</p>
     </div>
   );
 }
@@ -803,18 +803,18 @@ function AssistantSection({block, onToggle, onOpenConversation}: {block: Transcr
     return (
       <div className="assistant-answer-section">
         {block.label.includes(':') ? <small>{block.label}</small> : null}
-        {block.text ? <MarkdownMessage content={block.text} /> : <LoadingDots label="正在组织回答..." />}
+        {block.text ? <MarkdownMessage content={block.text} /> : <LoadingDots label="正在组织回答…" />}
       </div>
     );
   }
   const title = block.kind === 'reasoning' ? '思考过程' : `工具调用 · ${block.label}`;
   const collapsed = Boolean(block.collapsible && block.collapsed);
   const content = collapsed ? null : block.kind === 'tool' ? (
-    <ToolDetail block={block} loadingLabel="正在调用工具..." onOpenConversation={onOpenConversation} />
+    <ToolDetail block={block} loadingLabel="正在调用工具…" onOpenConversation={onOpenConversation} />
   ) : block.text ? (
     <pre className="plain-pre">{block.text}</pre>
   ) : (
-    <LoadingDots label="正在思考..." />
+    <LoadingDots label="正在思考…" />
   );
   return (
     <section className={`assistant-subblock assistant-subblock-${block.kind}${collapsed ? ' is-collapsed' : ''}`}>
@@ -871,7 +871,7 @@ function AssistantTranscriptItem({
       <div className="avatar">AI</div>
       <div className="message-body">
         <header className="message-header">
-          <span>assistant</span>
+          <span>助手</span>
           {status ? <span className={`status-pill status-${status}`}>{statusLabel(status)}</span> : null}
           {createdAt ? <time>{formatTime(createdAt)}</time> : null}
         </header>
@@ -923,10 +923,10 @@ function AssistantTranscriptItem({
                         isLocalReportBlock(source) ? (
                           <p className="assistant-timeline-note">已生成本地报告，可在下方报告卡阅读全文。</p>
                         ) : (
-                          <ToolDetail block={source} loadingLabel="正在调用工具..." onOpenConversation={onOpenConversation} />
+                          <ToolDetail block={source} loadingLabel="正在调用工具…" onOpenConversation={onOpenConversation} />
                         )
                       ) : entry.kind === 'reasoning' ? (
-                        source.text ? <pre className="plain-pre">{source.text}</pre> : <LoadingDots label="正在思考..." />
+                        source.text ? <pre className="plain-pre">{source.text}</pre> : <LoadingDots label="正在思考…" />
                       ) : null}
                     </div>
                   ) : null}
@@ -946,7 +946,7 @@ function AssistantTranscriptItem({
             }
             return <AssistantSection key={block.id} block={block} onToggle={onToggle} onOpenConversation={onOpenConversation} />;
           })}
-          {!hasAnswer && status === 'running' ? <LoadingDots label="正在等待模型输出..." /> : null}
+          {!hasAnswer && status === 'running' ? <LoadingDots label="正在等待模型输出…" /> : null}
         </div>
         <footer className="message-actions">
           {canSwitchVersion && answerMessageId ? (
@@ -1026,7 +1026,7 @@ function TranscriptItem({
   ) : block.kind === 'user' ? (
     <p className="plain-text">{block.text}</p>
   ) : block.kind === 'tool' ? (
-    <ToolDetail block={block} loadingLabel="正在调用工具..." onOpenConversation={onOpenConversation} />
+    <ToolDetail block={block} loadingLabel="正在调用工具…" onOpenConversation={onOpenConversation} />
   ) : (
     <pre className="plain-pre">{block.text}</pre>
   );
@@ -1107,21 +1107,15 @@ function ConversationItem({
 function AppearanceSettingsPanel({
   value,
   onChange,
-  onReset,
 }: {
   value: AppearanceSettings;
   onChange: (next: AppearanceSettings) => void;
-  onReset: () => void;
 }) {
   const update = (patch: Partial<AppearanceSettings>) => {
     onChange(normalizeAppearanceSettings({...value, ...patch}));
   };
   return (
-    <section className="appearance-panel">
-      <div className="appearance-panel-header">
-        <h2>外观</h2>
-        <button type="button" className="ghost-button tiny" onClick={onReset}>重置</button>
-      </div>
+    <div className="appearance-panel">
       <label className="appearance-field">
         <span>正文字体</span>
         <select value={value.uiFont} onChange={(event) => update({uiFont: event.target.value})}>
@@ -1210,7 +1204,7 @@ function AppearanceSettingsPanel({
           </button>
         ))}
       </div>
-    </section>
+    </div>
   );
 }
 export default function App() {
@@ -1331,7 +1325,7 @@ export default function App() {
           {
             id,
             kind: item.kind,
-            label: item.kind === 'assistant' ? 'assistant' : '思考过程',
+            label: item.kind === 'assistant' ? '助手' : '思考过程',
             text: '',
             status: 'running',
             collapsible: item.kind === 'reasoning',
@@ -1693,7 +1687,7 @@ export default function App() {
               {
                 id: blockId,
                 kind: 'assistant',
-                label: 'assistant',
+                label: '助手',
                 text,
                 status: 'ok',
               },
@@ -1776,7 +1770,7 @@ export default function App() {
         return [...next, {
           id: pendingAssistantId,
           kind: 'assistant',
-          label: 'assistant',
+          label: '助手',
           text: '',
           status: 'running',
           placeholder: true,
@@ -1791,7 +1785,7 @@ export default function App() {
       }, {
         id: pendingAssistantId,
         kind: 'assistant',
-        label: 'assistant',
+        label: '助手',
         text: '',
         status: 'running',
         placeholder: true,
@@ -1924,7 +1918,7 @@ export default function App() {
       {
         id: pendingAssistantId,
         kind: 'assistant',
-        label: 'assistant',
+        label: '助手',
         text: '',
         status: 'running',
         placeholder: true,
@@ -2131,7 +2125,7 @@ export default function App() {
         <input
           type="search"
           className="conversation-search"
-          placeholder="搜索会话或消息..."
+          placeholder="搜索会话或消息…"
           value={conversationFilter}
           onChange={(event) => setConversationFilter(event.target.value)}
         />
@@ -2151,6 +2145,29 @@ export default function App() {
             <div className="conversation-empty">{conversationFilter ? '没有匹配的会话或消息' : '尚未创建会话'}</div>
           ) : null}
         </div>
+        <footer className="sidebar-footer">
+          <PackageTasks />
+          <div className="sidebar-footer-row">
+            <span className={backendOnline ? 'backend-status online' : 'backend-status offline'}>
+              {backendOnline ? '在线' : '离线'}
+            </span>
+            <div className="sidebar-footer-actions">
+              <button
+                type="button"
+                className="ghost-button tiny"
+                aria-pressed={!inspectorCollapsed}
+                title="显示或隐藏右侧面板"
+                onClick={() => setInspectorCollapsed((current) => !current)}
+              >设置</button>
+              <button
+                type="button"
+                className="ghost-button tiny danger-button"
+                disabled={!backendOnline || shutdownPending}
+                onClick={() => void handleShutdownStack()}
+              >{shutdownPending ? '正在退出…' : '退出'}</button>
+            </div>
+          </div>
+        </footer>
       </aside>
       {sidebarCollapsed ? (
         <button
@@ -2174,15 +2191,12 @@ export default function App() {
         <header className="topbar">
           <div>
             <strong>{conversationId ? conversations.find((item) => item.id === conversationId)?.title ?? '当前会话' : '新对话'}</strong>
-            <span>{status ? `工作区 ${status.workspace_path}` : '正在连接服务...'}</span>
           </div>
           <div className="topbar-actions">
             <ModelPicker providers={providers} value={selectedModelId} onChange={setSelectedModelId}
               onRefresh={refreshModels} refreshing={modelsRefreshing} />
             <button type="button" className="ghost-button topbar-button" aria-haspopup="dialog"
               aria-expanded={modelSettingsOpen} onClick={() => setModelSettingsOpen(true)}>模型设置</button>
-            {selectedModel?.provider_id !== 'ollama' ? <button type="button" className="ghost-button topbar-button capability-status"
-              onClick={() => setModelSettingsOpen(true)}>{!status?.workspace_cloud_allowed ? '工具未开启' : status?.cloud_write_allowed ? '工具可写入' : '工具仅只读'} · {selectedModel?.thinking_enabled == null ? '思考默认' : selectedModel.thinking_enabled ? '思考开' : '思考关'}</button> : null}
             {conversationId ? (
               <div className="export-menu" ref={exportMenuRef}>
                 <button
@@ -2229,12 +2243,19 @@ export default function App() {
                 ) : null}
               </div>
             ) : null}
+            <button
+              type="button"
+              className="ghost-button topbar-button"
+              aria-pressed={!inspectorCollapsed}
+              title="显示或隐藏右侧面板"
+              onClick={() => setInspectorCollapsed((current) => !current)}
+            >面板</button>
           </div>
         </header>
         <section className="transcript" ref={transcriptRef} aria-busy={conversationLoading}>
           {loading ? <div className="loading-card">正在加载…</div> : null}
           {!loading && conversationLoading ? <div className="loading-card">正在载入会话…</div> : null}
-          {!loading && blocks.length === 0 ? <EmptyState /> : null}
+          {!loading && blocks.length === 0 ? <EmptyState onPickExample={(text) => setInput(text)} /> : null}
           {transcriptItems.map((item) => (
             item.kind === 'assistant-group'
               ? <AssistantTranscriptItem
@@ -2273,7 +2294,6 @@ export default function App() {
           </div>
         ) : null}
         <footer className="composer-card">
-          <PackageTasks />
           {editingMessage ? (
             <div className="composer-mode">
               <div>
@@ -2298,7 +2318,7 @@ export default function App() {
             aria-label="消息输入框"
             placeholder={editingMessage
               ? '编辑这条用户消息。发送后会重新生成后续回答。'
-              : '输入消息。也可以从右侧工作区上传/附加文件。Enter 发送，Shift+Enter 换行。'}
+              : '输入消息。也可以从工作区面板上传/附加文件。Enter 发送，Shift+Enter 换行。'}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -2334,16 +2354,7 @@ export default function App() {
           </div>
         </div>
         <div className="inspector-panels">
-        <button type="button" className="ghost-button tiny inspector-collapse-button" onClick={() => setInspectorCollapsed(true)}>收起工作区</button>
-        <WorkspacePanel
-          attachedPaths={attachedPaths}
-          onAttach={attachWorkspacePath}
-          onDetach={detachWorkspacePath}
-          onError={showToast}
-        />
-        <AppearanceSettingsPanel value={effectiveAppearance} onChange={updateAppearance} onReset={resetAppearance} />
-        <section>
-          <h2>模型</h2>
+        <Panel id="model" title="模型">
           <p>{selectedModel?.provider_id === 'ollama' ? '本地模型 · 工作区工具可用' : !status?.workspace_cloud_allowed ? '云端工作区工具未开启；文件分析或代码执行前，请打开模型设置授权。' : status?.cloud_write_allowed ? '云端可读取并修改当前工作区（含执行代码），文件内容和工具结果可能发送到所选云端模型。' : '云端仅可读取当前工作区；写入与执行需在模型设置中单独开启。'}</p>
           {selectedModel ? (
             <div className="model-card">
@@ -2353,52 +2364,55 @@ export default function App() {
                 {selectedModel.capabilities.map((capability) => <span key={capability}>{capability}</span>)}
               </div>
             </div>
-          ) : <p>暂无模型</p>}
-        </section>
-        <section>
-          <h2>Provider</h2>
-          {providers.map((provider) => (
-            <div key={provider.id} className="provider-row">
-              <span>{provider.name}</span>
-              <em>{provider.kind}</em>
-            </div>
-          ))}
-        </section>
-        <section>
-          <h2>工具</h2>
-          <div className="tool-cloud">
-            {status?.tools.map((tool) => <span key={tool}>{tool}</span>)}
-          </div>
-        </section>
-        <section>
-          <h2>状态</h2>
-          <p className={backendOnline ? 'backend-status online' : 'backend-status offline'}>
-            {backendOnline ? '服务运行中' : '服务未连接'}
-          </p>
-          <div className="status-actions">
-            <button
-              type="button"
-              className="ghost-button tiny danger-button"
-              disabled={!backendOnline || shutdownPending}
-              onClick={() => {
-                if (window.confirm('退出将停止全部服务（含工具容器与股票后台）。确认退出？')) {
-                  void handleShutdownStack();
-                }
-              }}
-            >{shutdownPending ? '正在退出…' : '退出'}</button>
-            {!backendOnline ? (
-              <button type="button" className="ghost-button tiny" disabled={loading} onClick={() => void loadBootstrap()}>
-                重新连接
-              </button>
-            ) : null}
-          </div>
-          <p className="status-hint">关闭此页面也会自动停止全部服务。</p>
-        </section>
+          ) : <p className="status-hint">暂无模型</p>}
+        </Panel>
         <SkillsPanel onChanged={() => void loadBootstrap()}
           conversation={conversations.find((item) => item.id === conversationId)}
           onMethodChanged={(updated) => setConversations((current) => current.map((item) =>
             item.id === updated.id ? updated : item))} />
         <StockServicePanel onChanged={() => void loadBootstrap()} />
+        <WorkspacePanel
+          attachedPaths={attachedPaths}
+          onAttach={attachWorkspacePath}
+          onDetach={detachWorkspacePath}
+          onError={showToast}
+        />
+        <Panel id="appearance" title="外观" defaultCollapsed
+          actions={<button type="button" className="ghost-button tiny" onClick={resetAppearance}>重置</button>}>
+          <AppearanceSettingsPanel value={effectiveAppearance} onChange={updateAppearance} />
+        </Panel>
+        <Panel id="diagnostics" title="诊断" defaultCollapsed>
+          <div className="panel-subsection">
+            <h3>Provider</h3>
+            {providers.length ? providers.map((provider) => (
+              <div key={provider.id} className="provider-row">
+                <span>{provider.name}</span>
+                <em>{provider.kind === 'cloud' ? '云端' : '本地'}</em>
+              </div>
+            )) : <p className="status-hint">暂无 Provider 信息</p>}
+          </div>
+          <div className="panel-subsection">
+            <h3>工具</h3>
+            {status?.tools?.length ? (
+              <div className="tool-cloud">
+                {status.tools.map((tool) => <span key={tool}>{tool}</span>)}
+              </div>
+            ) : <p className="status-hint">暂无可用工具</p>}
+          </div>
+        </Panel>
+        <Panel id="status" title="状态">
+          <p className={backendOnline ? 'backend-status online' : 'backend-status offline'}>
+            {backendOnline ? '服务运行中' : '服务未连接'}
+          </p>
+          {!backendOnline ? (
+            <div className="status-actions">
+              <button type="button" className="ghost-button tiny" disabled={loading} onClick={() => void loadBootstrap()}>
+                重新连接
+              </button>
+            </div>
+          ) : null}
+          <p className="status-hint">关闭此页面也会自动停止全部服务。</p>
+        </Panel>
         </div>
       </aside>
       {inspectorCollapsed ? (
@@ -2406,9 +2420,9 @@ export default function App() {
           type="button"
           className="panel-restore panel-restore-right"
           onClick={() => setInspectorCollapsed(false)}
-          aria-label="展开工作区侧栏"
+          aria-label="展开右侧面板"
         >
-          工作区
+          面板
         </button>
       ) : null}
       {!inspectorCollapsed ? (
