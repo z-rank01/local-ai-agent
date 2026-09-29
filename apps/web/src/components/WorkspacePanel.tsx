@@ -365,24 +365,29 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
             {entries.map((entry) => {
               const attached = attachedPaths.includes(entry.path);
               return (
-                <button
-                  type="button"
+                <div
                   key={entry.path}
                   className={`workspace-entry${entry.path === selectedPath ? ' selected' : ''}`}
-                  onClick={() => openEntry(entry)}
-                  title={entry.path}
                 >
-                  <span className="workspace-entry-icon">{entryIcon(entry)}</span>
-                  <span className="workspace-entry-main">
-                    <strong>{entry.name}</strong>
-                    <em>{entry.kind === 'directory' ? '目录' : `${formatBytes(entry.size)} · ${entry.mime_type ?? '文件'}`}</em>
-                  </span>
+                  <button
+                    type="button"
+                    className="workspace-entry-open"
+                    onClick={() => openEntry(entry)}
+                    title={entry.path}
+                  >
+                    <span className="workspace-entry-icon">{entryIcon(entry)}</span>
+                    <span className="workspace-entry-main">
+                      <strong>{entry.name}</strong>
+                      <em>{entry.kind === 'directory' ? '目录' : `${formatBytes(entry.size)} · ${entry.mime_type ?? '文件'}`}</em>
+                    </span>
+                  </button>
                   {entry.kind === 'file' ? (
                     <span className="workspace-entry-actions">
-                      <span
+                      <button
+                        type="button"
                         className={`workspace-attach-pill${attached ? ' active' : ''}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
+                        aria-pressed={attached}
+                        onClick={() => {
                           if (attached) {
                             onDetach(entry.path);
                           } else {
@@ -391,21 +396,22 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
                         }}
                       >
                         {attached ? '已附加' : '附加'}
-                      </span>
-                      <span
-                        className={`workspace-delete-pill${deletingPath ? ' disabled' : ''}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-delete-pill"
+                        disabled={!!deletingPath}
+                        onClick={() => {
                           if (!deletingPath) {
                             void deleteFile(entry.path, entry.name);
                           }
                         }}
                       >
-                        {deletingPath === entry.path ? '删除中...' : '删除'}
-                      </span>
+                        {deletingPath === entry.path ? '删除中…' : '删除'}
+                      </button>
                     </span>
                   ) : null}
-                </button>
+                </div>
               );
             })}
           </>
@@ -414,35 +420,40 @@ export function WorkspacePanel({attachedPaths, onAttach, onDetach, onError}: Wor
             {loadingTrash ? <div className="workspace-empty">正在读取回收站...</div> : null}
             {!loadingTrash && trashItems.length === 0 ? <div className="workspace-empty">回收站为空</div> : null}
             {trashItems.map((item) => (
-              <button
-                type="button"
+              <div
                 key={item.operation_id}
                 className={`workspace-entry${item.operation_id === selectedTrashOperationId ? ' selected' : ''}`}
-                onClick={() => {
-                  setSelectedTrashOperationId(item.operation_id);
-                  setNotice('');
-                }}
-                title={item.workspace_path || item.original_path}
               >
-                <span className="workspace-entry-icon">{trashEntryIcon(item)}</span>
-                <span className="workspace-entry-main">
-                  <strong>{item.name}</strong>
-                  <em>{`${formatShortTime(item.deleted_at) || '刚刚'} · ${item.workspace_path || item.relative_path}`}</em>
-                </span>
+                <button
+                  type="button"
+                  className="workspace-entry-open"
+                  onClick={() => {
+                    setSelectedTrashOperationId(item.operation_id);
+                    setNotice('');
+                  }}
+                  title={item.workspace_path || item.original_path}
+                >
+                  <span className="workspace-entry-icon">{trashEntryIcon(item)}</span>
+                  <span className="workspace-entry-main">
+                    <strong>{item.name}</strong>
+                    <em>{`${formatShortTime(item.deleted_at) || '刚刚'} · ${item.workspace_path || item.relative_path}`}</em>
+                  </span>
+                </button>
                 <span className="workspace-entry-actions">
-                  <span
-                    className={`workspace-restore-pill${restoringOperationId ? ' disabled' : ''}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
+                  <button
+                    type="button"
+                    className="workspace-restore-pill"
+                    disabled={!!restoringOperationId || !item.exists_in_trash}
+                    onClick={() => {
                       if (!restoringOperationId && item.exists_in_trash) {
                         void restoreTrashItem(item);
                       }
                     }}
                   >
-                    {restoringOperationId === item.operation_id ? '恢复中...' : '恢复'}
-                  </span>
+                    {restoringOperationId === item.operation_id ? '恢复中…' : '恢复'}
+                  </button>
                 </span>
-              </button>
+              </div>
             ))}
           </>
         )}

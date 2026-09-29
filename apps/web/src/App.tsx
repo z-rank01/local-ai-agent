@@ -986,27 +986,16 @@ function ConversationItem({
   onDelete: () => void;
   onExport: () => void;
 }) {
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) return;
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      onOpen();
-    }
-  };
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={`conversation-item${active ? ' active' : ''}`}
-      onClick={onOpen}
-      onKeyDown={handleKeyDown}
-    >
-      <span className="conversation-title">{item.title}</span>
-      <span className="conversation-meta">{item.model || 'default'} · {formatTime(item.updated_at)}</span>
-      <span className="conversation-actions" onClick={(event) => event.stopPropagation()}>
-        <button type="button" title="导出 Markdown" onClick={onExport}>↓</button>
-        <button type="button" title="重命名" onClick={onRename}>✎</button>
-        <button type="button" title="删除" onClick={onDelete}>×</button>
+    <div className={`conversation-item${active ? ' active' : ''}`}>
+      <button type="button" className="conversation-open" onClick={onOpen}>
+        <span className="conversation-title">{item.title}</span>
+        <span className="conversation-meta">{item.model || 'default'} · {formatTime(item.updated_at)}</span>
+      </button>
+      <span className="conversation-actions">
+        <button type="button" title="导出 Markdown" aria-label="导出会话为 Markdown" onClick={onExport}>↓</button>
+        <button type="button" title="重命名" aria-label="重命名会话" onClick={onRename}>✎</button>
+        <button type="button" title="删除" aria-label="删除会话" onClick={onDelete}>×</button>
       </span>
     </div>
   );
@@ -1141,6 +1130,8 @@ export default function App() {
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.innerWidth <= 1180);
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadAppearanceSettings());
   const [busy, setBusy] = useState(false);
+  const [versionBusy, setVersionBusy] = useState(false);
+  const [conversationLoading, setConversationLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [backendOnline, setBackendOnline] = useState(false);
@@ -1162,9 +1153,13 @@ export default function App() {
   );
   const transcriptItems = useMemo(() => buildTranscriptViewItems(blocks), [blocks]);
   const effectiveAppearance = useMemo(() => normalizeAppearanceSettings(appearance), [appearance]);
+  const toastTimerRef = useRef<number | null>(null);
   const showToast = useCallback((message: string) => {
     setToast(message);
-    window.setTimeout(() => setToast((current) => (current === message ? '' : current)), 2200);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => setToast(''), 2200);
   }, []);
   const handleCopy = useCallback(async (text: string) => {
     const ok = await copyText(text);
@@ -1258,18 +1253,25 @@ export default function App() {
     flushDeltaBuffer();
     pendingUserBlockIdRef.current = null;
     pendingAssistantBlockIdRef.current = null;
-    const messages = await fetchMessages(targetId);
-    setConversationId(targetId);
-    const summaries = await fetchConversations();
-    const modelId = summaries.find(item => item.id === targetId)?.model;
-    if (modelId) {
-      const catalog = await fetchModels();
-      const chosen = catalog.find(item => item.id === modelId || item.name === modelId);
-      if (chosen) setSelectedModelId(chosen.id);
+    setConversationLoading(true);
+    try {
+      const messages = await fetchMessages(targetId);
+      setConversationId(targetId);
+      const summaries = await fetchConversations();
+      const modelId = summaries.find(item => item.id === targetId)?.model;
+      if (modelId) {
+        const catalog = await fetchModels();
+        const chosen = catalog.find(item => item.id === modelId || item.name === modelId);
+        if (chosen) setSelectedModelId(chosen.id);
+      }
+      setBlocks(buildBlocksFromMessages(messages));
+      setEditingMessage(null);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConversationLoading(false);
     }
-    setBlocks(buildBlocksFromMessages(messages));
-    setEditingMessage(null);
-    setError('');
   }, [flushDeltaBuffer]);
   const [modelsRefreshing, setModelsRefreshing] = useState(false);
   const refreshModels = useCallback(async () => {
@@ -1585,7 +1587,7 @@ export default function App() {
   }, [conversationFilter, conversationId, flushDeltaBuffer, queueDelta, refreshConversations]);
   const sendMessage = async () => {
     const prompt = input.trim() || (attachedPaths.length ? '请分析这些附件。' : '');
-    if (!prompt || busy || abortRef.current) {
+    if (!prompt || busy || versionBusy || abortRef.current) {
       return;
     }
     const attachmentBlock = attachedPaths.length
@@ -1812,10 +1814,10 @@ export default function App() {
     }
   }, [applyEvent, blocks, busy, conversationId, flushDeltaBuffer, showToast]);
   const switchAssistantVersion = useCallback(async (messageId: string, versionNumber: number) => {
-    if (!conversationId || busy || abortRef.current) {
+    if (!conversationId || busy || versionBusy || abortRef.current) {
       return;
     }
-    setBusy(true);
+    setVersionBusy(true);
     setError('');
     try {
       const messages = await activateMessageVersion(conversationId, messageId, versionNumber);
@@ -1826,9 +1828,9 @@ export default function App() {
       const messageText = err instanceof Error ? err.message : String(err);
       setError(messageText);
     } finally {
-      setBusy(false);
+      setVersionBusy(false);
     }
-  }, [busy, conversationFilter, conversationId, refreshConversations, showToast]);
+  }, [busy, versionBusy, conversationFilter, conversationId, refreshConversations, showToast]);
   const exportConversation = useCallback(async (conversation: ConversationSummary, format: ExportFormat = 'markdown') => {
     try {
       const {filename, blob} = await downloadConversation(conversation.id, format);
@@ -2054,8 +2056,9 @@ export default function App() {
             ) : null}
           </div>
         </header>
-        <section className="transcript" ref={transcriptRef}>
-          {loading ? <div className="loading-card">正在加载...</div> : null}
+        <section className="transcript" ref={transcriptRef} aria-busy={conversationLoading}>
+          {loading ? <div className="loading-card">正在加载…</div> : null}
+          {!loading && conversationLoading ? <div className="loading-card">正在载入会话…</div> : null}
           {!loading && blocks.length === 0 ? <EmptyState /> : null}
           {transcriptItems.map((item) => (
             item.kind === 'assistant-group'
@@ -2083,13 +2086,14 @@ export default function App() {
           ))}
         </section>
         {error ? (
-          <div className="error-banner">
+          <div className="error-banner" role="alert">
             <span>{error}</span>
             {!backendOnline ? (
               <button type="button" className="ghost-button tiny" disabled={loading} onClick={() => void loadBootstrap()}>
                 重新连接
               </button>
             ) : null}
+            <button type="button" className="ghost-button tiny error-banner-close" aria-label="关闭错误提示" onClick={() => setError('')}>×</button>
           </div>
         ) : null}
         <footer className="composer-card">
@@ -2115,25 +2119,25 @@ export default function App() {
           ) : null}
           <textarea
             value={input}
+            aria-label="消息输入框"
             placeholder={editingMessage
               ? '编辑这条用户消息。发送后会重新生成后续回答。'
               : '输入消息。也可以从右侧工作区上传/附加文件。Enter 发送，Shift+Enter 换行。'}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 void sendMessage();
               }
             }}
-            disabled={busy}
           />
           <div className="composer-actions">
-            <span>{busy ? '正在生成...' : selectedModel ? `${selectedModel.provider_name} · ${selectedModel.name}` : '未选择模型'}</span>
+            <span>{busy ? '正在生成…' : versionBusy ? '正在切换版本…' : selectedModel ? `${selectedModel.provider_name} · ${selectedModel.name}` : '未选择模型'}</span>
             <div>
               {busy ? (
                 <button type="button" className="secondary-button" onClick={stopGeneration}>停止</button>
               ) : null}
-              <button type="button" className="primary-button" disabled={busy || (!input.trim() && attachedPaths.length === 0)} onClick={() => void sendMessage()}>
+              <button type="button" className="primary-button" disabled={busy || versionBusy || (!input.trim() && attachedPaths.length === 0)} onClick={() => void sendMessage()}>
                 {editingMessage ? '保存并重试' : '发送'}
               </button>
             </div>
@@ -2146,7 +2150,7 @@ export default function App() {
           attachedPaths={attachedPaths}
           onAttach={attachWorkspacePath}
           onDetach={detachWorkspacePath}
-          onError={setError}
+          onError={showToast}
         />
         <AppearanceSettingsPanel value={effectiveAppearance} onChange={updateAppearance} onReset={resetAppearance} />
         <section>
@@ -2187,8 +2191,12 @@ export default function App() {
               type="button"
               className="ghost-button tiny danger-button"
               disabled={!backendOnline || shutdownPending}
-              onClick={() => void handleShutdownStack()}
-            >{shutdownPending ? '正在退出...' : '退出'}</button>
+              onClick={() => {
+                if (window.confirm('退出将停止全部服务（含工具容器与股票后台）。确认退出？')) {
+                  void handleShutdownStack();
+                }
+              }}
+            >{shutdownPending ? '正在退出…' : '退出'}</button>
             {!backendOnline ? (
               <button type="button" className="ghost-button tiny" disabled={loading} onClick={() => void loadBootstrap()}>
                 重新连接

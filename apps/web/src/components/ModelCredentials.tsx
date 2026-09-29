@@ -13,8 +13,8 @@ export function ModelCredentials({model, onSaved}: {model: ModelInfo; onSaved: (
       const response = await fetch(`${DEFAULT_BASE_URL}/api/providers/${encodeURIComponent(model.provider_id)}/credential`, {
         method: 'PUT', headers: {'content-type': 'application/json'}, body: JSON.stringify({api_key: key}),
       });
-      setKey('');
       if (!response.ok) throw new Error(`保存失败（${response.status}）`);
+      setKey('');
       setMessage('已保存到本机私有配置，可直接开始对话。'); await onSaved();
     } catch (error) { setMessage(error instanceof Error ? error.message : '保存失败'); }
     finally { setSaving(false); }

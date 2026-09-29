@@ -9,6 +9,7 @@ export function SkillsPanel({onChanged, conversation, onMethodChanged}: {
   onMethodChanged?: (conversation: ConversationSummary) => void;
 }) {
   const [enabled, setEnabled] = useState(false);
+  const [searchActive, setSearchActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [methods, setMethods] = useState<ResearchMethod[]>([]);
@@ -21,7 +22,10 @@ export function SkillsPanel({onChanged, conversation, onMethodChanged}: {
       if (mutating.current) return;
       try {
         const status = await fetchSkills();
-        if (active) setEnabled(status.websearch.enabled);
+        if (active) {
+          setEnabled(status.websearch.enabled);
+          setSearchActive(status.websearch.active);
+        }
       } catch {
         // Backend not ready yet; the next interval retries.
       }
@@ -75,7 +79,7 @@ export function SkillsPanel({onChanged, conversation, onMethodChanged}: {
     <div className="skill-row">
       <div className="skill-row-main">
         <span className="skill-name">联网搜索</span>
-        <span className={enabled ? 'skill-badge on' : 'skill-badge'}>{enabled ? '已开启' : '已关闭'}</span>
+        <span className={enabled ? 'skill-badge on' : 'skill-badge'}>{enabled ? (searchActive ? '已开启' : '启动中…') : '已关闭'}</span>
       </div>
       <button type="button" className={enabled ? 'switch-button on' : 'switch-button'}
         disabled={busy} onClick={() => void toggle()}>

@@ -287,6 +287,20 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 
+.conversation-open {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(5px * var(--density-scale));
+  min-width: 0;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: none;
+  padding: 0;
+  border-radius: 8px;
+}
+
 .conversation-item::before {
   content: '';
   position: absolute;
@@ -300,7 +314,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 }
 
 .conversation-item:hover,
-.conversation-item:focus-visible,
+.conversation-item:focus-within,
 .conversation-item.active {
   border-color: var(--line-strong);
   background: rgba(255, 255, 255, 0.055);
@@ -1368,13 +1382,26 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   padding: 8px;
   color: var(--text);
   background: transparent;
-  display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
+  display: flex;
   gap: 8px;
   align-items: center;
   text-align: left;
   contain: content;
   transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+.workspace-entry-open {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  border-radius: 8px;
 }
 .workspace-entry:hover,
 .workspace-entry.selected {
@@ -1394,7 +1421,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 .workspace-entry:hover .workspace-entry-icon,
-.workspace-entry:focus-visible .workspace-entry-icon { transform: scale(1.04); }
+.workspace-entry:focus-within .workspace-entry-icon { transform: scale(1.04); }
 .workspace-entry-main { min-width: 0; }
 .workspace-entry-main strong,
 .workspace-entry-main em {
@@ -1412,6 +1439,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   gap: 6px;
 }
 .workspace-attach-pill {
+  background: transparent;
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 3px 7px;
@@ -1431,6 +1459,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   background: rgba(96, 211, 148, 0.08);
 }
 .workspace-delete-pill {
+  background: transparent;
   border: 1px solid rgba(189, 55, 72, 0.24);
   border-radius: 999px;
   padding: 3px 7px;
@@ -1450,6 +1479,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   pointer-events: none;
 }
 .workspace-restore-pill {
+  background: transparent;
   border: 1px solid rgba(139, 184, 255, 0.24);
   border-radius: 999px;
   padding: 3px 7px;
@@ -1666,7 +1696,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
-  opacity: 0;
+  opacity: 0.55;
   transform: translateY(2px);
   transition: opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
@@ -1698,6 +1728,13 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .message:focus-within .message-actions {
   opacity: 1;
   transform: translateY(0);
+}
+@media (hover: none) {
+  .conversation-actions,
+  .message-actions {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .toast {
@@ -1869,7 +1906,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 }
 
 .conversation-item:hover,
-.conversation-item:focus-visible,
+.conversation-item:focus-within,
 .conversation-item.active {
   border-color: var(--line-strong);
   background: #ffffff;
@@ -1940,6 +1977,7 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
 .assistant-timeline-step,
 .assistant-timeline-badge,
 .workspace-attach-pill {
+  background: transparent;
   border: 1px solid var(--line);
   color: var(--muted);
   background: #ffffff;

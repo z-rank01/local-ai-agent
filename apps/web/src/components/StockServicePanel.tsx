@@ -126,8 +126,13 @@ export function StockServicePanel({onChanged}: {onChanged?: () => void}) {
         <span className={online ? 'skill-badge on' : 'skill-badge'}>{online ? '已开启' : '已关闭'}</span>
       </div>
       <button type="button" className={online ? 'switch-button on' : 'switch-button'}
-        disabled={busy} onClick={() => void act(online ? 'stop' : 'start')}>
-        {busy ? '切换中…' : online ? '关闭' : '开启'}
+        disabled={busy}
+        onClick={() => {
+          if (!online || window.confirm('关闭股票后台将暂停后台任务执行与简报生成，进行中的研究会在安全边界收尾。确认关闭？')) {
+            void act(online ? 'stop' : 'start');
+          }
+        }}>
+        {busy ? (pendingAction === 'stop' ? '正在关闭…' : pendingAction === 'start' ? '正在开启…' : '处理中…') : online ? '关闭' : '开启'}
       </button>
     </div>
     {online && status?.runtime ? <div className="stock-summary">

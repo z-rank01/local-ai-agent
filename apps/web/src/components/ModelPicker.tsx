@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent} from 'react';
 
 export type PickerModel = {
   id: string;
@@ -28,8 +28,14 @@ export function ModelPicker({providers, value, onChange, onRefresh, refreshing, 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [filter, setFilter] = useState('');
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const allModels = providers.flatMap((provider) => provider.models);
   const selectedModel = allModels.find((model) => model.id === value);
+  const closeMenu = (restoreFocus = true) => {
+    setOpen(false);
+    if (restoreFocus) triggerRef.current?.focus();
+  };
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: PointerEvent) => {
@@ -37,7 +43,7 @@ export function ModelPicker({providers, value, onChange, onRefresh, refreshing, 
       if (pickerRef.current && target && !pickerRef.current.contains(target)) setOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape') closeMenu();
     };
     window.addEventListener('pointerdown', handlePointerDown);
     window.addEventListener('keydown', handleKeyDown);
@@ -53,9 +59,33 @@ export function ModelPicker({providers, value, onChange, onRefresh, refreshing, 
       models: query ? provider.models.filter((model) => model.name.toLowerCase().includes(query)) : provider.models,
     }))
     .filter((group) => !query || group.models.length > 0);
+  const focusOption = (option: HTMLButtonElement | null | undefined) => option?.focus();
+  const moveOptionFocus = (delta: number) => {
+    const options = menuRef.current?.querySelectorAll<HTMLButtonElement>('.model-picker-option:not([disabled])');
+    if (!options || options.length === 0) return;
+    const list = Array.from(options);
+    const current = list.findIndex((option) => option === document.activeElement);
+    focusOption(list[(current + delta + list.length) % list.length]);
+  };
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveOptionFocus(1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveOptionFocus(-1);
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      focusOption(menuRef.current?.querySelector<HTMLButtonElement>('.model-picker-option:not([disabled])'));
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      const options = menuRef.current?.querySelectorAll<HTMLButtonElement>('.model-picker-option:not([disabled])');
+      focusOption(options?.[options.length - 1]);
+    }
+  };
   return (
     <div className="model-picker" ref={pickerRef}>
-      <button type="button" className="model-picker-trigger" aria-haspopup="listbox"
+      <button type="button" className="model-picker-trigger" aria-haspopup="listbox" ref={triggerRef}
         aria-label={`${ariaLabel}：${selectedModel ? `${selectedModel.provider_name} / ${selectedModel.name}` : value || '未选择模型'}`}
         aria-expanded={open} disabled={disabled || !providers.length}
         onClick={() => setOpen((current) => !current)}>
@@ -63,9 +93,9 @@ export function ModelPicker({providers, value, onChange, onRefresh, refreshing, 
         <span aria-hidden="true" className="model-picker-chevron">⌄</span>
       </button>
       {open ? (
-        <div className="model-picker-menu" role="listbox" aria-label={ariaLabel}>
+        <div className="model-picker-menu" role="listbox" aria-label={ariaLabel} ref={menuRef} onKeyDown={handleMenuKeyDown}>
           {allModels.length > 6 ? (
-            <input className="model-picker-filter" type="search" value={filter}
+            <input className="model-picker-filter" type="search" value={filter} aria-label="搜索模型"
               placeholder="搜索模型…" onChange={(event) => setFilter(event.target.value)} />
           ) : null}
           <div className="model-picker-groups">
@@ -73,7 +103,7 @@ export function ModelPicker({providers, value, onChange, onRefresh, refreshing, 
               const isCollapsed = !query && (collapsed[provider.id] ?? provider.id !== selectedModel?.provider_id);
               const missingKey = models.length > 0 && models.every((model) => model.status === 'missing_key');
               return (
-                <div key={provider.id} className="model-picker-group">
+                <div key={provider.id} className="model-picker-group" role="group" aria-label={provider.name}>
                   <button type="button" className="model-picker-group-header" aria-expanded={!isCollapsed}
                     onClick={() => setCollapsed((current) => ({...current, [provider.id]: !isCollapsed}))}>
                     <span aria-hidden="true">{isCollapsed ? '▸' : '▾'}</span>
@@ -87,7 +117,7 @@ export function ModelPicker({providers, value, onChange, onRefresh, refreshing, 
                       className={`model-picker-option${model.id === selectedModel?.id ? ' active' : ''}`}
                       disabled={model.status !== 'configured'}
                       title={model.status === 'missing_key' ? '请先在“模型设置”中配置密钥' : undefined}
-                      onClick={() => { onChange(model.id); setOpen(false); }}>
+                      onClick={() => { onChange(model.id); closeMenu(); }}>
                       <span>{model.name}{model.status === 'missing_key' ? ' · 待配置密钥' : ''}</span>
                       {model.id === selectedModel?.id ? <em>当前</em> : null}
                     </button>
