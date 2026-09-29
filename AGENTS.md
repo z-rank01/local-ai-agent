@@ -68,12 +68,13 @@ powershell Start-Process …（由聊天后端调用）
 - `bff/app.py`：HTTP 层（聊天、会话、工作区、模型、技能开关、股票服务管理、心跳、退出）。退出语义：**先股票优雅收尾 → 停 docker 容器 → 杀本进程**。
 - `core/runtime.py`：`build_runtime()` 组装工具注册表/路由/模型目录；技能开关通过替换 `tool_registry._tools` 与 `router._backend_urls` 动态生效（注意保持 registry 对象同一性，见 `stock_service.attach` 与 `skills_service.apply_to` 的注释）。
 - `bff/service.py`：`ChatSessionService` 是会话/工作区/流式门面；`exclusive_turn` 保证单会话互斥，技能切换期间聊天 409。
-- 前端 `apps/web/src/App.tsx` 是单页全部主界面；右栏自上而下：工作区、外观、模型/Provider/工具、状态（唯一"退出"按钮）、技能面板、股票技能面板。
+- 前端 `apps/web/src/App.tsx` 是单页全部主界面；右栏自上而下：模型、技能、股票技能、工作区、外观（默认折叠）、诊断（默认折叠）、状态；唯一"退出"按钮在左栏底部固定区。
 - 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。正式内容只维护 `prompts/modules/01..07`；`prompts/system.txt` 只是 modules 缺失时的兜底占位，不要往里写正式提示词。
 
 ## 约定
 
 - 两个仓库直接工作在 `main`；提交小而可审阅，按批次（INx/N2 等）记录到股票仓库 `docs/计划.md`。
+- 前端施工先看 `docs/UI设计笔记.md`（令牌、组件模式、动效与施工规则）；前端批次进度以 `docs/前端优化计划.md` 为准。
 - 数据与密钥不落库提交：`.env`、`data/` 均 gitignore；密钥只经页面"模型设置"保存到 `data/private/model-keys.json`。
 - 验收回归方法见 `docs/回归验证指南.md`；日常口径见 `docs/日常运行指南.md`；部署见 `本地AI-Agents部署流程.md`。改启动/退出/数据结构时必须同步这些文档与本文件。
 - 涉及股票业务的改动先看 `docs/股票能力接入.md` 的模块归属：聊天侧只做模型路由、工具面与卡片展示；业务规则在股票仓库。
