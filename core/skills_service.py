@@ -96,7 +96,12 @@ class SkillSwitches:
             if active_check and active_check():
                 raise ValueError('聊天正在执行，请等待本轮结束后再切换技能')
             already = ('web_search' in runtime.tool_registry.known_tools)
-            if enabled and enabled == self.websearch_enabled and already and await self._websearch_healthy():
+            # Idempotent by contract: repeating the current state does nothing.  The
+            # containers came up if and only if the tools are registered -- enable
+            # registers them only after _wait_websearch succeeds, and disable stops
+            # the containers before unregistering.  Stale containers left by a crash
+            # are reconciled once in restore(), not on every click.
+            if enabled == self.websearch_enabled and already == enabled:
                 return self.status(runtime)
             if enabled:
                 await self._compose('up', '-d')

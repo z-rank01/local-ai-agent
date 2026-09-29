@@ -14,34 +14,23 @@ from . import config
 from .stock_bridge import StockBridge
 from .tool_registry import ToolRegistry
 
-# Pid of the stock backend that scripts/start-daily.ps1 started, so the chat backend
-# can tell "the launcher owns it" from "nobody owns it".
+# Pid of the stock backend that scripts/start-daily.ps1 started. It is recorded for
+# diagnostics; liveness is judged by the control API, never by "something is listening
+# on the port", because a foreign process there would otherwise look like ours.
 LAUNCHER_PID_ENV = 'STOCK_LAUNCHER_PID'
 
 
-def launcher_owns_backend(port: int) -> bool:
-    """True when the launcher reported a stock process that is still alive.
+def stock_listening(port: int) -> bool:
+    """True when something accepts connections on the stock port.
 
-    The initial startup script sets the pid before starting the BFF; an on-demand
-    start receives the pid from the authenticated launcher controller. The BFF
-    never creates the stock process itself.
+    Only a hint that the port is busy. Workspace identity is decided by
+    ``StockService.status()``, which needs the control token.
     """
-    raw = os.environ.get(LAUNCHER_PID_ENV, '').strip()
-    if not raw.isdigit():
-        return False
     try:
-        os.kill(int(raw), 0)   # signal 0 only checks that the process exists
-    except (OSError, ValueError, SystemError):
-        # On Windows, os.kill(pid, 0) can raise SystemError for a live process
-        # started by the launcher. The authenticated launcher response plus a
-        # listener on the configured port is the useful fallback; status() later
-        # verifies that this listener belongs to the selected workspace.
-        try:
-            with socket.create_connection(('127.0.0.1', port), timeout=1):
-                return True
-        except OSError:
-            return False
-    return True
+        with socket.create_connection(('127.0.0.1', port), timeout=1):
+            return True
+    except OSError:
+        return False
 
 
 class StockService:
@@ -173,11 +162,14 @@ class StockService:
                 raise ValueError(f'启动器暂时无法启动股票后台：{exc}') from exc
             launched_pid = launch_result.get('pid')
             if type(launched_pid) is int:
+                # Recorded for diagnostics; the checks below decide whether the
+                # backend is really up and really ours.
                 os.environ[LAUNCHER_PID_ENV] = str(launched_pid)
-                if not launcher_owns_backend(self.settings['port']):
+                if not stock_listening(self.settings['port']):
                     raise ValueError('股票后台已由启动器请求启动，但进程很快退出；请查看 data/logs/stock-service.err.log')
             # The controller waits for /health. Verify the authenticated control API
-            # and workspace identity before enabling tools in the chat runtime.
+            # and workspace identity before enabling tools in the chat runtime; this is
+            # also what rejects a foreign process sitting on the configured port.
             status = await self.status()
             if not status['online']:
                 raise ValueError(status.get('message') or '启动器已启动股票后台，但控制接口尚未就绪')
