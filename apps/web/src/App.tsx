@@ -16,6 +16,7 @@ import {
   streamRegenerate,
   updateConversationTitle,
 } from './api';
+import {statusLabel} from './statusLabels';
 import {MarkdownMessage} from './components/MarkdownMessage';
 import {PackageTasks} from './components/PackageTasks';
 import {ModelSettingsDialog} from './components/ModelSettingsDialog';
@@ -33,6 +34,8 @@ import type {
   UIStreamEvent,
 } from './types';
 const DELTA_FLUSH_MS = 48;
+const TOOL_TEXT_LIMIT = 102400;
+const TOOL_TEXT_TRUNCATION_NOTICE = '（内容过长，仅显示最近 100KB）';
 const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 480;
 const INSPECTOR_MIN = 280;
@@ -192,9 +195,20 @@ function formatToolElapsed(value?: number): string {
   }
   return `${value.toFixed(value >= 10 ? 0 : 1)}s`;
 }
+function formatJsonText(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return text;
+  }
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return text;
+  }
+}
 function formatToolParamValue(value: unknown): string {
   if (typeof value === 'string') {
-    return value;
+    return formatJsonText(value);
   }
   if (typeof value === 'number' || typeof value === 'boolean') {
     return String(value);
@@ -335,8 +349,6 @@ function ToolDetail({
     : undefined;
   const searchPayload = block.label === 'conversation_search' ? structuredToolPayload<ConversationSearchPayload>(block) : null;
   const readPayload = block.label === 'conversation_read' ? structuredToolPayload<ConversationReadPayload>(block) : null;
-  const localResult = (block.toolResult as {local_result?: unknown} | null | undefined)?.local_result;
-  const isLocalStockReport = block.label === 'stock_report_read' && typeof localResult === 'string';
   const displayToolResult = block.toolResult && typeof block.toolResult === 'object' && !Array.isArray(block.toolResult)
     ? Object.fromEntries(Object.entries(block.toolResult as Record<string, unknown>)
         .filter(([key]) => key !== 'local_result' && key !== 'broker_sequence'))
@@ -416,25 +428,20 @@ function ToolDetail({
       );
     }
     return hasOutput || structuredResultText ? (
-      <pre className={block.toolResult != null || looksStructuredToolOutput(block.text) ? 'tool-output structured' : 'tool-output'}>{structuredResultText || block.text}</pre>
+      <pre className={block.toolResult != null || looksStructuredToolOutput(block.text) ? 'tool-output structured' : 'tool-output'}>{structuredResultText || formatJsonText(block.text)}</pre>
     ) : (
       <LoadingDots label={loadingLabel} />
     );
   };
   return (
     <div className="tool-detail">
-      {block.summary && !isLocalStockReport ? (
+      {block.summary ? (
         <ToolDetailSection title="摘要">
           <p className="tool-summary">{block.summary}</p>
         </ToolDetailSection>
       ) : null}
-      {stockObservation && !isLocalStockReport ? <StockObservation observation={stockObservation} tool={block.label} /> : null}
-      {typeof localResult === 'string' ? (
-        <ToolDetailSection title="报告正文（本地，未发送给模型）">
-          <MarkdownMessage content={localResult} />
-        </ToolDetailSection>
-      ) : null}
-      {hasParams && !isLocalStockReport ? (
+      {stockObservation ? <StockObservation observation={stockObservation} tool={block.label} /> : null}
+      {hasParams ? (
         <ToolDetailSection title="参数">
           <dl className="tool-params-list">
             {Object.entries(block.params ?? {}).map(([key, value]) => (
@@ -446,12 +453,82 @@ function ToolDetail({
           </dl>
         </ToolDetailSection>
       ) : null}
-      {!isLocalStockReport ? (
-        <ToolDetailSection title={block.status === 'running' ? '执行中' : '结果'}>
-          {renderToolResult()}
-        </ToolDetailSection>
-      ) : null}
+      <ToolDetailSection title={block.status === 'running' ? '执行中' : '结果'}>
+        {renderToolResult()}
+      </ToolDetailSection>
     </div>
+  );
+}
+type ReadingReport = {
+  title: string;
+  content: string;
+};
+function localReportContent(block: TranscriptBlock): string {
+  const toolResult = block.toolResult as {local_result?: unknown} | null | undefined;
+  return typeof toolResult?.local_result === 'string' ? toolResult.local_result : '';
+}
+function isLocalReportBlock(block: TranscriptBlock): boolean {
+  return block.kind === 'tool' && block.label === 'stock_report_read' && Boolean(localReportContent(block));
+}
+function buildReportCardInfo(block: TranscriptBlock): ReadingReport & {meta: string[]} {
+  const toolResult = (block.toolResult && typeof block.toolResult === 'object'
+    ? block.toolResult
+    : {}) as Record<string, unknown>;
+  const observation = toolResult.model_observation && typeof toolResult.model_observation === 'object'
+    ? toolResult.model_observation as Record<string, unknown>
+    : undefined;
+  const kind = typeof observation?.kind === 'string' ? observation.kind : '';
+  const baseName = kind.startsWith('market_brief') ? '市场简报' : '本地报告';
+  let tradingDay = '';
+  const directDay = observation?.target_date ?? observation?.trading_day;
+  if (typeof directDay === 'string' && directDay) {
+    tradingDay = directDay;
+  } else if (typeof observation?.trading_day_description === 'string') {
+    tradingDay = observation.trading_day_description.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? '';
+  }
+  const title = tradingDay ? `${baseName} · ${tradingDay}` : baseName;
+  const meta: string[] = [];
+  const page = typeof block.params?.page === 'number'
+    ? block.params.page
+    : typeof observation?.requested_page === 'number'
+      ? observation.requested_page
+      : null;
+  const pageCount = typeof observation?.page_count === 'number' ? observation.page_count : null;
+  if (page !== null) {
+    meta.push(pageCount ? `第 ${page} / ${pageCount} 页` : `第 ${page} 页`);
+  }
+  const version = ['version', 'report_version', 'brief_version', 'version_number']
+    .map((key) => observation?.[key])
+    .find((value) => typeof value === 'string' || typeof value === 'number');
+  if (version !== undefined) {
+    meta.push(`版本 ${String(version)}`);
+  }
+  if (block.createdAt) {
+    meta.push(`生成于 ${formatTime(block.createdAt)}`);
+  }
+  return {title, meta, content: localReportContent(block)};
+}
+function ReportCard({block, onRead}: {block: TranscriptBlock; onRead: (report: ReadingReport) => void}) {
+  const info = buildReportCardInfo(block);
+  return (
+    <section className="report-card" aria-label="本地报告">
+      <div className="report-card-main">
+        <div className="report-card-heading">
+          <strong>{info.title}</strong>
+          <span className="report-card-badge">本地报告</span>
+        </div>
+        {info.meta.length ? (
+          <div className="report-card-meta">
+            {info.meta.map((item) => <span key={item}>{item}</span>)}
+          </div>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        className="primary-button report-card-read"
+        onClick={() => onRead({title: info.title, content: info.content})}
+      >阅读全文</button>
+    </section>
   );
 }
 function readConversationSummary(event: UIStreamEvent): ConversationSummary | null {
@@ -595,7 +672,7 @@ function buildAssistantTimeline(
       badges.push('失败节点');
     }
     if (hasLocalResult) {
-      badges.push(block.label === 'stock_report_read' ? '报告正文' : '本地结果');
+      badges.push(block.label === 'stock_report_read' ? '本地报告' : '本地结果');
     }
     return {
       id: block.id,
@@ -603,7 +680,7 @@ function buildAssistantTimeline(
       kind: 'tool',
       title: `调用 ${block.label}`,
       subtitle: hasLocalResult && block.label === 'stock_report_read'
-        ? '报告正文已保存，点击查看'
+        ? '已生成本地报告'
         : block.summary || (block.toolResult != null ? '结构化结果已保存' : block.text ? '已返回结果' : '等待结果'),
       status: block.status ?? groupStatus,
       elapsed: block.elapsed,
@@ -743,7 +820,7 @@ function AssistantSection({block, onToggle, onOpenConversation}: {block: Transcr
     <section className={`assistant-subblock assistant-subblock-${block.kind}${collapsed ? ' is-collapsed' : ''}`}>
       <header className="assistant-subblock-header">
         <span>{title}</span>
-        {block.status ? <span className={`status-pill status-${block.status}`}>{block.status}</span> : null}
+        {block.status ? <span className={`status-pill status-${block.status}`}>{statusLabel(block.status)}</span> : null}
         {block.elapsed ? <span className="tool-elapsed">{formatToolElapsed(block.elapsed)}</span> : null}
         {block.collapsible ? (
           <button type="button" className="ghost-button tiny" aria-expanded={!collapsed} onClick={() => onToggle(block.id)}>
@@ -763,6 +840,7 @@ function AssistantTranscriptItem({
   onSwitchVersion,
   onDeleteMessage,
   onOpenConversation,
+  onReadReport,
   busy,
 }: {
   group: AssistantTranscriptGroup;
@@ -772,6 +850,7 @@ function AssistantTranscriptItem({
   onSwitchVersion: (messageId: string, versionNumber: number) => void;
   onDeleteMessage: (messageId: string) => void;
   onOpenConversation: (conversationId: string) => void | Promise<void>;
+  onReadReport: (report: ReadingReport) => void;
   busy: boolean;
 }) {
   const status = assistantGroupStatus(group.blocks);
@@ -793,23 +872,24 @@ function AssistantTranscriptItem({
       <div className="message-body">
         <header className="message-header">
           <span>assistant</span>
-          {status ? <span className={`status-pill status-${status}`}>{status === 'running' ? '生成中' : status}</span> : null}
+          {status ? <span className={`status-pill status-${status}`}>{statusLabel(status)}</span> : null}
           {createdAt ? <time>{formatTime(createdAt)}</time> : null}
         </header>
         {showTimeline ? (
-          <section className="assistant-timeline-card" aria-label="工具执行时间线">
+          <section className="assistant-timeline-card" aria-label="执行详情">
             <div className="assistant-timeline-header">
-              <div className="assistant-timeline-title">工具时间线聚合</div>
-              {canSwitchVersion ? <div className="assistant-timeline-version">联动版本 {versionNumber} / {versionCount}</div> : null}
+              <div className="assistant-timeline-title">执行详情</div>
             </div>
             <ol className="assistant-timeline-list">
-              {timeline.map((entry) => (
+              {timeline.map((entry) => {
+                const source = ordered.find((block) => block.id === entry.id) ?? null;
+                return (
                 <li key={entry.id} className={`assistant-timeline-item assistant-timeline-item-${entry.kind}${entry.collapsible && entry.collapsed ? ' is-collapsed' : ''}${entry.status === 'error' ? ' is-error' : ''}${entry.badges.some((badge) => badge.startsWith('重试')) ? ' is-retry' : ''}`}>
                   {entry.collapsible ? (
                     <button type="button" className="assistant-timeline-button" aria-expanded={!entry.collapsed} onClick={() => onToggle(entry.id)}>
                       <span className="assistant-timeline-main">
                         <span className="assistant-timeline-heading">
-                          <span className="assistant-timeline-step">Step {entry.stepNumber}</span>
+                          <span className="assistant-timeline-step">第 {entry.stepNumber} 步</span>
                           <strong>{entry.title}</strong>
                           {entry.badges.map((badge) => <span key={badge} className="assistant-timeline-badge">{badge}</span>)}
                         </span>
@@ -817,15 +897,15 @@ function AssistantTranscriptItem({
                       </span>
                       <span className="assistant-timeline-meta">
                         {entry.elapsed ? <span>{formatToolElapsed(entry.elapsed)}</span> : null}
-                        {entry.status ? <span className={`status-pill status-${entry.status}`}>{entry.status}</span> : null}
-                        <span>{entry.collapsed && entry.badges.includes('报告正文') ? '查看报告' : entry.collapsed ? '展开' : '查看'}</span>
+                        {entry.status ? <span className={`status-pill status-${entry.status}`}>{statusLabel(entry.status)}</span> : null}
+                        <span>{entry.collapsed ? '展开' : '收起'}</span>
                       </span>
                     </button>
                   ) : (
                     <div className="assistant-timeline-button assistant-timeline-static">
                       <span className="assistant-timeline-main">
                         <span className="assistant-timeline-heading">
-                          <span className="assistant-timeline-step">Step {entry.stepNumber}</span>
+                          <span className="assistant-timeline-step">第 {entry.stepNumber} 步</span>
                           <strong>{entry.title}</strong>
                           {entry.badges.map((badge) => <span key={badge} className="assistant-timeline-badge">{badge}</span>)}
                         </span>
@@ -833,25 +913,39 @@ function AssistantTranscriptItem({
                       </span>
                       <span className="assistant-timeline-meta">
                         {entry.elapsed ? <span>{formatToolElapsed(entry.elapsed)}</span> : null}
-                        {entry.status ? <span className={`status-pill status-${entry.status}`}>{entry.status}</span> : null}
+                        {entry.status ? <span className={`status-pill status-${entry.status}`}>{statusLabel(entry.status)}</span> : null}
                       </span>
                     </div>
                   )}
-                  {!entry.collapsed && entry.badges.includes('报告正文') ? (
-                    <div className="assistant-timeline-report">
-                      <ToolDetail block={ordered.find((block) => block.id === entry.id)!}
-                        loadingLabel="正在读取报告..." onOpenConversation={onOpenConversation} />
+                  {entry.collapsible && !entry.collapsed && source ? (
+                    <div className="assistant-timeline-detail">
+                      {entry.kind === 'tool' ? (
+                        isLocalReportBlock(source) ? (
+                          <p className="assistant-timeline-note">已生成本地报告，可在下方报告卡阅读全文。</p>
+                        ) : (
+                          <ToolDetail block={source} loadingLabel="正在调用工具..." onOpenConversation={onOpenConversation} />
+                        )
+                      ) : entry.kind === 'reasoning' ? (
+                        source.text ? <pre className="plain-pre">{source.text}</pre> : <LoadingDots label="正在思考..." />
+                      ) : null}
                     </div>
                   ) : null}
                 </li>
-              ))}
+                );
+              })}
             </ol>
           </section>
         ) : null}
         <div className="assistant-sections">
-          {ordered.filter((block) => !(showTimeline && block.kind === 'tool' && block.label === 'stock_report_read'
-            && typeof (block.toolResult as {local_result?: unknown} | null | undefined)?.local_result === 'string'))
-            .map((block) => <AssistantSection key={block.id} block={block} onToggle={onToggle} onOpenConversation={onOpenConversation} />)}
+          {ordered.map((block) => {
+            if (isLocalReportBlock(block)) {
+              return <ReportCard key={block.id} block={block} onRead={onReadReport} />;
+            }
+            if (showTimeline && (block.kind === 'tool' || block.kind === 'reasoning')) {
+              return null;
+            }
+            return <AssistantSection key={block.id} block={block} onToggle={onToggle} onOpenConversation={onOpenConversation} />;
+          })}
           {!hasAnswer && status === 'running' ? <LoadingDots label="正在等待模型输出..." /> : null}
         </div>
         <footer className="message-actions">
@@ -943,7 +1037,7 @@ function TranscriptItem({
       <div className="message-body">
         <header className="message-header">
           <span>{block.label}</span>
-          {block.status ? <span className={`status-pill status-${block.status}`}>{block.status}</span> : null}
+          {block.status ? <span className={`status-pill status-${block.status}`}>{statusLabel(block.status)}</span> : null}
           {block.createdAt ? <time>{formatTime(block.createdAt)}</time> : null}
           {block.collapsible ? (
             <button type="button" className="ghost-button tiny" aria-expanded={!block.collapsed} onClick={() => onToggle(block.id)}>
@@ -1138,6 +1232,8 @@ export default function App() {
   const [inspectorWidth, setInspectorWidth] = useState(() => readStoredWidth(INSPECTOR_WIDTH_STORAGE_KEY, 360, INSPECTOR_MIN, INSPECTOR_MAX));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.innerWidth <= INSPECTOR_DRAWER_BREAKPOINT);
+  const [readingReport, setReadingReport] = useState<ReadingReport | null>(null);
+  const [readerZoomed, setReaderZoomed] = useState(false);
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadAppearanceSettings());
   const [busy, setBusy] = useState(false);
   const [versionBusy, setVersionBusy] = useState(false);
@@ -1156,6 +1252,9 @@ export default function App() {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const suppressNextAutoScrollRef = useRef(false);
+  const stickToBottomRef = useRef(true);
+  const readerBodyRef = useRef<HTMLDivElement | null>(null);
+  const readerPrevWidthRef = useRef<number | null>(null);
   const activeConversationIdRef = useRef<string | null>(window.localStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY));
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId) ?? models.find((model) => model.default) ?? models[0],
@@ -1269,6 +1368,8 @@ export default function App() {
     flushDeltaBuffer();
     pendingUserBlockIdRef.current = null;
     pendingAssistantBlockIdRef.current = null;
+    stickToBottomRef.current = true;
+    closeReportReader();
     setConversationLoading(true);
     try {
       const messages = await fetchMessages(targetId);
@@ -1347,6 +1448,34 @@ export default function App() {
     setAttachedPaths([]);
     setEditingMessage(null);
     setError('');
+    stickToBottomRef.current = true;
+    closeReportReader();
+  };
+  const applyReaderZoomReset = () => {
+    if (readerPrevWidthRef.current !== null) {
+      setInspectorWidth(readerPrevWidthRef.current);
+      readerPrevWidthRef.current = null;
+      setReaderZoomed(false);
+    }
+  };
+  function closeReportReader() {
+    applyReaderZoomReset();
+    setReadingReport(null);
+  }
+  const openReportReader = (report: ReadingReport) => {
+    if (inspectorCollapsed) {
+      setInspectorCollapsed(false);
+    }
+    setReadingReport(report);
+  };
+  const toggleReaderZoom = () => {
+    if (readerZoomed) {
+      applyReaderZoomReset();
+    } else {
+      readerPrevWidthRef.current = inspectorWidth;
+      setInspectorWidth(INSPECTOR_MAX);
+      setReaderZoomed(true);
+    }
   };
   const toggleBlock = (id: string) => {
     suppressNextAutoScrollRef.current = true;
@@ -1486,11 +1615,23 @@ export default function App() {
         break;
       case 'tool.progress': {
         const detail = eventText(event, 'text');
-        setBlocks(current => current.map(block => block.id === event.block_id ? {
-          ...block, text: event.data.event === 'heartbeat' ? block.text : detail ? (block.text + detail).slice(-102400) : block.text,
-          summary: event.data.event === 'heartbeat' ? `${detail}（已等待 ${event.data.elapsed ?? 0} 秒）` : block.summary,
-          elapsed: typeof event.data.elapsed === 'number' ? event.data.elapsed : block.elapsed,
-        } : block));
+        setBlocks(current => current.map(block => {
+          if (block.id !== event.block_id) {
+            return block;
+          }
+          const elapsed = typeof event.data.elapsed === 'number' ? event.data.elapsed : block.elapsed;
+          if (event.data.event === 'heartbeat') {
+            return {...block, summary: `${detail}（已等待 ${event.data.elapsed ?? 0} 秒）`, elapsed};
+          }
+          if (!detail) {
+            return {...block, elapsed};
+          }
+          const combined = block.text + detail;
+          const text = combined.length > TOOL_TEXT_LIMIT
+            ? `${TOOL_TEXT_TRUNCATION_NOTICE}\n${combined.slice(-TOOL_TEXT_LIMIT)}`
+            : combined;
+          return {...block, text, elapsed};
+        }));
         break;
       }
       case 'tool.completed': {
@@ -1624,6 +1765,7 @@ export default function App() {
     setEditingMessage(null);
     setBusy(true);
     setError('');
+    stickToBottomRef.current = true;
     if (activeEdit?.messageId) {
       setBlocks((current) => {
         const userIndex = current.findIndex((block) => block.id === activeEdit.messageId);
@@ -1948,12 +2090,29 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
+    const node = transcriptRef.current;
+    if (!node) {
+      return;
+    }
+    const handleScroll = () => {
+      stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+    };
+    node.addEventListener('scroll', handleScroll, {passive: true});
+    return () => node.removeEventListener('scroll', handleScroll);
+  }, []);
+  useEffect(() => {
     if (suppressNextAutoScrollRef.current) {
       suppressNextAutoScrollRef.current = false;
       return;
     }
+    if (!stickToBottomRef.current) {
+      return;
+    }
     transcriptRef.current?.scrollTo({top: transcriptRef.current.scrollHeight, behavior: 'smooth'});
   }, [blocks, busy]);
+  useEffect(() => {
+    readerBodyRef.current?.scrollTo({top: 0});
+  }, [readingReport]);
   return (
     <div
       className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${inspectorCollapsed ? ' inspector-collapsed' : ''}`}
@@ -2087,6 +2246,7 @@ export default function App() {
                   onSwitchVersion={(messageId, versionNumber) => void switchAssistantVersion(messageId, versionNumber)}
                   onDeleteMessage={(messageId) => void removeMessage(messageId)}
                   onOpenConversation={(targetId) => void openConversation(targetId)}
+                  onReadReport={openReportReader}
                   busy={busy}
                 />
               : <TranscriptItem
@@ -2160,7 +2320,20 @@ export default function App() {
           </div>
         </footer>
       </main>
-      <aside className="inspector">
+      <aside className={`inspector${readingReport ? ' is-reading' : ''}`}>
+        <div className="report-reader" role="region" aria-label="报告阅读">
+          <header className="report-reader-header">
+            <strong className="report-reader-title">{readingReport?.title ?? ''}</strong>
+            <div className="report-reader-actions">
+              <button type="button" className="ghost-button tiny" onClick={toggleReaderZoom}>{readerZoomed ? '还原' : '放大'}</button>
+              <button type="button" className="ghost-button tiny" onClick={closeReportReader}>关闭</button>
+            </div>
+          </header>
+          <div className="report-reader-body" ref={readerBodyRef}>
+            {readingReport ? <MarkdownMessage content={readingReport.content} /> : null}
+          </div>
+        </div>
+        <div className="inspector-panels">
         <button type="button" className="ghost-button tiny inspector-collapse-button" onClick={() => setInspectorCollapsed(true)}>收起工作区</button>
         <WorkspacePanel
           attachedPaths={attachedPaths}
@@ -2226,6 +2399,7 @@ export default function App() {
           onMethodChanged={(updated) => setConversations((current) => current.map((item) =>
             item.id === updated.id ? updated : item))} />
         <StockServicePanel onChanged={() => void loadBootstrap()} />
+        </div>
       </aside>
       {inspectorCollapsed ? (
         <button
