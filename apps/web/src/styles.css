@@ -1435,8 +1435,15 @@ body.is-resizing-layout .layout-resizer::after { transition: none; }
     grid-template-columns: 1fr;
     grid-template-areas: "chat";
   }
-  .sidebar,
   .layout-resizer { display: none; }
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 75;
+    width: min(320px, 86vw);
+    background: var(--surface);
+    box-shadow: var(--elev-3);
+  }
   .topbar { align-items: flex-start; height: auto; flex-direction: column; }
   .topbar > div:first-child { width: 100%; }
   .topbar select { width: 100%; }

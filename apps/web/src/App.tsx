@@ -43,6 +43,8 @@ const INSPECTOR_MIN = 280;
 const INSPECTOR_MAX = 620;
 // 与 styles.css 的 @media (max-width: 1180px) 保持一致
 const INSPECTOR_DRAWER_BREAKPOINT = 1180;
+// 与 styles.css 的 @media (max-width: 820px) 保持一致
+const SIDEBAR_DRAWER_BREAKPOINT = 820;
 const SIDEBAR_WIDTH_STORAGE_KEY = 'local-ai-agent.sidebar-width';
 const INSPECTOR_WIDTH_STORAGE_KEY = 'local-ai-agent.inspector-width';
 const readStoredWidth = (key: string, fallback: number, min: number, max: number) => {
@@ -1224,7 +1226,7 @@ export default function App() {
   const [toast, setToast] = useState<string>('');
   const [sidebarWidth, setSidebarWidth] = useState(() => readStoredWidth(SIDEBAR_WIDTH_STORAGE_KEY, 300, SIDEBAR_MIN, SIDEBAR_MAX));
   const [inspectorWidth, setInspectorWidth] = useState(() => readStoredWidth(INSPECTOR_WIDTH_STORAGE_KEY, 360, INSPECTOR_MIN, INSPECTOR_MAX));
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth <= SIDEBAR_DRAWER_BREAKPOINT);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.innerWidth <= INSPECTOR_DRAWER_BREAKPOINT);
   const [readingReport, setReadingReport] = useState<ReadingReport | null>(null);
   const [readerZoomed, setReaderZoomed] = useState(false);
