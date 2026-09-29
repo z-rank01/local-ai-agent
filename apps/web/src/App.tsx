@@ -37,6 +37,16 @@ const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 480;
 const INSPECTOR_MIN = 280;
 const INSPECTOR_MAX = 620;
+// 与 styles.css 的 @media (max-width: 1180px) 保持一致
+const INSPECTOR_DRAWER_BREAKPOINT = 1180;
+const SIDEBAR_WIDTH_STORAGE_KEY = 'local-ai-agent.sidebar-width';
+const INSPECTOR_WIDTH_STORAGE_KEY = 'local-ai-agent.inspector-width';
+const readStoredWidth = (key: string, fallback: number, min: number, max: number) => {
+  const raw = window.localStorage.getItem(key);
+  const value = raw ? Number.parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+};
 type AssistantTranscriptGroup = {
   id: string;
   kind: 'assistant-group';
@@ -1124,10 +1134,10 @@ export default function App() {
   const [editingMessage, setEditingMessage] = useState<EditingState | null>(null);
   const [conversationFilter, setConversationFilter] = useState('');
   const [toast, setToast] = useState<string>('');
-  const [sidebarWidth, setSidebarWidth] = useState(300);
-  const [inspectorWidth, setInspectorWidth] = useState(360);
+  const [sidebarWidth, setSidebarWidth] = useState(() => readStoredWidth(SIDEBAR_WIDTH_STORAGE_KEY, 300, SIDEBAR_MIN, SIDEBAR_MAX));
+  const [inspectorWidth, setInspectorWidth] = useState(() => readStoredWidth(INSPECTOR_WIDTH_STORAGE_KEY, 360, INSPECTOR_MIN, INSPECTOR_MAX));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.innerWidth <= 1180);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.innerWidth <= INSPECTOR_DRAWER_BREAKPOINT);
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadAppearanceSettings());
   const [busy, setBusy] = useState(false);
   const [versionBusy, setVersionBusy] = useState(false);
@@ -1201,6 +1211,12 @@ export default function App() {
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp, {once: true});
   }, []);
+  useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+  useEffect(() => {
+    window.localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
+  }, [inspectorWidth]);
   const flushDeltaBuffer = useCallback(() => {
     const buffered = Object.entries(deltaBufferRef.current);
     if (!buffered.length) {
