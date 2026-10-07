@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 
 
@@ -14,6 +15,7 @@ class PathGuard:
     def __init__(self, workspace_root: str):
         # Resolve symlinks for the root itself so comparisons are stable.
         self._root = os.path.realpath(workspace_root)
+        self.roots = [self._root] + [os.path.realpath(p) for p in json.loads(os.environ.get("WORKSPACE_ROOTS", "[]")) if p != workspace_root]
 
     def resolve(self, path: str) -> Path:
         """Resolve a caller-supplied path to an absolute Path inside the workspace.
@@ -31,15 +33,14 @@ class PathGuard:
         # realpath normalises .. / . and follows symlinks for existing components.
         candidate = os.path.realpath(raw)
 
-        # commonpath uses path components, not string prefixes, so
-        # /workspace and /workspace2/foo correctly yield "/" as their common path.
-        try:
-            common = os.path.commonpath([self._root, candidate])
-        except ValueError:
-            # Different drives on Windows.
+        def contains(root):
+            try:
+                return os.path.commonpath([root, candidate]) == root
+            except ValueError:
+                return False
+        if not any(contains(root) for root in self.roots):
             raise PermissionError(f"Access denied: {path!r} escapes the workspace root")
 
-        if common != self._root:
-            raise PermissionError(f"Access denied: {path!r} escapes the workspace root")
-
+        if Path(candidate).is_relative_to(Path(self._root) / ".harness"):
+            raise PermissionError("Other workspace managed files are inaccessible")
         return Path(candidate)

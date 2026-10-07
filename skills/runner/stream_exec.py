@@ -9,7 +9,7 @@ from pathlib import Path
 from sandbox import _SAFE_ENV, validate_workspace_cwd
 
 
-async def stream_shell(command, timeout=60, cwd='/workspace', argv=None):
+async def stream_shell(command, timeout=60, cwd=None, argv=None):
     workdir = validate_workspace_cwd(cwd)
     start = time.monotonic()
     proc = await asyncio.create_subprocess_exec(*(argv or ['/bin/sh', '-c', command]), cwd=str(workdir),
@@ -81,7 +81,7 @@ async def stream_shell(command, timeout=60, cwd='/workspace', argv=None):
         await proc.wait()
 
 
-async def stream_python(code, timeout=30, args=None):
+async def stream_python(code, timeout=30, args=None, cwd=None):
     import tempfile
     import sys
     from contextlib import aclosing
@@ -89,7 +89,7 @@ async def stream_python(code, timeout=30, args=None):
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as file:
             file.write(code)
-        async with aclosing(stream_shell('', timeout=timeout, argv=[sys.executable, '-u', name, *(args or [])])) as stream:
+        async with aclosing(stream_shell('', timeout=timeout, cwd=cwd, argv=[sys.executable, '-u', name, *(args or [])])) as stream:
             async for item in stream:
                 if item.get('event') == 'result':
                     item['result']['runtime'] = 'python'

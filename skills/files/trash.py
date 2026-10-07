@@ -22,6 +22,8 @@ class TrashManager:
 
     def move_to_trash(self, path: str) -> dict:
         resolved = self._guard.resolve(path)
+        if str(resolved) in self._guard.roots:
+            raise PermissionError("Workspace roots cannot be deleted")
         if not resolved.exists():
             raise FileNotFoundError(f"File not found: {path!r}")
 
@@ -30,7 +32,11 @@ class TrashManager:
         date_bucket = deleted_at.strftime("%Y-%m-%d")
         operation_id = f"{ts}_{uuid.uuid4().hex[:8]}"
         operation_dir = self._trash / date_bucket / operation_id
-        relative_path = resolved.relative_to(self._workspace_root)
+        root = next(Path(r) for r in self._guard.roots if resolved.is_relative_to(Path(r)))
+        relative_path = resolved.relative_to(root)
+        virtual_path = str(resolved) if root != self._workspace_root else self._to_workspace_path(relative_path)
+        if root != self._workspace_root:
+            relative_path = Path(".roots") / root.name / relative_path
         dest = operation_dir / relative_path
 
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -41,7 +47,7 @@ class TrashManager:
                 "operation_id": operation_id,
                 "deleted_at": deleted_at.isoformat(),
                 "original_path": str(resolved),
-                "workspace_path": self._to_workspace_path(relative_path),
+                "workspace_path": virtual_path,
                 "relative_path": relative_path.as_posix(),
                 "trash_path": str(dest),
                 "item_type": "directory" if dest.is_dir() else "file",
@@ -52,7 +58,7 @@ class TrashManager:
             "original": str(resolved),
             "operation_id": operation_id,
             "manifest": str(operation_dir / "manifest.json"),
-            "workspace_path": self._to_workspace_path(relative_path),
+            "workspace_path": virtual_path,
         }
 
     def list_items(self) -> list[dict]:
@@ -104,6 +110,9 @@ class TrashManager:
         if original_path.exists():
             raise FileExistsError(f"Cannot restore because the original path already exists: {original_path}")
 
+        original_path = self._guard.resolve(str(original_path))
+        if not any(Path(r).is_dir() and original_path.is_relative_to(Path(r)) for r in self._guard.roots):
+            raise PermissionError("Original workspace root is unavailable")
         original_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(trash_path), str(original_path))
 

@@ -1,9 +1,11 @@
 import logging
 import os
+import secrets
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import yaml
 
@@ -146,9 +148,21 @@ class CommitRequest(BaseModel):
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 
+def token_matches(request: Request) -> bool:
+    expected = os.environ.get('WORKSPACE_TOOL_TOKEN', '')
+    return bool(expected) and secrets.compare_digest(request.headers.get('X-Workspace-Token', '').encode(), expected.encode())
+
+
+@app.middleware('http')
+async def workspace_authorization(request: Request, call_next):
+    if os.environ.get('WORKSPACE_TOOL_TOKEN') and request.url.path not in {'/health', '/openapi.json'} and not token_matches(request):
+        return JSONResponse(status_code=403, content={'detail': '工作区工具身份不匹配'})
+    return await call_next(request)
+
+
 @app.get("/health")
-async def health():
-    return {"status": "ok", "workspace": _WORKSPACE}
+async def health(request: Request):
+    return {"status": "ok", "workspace": _WORKSPACE, "workspace_id": os.environ.get("WORKSPACE_ID", "default"), "workspace_version": int(os.environ.get("WORKSPACE_VERSION", "1")), "workspace_protocol": 2, "token_authenticated": token_matches(request)}
 
 
 @app.post("/tool/file_read")
@@ -181,7 +195,7 @@ async def file_read(req: ReadRequest):
 async def file_write(req: WriteRequest):
     try:
         result = _file_ops.write(req.path, req.content, req.encoding)
-        if _AUTO_GIT:
+        if _AUTO_GIT and req.path.startswith("/workspace/"):
             _git.auto_commit(f"agent: write {req.path}")
         return result
     except PermissionError as exc:
@@ -199,7 +213,7 @@ class EditRequest(BaseModel):
 async def file_edit(req: EditRequest):
     try:
         result = _file_ops.edit(req.path, req.old_text, req.new_text, req.expected_sha256)
-        if _AUTO_GIT and result['changed']:
+        if _AUTO_GIT and req.path.startswith('/workspace/') and result['changed']:
             _git.auto_commit(f'agent: edit {req.path}')
         return result
     except PermissionError as exc:
@@ -246,6 +260,8 @@ async def trash_restore(req: RestoreTrashRequest):
     try:
         _cleanup_trash_if_due()
         return _trash.restore_from_trash(req.operation_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except FileExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except FileNotFoundError as exc:
@@ -260,13 +276,15 @@ async def file_rename(req: RenameRequest):
     try:
         src = _guard.resolve(req.src)
         dst = _guard.resolve(req.dst)
+        if str(src) in _guard.roots or str(dst) in _guard.roots:
+            raise PermissionError("Workspace roots cannot be renamed")
         if not src.exists():
             raise FileNotFoundError(f"Source not found: {req.src!r}")
         if dst.exists():
             raise PermissionError(f"Destination already exists: {req.dst!r}")
         dst.parent.mkdir(parents=True, exist_ok=True)
         src.rename(dst)
-        if _AUTO_GIT:
+        if _AUTO_GIT and req.src.startswith("/workspace/"):
             _git.auto_commit(f"agent: rename {req.src} -> {req.dst}")
         return {"renamed": True, "src": str(src), "dst": str(dst)}
     except PermissionError as exc:
@@ -286,3 +304,37 @@ async def git_commit(req: CommitRequest):
     if not result.get("committed"):
         raise HTTPException(status_code=400, detail=result.get("reason", "commit failed"))
     return result
+
+
+@app.post('/workspace/upload')
+async def upload_bytes(request: Request, path: str):
+    import uuid
+    target = _guard.resolve(path)
+    temporary = target.with_name('.upload-' + uuid.uuid4().hex)
+    size = 0
+    try:
+        if target.exists():
+            raise HTTPException(409, '目标文件已存在，请刷新后重试')
+        with temporary.open('xb') as handle:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > 100 * 1024 * 1024: raise HTTPException(413, '文件不能超过 100MB')
+                handle.write(chunk)
+        temporary.rename(target)
+        return {'path': path, 'size': size}
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+@app.post('/workspace/directory')
+async def create_directory(req: DeleteRequest):
+    try:
+        target = _guard.resolve(req.path)
+        target.mkdir(exist_ok=False)
+        return {'path': req.path}
+    except FileExistsError as exc:
+        raise HTTPException(409, '目录已存在') from exc
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc

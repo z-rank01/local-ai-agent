@@ -13,13 +13,16 @@ Endpoints:
 
 import logging
 import os
+import secrets
+from pathlib import Path
 import re as _re
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from contextlib import aclosing
 import json
 from stream_exec import stream_shell, stream_python
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from sandbox import run_python, run_shell, run_pip_install
@@ -52,6 +55,7 @@ async def startup_event():
 # ── Request models ────────────────────────────────────────────────────────────
 
 class CodeExecRequest(BaseModel):
+    cwd: str | None = None
     code: str = Field(..., description="Python source code to execute")
     timeout: int = Field(default=30, ge=1, le=120)
 
@@ -59,7 +63,7 @@ class CodeExecRequest(BaseModel):
 class ShellExecRequest(BaseModel):
     command: str = Field(..., description="Shell command to run in /workspace")
     timeout: int = Field(default=60, ge=1, le=300)
-    cwd: str = '/workspace'
+    cwd: str | None = None
 
 
 class PipInstallRequest(BaseModel):
@@ -100,9 +104,21 @@ class FileConvertRequest(BaseModel):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+def token_matches(request: Request) -> bool:
+    expected = os.environ.get('WORKSPACE_TOOL_TOKEN', '')
+    return bool(expected) and secrets.compare_digest(request.headers.get('X-Workspace-Token', '').encode(), expected.encode())
+
+
+@app.middleware('http')
+async def workspace_authorization(request: Request, call_next):
+    if os.environ.get('WORKSPACE_TOOL_TOKEN') and request.url.path not in {'/health', '/openapi.json'} and not token_matches(request):
+        return JSONResponse(status_code=403, content={'detail': '工作区工具身份不匹配'})
+    return await call_next(request)
+
+
 @app.get("/health")
-async def health():
-    return {"status": "ok", "workspace": "/workspace"}
+async def health(request: Request):
+    return {"status": "ok", "workspace": "/workspace", "workspace_id": os.environ.get("WORKSPACE_ID", "default"), "workspace_version": int(os.environ.get("WORKSPACE_VERSION", "1")), "workspace_protocol": 2, "token_authenticated": token_matches(request)}
 
 
 @app.post("/tool/code_exec")
@@ -113,7 +129,7 @@ async def code_exec(req: CodeExecRequest):
 
     timeout = min(req.timeout, _PYTHON_TIMEOUT)
     logger.info("code_exec: %d chars, timeout=%ds", len(req.code), timeout)
-    result = run_python(req.code, timeout=timeout)
+    result = run_python(req.code, timeout=timeout, cwd=req.cwd)
 
     if result["exit_code"] != 0 and not result["stdout"] and result["stderr"]:
         logger.warning("code_exec failed: exit=%d stderr=%s", result["exit_code"], result["stderr"][:200])
@@ -169,7 +185,10 @@ def file_convert(req: FileConvertRequest):
     """Convert a non-text file to plain text using converter plugins."""
     if not req.path.strip():
         raise HTTPException(status_code=400, detail="path must not be empty")
-    if not req.path.startswith("/workspace"):
+    from sandbox import validate_workspace_cwd
+    try:
+        validate_workspace_cwd(str(Path(req.path).parent))
+    except ValueError:
         raise HTTPException(status_code=403, detail="path must start with /workspace")
 
     logger.info("file_convert: %s", req.path)
@@ -283,7 +302,7 @@ async def skill_update_endpoint(req: SkillUpdateRequest):
 @app.post('/tool/code_exec/stream')
 async def code_exec_stream(req: CodeExecRequest):
     async def events():
-        async with aclosing(stream_python(req.code, min(req.timeout, _PYTHON_TIMEOUT))) as stream:
+        async with aclosing(stream_python(req.code, min(req.timeout, _PYTHON_TIMEOUT), cwd=req.cwd)) as stream:
             async for item in stream:
                 yield json.dumps(item, ensure_ascii=False) + '\n'
     return StreamingResponse(events(), media_type='application/x-ndjson')

@@ -18,6 +18,7 @@ Security model:
 """
 
 import os
+import json
 import signal
 import subprocess
 import sys
@@ -44,8 +45,9 @@ _SAFE_ENV = {
 def validate_workspace_cwd(cwd: str | None) -> str:
     """Confine the working directory to a real directory inside /workspace."""
     root = Path(_WORKSPACE_ROOT).resolve()
-    workdir = Path(cwd or _WORKSPACE_ROOT).resolve()
-    if not workdir.is_relative_to(root) or not workdir.is_dir():
+    workdir = Path(cwd or os.environ.get("WORKSPACE_CWD", _WORKSPACE_ROOT)).resolve()
+    roots = [root] + [Path(p).resolve() for p in json.loads(os.environ.get("WORKSPACE_ROOTS", "[]"))]
+    if not any(workdir.is_relative_to(r) for r in roots) or not workdir.is_dir() or workdir.is_relative_to(root / ".harness"):
         raise ValueError("工作目录必须是 /workspace 内的实际目录")
     return str(workdir)
 
@@ -91,7 +93,7 @@ def _spawn_collect(args, *, timeout: int, cwd: str | None, timeout_message: str,
     return _collect_with_timeout(proc, timeout, timeout_message)
 
 
-def run_argv(argv: list[str], timeout: int, cwd: str = _WORKSPACE_ROOT) -> dict:
+def run_argv(argv: list[str], timeout: int, cwd: str | None = None) -> dict:
     """Run an argv command in a confined process group and collect bounded output."""
     workdir = validate_workspace_cwd(cwd)
     return _spawn_collect(
@@ -102,7 +104,7 @@ def run_argv(argv: list[str], timeout: int, cwd: str = _WORKSPACE_ROOT) -> dict:
     )
 
 
-def run_python(code: str, timeout: int = DEFAULT_PYTHON_TIMEOUT) -> dict:
+def run_python(code: str, timeout: int = DEFAULT_PYTHON_TIMEOUT, cwd: str | None = None) -> dict:
     """Execute arbitrary Python code in a subprocess and return results."""
     tmp_path = None
     try:
@@ -112,7 +114,7 @@ def run_python(code: str, timeout: int = DEFAULT_PYTHON_TIMEOUT) -> dict:
             f.write(code)
             tmp_path = f.name
 
-        return run_argv([sys.executable, tmp_path], timeout=timeout)
+        return run_argv([sys.executable, tmp_path], timeout=timeout, cwd=cwd or os.environ.get("WORKSPACE_CWD", _WORKSPACE_ROOT))
 
     except Exception as exc:
         return {
