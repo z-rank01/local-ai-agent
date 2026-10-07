@@ -1,3 +1,4 @@
+display_name: "提交个股研究"
 name: stock_research_submit
 backend: stock-bridge
 tier: extended

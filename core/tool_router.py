@@ -3,6 +3,7 @@ Tool router — dispatches tool calls to skill microservices via HTTP.
 """
 
 import json
+import os
 import asyncio
 import time
 from contextlib import suppress
@@ -44,12 +45,34 @@ class ToolRouter:
         self._registry = registry
         self._store = store
         self._stock_bridge = stock_bridge
-        self._client = httpx.AsyncClient(timeout=300.0)
+        self._client = httpx.AsyncClient(timeout=300.0, trust_env=False)
+        if os.environ.get("DAILY_SERVICES") == "1":
+            from .workspaces import tool_token
+            self.workspace_token = tool_token("default")
+
+    def _workspace_params(self, tool, params):
+        snapshot = getattr(self, 'workspace_snapshot', None)
+        if snapshot is None or self._registry.get_backend(tool) not in {'skill-files', 'skill-runner'}:
+            return params
+        if tool in {'shell_exec', 'code_exec', 'skill_run'}:
+            snapshot.validate_links()
+        params = dict(params)
+        for key in ('path', 'src', 'dst', 'directory', 'cwd'):
+            if isinstance(params.get(key), str):
+                params[key] = snapshot.virtual(snapshot.resolve(params[key]))
+        return params
+
+    def _headers(self, backend):
+        token = getattr(self, 'workspace_token', '')
+        return {'X-Workspace-Token': token} if token and backend in {'skill-files', 'skill-runner'} else {}
 
     async def dispatch(self, tool: str, params: dict[str, Any], session_id: str = "default") -> Any:
         if tool not in self._registry.known_tools:
             raise ValueError(f"Unknown tool: {tool!r}")
 
+        if tool in {"shell_exec", "code_exec"}:
+            params = {"cwd": getattr(self, "default_cwd", "/workspace"), **params}
+        params = self._workspace_params(tool, params)
         self._policy.check(tool, params)
 
         backend = self._registry.get_backend(tool)
@@ -63,11 +86,13 @@ class ToolRouter:
             result = await self._stock_bridge.call_tool(tool, params, session_id)
             self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
             return result
+        if hasattr(self, "workspace_validate"):
+            await self.workspace_validate()
         base_url = self._backend_urls[backend]
 
         resp = await self._client.post(
             f"{base_url}/tool/{tool}",
-            json=params,
+            json=params, headers=self._headers(backend),
         )
 
         if resp.status_code == 403:
@@ -135,9 +160,14 @@ class ToolRouter:
             return
         if tool not in self._registry.known_tools:
             raise ValueError('Unknown tool')
+        if tool in {"shell_exec", "code_exec"}:
+            params = {"cwd": getattr(self, "default_cwd", "/workspace"), **params}
+        params = self._workspace_params(tool, params)
         self._policy.check(tool, params)
         backend = self._registry.get_backend(tool)
-        async with self._client.stream('POST', self._backend_urls[backend] + f'/tool/{tool}/stream', json=params) as response:
+        if hasattr(self, 'workspace_validate'):
+            await self.workspace_validate()
+        async with self._client.stream('POST', self._backend_urls[backend] + f'/tool/{tool}/stream', json=params, headers=self._headers(backend)) as response:
             if response.status_code == 404:
                 raise RuntimeError('工具服务版本过旧，缺少流式执行接口。请更新 skill-runner 服务；修改代码或安装 Python 包不能解决该问题。')
             response.raise_for_status()
@@ -151,6 +181,9 @@ class ToolRouter:
         if getattr(self, 'cloud', False):
             from .agent import model_projection
             def safe_messages(cid):
+                conversation = self._store.get_conversation(cid)
+                if conversation is None or (hasattr(self, "workspace_id") and conversation.workspace_id != self.workspace_id):
+                    raise PermissionError("该会话不属于当前工作区")
                 return model_projection(self._store.messages_as_dicts(cid, cloud=True))
             if tool == 'conversation_read':
                 cid = str(params.get('conversation_id', ''))
@@ -159,7 +192,7 @@ class ToolRouter:
             if tool == 'conversation_search':
                 query = str(params.get('query', ''))
                 results = []
-                for conv in self._store.list_conversations(limit=200):
+                for conv in self._store.list_conversations(limit=200, workspace_id=getattr(self, "workspace_id", None)):
                     messages = safe_messages(conv.id)
                     match = next((m for m in messages if query.casefold() in str(m.get('content','')).casefold()), None)
                     if match:
@@ -184,7 +217,7 @@ class ToolRouter:
                 raise PermissionError("limit must be an integer") from exc
         limit = max(1, min(limit, 10))
 
-        conversations = self._store.list_conversations(limit=limit, offset=0, query=query)
+        conversations = self._store.list_conversations(limit=limit, offset=0, query=query, workspace_id=getattr(self, "workspace_id", None))
         results: list[dict[str, Any]] = []
         lowered = query.casefold()
         for conversation in conversations:
@@ -231,6 +264,8 @@ class ToolRouter:
         if conversation is None:
             raise FileNotFoundError("conversation not found")
 
+        if hasattr(self, "workspace_id") and conversation.workspace_id != self.workspace_id:
+            raise PermissionError("该会话不属于当前工作区")
         messages = conversation.messages[-max_messages:]
         return {
             "conversation": {
@@ -278,11 +313,12 @@ class ToolRouter:
         return f"{prefix}{compact[start:end]}{suffix}"
 
     async def _dispatch_convert(self, path: str, session_id: str) -> dict:
+        path = self._workspace_params("file_convert", {"path": path})["path"]
         backend = self._registry.get_backend("file_convert")
         base_url = self._backend_urls[backend]
         resp = await self._client.post(
             f"{base_url}/tool/file_convert",
-            json={"path": path},
+            json={"path": path}, headers=self._headers(backend),
         )
         if resp.status_code >= 400:
             return {"error": f"file_convert HTTP {resp.status_code}"}

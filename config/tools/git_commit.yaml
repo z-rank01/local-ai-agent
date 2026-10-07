@@ -1,3 +1,4 @@
+display_name: "提交更改"
 name: git_commit
 backend: skill-files
 tier: core

@@ -1,3 +1,4 @@
+display_name: "列出目录"
 name: file_list
 backend: skill-files
 tier: core

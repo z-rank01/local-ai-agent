@@ -1,3 +1,4 @@
+display_name: "运行技能"
 name: skill_run
 backend: skill-runner
 tier: extended

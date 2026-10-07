@@ -6,16 +6,19 @@ import os
 import signal
 import subprocess
 import time
+import httpx
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, aclosing
 from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
-from core import config
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from core import config, model_settings
+from core.workspaces import tool_token
 from core.auto_exit import AutoExitState
 from .deps import get_chat_service, get_runtime, shutdown_runtime
 from .schemas import (
+    WorkspaceChange, WorkspaceDirectoryRequest, WorkspaceRenameRequest,
     ActivateMessageVersionRequest,
     AppStatus,
     ChatRequest,
@@ -115,12 +118,20 @@ async def _stream_ndjson(
             async for item in generate():
                 yield item
     return StreamingResponse(managed(), media_type="application/x-ndjson")
+@app.exception_handler(PermissionError)
+async def filesystem_permission_error(request: Request, exc: PermissionError):
+    return JSONResponse(status_code=403, content={'detail': '当前进程无法访问所选文件，请检查目录权限或工作区工具容器。'})
+
+@app.exception_handler(FileNotFoundError)
+async def filesystem_missing_error(request: Request, exc: FileNotFoundError):
+    return JSONResponse(status_code=404, content={'detail': '文件或目录不存在，请刷新工作区。'})
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
 @app.get("/api/status", response_model=AppStatus)
-async def status() -> AppStatus:
-    return get_chat_service().app_status()
+async def status(workspace_id: str = "default") -> AppStatus:
+    return get_chat_service().for_workspace(workspace_id).app_status()
 def require_local_control(request: Request):
     origin = request.headers.get('origin')
     if not _is_loopback_host(request.client.host if request.client else None) or origin not in config.WEB_ORIGINS:
@@ -266,15 +277,16 @@ async def list_conversations(
     limit: int = 50,
     offset: int = 0,
     query: str | None = None,
+    workspace_id: str | None = None,
 ) -> list[ConversationSummary]:
-    return get_chat_service().list_conversations(limit=limit, offset=offset, query=query)
+    return get_chat_service().list_conversations(limit=limit, offset=offset, query=query, workspace_id=workspace_id)
 
 @app.get('/api/research-methods')
 async def research_methods():
     return {'methods': await get_chat_service().research_methods()}
 @app.post("/api/conversations", response_model=ConversationSummary, status_code=201)
 async def create_conversation(request: CreateConversationRequest) -> ConversationSummary:
-    return get_chat_service().create_conversation(request.title, request.model)
+    return get_chat_service().create_conversation(request.title, request.model, request.workspace_id)
 @app.get("/api/conversations/{conversation_id}", response_model=ConversationSummary)
 async def get_conversation(conversation_id: str) -> ConversationSummary:
     return get_chat_service().get_conversation(conversation_id)
@@ -338,43 +350,163 @@ async def export_conversation(conversation_id: str, format: str = "markdown") ->
         )
     }
     return Response(content=content, media_type=media_type, headers=headers)
+@app.middleware('http')
+async def browser_session(request: Request, call_next):
+    # Stock callbacks retain their existing dedicated credential checks.
+    protected = request.url.path.startswith('/api/') and not request.url.path.startswith('/api/internal/')
+    if os.environ.get('DAILY_SERVICES') == '1' and protected and request.method != 'OPTIONS':
+        from core.ui_session import authenticated, session_token
+        if not authenticated(request):
+            return JSONResponse(status_code=403, content={'detail': '请通过启动.bat重新打开页面'})
+        response = await call_next(request)
+        if request.headers.get('X-Harness-Session'):
+            response.set_cookie('harness_session', session_token(), httponly=True, samesite='strict')
+        return response
+    return await call_next(request)
+
+def workspace_service(workspace_id: str):
+    return get_chat_service().for_workspace(workspace_id)
+
+@app.get('/api/workspaces')
+async def list_workspaces():
+    manager = get_chat_service().workspaces
+    return [manager.public(r) for r in manager.records()]
+
+@app.post('/api/workspaces', status_code=201)
+async def create_workspace(request: Request, payload: WorkspaceChange):
+    require_local_control(request)
+    return await get_chat_service().workspaces.update(payload.model_dump(exclude_unset=True))
+
+@app.patch('/api/workspaces/{workspace_id}')
+async def update_workspace(workspace_id: str, request: Request, payload: WorkspaceChange):
+    require_local_control(request)
+    return await get_chat_service().workspaces.update(payload.model_dump(exclude_unset=True), workspace_id)
+
+@app.post('/api/workspaces/{workspace_id}/activate')
+async def activate_workspace(workspace_id: str, request: Request):
+    require_local_control(request)
+    manager = get_chat_service().workspaces
+    await manager.ensure(workspace_id, apply_pending=True)
+    return manager.public(manager.get(workspace_id))
+
+@app.delete('/api/workspaces/{workspace_id}', status_code=204)
+async def delete_workspace(workspace_id: str, request: Request):
+    require_local_control(request)
+    manager = get_chat_service().workspaces
+    async with manager.lock:
+        if manager.active:
+            raise HTTPException(409, '请等待任务结束后删除工作区')
+        old = manager.get(workspace_id)
+        manager.delete(workspace_id)
+        try:
+            await manager.reconcile()
+        except (RuntimeError, httpx.HTTPError) as exc:
+            manager.save(old)
+            manager.manifest()
+            raise HTTPException(503, "容器清理未完成，工作区关联已保留，请恢复 Docker 后重试。") from exc
+    return Response(status_code=204)
+
 @app.post("/api/workspace/import-local-paths", response_model=WorkspaceImportResponse)
-async def import_local_paths(request: WorkspaceImportRequest) -> WorkspaceImportResponse:
-    return get_chat_service().import_local_paths(request.text)
+async def import_local_paths(request: WorkspaceImportRequest, http_request: Request, workspace_id: str = 'default'):
+    require_local_control(http_request)
+    service = workspace_service(workspace_id)
+    service.assert_workspace_idle()
+    return service.import_local_paths(request.text)
+
 @app.get("/api/workspace/tree", response_model=WorkspaceTreeResponse)
-async def workspace_tree(path: str = "/workspace") -> WorkspaceTreeResponse:
-    return get_chat_service().list_workspace(path)
+async def workspace_tree(path: str = "/workspace", workspace_id: str = 'default'):
+    return workspace_service(workspace_id).list_workspace(path)
+
 @app.post("/api/workspace/upload", response_model=WorkspaceUploadResponse, status_code=201)
-async def upload_workspace_file(
-    request: Request,
-    filename: str = Query(min_length=1),
-    target_dir: str = "/workspace/data/uploads",
-) -> WorkspaceUploadResponse:
-    return await get_chat_service().upload_workspace_file(
-        filename=filename,
-        content_type=request.headers.get("content-type"),
-        target_dir=target_dir,
-        chunks=request.stream(),
-    )
+async def upload_workspace_file(request: Request, filename: str, target_dir: str | None = None, workspace_id: str = 'default'):
+    require_local_control(request)
+    service = workspace_service(workspace_id)
+    if workspace_id != 'default' or service._snapshot.record['roots']:
+        await service.workspaces.ensure(workspace_id)
+    lease = service.workspaces.acquire(service._snapshot, '__files__')
+    try:
+        return await service.upload_workspace_file(filename=filename, content_type=request.headers.get('content-type'),
+            target_dir=target_dir or service._snapshot.cwd, chunks=request.stream())
+    finally:
+        service.workspaces.active.pop(lease, None)
+
 @app.get("/api/workspace/preview", response_model=WorkspaceFilePreview)
-async def workspace_file_preview(
-    path: str,
-    max_bytes: int = Query(200_000, ge=1024, le=1_000_000),
-) -> WorkspaceFilePreview:
-    return get_chat_service().preview_workspace_file(path, max_bytes=max_bytes)
+async def workspace_file_preview(path: str, max_bytes: int = 200000, workspace_id: str = 'default'):
+    return workspace_service(workspace_id).preview_workspace_file(path, max_bytes=max_bytes)
+
 @app.get("/api/workspace/raw")
-async def workspace_file_raw(path: str) -> FileResponse:
-    target = get_chat_service().resolve_workspace_file(path)
+async def workspace_file_raw(path: str, workspace_id: str = 'default'):
+    target = workspace_service(workspace_id).resolve_workspace_file(path)
     return FileResponse(target, filename=target.name)
+
 @app.delete("/api/workspace/file", response_model=WorkspaceDeleteResponse)
-async def delete_workspace_file(path: str) -> WorkspaceDeleteResponse:
-    return await get_chat_service().delete_workspace_file(path)
+async def delete_workspace_file(request: Request, path: str, workspace_id: str = 'default'):
+    require_local_control(request)
+    service = workspace_service(workspace_id)
+    await service.workspaces.ensure(workspace_id)
+    lease = service.workspaces.acquire(service._snapshot, '__files__')
+    try:
+        return await service.delete_workspace_file(path)
+    finally:
+        service.workspaces.active.pop(lease, None)
+
 @app.get("/api/workspace/trash", response_model=WorkspaceTrashResponse)
-async def workspace_trash() -> WorkspaceTrashResponse:
-    return await get_chat_service().list_workspace_trash()
+async def workspace_trash(workspace_id: str = 'default'):
+    service = workspace_service(workspace_id)
+    await service.workspaces.ensure(workspace_id)
+    return await service.list_workspace_trash()
+
 @app.post("/api/workspace/trash/{operation_id}/restore", response_model=WorkspaceRestoreResponse)
-async def restore_workspace_trash_item(operation_id: str) -> WorkspaceRestoreResponse:
-    return await get_chat_service().restore_workspace_trash_item(operation_id)
+async def restore_workspace_trash_item(operation_id: str, request: Request, workspace_id: str = 'default'):
+    require_local_control(request)
+    service = workspace_service(workspace_id)
+    await service.workspaces.ensure(workspace_id)
+    lease = service.workspaces.acquire(service._snapshot, '__files__')
+    try:
+        return await service.restore_workspace_trash_item(operation_id)
+    finally:
+        service.workspaces.active.pop(lease, None)
+
+@app.post('/api/workspace/directory')
+async def create_workspace_directory(request: Request, payload: WorkspaceDirectoryRequest, workspace_id: str = 'default'):
+    require_local_control(request)
+    service = workspace_service(workspace_id)
+    if workspace_id != 'default' or service._snapshot.record['roots']:
+        await service.workspaces.ensure(workspace_id)
+    lease = service.workspaces.acquire(service._snapshot, '__files__')
+    try:
+        target = service._snapshot.resolve(payload.path)
+        try:
+            target.mkdir(parents=False, exist_ok=False)
+        except PermissionError:
+            await service._call_skill_files("POST", "/workspace/directory", json_body={"path": payload.path})
+        except FileExistsError:
+            raise HTTPException(409, '目录已存在')
+        return {'path': service._snapshot.virtual(target)}
+    finally:
+        service.workspaces.active.pop(lease, None)
+
+@app.post('/api/workspace/rename')
+async def rename_workspace_file(request: Request, payload: WorkspaceRenameRequest, workspace_id: str = 'default'):
+    require_local_control(request)
+    service = workspace_service(workspace_id)
+    if workspace_id != 'default' or service._snapshot.record['roots']:
+        await service.workspaces.ensure(workspace_id)
+    lease = service.workspaces.acquire(service._snapshot, '__files__')
+    try:
+        src, dst = service._snapshot.resolve(payload.src), service._snapshot.resolve(payload.dst)
+        if src in service._snapshot.host_roots or dst.exists():
+            raise HTTPException(409, '不能重命名根目录或覆盖已有文件')
+        if src.parent != dst.parent:
+            raise HTTPException(422, '重命名只能修改名称')
+        try:
+            src.rename(dst)
+        except PermissionError:
+            await service._call_skill_files("POST", "/tool/file_rename", json_body={"src": payload.src, "dst": payload.dst})
+        return {'path': service._snapshot.virtual(dst)}
+    finally:
+        service.workspaces.active.pop(lease, None)
+
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     service = get_chat_service()
@@ -413,6 +545,7 @@ async def set_model_credential(provider_id: str, payload: ModelCredentialRequest
 class ModelSettingsRequest(BaseModel):
     model_id: str
     workspace_path: str
+    workspace_id: str = "default"
     thinking_enabled: bool | None = None
     thinking_budget: int | None = None
     workspace_cloud_allowed: bool | None = None
@@ -422,7 +555,10 @@ async def set_model_settings(payload: ModelSettingsRequest, request: Request):
     origin = request.headers.get('origin')
     if not _is_loopback_host(request.client.host if request.client else None) or (origin and origin not in config.WEB_ORIGINS):
         raise HTTPException(403, '设置仅允许本机 Web 修改')
-    if payload.workspace_path != str(config.WORKSPACE_PATH.resolve()):
+    manager = getattr(get_chat_service(), "workspaces", None)
+    record = manager.get(payload.workspace_id) if manager else {"cloud_read": model_settings.workspace_allowed(), "cloud_write": False}
+    managed = manager.snapshot(payload.workspace_id).managed if manager else config.WORKSPACE_PATH.resolve()
+    if payload.workspace_path != str(managed):
         raise HTTPException(409, '工作区已变化，请刷新页面后重新确认')
     service = get_chat_service()
     if service._active_conversations:
@@ -447,7 +583,7 @@ async def set_model_settings(payload: ModelSettingsRequest, request: Request):
         if payload.workspace_cloud_write_allowed:
             from core.model_settings import workspace_allowed
             if not (payload.workspace_cloud_allowed if payload.workspace_cloud_allowed is not None
-                    else workspace_allowed()):
+                    else record["cloud_read"]):
                 raise HTTPException(422, '请先允许云端读取工作区，再开启写入与执行')
     from core.model_settings import update_settings
     changes = {}
@@ -459,23 +595,45 @@ async def set_model_settings(payload: ModelSettingsRequest, request: Request):
         changes['workspace'] = payload.workspace_cloud_allowed
     if payload.workspace_cloud_write_allowed is not None:
         changes['cloud_write'] = payload.workspace_cloud_write_allowed
+    if payload.workspace_id != 'default':
+        changes.pop('workspace', None)
+        changes.pop('cloud_write', None)
     update_settings(spec['id'], **changes)
+    if payload.workspace_cloud_allowed is not None:
+        record['cloud_read'] = payload.workspace_cloud_allowed
+        if not record['cloud_read']: record['cloud_write'] = False
+    if payload.workspace_cloud_write_allowed is not None:
+        record['cloud_write'] = payload.workspace_cloud_write_allowed
+    if record.get('pending_config'):
+        record['pending_config'].update(cloud_read=record['cloud_read'], cloud_write=record['cloud_write'])
+    if manager: manager.save(record)
     return {'status': 'saved'}
 @app.get('/api/package-jobs')
-async def package_job_list():
+async def package_job_list(workspace_id: str = "default"):
     router = get_runtime().router
     try:
-        response = await router._client.get(router._backend_urls['skill-runner'] + '/package-jobs', timeout=10)
+        manager = get_chat_service().workspaces
+        record = manager.get(workspace_id)
+        await manager.verify(record)
+        response = await router._client.get(f"http://127.0.0.1:{record['runner_port']}/package-jobs", timeout=10, headers={"X-Workspace-Token": tool_token(workspace_id)})
         response.raise_for_status()
         return response.json()
     except Exception:
         raise HTTPException(503, '无法获取安装状态，请检查工具服务；这不代表安装已结束')
 @app.post('/api/package-jobs/{job_id}/cancel')
-async def package_job_cancel(job_id: str, request: Request):
+async def package_job_cancel(job_id: str, request: Request, workspace_id: str = "default"):
     origin = request.headers.get('origin')
     if not _is_loopback_host(request.client.host if request.client else None) or (origin and origin not in config.WEB_ORIGINS):
         raise HTTPException(403, '只允许本机页面停止安装')
-    return await get_runtime().router.dispatch('package_cancel', {'job_id':job_id})
+    manager = get_chat_service().workspaces
+    record = manager.get(workspace_id)
+    try:
+        await manager.verify(record)
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(503, '安装任务所属的工作区工具容器不可用') from exc
+    response = await get_runtime().router._client.post(f"http://127.0.0.1:{record['runner_port']}/tool/package_cancel", json={'job_id': job_id}, headers={'X-Workspace-Token': tool_token(workspace_id)})
+    response.raise_for_status()
+    return response.json()
 async def _stop_tool_containers() -> None:
     """Best-effort stop of all project tool containers; never blocks the exit."""
     import logging

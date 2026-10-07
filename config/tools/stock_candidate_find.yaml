@@ -1,3 +1,4 @@
+display_name: "查找候选筛选任务"
 name: stock_candidate_find
 backend: stock-bridge
 tier: extended

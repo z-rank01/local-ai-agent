@@ -1,3 +1,4 @@
+display_name: "查看安装进度"
 name: package_status
 backend: skill-runner
 tier: core

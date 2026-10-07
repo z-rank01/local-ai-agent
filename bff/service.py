@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import os
+import shutil
+from urllib.parse import quote
 from contextlib import aclosing
 
 import json
@@ -22,6 +26,7 @@ from core.conversation_store import Conversation, ConversationStore, Message
 from core.input_utils import ImportedFile, ingest_local_file_paths
 from core.providers import thinking_capability
 from core.runtime import RuntimeServices
+from core.workspaces import WorkspaceManager, WorkspaceSnapshot, tool_token
 
 from .schemas import (
     AppStatus,
@@ -69,7 +74,18 @@ def exclusive_turn(method):
         if stock_service.lock.locked():
             raise HTTPException(409, '股票服务正在切换，请稍后发送')
         key = args[0].conversation_id if isinstance(args[0], ChatRequest) else args[0]
-        key = key or '__new__'
+        workspace_id = (args[0].workspace_id or (self._require_conversation(key).workspace_id if key else 'default')) if isinstance(args[0], ChatRequest) else self._require_conversation(key).workspace_id
+        if key and isinstance(args[0], ChatRequest) and self._require_conversation(key).workspace_id != workspace_id:
+            raise HTTPException(409, '会话工作区不能更改')
+        snapshot = self.workspaces.snapshot(workspace_id)
+        if key in self._active_conversations:
+            raise HTTPException(409, '本会话仍在运行，请等待或停止后再发送。')
+        self.workspaces.assert_idle(snapshot)
+        if workspace_id != 'default' or snapshot.record['roots']:
+            snapshot = await self.workspaces.ensure(workspace_id)
+        lease = self.workspaces.acquire(snapshot, key or '__new__')
+        self = self.for_workspace(workspace_id, snapshot=snapshot)
+        key = key or '__new__:' + workspace_id
         if key in self._active_conversations:
             raise HTTPException(409, '本会话仍在运行，请等待或停止后再发送。')
         self._active_conversations.add(key)
@@ -78,11 +94,13 @@ def exclusive_turn(method):
             async with aclosing(method(self, *args, **kwargs)) as events:
                 async for event in events:
                     if event.conversation_id:
+                        self.workspaces.active[lease] = (event.conversation_id, snapshot)
                         keys.add(event.conversation_id)
                         self._active_conversations.add(event.conversation_id)
                     yield event
         finally:
             self._active_conversations.difference_update(keys)
+            self.workspaces.active.pop(lease, None)
     return guarded
 
 
@@ -95,6 +113,18 @@ class ChatSessionService:
         self._store: ConversationStore = runtime.store
         self._workspace_root = config.WORKSPACE_PATH.resolve()
         self._workspace_root.mkdir(parents=True, exist_ok=True)
+        self.workspaces = WorkspaceManager(self._store, self._workspace_root)
+        self._snapshot = self.workspaces.snapshot()
+
+    def for_workspace(self, workspace_id="default", *, snapshot=None):
+        scoped = copy.copy(self)
+        scoped._snapshot = snapshot or self.workspaces.snapshot(workspace_id)
+        scoped._workspace_root = scoped._snapshot.managed
+        scoped._workspace_root.mkdir(parents=True, exist_ok=True)
+        return scoped
+
+    def assert_workspace_idle(self):
+        self.workspaces.assert_idle(self._snapshot)
 
     def app_status(self) -> AppStatus:
         tools = sorted(self._runtime.tool_registry.known_tools)
@@ -102,10 +132,12 @@ class ChatSessionService:
         return AppStatus(
             daily_services=__import__('os').environ.get('DAILY_SERVICES') == '1',
             model_calls_used=budget["used"], model_call_limit=budget["limit"],
-            workspace_cloud_allowed=model_settings.workspace_allowed(),
-            cloud_write_allowed=model_settings.cloud_write_allowed(),
+            workspace_cloud_allowed=self._snapshot.record["cloud_read"],
+            cloud_write_allowed=self._snapshot.record["cloud_write"],
             model=self._runtime.models.default,
             workspace_path=str(self._workspace_root),
+            workspace_id=self._snapshot.id,
+            tool_catalog=[{"name": name, "display_name": value.get("display_name", value.get("short_description", name)), "group": value.get("group", "股票" if value.get("backend") == "stock-bridge" else "联网搜索" if value.get("backend") == "skill-websearch" else "文件" if value.get("backend") == "skill-files" else "执行与技能")} for name, value in getattr(self._runtime.tool_registry, "_tools", {}).items()],
             tools=tools,
             websearch_enabled="web_search" in tools,
             auto_exit_enabled=config.AUTO_EXIT_ON_CLOSE,
@@ -145,14 +177,17 @@ class ChatSessionService:
         limit: int = 50,
         offset: int = 0,
         query: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[ConversationSummary]:
         return [
-            self._conversation_summary(conv)
-            for conv in self._store.list_conversations(limit=limit, offset=offset, query=query)
+            self._conversation_summary(conv, query=query)
+            for conv in self._store.list_conversations(limit=limit, offset=offset, query=query, workspace_id=workspace_id)
         ]
 
-    def create_conversation(self, title: str, model: str | None = None) -> ConversationSummary:
+    def create_conversation(self, title: str, model: str | None = None, workspace_id: str = "default") -> ConversationSummary:
+        self.workspaces.get(workspace_id)
         conv = self._store.create_conversation(
+            workspace_id=workspace_id,
             title=title,
             model=model or self._runtime.models.default,
         )
@@ -184,6 +219,8 @@ class ChatSessionService:
         return self.get_conversation(conversation_id)
 
     def delete_conversation(self, conversation_id: str) -> None:
+        if conversation_id in self._active_conversations:
+            raise HTTPException(409, "本会话仍在运行，不能删除")
         self._require_conversation(conversation_id)
         self._store.delete_conversation(conversation_id)
 
@@ -196,6 +233,14 @@ class ChatSessionService:
         ]
 
     def import_local_paths(self, text: str) -> WorkspaceImportResponse:
+        from core.input_utils import detect_file_paths
+        for raw in detect_file_paths(text):
+            path = Path(raw)
+            if path.is_absolute() and path.is_file():
+                try:
+                    text = text.replace(raw, self._snapshot.virtual(path))
+                except HTTPException:
+                    pass
         rewritten_text, imported = ingest_local_file_paths(text, self._workspace_root)
         return WorkspaceImportResponse(
             rewritten_text=rewritten_text,
@@ -206,7 +251,12 @@ class ChatSessionService:
         target = self._resolve_workspace_path(requested_path)
         entries: list[WorkspaceEntry] = []
         for child in sorted(target.iterdir(), key=lambda item: (item.is_file(), item.name.lower())):
-            entries.append(self._workspace_entry(child))
+            try:
+                self._snapshot.resolve(self._snapshot.virtual(child))
+                if child.name in {".harness", ".uploads"}: continue
+                entries.append(self._workspace_entry(child))
+            except HTTPException:
+                continue
         return WorkspaceTreeResponse(root=self._to_workspace_path(target), entries=entries)
 
     async def upload_workspace_file(
@@ -221,12 +271,31 @@ class ChatSessionService:
         target = self._deduplicate_file_path(target_directory / self._safe_filename(filename))
 
         size = 0
-        with target.open("wb") as handle:
-            async for chunk in chunks:
-                if not chunk:
-                    continue
-                size += len(chunk)
-                handle.write(chunk)
+        staging = self._workspace_root / '.uploads'
+        staging.mkdir(exist_ok=True)
+        temporary = staging / uuid.uuid4().hex
+        destination = target.with_name('.upload-' + uuid.uuid4().hex)
+        try:
+            with temporary.open("xb") as handle:
+                async for chunk in chunks:
+                    if not chunk: continue
+                    size += len(chunk)
+                    if size > 100 * 1024 * 1024:
+                        raise HTTPException(413, '上传文件不能超过 100MB')
+                    handle.write(chunk)
+            try:
+                shutil.copyfile(temporary, destination)
+                destination.rename(target)
+            except PermissionError:
+                async def content():
+                    with temporary.open('rb') as handle:
+                        while chunk := handle.read(65536):
+                            yield chunk
+                await self._call_skill_files('POST', '/workspace/upload?path=' + quote(self._snapshot.virtual(target), safe=''), content=content())
+        finally:
+            temporary.unlink(missing_ok=True)
+            try: destination.unlink(missing_ok=True)
+            except PermissionError: pass
 
         workspace_path = self._to_workspace_path(target)
         attachment = ImportedAttachment(
@@ -289,11 +358,10 @@ class ChatSessionService:
         workspace_path = self._to_workspace_path(target)
 
         try:
-            result = await self._runtime.router.dispatch(
-                "file_delete",
-                {"path": workspace_path},
-                session_id="workspace-ui",
-            )
+            if self._snapshot.id == "default" and not self._snapshot.record["roots"]:
+                result = await self._runtime.router.dispatch("file_delete", {"path": workspace_path}, session_id="workspace-ui")
+            else:
+                result = await self._call_skill_files("POST", "/tool/file_delete", json_body={"path": workspace_path})
         except PermissionError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except FileNotFoundError as exc:
@@ -553,6 +621,8 @@ class ChatSessionService:
         message_id: str,
         version_number: int,
     ) -> list[MessageRecord]:
+        if conversation_id in self._active_conversations:
+            raise HTTPException(409, '本会话仍在运行，不能切换版本')
         self._require_conversation(conversation_id)
         target = self._store.get_message(message_id)
         if target is None or target.conversation_id != conversation_id:
@@ -569,6 +639,8 @@ class ChatSessionService:
         return self.get_messages(conversation_id)
 
     def delete_message(self, conversation_id: str, message_id: str) -> None:
+        if conversation_id in self._active_conversations:
+            raise HTTPException(409, "本会话仍在运行，不能删除消息")
         self._require_conversation(conversation_id)
         if conversation_id in self._active_conversations:
             raise HTTPException(409, '本会话仍在运行')
@@ -726,13 +798,12 @@ class ChatSessionService:
     async def _run_assistant_turn(self, conversation, run_id, *, response_to_message_id, response_version_number, answer_only=False, request_id=None):
         spec, llm = self._select_model(conversation)
         cloud = spec['kind'] == 'cloud'
-        workspace_allowed = model_settings.workspace_allowed()
-        cloud_write_allowed = model_settings.cloud_write_allowed()
+        workspace_allowed = self._snapshot.record["cloud_read"]
+        cloud_write_allowed = self._snapshot.record["cloud_write"]
         # Explicit thinking setting only; "default" leaves the client untouched so
         # static options apply and discovered models use the provider default.
         thinking_state = model_settings.thinking_setting(spec) if thinking_capability(spec) else None
         if thinking_state is not None:
-            import copy
             llm = copy.copy(llm)
             if spec['kind'] == 'local':
                 llm.think = thinking_state
@@ -747,6 +818,28 @@ class ChatSessionService:
                 llm.spec = {**spec, 'options': options}
         messages = self._store.messages_as_dicts(conversation.id, cloud=cloud)
         agent = self._runtime.agent_for(spec, llm)
+        router = copy.copy(agent.router)
+        router._backend_urls = dict(router._backend_urls)
+        record = self._snapshot.record
+        if self._snapshot.id != "default" or record["roots"]:
+            router._backend_urls.update({"skill-files": f"http://127.0.0.1:{record['files_port']}", "skill-runner": f"http://127.0.0.1:{record['runner_port']}"})
+        router._policy = copy.copy(router._policy)
+        router._policy._allowed = list(self._snapshot.roots)
+        router.default_cwd = self._snapshot.cwd
+        router.workspace_roots = list(self._snapshot.roots)
+        router.workspace_id = self._snapshot.id
+        if self._snapshot.id != "default" or os.environ.get("DAILY_SERVICES") == "1":
+            router.workspace_snapshot = self._snapshot
+        if self._snapshot.id != "default" or os.environ.get("DAILY_SERVICES") == "1":
+            router.workspace_token = tool_token(self._snapshot.id)
+        if self._snapshot.id != "default" or record["roots"] or os.environ.get("DAILY_SERVICES") == "1":
+            router.workspace_validate = lambda: self.workspaces.verify(record)
+        router._policy._denied = list(router._policy._denied) + [p + "/.git" for p in self._snapshot.roots]
+        agent.router = router
+        if agent.memory is not None and (self._snapshot.id != "default" or os.environ.get("DAILY_SERVICES") == "1"):
+            from core.memory_manager import MemoryManager
+            agent.memory = MemoryManager(router, llm)
+        agent.extra_system_sections = ["当前工作区：" + record["name"] + "。所有文件路径必须属于以下已挂载根目录：\n" + "\n".join(self._snapshot.roots) + "\n默认执行目录：" + self._snapshot.cwd + "。可以读写所有这些目录；目录之间使用完整路径。"]
         method_id = conversation.research_method
         if method_id != 'auto':
             from core.stock_service import stock_service
@@ -754,7 +847,7 @@ class ChatSessionService:
                 rows = (await stock_service.request('/api/control/methods'))['methods']
                 selected = next((row for row in rows if row['id'] == method_id), None)
                 if selected:
-                    agent.extra_system_sections = [
+                    agent.extra_system_sections += [
                         '本会话人工选择的研究方法：' + selected['title'] + '，版本 ' + selected['version'] +
                         '。仅在当前问题适用时采用。方法帮助提问和核查，不能代替事实、来源或股票交易门禁。\n' +
                         selected['content']]
@@ -958,6 +1051,7 @@ class ChatSessionService:
         created = self._store.create_conversation(
             title=title or "新对话",
             model=self._runtime.models.default,
+            workspace_id=self._snapshot.id,
         )
         return self._require_conversation(created.id)
 
@@ -973,8 +1067,19 @@ class ChatSessionService:
             raise HTTPException(status_code=404, detail="conversation not found")
         return conversation
 
-    def _conversation_summary(self, conversation: Conversation) -> ConversationSummary:
+    def _conversation_summary(self, conversation: Conversation, query=None) -> ConversationSummary:
+        snippet = None
+        if query:
+            needle = query.casefold()
+            for message in self._store.get_messages(conversation.id):
+                position = message.content.casefold().find(needle)
+                if position >= 0 and message.role in {"user", "assistant"}:
+                    snippet = message.content[max(0, position-40):position+len(query)+100]
+                    break
         return ConversationSummary(
+            workspace_id=conversation.workspace_id,
+            workspace_name=self.workspaces.get(conversation.workspace_id)["name"],
+            search_snippet=snippet,
             id=conversation.id,
             title=conversation.title,
             model=conversation.model,
@@ -1094,25 +1199,10 @@ class ChatSessionService:
         return target
 
     def _resolve_workspace_target(self, requested_path: str) -> Path:
-        normalized = (requested_path or "/workspace").replace("\\", "/")
-        if normalized in {"", "/", "/workspace"}:
-            return self._workspace_root
-        if normalized.startswith("/workspace/"):
-            relative = normalized[len("/workspace/") :]
-        elif normalized.startswith("/"):
-            relative = normalized[1:]
-        else:
-            relative = normalized
-
-        candidate = (self._workspace_root / relative).resolve()
-        if candidate != self._workspace_root and self._workspace_root not in candidate.parents:
-            raise HTTPException(status_code=403, detail="workspace path escapes root")
-        return candidate
+        return self._snapshot.resolve(requested_path)
 
     def _to_workspace_path(self, target: Path) -> str:
-        if target == self._workspace_root:
-            return "/workspace"
-        return f"/workspace/{target.relative_to(self._workspace_root).as_posix()}"
+        return self._snapshot.virtual(target)
 
     def _workspace_entry(
         self,
@@ -1161,10 +1251,20 @@ class ChatSessionService:
         path: str,
         *,
         json_body: dict[str, object] | None = None,
+        content: AsyncIterable[bytes] | None = None,
     ) -> dict:
-        url = f"{config.SKILL_FILES_URL.rstrip('/')}{path}"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.request(method, url, json=json_body)
+        record = self._snapshot.record
+        if self._snapshot.id != "default" or record["roots"]:
+            try:
+                await self.workspaces.verify(record)
+            except (RuntimeError, httpx.HTTPError) as exc:
+                raise HTTPException(503, "工作区工具容器不可用，请在工作台检查并应用目录配置；Docker 未启动时请通过启动.bat -Build 重启。") from exc
+        url = f"http://127.0.0.1:{record['files_port']}{path}"
+        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
+            try:
+                response = await client.request(method, url, json=json_body, content=content, headers={"X-Workspace-Token": tool_token(self._snapshot.id)})
+            except httpx.HTTPError as exc:
+                raise HTTPException(503, "文件工具服务不可用，请检查工作区工具容器。") from exc
 
         if response.status_code >= 400:
             try:

@@ -1,3 +1,4 @@
+display_name: "精确编辑文件"
 name: file_edit
 backend: skill-files
 tier: core

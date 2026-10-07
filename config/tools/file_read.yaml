@@ -1,3 +1,4 @@
+display_name: "读取文件"
 name: file_read
 backend: skill-files
 tier: core

@@ -1,3 +1,4 @@
+display_name: "查看版本库状态"
 name: git_status
 backend: skill-files
 tier: core

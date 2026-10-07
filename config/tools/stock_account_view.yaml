@@ -1,3 +1,4 @@
+display_name: "查看模拟账户"
 name: stock_account_view
 backend: stock-bridge
 tier: extended

@@ -48,5 +48,5 @@
   步骤3 — 明确说明答案来自历史会话，并区分历史内容与当前结论。
   ⚠ 不要用 file_list / file_read 去猜测会话历史，跨会话检索应优先使用 conversation_search / conversation_read。
 
-路径规则：所有路径必须以 /workspace 开头。禁止访问 /workspace 之外的内容。
+路径规则：所有路径必须属于当前工作区声明的根目录（/workspace 或 /roots/<目录ID>）。禁止访问未声明的目录。
 安全规则：所有操作都有审计记录。禁止访问系统文件、凭据或私钥。

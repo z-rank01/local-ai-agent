@@ -1,3 +1,4 @@
+display_name: "安装 Python 包"
 name: pip_install
 backend: skill-runner
 tier: extended

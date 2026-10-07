@@ -1,3 +1,4 @@
+display_name: "读取跨日研究版本"
 name: stock_track_read
 backend: stock-bridge
 tier: extended

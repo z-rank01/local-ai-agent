@@ -46,6 +46,7 @@ class Conversation:
     created_at: str
     updated_at: str
     research_method: str = "auto"
+    workspace_id: str = "default"
     messages: list[Message] = field(default_factory=list)
 
 
@@ -82,6 +83,9 @@ _MIGRATIONS: list[str] = [
     "SELECT 1;",
     "ALTER TABLE messages ADD COLUMN metadata TEXT NOT NULL DEFAULT '';",
     "ALTER TABLE conversations ADD COLUMN research_method TEXT NOT NULL DEFAULT 'auto';",
+    """CREATE TABLE workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL, config TEXT NOT NULL);
+    ALTER TABLE conversations ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default';
+    CREATE INDEX idx_conversations_workspace ON conversations(workspace_id);""",
 ]
 
 
@@ -157,17 +161,17 @@ class ConversationStore:
     # ── Conversation CRUD ───────────────────────────────────────────────
 
     def create_conversation(
-        self, *, title: str = "未命名对话", model: str = ""
+        self, *, title: str = "未命名对话", model: str = "", workspace_id: str = "default"
     ) -> Conversation:
         conv_id = uuid.uuid4().hex[:16]
         now = self._now()
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO conversations (id, title, model, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (conv_id, title, model, now, now),
+                "INSERT INTO conversations (id, title, model, created_at, updated_at, workspace_id) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (conv_id, title, model, now, now, workspace_id),
             )
-        return Conversation(id=conv_id, title=title, model=model, created_at=now, updated_at=now)
+        return Conversation(id=conv_id, title=title, model=model, created_at=now, updated_at=now, workspace_id=workspace_id)
 
     def get_conversation(self, conv_id: str) -> Conversation | None:
         with self._connect() as conn:
@@ -183,6 +187,7 @@ class ConversationStore:
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
                 research_method=row["research_method"],
+                workspace_id=row["workspace_id"],
             )
             msgs = conn.execute(
                 "SELECT * FROM messages WHERE conversation_id = ? AND active = 1 ORDER BY created_at",
@@ -214,6 +219,7 @@ class ConversationStore:
         limit: int = 50,
         offset: int = 0,
         query: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[Conversation]:
         with self._connect() as conn:
             search = (query or "").strip()
@@ -221,20 +227,20 @@ class ConversationStore:
                 pattern = f"%{search}%"
                 rows = conn.execute(
                     "SELECT * FROM conversations "
-                    "WHERE title LIKE ? COLLATE NOCASE "
+                    "WHERE (? IS NULL OR workspace_id=?) AND (title LIKE ? COLLATE NOCASE "
                     "   OR EXISTS ("
                     "       SELECT 1 FROM messages "
                     "       WHERE messages.conversation_id = conversations.id "
                     "         AND messages.active = 1 "
                     "         AND messages.content LIKE ? COLLATE NOCASE"
-                    "   ) "
+                    "   )) "
                     "ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                    (pattern, pattern, limit, offset),
+                    (workspace_id, workspace_id, pattern, pattern, limit, offset),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM conversations ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                    (limit, offset),
+                    "SELECT * FROM conversations WHERE (? IS NULL OR workspace_id=?) ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                    (workspace_id, workspace_id, limit, offset),
                 ).fetchall()
             return [
                 Conversation(
@@ -244,6 +250,7 @@ class ConversationStore:
                     created_at=r["created_at"],
                     updated_at=r["updated_at"],
                     research_method=r["research_method"],
+                    workspace_id=r["workspace_id"],
                 )
                 for r in rows
             ]

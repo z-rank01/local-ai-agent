@@ -1,3 +1,4 @@
+display_name: "读取股票报告"
 name: stock_report_read
 backend: stock-bridge
 tier: extended

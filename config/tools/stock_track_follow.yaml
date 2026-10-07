@@ -1,3 +1,4 @@
+display_name: "关注主题或公司"
 name: stock_track_follow
 backend: stock-bridge
 tier: extended

@@ -14,6 +14,9 @@ class ConversationSummary(BaseModel):
     created_at: str
     updated_at: str
     research_method: str = "auto"
+    workspace_id: str = "default"
+    workspace_name: str = "默认工作区"
+    search_snippet: str | None = None
 
 
 class ResearchMethodChoice(BaseModel):
@@ -82,6 +85,8 @@ class AppStatus(BaseModel):
     status: str = "ok"
     model: str
     workspace_path: str
+    workspace_id: str = "default"
+    tool_catalog: list[dict[str, str]] = Field(default_factory=list)
     tools: list[str]
     websearch_enabled: bool
     auto_exit_enabled: bool = False
@@ -112,6 +117,8 @@ class ProviderInfo(BaseModel):
 
 
 class CreateConversationRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    workspace_id: str = "default"
     title: str = "新对话"
     model: str | None = None
 
@@ -139,6 +146,8 @@ class ActivateMessageVersionRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    workspace_id: str | None = None
     request_id: str | None = Field(default=None, min_length=8, max_length=128)
     message: str = Field(min_length=1)
     conversation_id: str | None = None
@@ -199,3 +208,30 @@ class UIStreamEvent(BaseModel):
     block_id: str | None = None
     message_id: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkspaceRootChoice(BaseModel):
+    model_config = {"extra": "forbid"}
+    host_path: str = Field(min_length=1)
+    name: str | None = Field(default=None, max_length=80)
+    id: str | None = None
+
+
+class WorkspaceChange(BaseModel):
+    model_config = {"extra": "forbid"}
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    roots: list[WorkspaceRootChoice] | None = None
+    primary_root_id: str | None = None
+    primary_host_path: str | None = None
+    cloud_read: bool | None = None
+    cloud_write: bool | None = None
+    confirm_cloud_expansion: bool = False
+
+
+class WorkspaceDirectoryRequest(BaseModel):
+    path: str = Field(min_length=1)
+
+
+class WorkspaceRenameRequest(BaseModel):
+    src: str = Field(min_length=1)
+    dst: str = Field(min_length=1)

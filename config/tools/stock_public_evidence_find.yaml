@@ -1,3 +1,4 @@
+display_name: "查找公开事件证据"
 name: stock_public_evidence_find
 backend: stock-bridge
 tier: extended

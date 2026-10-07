@@ -16,7 +16,7 @@ SUPERVISOR_URL = 'http://127.0.0.1:9511'
 TOKEN_PATH = config._PROJECT_ROOT / 'data' / 'private' / 'service-supervisor.token'
 
 
-async def run_operation(operation: str, *, timeout: float = 180.0) -> dict:
+async def run_operation(operation: str, *, timeout: float = 180.0, workspace_id: str | None = None) -> dict:
     try:
         token = TOKEN_PATH.read_text(encoding='utf-8').strip()
     except OSError as exc:
@@ -29,7 +29,7 @@ async def run_operation(operation: str, *, timeout: float = 180.0) -> dict:
             response = await client.post(
                 SUPERVISOR_URL + '/api/operation',
                 headers={'Authorization': 'Bearer ' + token},
-                json={'operation': operation},
+                json={'operation': operation, **({'workspace_id': workspace_id} if workspace_id else {})},
             )
     except httpx.HTTPError as exc:
         raise RuntimeError('本机服务控制器不可用，请退出后通过启动.bat重新启动服务') from exc

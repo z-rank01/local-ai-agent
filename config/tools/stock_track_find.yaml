@@ -1,3 +1,4 @@
+display_name: "查找关注与忽略"
 name: stock_track_find
 backend: stock-bridge
 tier: extended

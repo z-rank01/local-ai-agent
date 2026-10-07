@@ -1,9 +1,10 @@
+display_name: "执行命令行"
 name: shell_exec
 backend: skill-runner
 tier: core
 cloud: write
 short_description: "Run a shell command."
-description: "在 Linux 容器 /bin/sh 中执行命令，可搜索文件、运行脚本与测试。工作目录必须在 /workspace 内。这不是 Windows CMD 或 PowerShell。输出、退出码、超时和截断会返回；较长命令逐段显示输出。"
+description: "在 Linux 容器 /bin/sh 中执行命令，可搜索文件、运行脚本与测试。工作目录必须在当前工作区已挂载目录内。这不是 Windows CMD 或 PowerShell。输出、退出码、超时和截断会返回；较长命令逐段显示输出。"
 parameters:
   type: object
   properties:
@@ -15,6 +16,6 @@ parameters:
       description: "Timeout in seconds, up to policy limit"
     cwd:
       type: string
-      description: "Working directory inside /workspace; defaults to /workspace."
+      description: "工作区内执行目录；默认使用工作区主要目录。"
   required: ["command"]
 max_result_chars: 16000

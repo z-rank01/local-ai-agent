@@ -1,3 +1,4 @@
+display_name: "列出技能"
 name: skill_list
 backend: skill-runner
 tier: core

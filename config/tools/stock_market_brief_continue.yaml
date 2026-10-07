@@ -1,3 +1,4 @@
+display_name: "续读简报事件"
 name: stock_market_brief_continue
 backend: stock-bridge
 tier: extended

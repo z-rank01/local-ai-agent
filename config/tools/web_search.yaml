@@ -1,3 +1,4 @@
+display_name: "联网搜索"
 name: web_search
 backend: skill-websearch
 tier: core

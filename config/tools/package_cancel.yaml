@@ -1,3 +1,4 @@
+display_name: "取消安装任务"
 name: package_cancel
 backend: skill-runner
 tier: core

@@ -1,3 +1,4 @@
+display_name: "查找历史简报"
 name: stock_market_brief_find
 backend: stock-bridge
 tier: extended

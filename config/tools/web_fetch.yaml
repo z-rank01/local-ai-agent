@@ -1,3 +1,4 @@
+display_name: "读取网页"
 name: web_fetch
 backend: skill-websearch
 tier: extended

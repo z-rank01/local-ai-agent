@@ -1,3 +1,4 @@
+display_name: "搜索历史会话"
 name: conversation_search
 backend: local-runtime
 tier: core

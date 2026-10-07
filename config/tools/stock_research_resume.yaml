@@ -1,3 +1,4 @@
+display_name: "恢复中断的研究"
 name: stock_research_resume
 backend: stock-bridge
 tier: extended

@@ -1,3 +1,4 @@
+display_name: "请求停止研究任务"
 name: stock_research_cancel
 backend: stock-bridge
 tier: extended

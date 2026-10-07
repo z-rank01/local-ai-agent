@@ -1,3 +1,4 @@
+display_name: "重命名或移动"
 name: file_rename
 backend: skill-files
 tier: extended

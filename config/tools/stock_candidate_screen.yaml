@@ -1,3 +1,4 @@
+display_name: "建立候选研究池"
 name: stock_candidate_screen
 backend: stock-bridge
 tier: extended

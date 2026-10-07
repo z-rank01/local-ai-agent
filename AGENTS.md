@@ -6,11 +6,12 @@
 
 1. **用户准入入口只有一个**：根目录 `启动.bat` → `scripts/start-daily.ps1`（BFF @ 127.0.0.1:9510，同源托管 Web 界面）。任何新功能、测试、人工验收都必须能通过这同一个入口使用；**禁止**新增或复活第二条启动路径（旧的 quick-start / start-in1 / run_in1 / compose.in1 / TUI / Ink CLI 已全部移除）。
 2. **数据只有一份**：会话库 `data/conversations.db`、工作区 `data/workspace/`、模型账本 `data/model-calls.sqlite`。隔离/验收数据通过**独立会话 + 独立股票状态目录**实现，不要再造独立库。历史 IN1 数据已并入日常库（`data/_archive/in1/` 留有原始备份）。
+   命名工作区、目录根记录及会话 `workspace_id` 同样保存在 `conversations.db`；一个工作区可有多个会话和多个本机目录。默认托管目录仍为 `data/workspace/`；其他工作区托管内容在其 `.harness/<workspace_id>/` 下，外部目录直接挂载为 `/roots/<root_id>`，不复制源目录。默认容器遮蔽 `.harness`，不能访问其他工作区托管内容。
    会话研究方法选择是 `conversations.db` 的增量字段；不能另建设置库。股票任务的方法正文与版本在入队时由股票仓库冻结。
 3. **退出也只有一条路径**：页面"退出"按钮或关闭页面（约 15 秒自动全退，含 docker 容器，见 `core/auto_exit.py`、`bff/app.py` 的 `_request_stack_shutdown`）。不要再加"只停某一层"的用户可见按钮。
 4. 页面上的服务管理只以**技能开关**形式存在（`core/skills_service.py` 联网搜索；`core/stock_service.py` 股票后台=股票技能开关）。新增可开关能力时沿用这个模式：持久化开关 + 进程/容器生命周期 + 工具注册表动态翻转（`apply_to`）。
 5. 启动器启动本地 Ollama 时须读取已连接股票仓库 `config/local.json` 的回环端口，并将同一地址传给聊天后端；不要写死 `11434` 与股票侧分叉。
-6. Docker 容器生命周期由唯一启动脚本进程处理：`scripts/start-daily.ps1` 在本进程内监听 `127.0.0.1:9511`，用私密令牌接受固定操作，并由该进程直接执行 Docker CLI。BFF 只能通过本机控制接口请求操作，不得派生 Docker CLI；股票后台端口不得配置为 `9511`。启动器进程须保持运行，页面完整退出时由它停止容器并结束。
+6. Docker 容器生命周期由唯一启动脚本进程处理：`scripts/start-daily.ps1` 在本进程内监听 `127.0.0.1:9511`，用私密令牌接受固定操作，并由该进程直接执行 Docker CLI。BFF 只能通过本机控制接口请求操作，不得派生 Docker CLI；股票后台端口不得配置为 `9511`。启动器进程须保持运行，页面完整退出时由它停止所有工作区容器组（含遗留组）并结束。工作区容器配置由 `scripts/workspace_compose.py` 生成到 `data/private/`；固定 `workspace_sync` 操作只接受工作区 ID，启动器读取已保存配置，不能接受可执行文件或任意命令。
 
 ## 常用命令
 
@@ -19,7 +20,7 @@
 .\scripts\start-daily.ps1 -Build # 改了 skills/** 后必须用这个重建工具容器镜像
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 222 项通过、1 项跳过）
+.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 247 项、2 项跳过（2026-10-07））
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -65,10 +66,12 @@ powershell Start-Process …（由聊天后端调用）
 
 ## 结构速览
 
+- `core/workspaces.py`：工作区持久化、稳定目录映射、配置快照与执行锁；文件读写受主机进程权限限制时，通过对应工作区工具容器完成，不可另起本机命令执行后端。每组使用独立网络与私密工具凭据，健康核验同时检查 ID、版本及鉴权；主机预检覆盖 NTFS junction。配置切换只阻止相关目录的任务。
+- `core/ui_session.py`：唯一启动器创建页面会话凭据，通过 URL fragment 交给页面并换取 HttpOnly cookie；BFF API 不接受无凭据的容器侧请求。凭据文件只在 data/private，不可挂载给工具或返回状态 API；启动器就绪探测也须携带凭据。
 - `bff/app.py`：HTTP 层（聊天、会话、工作区、模型、技能开关、股票服务管理、心跳、退出）。退出语义：**先股票优雅收尾 → 停 docker 容器 → 杀本进程**。
 - `core/runtime.py`：`build_runtime()` 组装工具注册表/路由/模型目录；技能开关通过替换 `tool_registry._tools` 与 `router._backend_urls` 动态生效（注意保持 registry 对象同一性，见 `stock_service.attach` 与 `skills_service.apply_to` 的注释）。
-- `bff/service.py`：`ChatSessionService` 是会话/工作区/流式门面；`exclusive_turn` 保证单会话互斥，技能切换期间聊天 409。
-- 前端 `apps/web/src/App.tsx` 是单页全部主界面；右栏自上而下：模型、技能、股票技能、工作区、外观（默认折叠）、诊断（默认折叠）、状态；唯一"退出"按钮在左栏底部固定区。
+- `bff/service.py`：`ChatSessionService` 是会话/工作区/流式门面；`exclusive_turn` 保证同工作区及目录重叠工作区串行执行，返回 409 与执行会话；不同目录的工作区可并行。技能切换期间聊天 409。目录配置每轮冻结，失败保留有效配置，用户明确检查应用后激活待生效配置。
+- 前端 `apps/web/src/` 为组件化结构：`app/`（App.tsx 编排层 + 顶栏/会话抽屉/输入胶囊/阅读栏/工作台 Sheet/设置/阅读器等区块）、`panels/`（工作区、技能、股票、打包任务）、`ui/`（Collapse/Panel/Popover 等基元）、`lib/`（storage/format/appearance/transcript/report/notify/confirm）；`styles.css` 是唯一令牌来源（Apple 设计系统，旧三栏紫系已废弃）。界面无常驻侧栏：顶栏细条 + 全屏阅读栏 + 底部悬浮输入胶囊；会话抽屉与工作台 Sheet 两级浮层默认收起；唯一"退出"按钮在会话抽屉底部。
 - 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。正式内容只维护 `prompts/modules/01..07`；`prompts/system.txt` 只是 modules 缺失时的兜底占位，不要往里写正式提示词。
 
 ## 约定

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # 唯一日常入口：准备环境 → 启动工具容器、服务控制器与聊天服务（含网页）→ 打开浏览器。
 # 已运行时重复执行只会打开浏览器，不会重复启动服务。
 param([switch]$Build, [switch]$SkipTools, [switch]$RebuildWeb)
@@ -17,6 +17,11 @@ if (-not (Test-Path -LiteralPath $dailyPython)) {
 Set-Location -LiteralPath $dailyRoot
 $dailyLogs = Join-Path $dailyRoot 'data/logs'
 New-Item -ItemType Directory -Force -Path $dailyLogs | Out-Null
+
+# A URL fragment is not sent to HTTP logs; the page exchanges it for a cookie.
+$dailyWebToken = (& $dailyPython -c "from core.ui_session import session_token; print(session_token())").Trim()
+if ($LASTEXITCODE -ne 0 -or $dailyWebToken.Length -lt 32) { throw 'Unable to prepare browser session credential' }
+$dailyBrowserUrl = 'http://127.0.0.1:9510/#session=' + $dailyWebToken
 
 # Use the stock service's configured loopback Ollama endpoint when available.
 $dailyOllamaUrl = 'http://127.0.0.1:11434'
@@ -81,7 +86,11 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Docker did not become ready.' }
         }
         Write-Ok 'Docker is ready'
-        if ($Build) { docker compose up -d --build *> $null } else { docker compose up -d *> $null }
+        & $dailyPython (Join-Path $PSScriptRoot "workspace_compose.py")
+        if ($LASTEXITCODE -ne 0) { throw "Workspace configuration generation failed" }
+        $dailyContainerLog = Join-Path $dailyLogs 'tool-containers.log'
+        Write-Step ('preparing tool containers; progress: ' + $dailyContainerLog)
+        if ($Build) { docker compose --progress plain --project-directory $dailyRoot -f data/private/workspace-compose.json up -d --build skill-files skill-runner *> $dailyContainerLog } else { docker compose --project-directory $dailyRoot -f data/private/workspace-compose.json up -d skill-files skill-runner *> $dailyContainerLog }
         if ($LASTEXITCODE -ne 0) { throw 'Tool containers failed to start.' }
         Write-Ok 'containers up (skill-files, skill-runner; web search starts from the page toggle)'
     }
@@ -201,7 +210,7 @@ try {
     Write-Host '  [5/7] Chat service' -ForegroundColor Cyan
     $dailyReady = $false
     try {
-        $dailyStatus = Invoke-RestMethod 'http://127.0.0.1:9510/api/status' -TimeoutSec 5
+        $dailyStatus = Invoke-RestMethod 'http://127.0.0.1:9510/api/status' -Headers @{ 'X-Harness-Session' = $dailyWebToken } -TimeoutSec 5
         $dailyReady = [bool]$dailyStatus.daily_services
     } catch {}
     if ($dailyReady) {
@@ -215,7 +224,7 @@ try {
         $dailyReady = $false
         for ($dailyAttempt = 0; $dailyAttempt -lt 60; $dailyAttempt++) {
             if ($dailyController) { Invoke-DailyServiceSupervisorRequest $dailyController }
-            try { $dailyStatus = Invoke-RestMethod 'http://127.0.0.1:9510/api/status' -TimeoutSec 2; $dailyReady = [bool]$dailyStatus.daily_services } catch {}
+            try { $dailyStatus = Invoke-RestMethod 'http://127.0.0.1:9510/api/status' -Headers @{ 'X-Harness-Session' = $dailyWebToken } -TimeoutSec 2; $dailyReady = [bool]$dailyStatus.daily_services } catch {}
             if ($dailyReady) { break }
             Start-Sleep -Seconds 1
         }
@@ -256,7 +265,7 @@ if ($ollamaUp) {
 # -- [7/7] open browser --------------------------------------------------------
 Write-Host '  [7/7] Open browser' -ForegroundColor Cyan
 try {
-    Start-Process 'http://127.0.0.1:9510'
+    Start-Process $dailyBrowserUrl
     Write-Ok 'http://127.0.0.1:9510'
 } catch {
     Write-Warn2 'Browser could not open automatically; use http://127.0.0.1:9510'

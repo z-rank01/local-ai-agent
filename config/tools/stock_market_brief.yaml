@@ -1,3 +1,4 @@
+display_name: "每日市场简报"
 name: stock_market_brief
 backend: stock-bridge
 tier: extended

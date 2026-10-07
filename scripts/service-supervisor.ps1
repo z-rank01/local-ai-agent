@@ -112,19 +112,32 @@ function Send-DailyHttpResponse([System.Net.Sockets.NetworkStream]$Stream, [int]
     $Stream.Flush()
 }
 
-function Invoke-DailyDockerOperation($Context, [string]$Operation) {
+function Invoke-DailyDockerOperation($Context, [string]$Operation, [string]$WorkspaceId = "default") {
+    if ($Operation -eq 'workspace_sync') {
+        & (Join-Path $Context.Root '.conda/python.exe') (Join-Path $Context.Root 'scripts/workspace_compose.py') $WorkspaceId
+        if ($LASTEXITCODE -ne 0) { throw '工作区容器配置生成失败' }
+    }
     $composeArgs = switch ($Operation) {
         'websearch_start' { @('compose', '--profile', 'websearch', 'up', '-d', 'searxng', 'skill-websearch') }
         'websearch_stop' { @('compose', '--profile', 'websearch', 'stop', 'searxng', 'skill-websearch') }
-        'stack_shutdown' { @('compose', '--profile', 'websearch', 'stop') }
+        'stack_shutdown' { @('compose', '--profile', 'websearch', 'down', '--remove-orphans') }
+        'workspace_sync' {
+            if ($WorkspaceId -ne 'default' -and $WorkspaceId -notmatch '^[a-f0-9]{12}$') { throw 'Invalid workspace id' }
+            $groupNames = if ($WorkspaceId -eq 'default') { @('skill-files', 'skill-runner') } else { @("ws-$WorkspaceId-files", "ws-$WorkspaceId-runner") }
+            @('compose', '--profile', 'websearch', 'up', '-d', '--remove-orphans', '--wait') + $groupNames
+        }
         default { throw '不支持的容器操作' }
+    }
+    $workspaceCompose = Join-Path $Context.Root 'data/private/workspace-compose.json'
+    if (Test-Path -LiteralPath $workspaceCompose) {
+        $composeArgs = @('compose', '--project-directory', $Context.Root, '-f', $workspaceCompose) + @($composeArgs | Select-Object -Skip 1)
     }
     $dockerCommand = Get-Command docker -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $dockerCommand) { throw '找不到 Docker CLI；请检查启动环境' }
 
     $processInfo = New-Object System.Diagnostics.ProcessStartInfo
     $processInfo.FileName = $dockerCommand.Path
-    $processInfo.Arguments = $composeArgs -join ' '
+    $processInfo.Arguments = ($composeArgs | ForEach-Object { '"' + ([string]$_).Replace('"', '\"') + '"' }) -join ' '
     $processInfo.WorkingDirectory = $Context.Root
     $processInfo.UseShellExecute = $false
     $processInfo.CreateNoWindow = $true
@@ -286,7 +299,7 @@ function Invoke-DailyServiceSupervisorRequest($Context) {
             return
         }
         $operation = [string]$body.operation
-        if ($operation -notin @('websearch_start', 'websearch_stop', 'stock_start', 'stack_shutdown')) {
+        if ($operation -notin @('websearch_start', 'websearch_stop', 'stock_start', 'stack_shutdown', 'workspace_sync')) {
             Send-DailyHttpResponse $stream 400 @{ detail = 'unknown operation' }
             return
         }
@@ -297,7 +310,8 @@ function Invoke-DailyServiceSupervisorRequest($Context) {
                 Send-DailyHttpResponse $stream 200 @{ ok = $true; operation = $operation; output = $result.output; pid = $result.pid }
                 Write-DailySupervisorLog $Context "completed $operation pid=$($result.pid)"
             } else {
-                $output = Invoke-DailyDockerOperation $Context $operation
+                $workspaceId = if ($body.workspace_id) { [string]$body.workspace_id } else { 'default' }
+                $output = Invoke-DailyDockerOperation $Context $operation $workspaceId
                 Send-DailyHttpResponse $stream 200 @{ ok = $true; operation = $operation; output = $output }
                 Write-DailySupervisorLog $Context "completed $operation"
             }

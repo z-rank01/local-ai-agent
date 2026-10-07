@@ -491,7 +491,7 @@ class Agent:
         if not has_hint and not has_file_ref:
             return None
 
-        search_dirs = ["/workspace/data", "/workspace/docs", "/workspace/reports"]
+        search_dirs = ["/workspace/data", "/workspace/docs", "/workspace/reports"] + [p for p in getattr(self.router, "workspace_roots", []) if p != "/workspace"]
         all_entries: list[tuple[str, str]] = []
         for dir_path in search_dirs:
             try:

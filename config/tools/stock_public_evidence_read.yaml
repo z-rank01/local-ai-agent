@@ -1,3 +1,4 @@
+display_name: "读取事件原文与分析"
 name: stock_public_evidence_read
 backend: stock-bridge
 tier: extended

@@ -1,3 +1,4 @@
+display_name: "删除技能"
 name: skill_unregister
 backend: skill-runner
 tier: extended

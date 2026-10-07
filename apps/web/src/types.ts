@@ -1,4 +1,13 @@
+export type Workspace = {
+  id: string; name: string; version: number; managed_path: string; primary_path: string;
+  roots: Array<{id: string; name: string; host_path: string; path: string; available: boolean}>;
+  primary_root_id: string | null; cloud_read: boolean; cloud_write: boolean;
+  active_conversation_id: string | null; pending: boolean; last_error?: string;
+};
+
 export type AppStatus = {
+  workspace_id: string;
+  tool_catalog?: Array<{name: string; display_name: string; group: string}>;
   model_calls_used?: number;
   model_call_limit?: number;
   workspace_cloud_allowed?: boolean;
@@ -17,6 +26,9 @@ export type ConversationSummary = {
   created_at: string;
   updated_at: string;
   research_method: string;
+  workspace_id: string;
+  workspace_name: string;
+  search_snippet?: string | null;
 };
 
 export type MessageRecord = {
@@ -63,6 +75,7 @@ export type ProviderInfo = {
 };
 
 export type ChatRequest = {
+  workspace_id?: string;
   request_id?: string;
   message: string;
   conversation_id?: string | null;
@@ -170,4 +183,51 @@ export type TranscriptBlock = {
   responseToMessageId?: string;
   versionNumber?: number;
   versionCount?: number;
+};
+
+export type PackageJob = {
+  job_id: string;
+  status: string;
+  packages: string[];
+  skipped: string[];
+  elapsed: number;
+  log: string;
+  error?: string;
+  completed: boolean;
+};
+
+export type StockServiceStatus = {
+  online: boolean;
+  message?: string;
+  market_model?: {provider: string; model: string};
+  settings: {root: string; state_dir: string; port: number; enabled: boolean; worker: boolean};
+  worker?: {enabled: boolean; draining: boolean; busy: boolean};
+  runtime?: {mode: string; reason: string; last_completed_day: string | null};
+  recovery?: {
+    batch: {status: string; from_day: string; to_day: string} | null;
+    steps: {id: string; status: string; body: {day?: string; error?: string; attempts?: number}}[];
+    problems: string[];
+    human_tasks: {id: string; kind: string; body: {message?: string}}[];
+  };
+  position_reviews?: {
+    id: string;
+    day: string;
+    status: string;
+    symbol: string;
+    reasons: string[];
+    review: {status?: string; verdict?: string | null; report?: string; missing?: string[]; decision_id?: string};
+  }[];
+  position_review_open_count?: number;
+};
+
+// 服务操作可能只返回一次性确认/回复（challenge / reply），此时不得当作状态负载。
+export type StockServiceResponse = StockServiceStatus & {challenge?: string; reply?: string};
+
+export type StockModel = {
+  id: string;
+  provider: string;
+  provider_name: string;
+  model: string;
+  kind: string;
+  status: string;
 };

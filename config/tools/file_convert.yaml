@@ -1,3 +1,4 @@
+display_name: "转换文件为文本"
 name: file_convert
 backend: skill-runner
 tier: extended

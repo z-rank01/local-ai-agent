@@ -1,3 +1,4 @@
+display_name: "注册技能"
 name: skill_register
 backend: skill-runner
 tier: extended

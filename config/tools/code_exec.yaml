@@ -1,3 +1,4 @@
+display_name: "运行 Python 代码"
 name: code_exec
 backend: skill-runner
 tier: core
@@ -10,6 +11,9 @@ parameters:
     code:
       type: string
       description: "Python source code to execute"
+    cwd:
+      type: string
+      description: "工作区内的执行目录；省略时使用当前工作区主要目录"
     timeout:
       type: integer
       description: "Timeout in seconds, up to policy limit"

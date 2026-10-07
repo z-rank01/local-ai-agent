@@ -1,3 +1,4 @@
+display_name: "查看已装依赖"
 name: package_list
 backend: skill-runner
 tier: core

@@ -1,3 +1,4 @@
+display_name: "忽略跟踪对象"
 name: stock_track_ignore
 backend: stock-bridge
 tier: extended
