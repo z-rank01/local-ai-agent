@@ -33,12 +33,15 @@ export function buildReportCardInfo(block: TranscriptBlock): ReadingReport & {me
   }
   const title = tradingDay ? `${baseName} · ${tradingDay}` : baseName;
   const meta: string[] = [];
-  const page = typeof block.params?.page === 'number'
+  // The renderer's footer also fixes older saved tool results whose total was
+  // mistakenly computed from the selected page rather than the whole report.
+  const footer = localReportContent(block).trim().match(/\n第 (\d+)\/(\d+) 页。可继续说[^\n]*$/u);
+  const page = footer ? Number(footer[1]) : typeof block.params?.page === 'number'
     ? block.params.page
     : typeof observation?.requested_page === 'number'
       ? observation.requested_page
       : null;
-  const pageCount = typeof observation?.page_count === 'number' ? observation.page_count : null;
+  const pageCount = footer ? Number(footer[2]) : typeof observation?.page_count === 'number' ? observation.page_count : null;
   if (page !== null) {
     meta.push(pageCount ? `第 ${page} / ${pageCount} 页` : `第 ${page} 页`);
   }
@@ -49,7 +52,7 @@ export function buildReportCardInfo(block: TranscriptBlock): ReadingReport & {me
     meta.push(`版本 ${String(version)}`);
   }
   if (block.createdAt) {
-    meta.push(`生成于 ${formatTime(block.createdAt)}`);
+    meta.push(`读取于 ${formatTime(block.createdAt)}`);
   }
   return {title, meta, content: localReportContent(block)};
 }

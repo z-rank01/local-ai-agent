@@ -179,8 +179,21 @@ export function SkillsPanel({
       busy,
       onToggle: toggleWebsearch,
       body: (
+        <p className="panel-hint">开启后模型可联网检索与读取网页正文；关闭后只使用本地文件与历史会话。</p>
+      ),
+    },
+    {
+      id: 'stock',
+      icon: 'i-chart',
+      name: '股票后台',
+      desc: '后台任务执行与每日简报',
+      badge: stockBusy ? (stockOnline ? '关闭中…' : '启动中…') : stockOnline ? '已开启' : '已关闭',
+      badgeClass: stockBusy ? 'chip chip-warn' : stockOnline ? 'chip chip-ok' : 'chip chip-quiet',
+      checked: stockOnline,
+      busy: stockBusy,
+      onToggle: toggleStock,
+      body: (
         <>
-          <p className="panel-hint">开启后模型可联网检索与读取网页正文；关闭后只使用本地文件与历史会话。</p>
           <div className="field">
             <span className="field-label">本会话研究方法</span>
             <Dropdown
@@ -195,20 +208,9 @@ export function SkillsPanel({
             />
           </div>
           <p className="panel-hint">只影响本会话后续解释和明确提交的新研究任务；不适用的职责使用自动方法。</p>
+          <StockPanel onChanged={onChanged} />
         </>
       ),
-    },
-    {
-      id: 'stock',
-      icon: 'i-chart',
-      name: '股票后台',
-      desc: '后台任务执行与每日简报',
-      badge: stockBusy ? (stockOnline ? '关闭中…' : '启动中…') : stockOnline ? '已开启' : '已关闭',
-      badgeClass: stockBusy ? 'chip chip-warn' : stockOnline ? 'chip chip-ok' : 'chip chip-quiet',
-      checked: stockOnline,
-      busy: stockBusy,
-      onToggle: toggleStock,
-      body: <StockPanel onChanged={onChanged} />,
     },
   ];
 
