@@ -344,16 +344,30 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
    ═══════════════════════════════════════════════════════════════════════════ */
 .topbar {
   position: fixed; top: 0; left: 0; right: var(--sheet-inset, 0px); z-index: 40;
-  display: flex; align-items: center; gap: var(--space-2);
-  height: 56px; padding: 0 var(--space-3) 0 var(--space-2);
+  container-type: inline-size;
+  height: 44px; padding: 0 var(--space-3);
   background: var(--bg);
   border-bottom: 1px solid transparent;
   transition: right var(--motion-base) var(--ease-standard),
               border-color var(--motion-base) var(--ease-standard);
-
- height: 44px;
 }
 .topbar.scrolled { border-bottom-color: var(--border-soft); }
+.topbar-layout {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center; width: 100%; height: 100%;
+}
+.topbar-layout > .tb-title { grid-column: 2; }
+.tb-actions {
+  grid-column: 3; display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--space-2); min-width: 0;
+}
+.tb-actions > .tb-btn { flex: none; }
+.tb-actions > .model-pill { min-width: 0; }
+@container (max-width: 720px) {
+  .topbar-layout { display: flex; gap: var(--space-2); }
+  .tb-actions { flex: 0 1 auto; }
+  .tb-actions .pill-name { display: none; }
+}
 .tb-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: 34px; min-width: 34px; padding: 0 8px; border-radius: var(--radius-pill);
@@ -1245,7 +1259,7 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .notice-bar { top: 52px; }
 
 /* 会话标题即抽屉入口：顶栏只留品牌 / 标题 / 模型 / 导出 / 设置。
-   按钮本身 flex:1 撑满中段只负责居中与点击区域；视觉与 hover 反馈
+   宽屏标题在对称网格中居中，窄屏让出按钮空间；视觉与 hover 反馈
    收进内层 .tb-title-in 胶囊，避免整条横贯页面的灰色 hover 带。 */
 .tb-title {
   display: inline-flex; align-items: center; justify-content: center;

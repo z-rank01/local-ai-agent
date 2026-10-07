@@ -5,6 +5,7 @@ const INNER_CLASS: Record<string, string> = {
   'acc-body': 'acc-in',
   'panel-body': 'panel-in',
   'steps-body': 'steps-body-in',
+  'skill-body': 'skill-in',
 };
 
 export type CollapseProps = {
