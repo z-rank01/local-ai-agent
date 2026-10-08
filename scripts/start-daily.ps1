@@ -1,7 +1,7 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 # 唯一日常入口：准备环境 → 启动工具容器、服务控制器与聊天服务（含网页）→ 打开浏览器。
 # 已运行时重复执行只会打开浏览器，不会重复启动服务。
-param([switch]$Build, [switch]$SkipTools, [switch]$RebuildWeb)
+param([switch]$Build, [switch]$SkipTools, [switch]$RebuildWeb, [switch]$Desktop)
 $ErrorActionPreference = 'Stop'
 
 function Write-Step([string]$Message) { Write-Host "      $Message" -ForegroundColor DarkGray }
@@ -262,18 +262,32 @@ if ($ollamaUp) {
     Write-Warn2 'not installed; only cloud models are usable'
 }
 
-# -- [7/7] open browser --------------------------------------------------------
-Write-Host '  [7/7] Open browser' -ForegroundColor Cyan
-try {
-    Start-Process $dailyBrowserUrl
-    Write-Ok 'http://127.0.0.1:9510'
-} catch {
-    Write-Warn2 'Browser could not open automatically; use http://127.0.0.1:9510'
+# -- [7/7] open browser or desktop window --------------------------------------
+$dailyDesktopOpened = $false
+if ($Desktop) {
+    Write-Host '  [7/7] Open desktop window' -ForegroundColor Cyan
+    $dailyDesktopScript = Join-Path $PSScriptRoot 'desktop_window.py'
+    try {
+        Start-Process -FilePath $dailyPython -ArgumentList @($dailyDesktopScript, $dailyBrowserUrl) -WorkingDirectory $dailyRoot
+        $dailyDesktopOpened = $true
+        Write-Ok 'desktop window (close it to exit everything)'
+    } catch {
+        Write-Warn2 "desktop window failed ($($_.Exception.Message)); falling back to the browser"
+    }
+}
+if (-not $dailyDesktopOpened) {
+    Write-Host '  [7/7] Open browser' -ForegroundColor Cyan
+    try {
+        Start-Process $dailyBrowserUrl
+        Write-Ok 'http://127.0.0.1:9510'
+    } catch {
+        Write-Warn2 'Browser could not open automatically; use http://127.0.0.1:9510'
+    }
 }
 
 Write-Host ''
 Write-Host '  Started. Daily Web: http://127.0.0.1:9510' -ForegroundColor Green
-Write-Host '  Exit from the page ("退出") or just close the page; all services' -ForegroundColor DarkGray
+Write-Host '  Exit from the page ("退出") or just close the page/window; all services' -ForegroundColor DarkGray
 Write-Host '  (chat, tool containers, stock backend) stop themselves in ~15s.' -ForegroundColor DarkGray
 Write-Host ''
 if ($dailyController) {
