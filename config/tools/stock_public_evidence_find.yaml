@@ -5,9 +5,9 @@ tier: extended
 cloud: read
 short_description: "查找每日简报或公司研究中的公开证据。"
 description: >
-  先用 stock_market_brief_find 或 stock_theme_research_find 获取本会话已完成简报或主题公司研究的 reference。
+  先用 stock_market_brief_find、stock_theme_research_find 或 stock_research_find 获取本会话已完成简报或主题公司研究的 reference。
   再按标题、公司代码、原文词语或报告页查找公开事件。结果覆盖整份已分析简报，
-  每次返回一页，next_cursor 非空时继续读取。页内事件只能在 page_mapping 为
+  每次返回一页，next_cursor 非空时继续查找；命中项带 read_cursor 时，可直接作为首次 stock_public_evidence_read 的 cursor 定位匹配字段。页内事件只能在 page_mapping 为
   CONFIRMED 时断言；UNCONFIRMED 时要说明页码无法核对。
   unread_count 是原目录中未深读的候选数，不是此会话未读数；
   missing_count 是分析缺口条目数，不等于失败公告篇数。
@@ -19,7 +19,7 @@ parameters:
     reference:
       type: string
       pattern: "^[0-9a-f]{64}$"
-      description: "stock_market_brief_find 或 stock_theme_research_find 返回的本会话安全任务引用"
+      description: "stock_market_brief_find、stock_theme_research_find 或 stock_research_find 返回的本会话安全任务引用"
     search:
       type: string
       maxLength: 80

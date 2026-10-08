@@ -22,7 +22,7 @@ parameters:
     reference:
       type: string
       pattern: "^[0-9a-f]{64}$"
-      description: "stock_market_brief_find 或 stock_theme_research_find 返回的本会话安全任务引用"
+      description: "stock_market_brief_find、stock_theme_research_find 或 stock_research_find 返回的本会话安全任务引用"
     event_id:
       type: string
       pattern: "^[0-9a-f]{16}$"
