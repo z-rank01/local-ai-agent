@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # 唯一日常入口：准备环境 → 启动工具容器、服务控制器与聊天服务（含网页）→ 打开浏览器。
 # 已运行时重复执行只会打开浏览器，不会重复启动服务。
 param([switch]$Build, [switch]$SkipTools, [switch]$RebuildWeb, [switch]$Desktop)
