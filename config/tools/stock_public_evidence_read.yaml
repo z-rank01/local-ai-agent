@@ -7,7 +7,7 @@ short_description: "按事件读取可追溯的公开原文和分析。"
 description: >
   event_id 必须来自 stock_public_evidence_find。读取本事件的来源、日期、
   事实引文、分析、反证、观察事项和有位置的原文段落。长正文用 next_cursor 续取。
-  只有原文 excerpt.text 或 facts.quote 中连续出现的字串才可加引号称为逐字引文；
+  kind 为 ORIGINAL_TEXT 或 PEER_ORIGINAL_TEXT（旧事件未标 kind 时沿用原文）的 excerpt.text，才可加引号称为逐字引文；SOURCE_FIELD 是结构化财报字段，CONDITIONAL_CALCULATION 是条件计算，AI_COMPARABILITY_INFERENCE 是推断，必须区分。
   不得删词、拼接或规范化 PDF 空格后仍称逐字引文。摘短句时也须保持原样，
   优先摘取 10 到 30 字、无需改动引号或空格的连续子串，并在输出前逐字符核对；
   无法保证时只作明确标注的转述。给出对应 excerpt_id 与 location。
@@ -22,7 +22,7 @@ parameters:
     reference:
       type: string
       pattern: "^[0-9a-f]{64}$"
-      description: "stock_market_brief_find 返回的本会话安全任务引用"
+      description: "stock_market_brief_find 或 stock_theme_research_find 返回的本会话安全任务引用"
     event_id:
       type: string
       pattern: "^[0-9a-f]{16}$"
