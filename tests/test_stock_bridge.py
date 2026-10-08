@@ -172,6 +172,17 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         prepare = next(call for call in calls if call['path'].endswith('/prepare'))
         self.assertEqual(prepare['json']['report_body_scope'], 'local')
 
+    async def test_company_report_page_is_not_relabelled_as_market_brief(self):
+        calls = []
+        page = {'kind': 'local_report_page', 'requested_page': 1, 'page_count': 2,
+                'page_chars': 12, 'body': '公司研究：C03尚未完成', 'detail_available': 'YES'}
+        bridge = self.bridge(make_broker(calls, step_responses=[ok_step(page)]))
+        bridge.set_turn('company-page', 'company-page-request', '打开公司研究报告', allow_report_body=True)
+        result = await bridge.call_tool('stock_report_read', {'reference': REF}, 'company-page')
+        self.assertEqual(result['model_observation']['kind'], 'local_report_page')
+        self.assertEqual(result['model_observation']['body'], page['body'])
+        self.assertIn('已随本轮交给模型阅读', result['model_observation']['page_reading'])
+
     async def test_market_brief_page_one_keeps_source_scopes_distinct(self):
         bridge = self.bridge(make_broker([], step_responses=[ok_step({
             'kind': 'market_brief', 'target_date': '2026-09-24',

@@ -308,7 +308,7 @@ class StockBridge:
             ]
             observation['display_scope'] = ('任务引用只用于下一次内部报告读取，不向用户展示。'
                                             '回答只比较已读取版本的日期、资讯范围、来源失败记录和分析情况。')
-        if tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief_page':
+        if tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') in ('market_brief_page', 'local_report_page'):
             # The stock side returned the rendered page body for this authorised
             # turn.  Pass it through untouched: the model read the page, so it may
             # explain it.  The attachment still reaches the user for exact values.
