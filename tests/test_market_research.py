@@ -55,6 +55,27 @@ class SearchRuntime:
 
 
 class PublicSearchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_announcement_search_uses_own_notice_path_and_rejects_brokerage_and_other_codes(self):
+        runtime = SearchRuntime()
+        valid = 'https://data.eastmoney.com/notices/detail/688312/AN202608271234567890.html'
+        async def dispatch(tool, params, session_id):
+            runtime.calls.append((tool, params, session_id))
+            return {'results': [{'url': url} for url in [valid,
+                'https://data.eastmoney.com/report/info/AP202608270001.html',
+                'https://data.eastmoney.com/notices/detail/601899/AN202608270001.html',
+                valid + '?unverified=1', 'https://data.eastmoney.com/stockdata/688312.html']]}
+        runtime.router.dispatch = dispatch
+        result = await public_search(runtime, {'symbol': '688312', 'name': '燕麦科技',
+            'source': 'announcement', 'purpose': 'company_direct', 'terms': ['年度报告']})
+        self.assertEqual(result, {'status': 'OK', 'urls': [valid]})
+        self.assertEqual(runtime.calls[0][1]['query'],
+                         '年度报告 688312 燕麦科技 site:data.eastmoney.com/notices/detail/688312/')
+
+    async def test_missing_announcement_search_match_is_not_claimed_as_no_announcements(self):
+        runtime = SearchRuntime()
+        result = await public_search(runtime, {'symbol': '688312', 'name': '燕麦科技', 'source': 'announcement'})
+        self.assertEqual(result, {'status': 'NO_MATCH', 'urls': []})
+
     async def test_public_identity_only_and_host_filter(self):
         runtime = SearchRuntime()
         result = await public_search(runtime, {'symbol': '000001', 'name': '公开公司', 'source': 'csrc'})

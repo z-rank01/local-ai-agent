@@ -77,8 +77,9 @@ async def public_search(runtime, body):
     if 'web_search' not in runtime.tool_registry.known_tools:
         return {'status': 'DISABLED', 'urls': []}
     host = LOOKUP_HOSTS[source]
+    search_scope = host + '/notices/detail/' + symbol + '/' if source == 'announcement' else host
     query = (' '.join(terms) + (' ' + symbol + ' ' + name if purpose != 'industry_background' else '')
-             if terms else f'{symbol} {name}') + f' site:{host}'
+             if terms else f'{symbol} {name}') + f' site:{search_scope}'
     try:
         found = await runtime.router.dispatch('web_search', {'query': query, 'max_results': 12},
                                               session_id='stock-public-research')
@@ -93,8 +94,13 @@ async def public_search(runtime, body):
         parsed = urlparse(url) if isinstance(url, str) else None
         if (parsed and parsed.scheme == 'https' and parsed.hostname == host and
                 not parsed.username and not parsed.password and url not in urls):
+            if source == 'announcement' and not re.fullmatch(
+                    r'/notices/detail/' + re.escape(symbol) + r'/AN\d+\.html', parsed.path):
+                continue
+            if source == 'announcement' and (parsed.query or parsed.fragment):
+                continue
             urls.append(url)
-    return {'status': 'OK', 'urls': urls}
+    return {'status': 'OK' if urls else 'NO_MATCH', 'urls': urls}
 
 
 async def available_models(runtime, *, refresh=False):

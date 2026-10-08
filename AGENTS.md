@@ -21,7 +21,7 @@
 .\scripts\start-daily.ps1 -Build # 改了 skills/** 后必须用这个重建工具容器镜像
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 247 项、2 项跳过（2026-10-07））
+.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 258 项、2 项跳过（2026-10-09））
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -66,6 +66,8 @@ powershell Start-Process …（由聊天后端调用）
 `state.sqlite-wal` 为 0 字节时删除无风险；非 0 时先整目录备份。库本身通常完好，可用 `PRAGMA integrity_check` 确认。
 
 ## 结构速览
+
+股票 C03 专业输出明确 `finish_reason=length` 时，股票侧固定同一发布版本提高输出额度；只有唯一启动器加载的工作进程取得独占锁后，才可恢复已保存的已知截断。网络结果未知和活跃并发调用不得自动接管或重发；不另加恢复启动路径。见 `docs/记录/2026-10-09-IN4.20-公开线索与只读会话补修.md`。
 
 - `core/workspaces.py`：工作区持久化、稳定目录映射、配置快照与执行锁；文件读写受主机进程权限限制时，通过对应工作区工具容器完成，不可另起本机命令执行后端。每组使用独立网络与私密工具凭据，健康核验同时检查 ID、版本及鉴权；主机预检覆盖 NTFS junction。配置切换只阻止相关目录的任务。
 - `core/ui_session.py`：唯一启动器创建页面会话凭据，通过 URL fragment 交给页面并换取 HttpOnly cookie；BFF API 不接受无凭据的容器侧请求。凭据文件只在 data/private，不可挂载给工具或返回状态 API；启动器就绪探测也须携带凭据。
