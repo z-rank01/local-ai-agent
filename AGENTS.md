@@ -4,7 +4,7 @@
 
 ## 铁律：唯一入口、唯一数据
 
-1. **用户准入入口只有一个**：根目录 `启动.bat` → `scripts/start-daily.ps1`（BFF @ 127.0.0.1:9510，同源托管 Web 界面）。任何新功能、测试、人工验收都必须能通过这同一个入口使用；**禁止**新增或复活第二条启动路径（旧的 quick-start / start-in1 / run_in1 / compose.in1 / TUI / Ink CLI 已全部移除）。
+1. **用户准入入口只有一个**：根目录 `启动.bat` → `scripts/start-daily.ps1`（BFF @ 127.0.0.1:9510，同源托管 Web 界面）。任何新功能、测试、人工验收都必须能通过这同一个入口使用；**禁止**新增或复活第二条启动路径（旧的 quick-start / start-in1 / run_in1 / compose.in1 / TUI / Ink CLI 已全部移除）。`-Desktop` 只是同一入口的展示形态（pywebview 桌面窗口承载同一页面），不是第二条路径。
 2. **数据只有一份**：会话库 `data/conversations.db`、工作区 `data/workspace/`、模型账本 `data/model-calls.sqlite`。隔离/验收数据通过**独立会话 + 独立股票状态目录**实现，不要再造独立库。历史 IN1 数据已并入日常库（`data/_archive/in1/` 留有原始备份）。
    命名工作区、目录根记录及会话 `workspace_id` 同样保存在 `conversations.db`；一个工作区可有多个会话和多个本机目录。默认托管目录仍为 `data/workspace/`；其他工作区托管内容在其 `.harness/<workspace_id>/` 下，外部目录直接挂载为 `/roots/<root_id>`，不复制源目录。默认容器遮蔽 `.harness`，不能访问其他工作区托管内容。
    会话研究方法选择是 `conversations.db` 的增量字段；不能另建设置库。股票任务的方法正文与版本在入队时由股票仓库冻结。
@@ -17,6 +17,7 @@
 
 ```powershell
 .\scripts\start-daily.ps1        # 启动（= 双击 启动.bat）；重复运行只开浏览器
+.\scripts\start-daily.ps1 -Desktop # 同一入口，改用桌面窗口显示页面（关窗=关页面）
 .\scripts\start-daily.ps1 -Build # 改了 skills/** 后必须用这个重建工具容器镜像
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
