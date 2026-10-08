@@ -267,6 +267,15 @@ $dailyDesktopOpened = $false
 if ($Desktop) {
     Write-Host '  [7/7] Open desktop window' -ForegroundColor Cyan
     $dailyDesktopScript = Join-Path $PSScriptRoot 'desktop_window.py'
+    # pythonnet's .NET Framework loader is sandbox-blocked on some machines
+    # (e.g. Server with IE ESC); loadFromRemoteSources lifts that for this venv.
+    $dailyPythonConfig = "$dailyPython.config"
+    if (-not (Test-Path -LiteralPath $dailyPythonConfig)) {
+        @'
+<?xml version="1.0" encoding="utf-8"?>
+<configuration><runtime><loadFromRemoteSources enabled="true"/></runtime></configuration>
+'@ | Set-Content -LiteralPath $dailyPythonConfig -Encoding UTF8
+    }
     try {
         Start-Process -FilePath $dailyPython -ArgumentList @($dailyDesktopScript, $dailyBrowserUrl) -WorkingDirectory $dailyRoot
         $dailyDesktopOpened = $true
