@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 from fastapi import HTTPException
-from core.research_generation import generate
+from core.research_generation import generate, validate_public
 from core.public_address import public_url
 
 
@@ -70,6 +70,24 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PublicAddressTests(unittest.TestCase):
+    def test_public_company_cash_is_not_account_cash(self):
+        from copy import deepcopy
+        financial = {'symbol': '688312', 'snapshot_id': 'a'*64,
+                     'latest': {'ytd': {'cash': 12.5}}, 'periods': [{'ytd': {'cash': 10}}]}
+        packet = {'material': {'instrument': {'symbol': '688312'},
+            'evidence': {'financial': financial}, 'metrics': {'financial': {'ytd': {'cash': 12.5}}},
+            'peers': [{'symbol': '688312', 'financial': deepcopy(financial)}]}}
+        validate_public(packet)
+        for location in ('root', 'nested', 'wrong_symbol', 'text', 'holdings'):
+            changed = deepcopy(packet)
+            if location == 'root': changed['material']['cash'] = 999
+            elif location == 'nested': changed['material']['evidence']['cash'] = 999
+            elif location == 'wrong_symbol': changed['material']['instrument']['symbol'] = '000001'
+            elif location == 'text': changed['material']['evidence']['financial']['latest']['ytd']['cash'] = 'private text'
+            else: changed['material']['evidence']['financial']['latest']['ytd']['holdings'] = []
+            with self.subTest(location=location), self.assertRaises(HTTPException):
+                validate_public(changed)
+
     def test_local_and_credential_urls_rejected(self):
         for url in ['https://127.0.0.1/x','https://[::1]/x','https://localhost/x',
                     'https://host.internal/x','https://u:p@example.com/x','http://example.com/x',

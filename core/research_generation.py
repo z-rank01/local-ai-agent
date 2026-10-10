@@ -14,7 +14,36 @@ PRIVATE_KEYS = {'account', 'account_id', 'cash', 'lots', 'holdings', 'orders', '
 ROOT_FIELDS = {'as_of', 'material', 'evidence_ids', 'analysis_contract', 'validation_feedback'}
 
 
-def validate_public(value):
+def _public_cash_paths(packet):
+    """Only company financial snapshots may use the public balance-sheet cash field."""
+    import re
+    paths = set()
+    material = packet.get('material', {}) if isinstance(packet, dict) else {}
+    if not isinstance(material, dict):
+        return paths
+    def financial(fin, symbol, base):
+        if (not isinstance(fin, dict) or not isinstance(symbol, str) or
+                not re.fullmatch(r'\d{6}', symbol) or fin.get('symbol') != symbol or
+                not re.fullmatch('[0-9a-f]{64}', str(fin.get('snapshot_id', '')))):
+            return False
+        paths.add(base + ('latest', 'ytd', 'cash'))
+        for index, _ in enumerate(fin.get('periods', [])):
+            paths.add(base + ('periods', index, 'ytd', 'cash'))
+        return True
+    instrument = material.get('instrument', {})
+    evidence = material.get('evidence', {})
+    if isinstance(instrument, dict) and isinstance(evidence, dict) and financial(
+            evidence.get('financial'), instrument.get('symbol'), ('material', 'evidence', 'financial')):
+        paths.add(('material', 'metrics', 'financial', 'ytd', 'cash'))
+    for index, peer in enumerate(material.get('peers', [])):
+        if isinstance(peer, dict):
+            financial(peer.get('financial'), peer.get('symbol'), ('material', 'peers', index, 'financial'))
+    return paths
+
+
+def validate_public(value, *, _path=(), _cash_paths=None):
+    if _cash_paths is None:
+        _cash_paths = _public_cash_paths(value)
     if isinstance(value, dict):
         if 'investment_rationale' in value:
             rationale = value['investment_rationale']
@@ -22,13 +51,16 @@ def validate_public(value):
                     rationale.get('status') != 'CONDITIONAL_RESEARCH_ONLY' or
                     set(rationale) - {'status', 'reason', 'counter', 'conditions', 'source_theme'}):
                 raise HTTPException(422, '仅接受由公开研究生成的条件性研究理由')
-        if any(str(k).lower() in PRIVATE_KEYS for k in value):
-            raise HTTPException(422, '只读直连仅接受公开研究材料，私有字段须留在原授权通路')
-        for child in value.values():
-            validate_public(child)
+        for key, child in value.items():
+            path = _path + (key,)
+            public_cash = (key == 'cash' and path in _cash_paths and
+                           (child is None or type(child) in (int, float)))
+            if str(key).lower() in PRIVATE_KEYS and not public_cash:
+                raise HTTPException(422, '只读直连仅接受公开研究材料，私有字段须留在原授权通路')
+            validate_public(child, _path=path, _cash_paths=_cash_paths)
     elif isinstance(value, list):
-        for child in value:
-            validate_public(child)
+        for index, child in enumerate(value):
+            validate_public(child, _path=_path + (index,), _cash_paths=_cash_paths)
     elif value is not None and not isinstance(value, (str, int, float, bool)):
         raise HTTPException(422, '研究材料类型无效')
 
