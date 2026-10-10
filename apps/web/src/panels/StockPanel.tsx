@@ -55,6 +55,7 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
   const [stateDir, setStateDir] = useState('simulation');
   const [port, setPort] = useState('8765');
   const [busy, setBusy] = useState(false);
+  const [researchOnly, setResearchOnly] = useState<boolean | undefined>(undefined);
   const [modelsRefreshing, setModelsRefreshing] = useState(false);
   const [pendingAction, setPendingAction] = useState('');
   const [error, setError] = useState('');
@@ -378,10 +379,10 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
           open={Boolean(openGroups.model)}
           onToggle={() => toggleGroup('model')}
           head="简报分析模型"
-          meta={marketModelLabel}
+          meta={status?.research_model?.enabled ? 'Qwen / qwen3.8-flash · 直连' : marketModelLabel}
         >
           <div className="field">
-            <span className="field-label">每日简报分析模型</span>
+            <span className="field-label">{status?.research_model?.enabled ? '直连关闭后使用的简报模型' : '每日简报分析模型'}</span>
             <ModelPicker
               providers={marketProviders}
               value={marketModel ? `${marketModel.provider}:${marketModel.model}` : ''}
@@ -395,10 +396,18 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
               }}
               onRefresh={() => void refreshMarketModels(true)}
               refreshing={modelsRefreshing}
-              disabled={busy}
+              disabled={busy || Boolean(status?.research_model?.enabled)}
             />
           </div>
-          <p className="panel-hint">仅影响新入队简报；对话模型独立。未配置密钥的云端型号不可选。</p>
+          <p className="panel-hint">直连开启时，新简报与只读研究固定使用 qwen3.8-flash。对话模型独立，已入队任务保持原配置。</p>
+          <label className="field">
+            <span className="field-label">只读研究使用 Qwen 云端直连（验收中）</span>
+            <input type="checkbox" checked={Boolean(status?.research_model?.enabled)} disabled={busy}
+              onChange={(event) => void act('research_model_configure', {
+                research: {enabled: event.target.checked, duties: ['C01', 'C02', 'C03', 'C04']},
+              })} />
+          </label>
+          <p className="panel-hint">仅影响新研究及新简报。旧任务保持原模型；审查通路保持原设置。当前仍需完成质量验收。</p>
         </Accordion>
       ) : null}
 
@@ -460,12 +469,18 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
             meta={workerState}
           >
             <p className="panel-hint">暂停后后台任务不再取出新任务，进行中的研究会走到安全边界收尾。</p>
+            <label className="field">
+              <span className="field-label">仅执行主动提交的只读研究，暂停日常调度</span>
+              <input type="checkbox" checked={researchOnly ?? Boolean(worker?.research_only)}
+                disabled={busy || Boolean(worker?.enabled) || Boolean(worker?.busy)}
+                onChange={(event) => setResearchOnly(event.target.checked)} />
+            </label>
             <div className="row-lead">
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 disabled={busy || Boolean(worker?.enabled)}
-                onClick={() => void act('worker_start')}
+                onClick={() => void act('worker_start', {research_only: researchOnly ?? Boolean(worker?.research_only)})}
               >
                 {buttonLabel('worker_start', '开启任务执行')}
               </button>

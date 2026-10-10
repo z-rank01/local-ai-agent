@@ -221,7 +221,15 @@ class StockService:
                 self.save()
                 return {'settings': self.settings.copy(), 'online': False, 'url': self.url,
                         'message': '股票后台已关闭，聊天可继续使用'}
-            elif action in ('worker_start', 'worker_pause', 'recover', 'prepare_resume', 'confirm_resume', 'operator', 'market_model_configure'):
+            elif action in ('worker_start', 'worker_pause', 'recover', 'prepare_resume', 'confirm_resume', 'operator', 'market_model_configure', 'research_model_configure'):
+                if action == 'research_model_configure' and not isinstance(body.get('research'), dict):
+                    raise ValueError('只读研究配置必须为对象')
+                if action == 'research_model_configure' and body['research'].get('enabled'):
+                    from .market_research import available_models
+                    catalog = await available_models(runtime)
+                    if not any(item['provider'] == 'qwen' and item['model'] == 'qwen3.8-flash'
+                               and item['status'] == 'configured' for item in catalog):
+                        raise ValueError('Qwen 直连研究模型尚未配置密钥或不可用')
                 if action == 'market_model_configure':
                     model = body.get('model')
                     from .market_research import available_models

@@ -164,6 +164,13 @@ async def stock_public_search(request: Request):
     from core.market_research import authorize, public_search
     authorize(request)
     return await public_search(get_runtime(), await request.json())
+
+@app.post('/api/internal/research-generation', include_in_schema=False)
+async def research_generation(request: Request):
+    from core.market_research import authorize
+    from core.research_generation import generate
+    authorize(request)
+    return await generate(get_runtime(), await request.json())
 @app.post('/api/admin/stock-service')
 async def stock_service_action(request: Request):
     require_local_control(request)

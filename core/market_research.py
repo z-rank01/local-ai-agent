@@ -66,11 +66,11 @@ async def public_search(runtime, body):
         raise HTTPException(422, '公开搜索参数无效')
     symbol, name, source = body['symbol'], body['name'], body['source']
     purpose, terms = body.get('purpose', 'company_direct'), body.get('terms', [])
-    public_theme = (purpose == 'industry_background' and source in ('csrc', 'ndrc')
+    public_theme = (purpose == 'industry_background' and source in ('csrc', 'ndrc', 'web')
                     and symbol == '' and name == '' and bool(terms))
     if (not public_theme and (not isinstance(symbol, str) or not re.fullmatch(r'\d{6}', symbol) or
             not isinstance(name, str) or not re.fullmatch(r'[\u4e00-\u9fffA-Za-z0-9（）()·]{2,40}', name)) or
-            not isinstance(source, str) or source not in LOOKUP_HOSTS or
+            not isinstance(source, str) or source not in set(LOOKUP_HOSTS) | {'web'} or
             not isinstance(purpose, str) or purpose not in {'industry_background', 'company_direct', 'benefit_link'} or
             not isinstance(terms, list) or len(terms) > 4 or
             any(not isinstance(term, str) or
@@ -78,10 +78,12 @@ async def public_search(runtime, body):
         raise HTTPException(422, '仅可查询公开证券和核准来源')
     if 'web_search' not in runtime.tool_registry.known_tools:
         return {'status': 'DISABLED', 'urls': []}
-    host = LOOKUP_HOSTS[source]
+    if any(re.search(r'私有|私人|我的(?:账户|持仓)|密钥|密码|账户余额|交易口令', term) for term in terms):
+        raise HTTPException(422, '公开证据检索不能包含账户或私有信息')
+    host = LOOKUP_HOSTS.get(source, '')
     search_scope = host + '/notices/detail/' + symbol + '/' if source == 'announcement' else host
     query = (' '.join(terms) + (' ' + symbol + ' ' + name if purpose != 'industry_background' else '')
-             if terms else f'{symbol} {name}') + f' site:{search_scope}'
+             if terms else f'{symbol} {name}') + (f' site:{search_scope}' if host else '')
     try:
         found = await runtime.router.dispatch('web_search', {'query': query, 'max_results': 12},
                                               session_id='stock-public-research')
@@ -94,8 +96,14 @@ async def public_search(runtime, body):
     for row in rows if isinstance(rows, list) else []:
         url = row.get('url') or row.get('link') if isinstance(row, dict) else None
         parsed = urlparse(url) if isinstance(url, str) else None
-        if (parsed and parsed.scheme == 'https' and parsed.hostname == host and
+        if (parsed and parsed.scheme == 'https' and (not host or parsed.hostname == host) and
                 not parsed.username and not parsed.password and url not in urls):
+            if not host:
+                from .public_address import public_url
+                try:
+                    public_url(url)
+                except ValueError:
+                    continue
             if source == 'announcement' and not re.fullmatch(
                     r'/notices/detail/' + re.escape(symbol) + r'/AN\d+\.html', parsed.path):
                 continue
