@@ -166,7 +166,7 @@
   --link: #2997ff;
   --inverse-hover: var(--fg-2);
   --code-label: var(--on-ink-2);
-  --selected-text: var(--fg-2);
+  --selected-text: color-mix(in oklab, var(--link) 80%, var(--fg));
   --caption-text: var(--fg-2);
   --focus-ring: 0 0 0 4px color-mix(in oklab, var(--link), transparent 15%);
 
@@ -1357,7 +1357,7 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .trace-toggle { pointer-events: none; }
 .step-top { width: 100%; text-align: left; border: 0; background: none; padding: 0; border-radius: var(--radius-sm); }
 .step-top:hover .step-toggle { background: var(--ink-line-2); color: var(--on-ink); }
-.step-top:hover .step-name { color: var(--bg); }
+.step-top:hover .step-name { color: var(--on-ink); }
 
 .loading { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--text-sm); }
 @keyframes spin { to { transform: rotate(360deg); } }
