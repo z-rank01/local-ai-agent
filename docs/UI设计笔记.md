@@ -1,7 +1,7 @@
 # UI 设计笔记（前端施工规范）
 
 > 日期：2026-10-07（原型 A「沉浸会话」整体重写后更新）。状态：**现行规范**，约束全部 `apps/web/**` 改动。
-> 优先级：根目录 [AGENTS.md](../AGENTS.md) 铁律优先；批次进度以 [前端优化计划](./前端优化计划.md) 为准。
+> 优先级：根目录 [AGENTS.md](../AGENTS.md) 铁律优先；批次进度只维护股票仓库 `docs/计划.md`。主题方案见[深色模式落地计划](./深色模式落地计划.md)。
 > 适用：任何新增功能、新面板、新模块在 `apps/web/` 内的 UI 施工。对照本文做，不再自由发挥。
 
 ## 1. 生效方式（改了不生效先查这里）
@@ -26,7 +26,8 @@
 | 强调 | `--accent` `--accent-on` `--accent-hover` `--accent-active` | 交互/选中/链接唯一强调色（Apple 蓝 `#0071e3`）。禁引入第二种强调色 |
 | 语义 | `--success` `--warn` `--danger` | 状态必须语义色差：完成=success、进行/等待=warn、失败=danger |
 | 派生色 | `--accent-soft` `--accent-soft-2` `--fg-soft` `--fg-soft-2` `--surface-inset` `--surface-track`；`--ok-soft` `--warn-soft` `--danger-soft` `--ok-text` `--warn-text` `--danger-text` | 由基色 color-mix 派生，禁用新的近似色硬编码 |
-| 石墨黑（轨迹/阅读） | `--ink` `--ink-2` `--ink-3` `--ink-line` `--ink-line-2` `--on-ink` `--on-ink-2` `--on-ink-3` `--accent-on-ink` `--ok-on-ink` `--warn-on-ink` `--danger-on-ink` | 深色在全页**只代表智能体产出**（执行轨迹、报告阅读） |
+| 石墨黑（轨迹/阅读） | `--ink` `--ink-2` `--ink-3` `--ink-line` `--ink-line-2` `--on-ink` `--on-ink-2` `--on-ink-3` `--accent-on-ink` `--ok-on-ink` `--warn-on-ink` `--danger-on-ink` | 执行轨迹、代码卡、报告阅读器在两种主题中均保持深色；深色主题显式覆盖石墨黑令牌，不能随页面反白 |
+| 主题语义 | `--link` `--knob` `--scrim` `--card` `--inverse-hover` `--code-label` `--selected-text` `--caption-text` | 分别用于链接、旋钮/选中片、遮罩、原型指定卡片、反色按钮悬停、代码元信息、选中文字和小标签；不能将所有背景都改成卡片色 |
 | 半径 | `--radius-sm` `--radius-md` `--radius-lg` `--radius-pill`（8/12/18/980） | 胶囊一律 `--radius-pill` |
 | 阶梯 | `--text-xs..lg`（12/14/17/21）`--tracking-display`；`--space-2/3/4/6`（8/12/16/24） | 新规则必须用阶梯 |
 | 容器嵌套 | `--nest-pad` `--nest-pad-in` `--nest-gap-2` `--nest-head-y` | 一级=卡片、二级=发丝行；不再卡套卡 |
@@ -37,6 +38,22 @@
 - **旧紫系令牌已全部废弃**：`--text` `--text-strong` `--line` `--line-strong` `--surface-soft` `--muted-soft` `--accent: #5f5bda` `--sidebar-width` `--inspector-width` `--dur-1/2/3` `--elev-1/2/3` `--ring-focus` `--radius-xl` `--text-xl` 等一律不再引用；看到旧名按本表替换。
 - 外观偏好（字体/字号/行高/阅读宽度/密度）由 `App.tsx` 写到 `document.documentElement` 的同名变量消费；默认值唯一来源是 `lib/appearance.ts` 的 `DEFAULT_APPEARANCE`（`:root` 同名值是未注入时的兜底，改默认值两处一并核对）。
 - 密度只缩放 `--space-2/3/4/6`（`densityScale`：紧凑 0.86 / 标准 1 / 宽松 1.14），不缩放字号与圆角。
+
+### 三态主题（2026-10-10）
+
+视觉来源是[归档深色原型](./原型/harness-a-dark-mode.html)（桌面同名文件原样复制），布局沿用当前沉浸会话。浅色配色保持原值；深色由 `:root[data-theme='dark']` 覆盖，纯黑舞台和石墨黑层级分别消费自己的令牌。
+
+| 令牌组 | 深色值 |
+| --- | --- |
+| 舞台 / 表面 / 微暖面 / 卡片 | `#000` / `#1c1c1e` / `#0c0c0e` / `#2c2c2e` |
+| 主文 / 次文 / 弱文 / 元信息 | `#f5f5f7` / `#c7c7cc` / `#98989d` / `#98989d` |
+| 边框 / 软边框 / 链接 | `#38383a` / `#2c2c2e` / `#2997ff` |
+| 完成 / 等待 / 失败 | `#30d158` / `#ffd60a` / `#ff453a` |
+| 石墨黑三层 | `#1c1c1e` / `#2c2c2e` / `#3a3a3c` |
+
+元信息、代码标题及模型选项小字在深色中采用原型更亮的文字阶梯，保证其实际背景上的对比度。反色按钮悬停背景使用次文亮色，图标继续用舞台色；主题分段控件键盘焦点使用统一焦点环。浅色语义别名维持原计算颜色。
+
+`AppearanceSettings.theme` 是 `system | light | dark`，默认及重置为 `system`。沿用 `local-ai-agent.appearance.v1`，旧字段和字体偏好继续保留；缺失或无效主题回退系统。`index.html` 在 CSS/React 前初始化，运行期 `lib/theme.ts` 写根元素 `data-theme`，浮层继承同一主题。仅系统态监听媒体变化，切换或卸载清理监听；存储损坏、拒绝访问及媒体查询不可用均有回退。两处规则由 `npm run test:theme --prefix apps/web` 校验一致性。桌面窗口只改变页面内容。
 
 ## 3. 布局骨架（无常驻侧栏）
 
@@ -131,7 +148,7 @@
 
 ## 相关文档
 
-- 批次基准与进度：[前端优化计划](./前端优化计划.md)；本次重写记录：[2026-10-07 前端原型 A 落地](./记录/2026-10-07-前端原型A落地.md)
+- 批次进度：股票仓库 `docs/计划.md`；主题方案：[深色模式落地计划](./深色模式落地计划.md)；重写记录：[2026-10-07 前端原型 A 落地](./记录/2026-10-07-前端原型A落地.md)
 - 协作规则：[../AGENTS.md](../AGENTS.md)、[文档记录简则](./文档记录简则.md)
 - 验收方法：[回归验证指南](./回归验证指南.md)
 

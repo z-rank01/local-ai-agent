@@ -3,6 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Before CSS and React: same key and normalization as lib/theme + appearance.
+      (function () {
+        var settings;
+        try { settings = JSON.parse(localStorage.getItem('local-ai-agent.appearance.v1') || '{}'); } catch (_) {}
+        var mode = settings && settings.theme;
+        if (mode !== 'light' && mode !== 'dark') mode = 'system';
+        var dark = false;
+        try { dark = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches; } catch (_) {}
+        document.documentElement.dataset.theme = mode === 'system' ? (dark ? 'dark' : 'light') : mode;
+      }());
+    </script>
     <title>Local AI Agent Web</title>
   </head>
   <body>

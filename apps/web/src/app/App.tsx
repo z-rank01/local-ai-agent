@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {
   DEFAULT_BASE_URL,
   ensureBrowserSession,
@@ -31,6 +31,7 @@ import {
 import {askConfirm, askForm, usePendingDialog} from '../lib/confirm';
 import {clamp, copyText, eventText, formatBackendError} from '../lib/format';
 import {notify} from '../lib/notify';
+import {watchTheme} from '../lib/theme';
 import {readConversationSummary, upsertConversation, type ReadingReport} from '../lib/report';
 import {STORAGE_KEYS, readJson, readString, writeJson, writeString} from '../lib/storage';
 import {
@@ -1053,6 +1054,8 @@ export default function App(): JSX.Element {
   useEffect(() => {
     writeJson(STORAGE_KEYS.appearance, effectiveAppearance);
   }, [effectiveAppearance]);
+
+  useLayoutEffect(() => watchTheme(effectiveAppearance.theme), [effectiveAppearance.theme]);
 
   useEffect(() => {
     writeString(STORAGE_KEYS.sheetWidth, String(sheetWidth));

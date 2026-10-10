@@ -8,6 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test:theme": "node --test scripts/test-theme.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4173"
   },
   "dependencies": {

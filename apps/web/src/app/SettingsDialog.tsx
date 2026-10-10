@@ -3,6 +3,7 @@ import type {CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as R
 import {patchModelSettings, saveProviderCredential} from '../api';
 import {CODE_FONT_PRESETS, DENSITY_OPTIONS, UI_FONT_PRESETS} from '../lib/appearance';
 import type {AppearanceSettings} from '../lib/appearance';
+import type {ThemeMode} from '../lib/theme';
 import type {AppStatus, ModelInfo, ProviderInfo} from '../types';
 import {Dropdown} from '../ui/Dropdown';
 import {Icon} from '../ui/Icon';
@@ -305,6 +306,19 @@ function AppearancePane({
 
   return (
     <>
+      <div className="section-label">主题</div>
+      <div className="field">
+        <div>
+          <div className="segmented theme-options" role="group" aria-label="主题">
+            {([['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']] as Array<[ThemeMode, string]>).map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={appearance.theme === value} onClick={() => onChange({theme: value})}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="setting-desc">跟随系统会随系统外观自动切换；手动选择后保持当前主题。</p>
+      </div>
       <div className="section-label">字体</div>
       <div className="field">
         <span className="field-label">界面字体</span>

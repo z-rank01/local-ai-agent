@@ -1,9 +1,12 @@
 import {clamp} from './format';
 import {readJson, STORAGE_KEYS} from './storage';
+import {normalizeTheme} from './theme';
+import type {ThemeMode} from './theme';
 
 export type DensityMode = 'comfortable' | 'compact' | 'spacious';
 
 export type AppearanceSettings = {
+  theme: ThemeMode;
   uiFont: string;
   codeFont: string;
   contentFontSize: number;
@@ -17,6 +20,7 @@ export const DEFAULT_UI_FONT = 'Inter, "Segoe UI", "Microsoft YaHei UI", "PingFa
 export const DEFAULT_CODE_FONT = '"Cascadia Code", "JetBrains Mono", "Sarasa Mono SC", "SFMono-Regular", Consolas, "Liberation Mono", monospace';
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
+  theme: 'system',
   uiFont: DEFAULT_UI_FONT,
   codeFont: DEFAULT_CODE_FONT,
   contentFontSize: 15,
@@ -48,6 +52,7 @@ export const DENSITY_OPTIONS: Array<{label: string; value: DensityMode; scale: n
 
 export function normalizeAppearanceSettings(value: Partial<AppearanceSettings> | null | undefined): AppearanceSettings {
   return {
+    theme: normalizeTheme(value?.theme),
     uiFont: typeof value?.uiFont === 'string' && value.uiFont.trim() ? value.uiFont.trim() : DEFAULT_APPEARANCE.uiFont,
     codeFont: typeof value?.codeFont === 'string' && value.codeFont.trim() ? value.codeFont.trim() : DEFAULT_APPEARANCE.codeFont,
     contentFontSize: clamp(Number(value?.contentFontSize) || DEFAULT_APPEARANCE.contentFontSize, 13, 19),
