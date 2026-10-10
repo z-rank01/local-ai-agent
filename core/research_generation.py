@@ -98,13 +98,25 @@ async def generate(runtime, body):
     receipt = {'execution_hash': body['execution_hash'], 'model_params': {
         **params, 'provider': body['provider'], 'model': spec['model'],
         'response_format': 'json_object', 'enable_search': False}}
+    import hashlib
+    input_hash = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                                          allow_nan=False).encode()).hexdigest()
+    ledger = runtime.models.budget
+    call_id = ledger.begin_research(body['provider'] + ':' + spec['model'],
+                                   body['execution_hash'], input_hash, receipt['model_params'])
+    finished = False
+    def finish(result):
+        nonlocal finished
+        ledger.finish_research(call_id, result)
+        finished = True
+        return {**result, 'ledger_call_id': call_id}
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(1800, connect=10), trust_env=False) as client:
             response = await client.post(spec['base_url'].rstrip('/') + '/chat/completions',
                 headers={'Authorization': 'Bearer ' + key}, json=payload)
         if response.status_code in (400, 401, 403, 404, 422, 429):
-            return {**receipt, 'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
-                    'http_status': response.status_code, 'text': '', 'usage': {}}
+            return finish({**receipt, 'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
+                    'http_status': response.status_code, 'text': '', 'usage': {}})
         response.raise_for_status()
         answer = response.json()
         choice = answer['choices'][0]
@@ -112,13 +124,16 @@ async def generate(runtime, body):
         if reason not in ('stop', 'length') or not isinstance(content, str) or not answer.get('model'):
             raise ValueError('Missing terminal metadata')
         if answer['model'] != spec['model']:
-            return {**receipt, 'status': 'FAILED', 'error': 'RESPONSE_MODEL_MISMATCH',
-                    'text': '', 'response_model': answer['model'], 'response_id': answer.get('id'), 'usage': {}}
+            return finish({**receipt, 'status': 'FAILED', 'error': 'RESPONSE_MODEL_MISMATCH',
+                    'text': '', 'response_model': answer['model'], 'response_id': answer.get('id'), 'usage': {}})
         usage = answer.get('usage') or {}
-        return {**receipt, 'status': 'TRUNCATED' if reason == 'length' else 'COMPLETE',
+        return finish({**receipt, 'status': 'TRUNCATED' if reason == 'length' else 'COMPLETE',
                 'text': content, 'finish_reason': reason, 'response_model': answer['model'],
                 'response_id': answer.get('id'), 'usage': {k: usage[k] for k in
-                    ('prompt_tokens', 'completion_tokens', 'total_tokens') if type(usage.get(k)) is int}}
+                    ('prompt_tokens', 'completion_tokens', 'total_tokens') if type(usage.get(k)) is int}})
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-        return {**receipt, 'status': 'UNKNOWN', 'text': '', 'usage': {},
-                'error': 'NO_VERIFIED_TERMINAL_RECEIPT'}
+        return finish({**receipt, 'status': 'UNKNOWN', 'text': '', 'usage': {},
+                'error': 'NO_VERIFIED_TERMINAL_RECEIPT'})
+    finally:
+        if not finished:
+            finish({**receipt, 'status': 'UNKNOWN', 'error': 'REQUEST_INTERRUPTED', 'usage': {}})

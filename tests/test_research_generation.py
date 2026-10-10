@@ -7,6 +7,12 @@ import httpx
 from fastapi import HTTPException
 from core.research_generation import generate, validate_public
 from core.public_address import public_url
+from core.providers import CallBudget
+from pathlib import Path
+import tempfile
+import sqlite3
+import json
+from contextlib import closing
 
 
 PARAMS = dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536)
@@ -14,10 +20,13 @@ PARAMS = dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_
 
 class DirectTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.ledger = CallBudget(Path(self.temp.name) / 'model-calls.sqlite', limit=1)
         self.body = dict(duty='C03', provider='qwen', model='qwen3.8-flash', generation=PARAMS,
             prompt='研究公开资料', execution_hash='a'*64,
             material=dict(as_of='2026-10-10', material={'evidence': {'text': '公开公告'}}, evidence_ids=['E1']))
-        self.runtime = SimpleNamespace(models=SimpleNamespace(catalog=AsyncMock(), resolve=lambda *a: (
+        self.runtime = SimpleNamespace(models=SimpleNamespace(budget=self.ledger, catalog=AsyncMock(), resolve=lambda *a: (
             dict(model='qwen3.8-flash', kind='cloud', capabilities=['text'],
                  base_url='https://example.com/v1', api_key_env='TEST_KEY'), None)))
 
@@ -43,6 +52,11 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload[key], value)
             self.assertEqual(result['model_params'][key], value)
         self.assertNotIn('do not store', str(result))
+        with closing(sqlite3.connect(self.ledger.path)) as db:
+            saved = db.execute('SELECT status,receipt FROM research_receipts WHERE call_id=?',
+                               (result['ledger_call_id'],)).fetchone()
+        self.assertEqual(saved[0], 'COMPLETE')
+        self.assertNotIn('text', json.loads(saved[1]))
 
     async def test_truncation_and_network_unknown_are_distinct(self):
         response = httpx.Response(200, request=httpx.Request('POST','https://example.com'), json={
@@ -52,6 +66,18 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
         result, client = await self.call(error=httpx.ReadTimeout('unknown'))
         self.assertEqual(result['status'], 'UNKNOWN')
         self.assertEqual(client.post.call_count, 1)
+        self.assertEqual(self.ledger.status()['used'], 2)
+        with closing(sqlite3.connect(self.ledger.path)) as db:
+            self.assertEqual(db.execute('SELECT status FROM research_receipts WHERE call_id=?',
+                (result['ledger_call_id'],)).fetchone()[0], 'UNKNOWN')
+
+    async def test_existing_ledger_backed_up_before_incremental_table(self):
+        self.ledger.reserve('legacy')
+        await self.call(httpx.Response(400))
+        backup = Path(self.ledger.path).with_name('model-calls.before-research.sqlite')
+        with closing(sqlite3.connect(str(backup))) as db:
+            self.assertEqual(db.execute('SELECT model FROM calls').fetchall(), [('legacy',)])
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='research_receipts'").fetchone())
 
     async def test_rejected_parameter_is_known_failure(self):
         result, client = await self.call(httpx.Response(400))

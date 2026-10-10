@@ -127,6 +127,40 @@ class CallBudget:
                 raise RuntimeError(f'本批模型调用已达到 {self.limit} 次，已停止调用；已有结果保留。')
             db.execute('INSERT INTO calls(id,model) VALUES (?,?)', (uuid.uuid4().hex, model))
 
+    def begin_research(self, model, execution_hash, input_hash, parameters):
+        """Audit authorized research in the existing ledger, without a cumulative cost gate."""
+        path = Path(self.path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existed = path.exists()
+        call_id = uuid.uuid4().hex
+        with closing(sqlite3.connect(self.path, timeout=20)) as db:
+            installed = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_receipts'").fetchone()
+            if existed and not installed:
+                backup = path.with_name(path.stem + '.before-research.sqlite')
+                # One BFF process owns the ledger; this synchronous migration precedes outbound IO.
+                if not backup.exists():
+                    with closing(sqlite3.connect(str(backup))) as destination:
+                        db.backup(destination)
+            with db:
+                db.execute('CREATE TABLE IF NOT EXISTS calls (id TEXT PRIMARY KEY, model TEXT, at TEXT DEFAULT CURRENT_TIMESTAMP)')
+                db.execute('CREATE TABLE IF NOT EXISTS research_receipts ('
+                           'call_id TEXT PRIMARY KEY, execution_hash TEXT NOT NULL, input_hash TEXT NOT NULL, '
+                           'status TEXT NOT NULL, receipt TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)')
+                db.execute('INSERT INTO calls(id,model) VALUES (?,?)', (call_id, model))
+                db.execute('INSERT INTO research_receipts(call_id,execution_hash,input_hash,status,receipt) '
+                           'VALUES (?,?,?,?,?)', (call_id, execution_hash, input_hash, 'RUNNING',
+                            json.dumps({'model_params': parameters}, ensure_ascii=False)))
+        return call_id
+
+    def finish_research(self, call_id, receipt):
+        # Never save prompts, source text, generated text, credentials or hidden reasoning here.
+        allowed = {'status', 'execution_hash', 'model_params', 'finish_reason', 'response_id',
+                   'response_model', 'usage', 'error', 'http_status'}
+        public_receipt = {key: value for key, value in receipt.items() if key in allowed}
+        with closing(sqlite3.connect(self.path, timeout=20)) as db, db:
+            db.execute('UPDATE research_receipts SET status=?,receipt=?,updated_at=CURRENT_TIMESTAMP WHERE call_id=?',
+                       (receipt['status'], json.dumps(public_receipt, ensure_ascii=False), call_id))
+
 
 class CompatibleClient:
     _supports_tools = True
