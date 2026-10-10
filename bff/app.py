@@ -153,9 +153,12 @@ async def market_event_analysis(request: Request):
     from core.market_research import authorize, generate
     authorize(request)
     body = await request.json()
-    if not isinstance(body, dict) or set(body) != {'provider', 'model', 'prompt', 'material'}:
+    fields = {'provider', 'model', 'prompt', 'material'}
+    if (not isinstance(body, dict) or set(body) not in (fields, fields | {'generation'}) or
+            ('generation' in body and not isinstance(body['generation'], dict))):
         raise HTTPException(422, '分析请求字段无效')
-    return await generate(get_runtime(), body['provider'], body['model'], body['prompt'], body['material'])
+    return await generate(get_runtime(), body['provider'], body['model'], body['prompt'], body['material'],
+                          generation=body.get('generation'))
 @app.post('/api/internal/stock-public-search', include_in_schema=False)
 async def stock_public_search(request: Request):
     from core.market_research import authorize, public_search

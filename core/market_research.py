@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 import secrets
+import json
+from datetime import datetime
 from urllib.parse import urlparse
 
 import httpx
@@ -130,6 +132,33 @@ async def available_models(runtime, *, refresh=False):
     return local + cloud
 
 
+def _public_failure_receipt(item):
+    """A narrow, public collection-status projection; never arbitrary backend JSON."""
+    if item.get('source') != 'backend_retrieval_receipt' or item.get('url') is not None:
+        return False
+    try:
+        spans = item['excerpts']
+        if not isinstance(spans, list) or not spans:
+            return False
+        body = json.loads(''.join(span['text'] for span in spans))
+        if (not isinstance(body, dict) or set(body) != {'interface', 'params', 'quality', 'fetched_at',
+                'error', 'response_id', 'source', 'available_at'} or
+                body['interface'] != 'stock_notice_report' or body['source'] != 'AKShare' or
+                body['quality'] != 'FAILED' or not isinstance(body['params'], dict) or
+                set(body['params']) != {'date', 'symbol'} or
+                not isinstance(body['params']['date'], str) or not re.fullmatch(r'\d{8}', body['params']['date']) or
+                not isinstance(body['params']['symbol'], str) or not re.fullmatch(r'(?:\d{6}|全部)', body['params']['symbol']) or
+                body['error'] != '上游超时；本次请求已结束，可稍后重试' or
+                not isinstance(body['response_id'], str) or not re.fullmatch(r'[0-9a-f]{64}', body['response_id'])):
+            return False
+        for key in ('fetched_at', 'available_at'):
+            if not isinstance(body[key], str) or datetime.fromisoformat(body[key]).tzinfo is None:
+                return False
+        return True
+    except (ValueError, KeyError, TypeError):
+        return False
+
+
 def public_material(material):
     if not isinstance(material, list) or len(material) != 1 or not isinstance(material[0], dict):
         raise HTTPException(422, '每次只能分析一个公开事件正文块')
@@ -138,8 +167,12 @@ def public_material(material):
     if set(item) not in (base_fields, base_fields | {'chunk_findings'}):
         raise HTTPException(422, '公开证据字段无效')
     parsed = urlparse(item['url']) if isinstance(item['url'], str) else None
-    if (not parsed or parsed.scheme != 'https' or parsed.hostname not in PUBLIC_HOSTS or
-            parsed.username or parsed.password or item['source'] not in ('policy', 'industry', 'announcement') or
+    ordinary = (parsed and parsed.scheme == 'https' and parsed.hostname in PUBLIC_HOSTS and
+                not parsed.username and not parsed.password and item['source'] in ('policy', 'industry', 'announcement'))
+    broker = (parsed and parsed.scheme == 'https' and parsed.hostname == 'static.cninfo.com.cn' and
+              not parsed.username and not parsed.password and not parsed.query and not parsed.fragment and
+              re.fullmatch(r'/finalpage/\d{4}-\d{2}-\d{2}/\d+\.PDF', parsed.path) and item['source'] == 'public_broker_review')
+    if (not (ordinary or broker or _public_failure_receipt(item)) or
             not isinstance(item['title'], str) or len(item['title']) > 2000 or
             not isinstance(item['published'], str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', item['published']) or
             not isinstance(item['event_id'], str) or not re.fullmatch(r'[A-Za-z0-9:]+', item['event_id'])):
@@ -177,7 +210,24 @@ def public_material(material):
     return material
 
 
-async def generate(runtime, provider, model, prompt, material):
+def generation_parameters(provider, model, value):
+    """Explicit internal analysis profile; never accept arbitrary provider options."""
+    if value is None:
+        return {}
+    fields = {'enable_thinking', 'thinking_budget', 'temperature', 'max_tokens'}
+    if (provider != 'qwen' or model != 'qwen3.8-flash' or
+            not isinstance(value, dict) or set(value) != fields or
+            type(value['enable_thinking']) is not bool or value['enable_thinking'] is not True or
+            type(value['thinking_budget']) is not int or not 1 <= value['thinking_budget'] <= 262144 or
+            type(value['max_tokens']) is not int or not 1 <= value['max_tokens'] <= 131072 or
+            value['thinking_budget'] >= value['max_tokens'] or
+            type(value['temperature']) not in (float, int) or not 0 <= value['temperature'] <= 1.99):
+        raise HTTPException(422, '显式分析参数无效或所选模型不支持；不会忽略或替换参数')
+    return dict(value)
+
+
+async def generate(runtime, provider, model, prompt, material, *, generation=None):
+    explicit = generation_parameters(provider, model, generation)
     public_material(material)
     if not isinstance(prompt, str) or not prompt or len(prompt) > 10000:
         raise HTTPException(422, '分析提示词无效')
@@ -202,8 +252,10 @@ async def generate(runtime, provider, model, prompt, material):
             'name': 'market_event', 'strict': True, 'schema': _event_schema()}}
     elif spec['provider_id'] == 'qwen' and spec['model'] == 'qwen3.5-flash':
         payload['response_format'] = {'type': 'json_object'}
+    if explicit:
+        payload.update(explicit, enable_search=False)
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=10), trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600 if explicit else 180, connect=10), trust_env=False) as client:
             response = await client.post(spec['base_url'].rstrip('/') + '/chat/completions',
                 headers={'Authorization': 'Bearer ' + key}, json=payload)
             response.raise_for_status()
@@ -213,10 +265,17 @@ async def generate(runtime, provider, model, prompt, material):
         if not isinstance(content, str) or (not content and choice.get('finish_reason') != 'length'):
             raise ValueError('empty content')
         usage = answer.get('usage') if isinstance(answer.get('usage'), dict) else {}
+        if explicit and (choice.get('finish_reason') not in ('stop', 'length') or
+                         not isinstance(answer.get('model'), str) or not answer['model']):
+            raise ValueError('missing model or terminal finish metadata')
+        params = {'max_tokens': payload.get('max_tokens'),
+                  'response_format': payload.get('response_format', {}).get('type')}
+        if explicit:
+            params.update(explicit, enable_search=False, provider=spec['provider_id'], model=spec['model'])
         return {'status': 'TRUNCATED' if choice.get('finish_reason') == 'length' else 'COMPLETE',
                 'text': content, 'finish_reason': choice.get('finish_reason'),
-                'model_params': {'max_tokens': payload.get('max_tokens'),
-                                 'response_format': payload.get('response_format', {}).get('type')},
+                'model_params': params,
+                **({'response_model': answer['model'], 'response_id': answer.get('id')} if explicit else {}),
                 'usage': {k: usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens')
                           if type(usage.get(k)) is int}}
     except (httpx.HTTPError, KeyError, IndexError, ValueError):

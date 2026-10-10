@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
-from core.market_research import _event_schema, available_models, generate, public_material, public_search
+from core.market_research import _event_schema, available_models, generate, generation_parameters, public_material, public_search
 
 
 PUBLIC = [{'event_id': 'E1', 'title': '公开政策', 'published': '2026-09-26',
@@ -153,6 +153,77 @@ class ShowClient:
 
 
 class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
+    def test_public_broker_original_and_failed_collection_projection(self):
+        import json
+        broker = {**PUBLIC[0], 'source': 'public_broker_review',
+                  'url': 'https://static.cninfo.com.cn/finalpage/2026-06-09/1225358828.PDF'}
+        self.assertEqual(public_material([broker]), [broker])
+        receipt = {'interface': 'stock_notice_report', 'params': {'date': '20260428', 'symbol': '全部'},
+                   'quality': 'FAILED', 'fetched_at': '2026-10-09T18:05:12+08:00',
+                   'available_at': '2026-10-09T18:05:12+08:00', 'source': 'AKShare',
+                   'error': '上游超时；本次请求已结束，可稍后重试', 'response_id': 'a'*64}
+        def item(body):
+            text = json.dumps(body, ensure_ascii=False)
+            return {**PUBLIC[0], 'source': 'backend_retrieval_receipt', 'url': None,
+                    'excerpts': [{'excerpt_id': 'E1:1', 'text': text[:70], 'location': '1'},
+                                 {'excerpt_id': 'E1:2', 'text': text[70:], 'location': '2'}]}
+        self.assertEqual(public_material([item(receipt)]), [item(receipt)])
+        for bad in [dict(receipt, account='private'), dict(receipt, error='api-key=secret'),
+                    dict(receipt, interface='account_holdings'), dict(receipt, quality='OK'),
+                    dict(receipt, params={'date': '20260428', 'symbol': 'private'})]:
+            with self.subTest(bad=bad), self.assertRaises(HTTPException):
+                public_material([item(bad)])
+        for url in ['https://attacker.example/finalpage/2026-06-09/1225358828.PDF', broker['url']+'?key=secret']:
+            with self.assertRaises(HTTPException):
+                public_material([{**broker, 'url': url}])
+
+    def test_explicit_generation_rejects_uncontrolled_or_invalid_parameters(self):
+        valid = dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536)
+        self.assertEqual(generation_parameters('qwen', 'qwen3.8-flash', valid), valid)
+        invalid = [dict(valid, enable_thinking=False), dict(valid, thinking_budget=True),
+                   dict(valid, thinking_budget=65536), dict(valid, max_tokens=131073),
+                   dict(valid, temperature=float('nan')), dict(valid, temperature=True),
+                   dict(valid, reasoning_effort='high'), dict(valid, enable_search=True), {}]
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(HTTPException):
+                generation_parameters('qwen', 'qwen3.8-flash', value)
+        with self.assertRaises(HTTPException):
+            generation_parameters('qwen', 'qwen3.8-max', valid)
+
+    async def test_explicit_thinking_profile_sent_and_frozen_in_receipt(self):
+        calls = []
+        options = dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536)
+        runtime = Runtime()
+        spec = dict(Registry._static_specs[0], model='qwen3.8-flash', base_url='https://example.aliyuncs.com/v1')
+        with patch.object(runtime.models, 'resolve', return_value=(spec, None)), \
+             patch('core.market_research.read_key', return_value='configured-secret'), \
+             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)), \
+             patch.object(Response, 'json', return_value={
+                 'id': 'public-response-id', 'model': 'qwen3.8-flash',
+                 'choices': [{'message': {'content': '{"events":[]}', 'reasoning_content': 'private reasoning'},
+                              'finish_reason': 'stop'}], 'usage': {'total_tokens': 123}}):
+            result = await generate(runtime, 'qwen', 'qwen3.8-flash', '只输出 JSON', PUBLIC, generation=options)
+        payload = calls[0][2]
+        self.assertTrue(all(payload[k] == v for k, v in options.items()))
+        self.assertFalse(payload['enable_search'])
+        self.assertEqual(payload['response_format']['type'], 'json_schema')
+        self.assertTrue(all(result['model_params'][k] == v for k, v in options.items()))
+        self.assertEqual(result['response_model'], 'qwen3.8-flash')
+        self.assertNotIn('private reasoning', str(result))
+        self.assertEqual(len(calls), 1)
+
+    async def test_explicit_profile_requires_terminal_receipt(self):
+        calls = []
+        spec = dict(Registry._static_specs[0], model='qwen3.8-flash', base_url='https://example.aliyuncs.com/v1')
+        with patch.object(Runtime.models, 'resolve', return_value=(spec, None)), \
+             patch('core.market_research.read_key', return_value='configured-secret'), \
+             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)):
+            with self.assertRaises(HTTPException) as caught:
+                await generate(Runtime(), 'qwen', 'qwen3.8-flash', '只输出 JSON', PUBLIC,
+                               generation=dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536))
+        self.assertEqual(caught.exception.status_code, 502)
+        self.assertEqual(len(calls), 1)
+
     def test_private_fields_and_unapproved_sources_rejected(self):
         with self.assertRaises(HTTPException):
             public_material([{**PUBLIC[0], 'cash': '秘密'}])
