@@ -27,7 +27,10 @@ def _public_cash_paths(packet):
                 not re.fullmatch('[0-9a-f]{64}', str(fin.get('snapshot_id', '')))):
             return False
         paths.add(base + ('latest', 'ytd', 'cash'))
-        for index, _ in enumerate(fin.get('periods', [])):
+        periods = fin.get('periods', [])
+        if not isinstance(periods, list):
+            raise HTTPException(422, '公开财务期间必须为列表')
+        for index, _ in enumerate(periods):
             paths.add(base + ('periods', index, 'ytd', 'cash'))
         return True
     instrument = material.get('instrument', {})
@@ -35,7 +38,10 @@ def _public_cash_paths(packet):
     if isinstance(instrument, dict) and isinstance(evidence, dict) and financial(
             evidence.get('financial'), instrument.get('symbol'), ('material', 'evidence', 'financial')):
         paths.add(('material', 'metrics', 'financial', 'ytd', 'cash'))
-    for index, peer in enumerate(material.get('peers', [])):
+    peers = material.get('peers', [])
+    if not isinstance(peers, list):
+        raise HTTPException(422, '公开同行材料必须为列表')
+    for index, peer in enumerate(peers):
         if isinstance(peer, dict):
             financial(peer.get('financial'), peer.get('symbol'), ('material', 'peers', index, 'financial'))
     return paths
@@ -67,8 +73,13 @@ def validate_public(value, *, _path=(), _cash_paths=None):
 
 async def generate(runtime, body):
     required = {'duty', 'provider', 'model', 'generation', 'prompt', 'material', 'execution_hash'}
-    if not isinstance(body, dict) or set(body) != required or body['duty'] not in DUTIES:
+    if not isinstance(body, dict) or not required <= set(body) or set(body) - required - {'transport'} or body['duty'] not in DUTIES:
         raise HTTPException(422, '只读职责请求无效')
+    transport = body.get('transport')
+    if transport is not None and (not isinstance(transport, dict) or
+            set(transport) != {'stream', 'include_usage'} or transport['stream'] is not True or
+            transport['include_usage'] is not True):
+        raise HTTPException(422, '冻结传输配置不受支持')
     import re
     if not isinstance(body['execution_hash'], str) or not re.fullmatch('[0-9a-f]{64}', body['execution_hash']):
         raise HTTPException(422, '冻结执行标识无效')
@@ -95,9 +106,12 @@ async def generate(runtime, body):
                'response_format': {'type': 'json_object'},
                'messages': [{'role': 'system', 'content': prompt},
                             {'role': 'user', 'content': json.dumps(material, ensure_ascii=False, allow_nan=False)}]}
+    if transport is not None:
+        payload.update(stream=True, stream_options={'include_usage': True})
     receipt = {'execution_hash': body['execution_hash'], 'model_params': {
         **params, 'provider': body['provider'], 'model': spec['model'],
-        'response_format': 'json_object', 'enable_search': False}}
+        'response_format': payload['response_format'], 'enable_search': False, 'stream': payload['stream'],
+        **({'stream_options': payload['stream_options']} if transport is not None else {})}}
     import hashlib
     input_hash = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True,
                                           allow_nan=False).encode()).hexdigest()
@@ -105,6 +119,10 @@ async def generate(runtime, body):
     call_id = ledger.begin_research(body['provider'] + ':' + spec['model'],
                                    body['execution_hash'], input_hash, receipt['model_params'])
     finished = False
+    progress_receipt = {}
+    def progress(fields):
+        progress_receipt.update(fields)
+        ledger.finish_research(call_id, {**receipt, **progress_receipt, 'status': 'RUNNING'})
     def finish(result):
         nonlocal finished
         ledger.finish_research(call_id, result)
@@ -112,13 +130,22 @@ async def generate(runtime, body):
         return {**result, 'ledger_call_id': call_id}
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(1800, connect=10), trust_env=False) as client:
-            response = await client.post(spec['base_url'].rstrip('/') + '/chat/completions',
-                headers={'Authorization': 'Bearer ' + key}, json=payload)
-        if response.status_code in (400, 401, 403, 404, 422, 429):
-            return finish({**receipt, 'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
-                    'http_status': response.status_code, 'text': '', 'usage': {}})
-        response.raise_for_status()
-        answer = response.json()
+            url = spec['base_url'].rstrip('/') + '/chat/completions'
+            if transport is not None:
+                from .research_stream import read_completion
+                async with client.stream('POST', url, headers={'Authorization': 'Bearer ' + key}, json=payload) as response:
+                    if response.status_code in (400, 401, 403, 404, 422, 429):
+                        return finish({**receipt, 'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
+                            'http_status': response.status_code, 'text': '', 'usage': {}})
+                    response.raise_for_status()
+                    answer = await read_completion(response, progress)
+            else:
+                response = await client.post(url, headers={'Authorization': 'Bearer ' + key}, json=payload)
+                if response.status_code in (400, 401, 403, 404, 422, 429):
+                    return finish({**receipt, 'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
+                        'http_status': response.status_code, 'text': '', 'usage': {}})
+                response.raise_for_status()
+                answer = response.json()
         choice = answer['choices'][0]
         reason, content = choice.get('finish_reason'), choice['message'].get('content')
         if reason not in ('stop', 'length') or not isinstance(content, str) or not answer.get('model'):
@@ -129,11 +156,11 @@ async def generate(runtime, body):
         usage = answer.get('usage') or {}
         return finish({**receipt, 'status': 'TRUNCATED' if reason == 'length' else 'COMPLETE',
                 'text': content, 'finish_reason': reason, 'response_model': answer['model'],
-                'response_id': answer.get('id'), 'usage': {k: usage[k] for k in
+                'response_id': answer.get('id'), 'usage_status': 'REPORTED' if usage else 'NOT_REPORTED', 'usage': {k: usage[k] for k in
                     ('prompt_tokens', 'completion_tokens', 'total_tokens') if type(usage.get(k)) is int}})
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-        return finish({**receipt, 'status': 'UNKNOWN', 'text': '', 'usage': {},
+        return finish({**receipt, **progress_receipt, 'status': 'UNKNOWN', 'text': '', 'usage': {},
                 'error': 'NO_VERIFIED_TERMINAL_RECEIPT'})
     finally:
         if not finished:
-            finish({**receipt, 'status': 'UNKNOWN', 'error': 'REQUEST_INTERRUPTED', 'usage': {}})
+            finish({**receipt, **progress_receipt, 'status': 'UNKNOWN', 'error': 'REQUEST_INTERRUPTED', 'usage': {}})

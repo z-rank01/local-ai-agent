@@ -1,7 +1,7 @@
 """Frozen specialist requests and ambiguous transport outcomes."""
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 from fastapi import HTTPException
@@ -30,16 +30,44 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
             dict(model='qwen3.8-flash', kind='cloud', capabilities=['text'],
                  base_url='https://example.com/v1', api_key_env='TEST_KEY'), None)))
 
-    async def call(self, response=None, error=None):
+    async def call(self, response=None, error=None, stream_response=None):
         client = AsyncMock()
         client.post.return_value = response
         client.post.side_effect = error
+        if stream_response is not None:
+            stream_context = AsyncMock()
+            stream_context.__aenter__.return_value = stream_response
+            client.stream = Mock(return_value=stream_context)
         manager = AsyncMock()
         manager.__aenter__.return_value = client
         with patch('core.research_generation.read_key', return_value='test'), patch(
                 'core.research_generation.httpx.AsyncClient', return_value=manager):
             result = await generate(self.runtime, self.body)
         return result, client
+
+    async def test_frozen_stream_transport_reaches_wire_and_ledger(self):
+        from tests.test_research_stream import response, chunk
+        self.body['transport'] = {'stream': True, 'include_usage': True}
+        stream = response([chunk('{}', 'stop'), {'choices': [], 'usage': {'total_tokens': 15}}])
+        stream.status_code = 200
+        stream.raise_for_status = lambda: None
+        result, client = await self.call(stream_response=stream)
+        self.assertEqual(result['status'], 'COMPLETE')
+        self.assertEqual(client.post.call_count, 0)
+        sent = client.stream.call_args.kwargs['json']
+        self.assertTrue(sent['stream'])
+        self.assertEqual(sent['stream_options'], {'include_usage': True})
+        self.assertEqual(result['model_params']['stream_options'], sent['stream_options'])
+        with closing(sqlite3.connect(self.ledger.path)) as db:
+            row = db.execute('SELECT status,receipt FROM research_receipts WHERE call_id=?',
+                             (result['ledger_call_id'],)).fetchone()
+        self.assertEqual(row[0], 'COMPLETE')
+        self.assertEqual(json.loads(row[1])['response_id'], 'response-1')
+
+    async def test_unsupported_transport_is_not_silently_downgraded(self):
+        self.body['transport'] = {'stream': True, 'include_usage': False}
+        with self.assertRaises(HTTPException):
+            await self.call()
 
     async def test_frozen_parameters_and_no_hidden_reasoning(self):
         response = httpx.Response(200, request=httpx.Request('POST','https://example.com'), json={
