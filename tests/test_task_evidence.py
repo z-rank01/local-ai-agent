@@ -44,3 +44,45 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         manager = ContextManager(context_window=50)
         messages = [{'role':'tool','content':'x'*1000+'TAIL'}]*10
         self.assertEqual(await manager.process(messages),messages)
+
+    async def test_completed_chunks_reused_only_for_exact_model_and_content(self):
+        calls=[]
+        class Model:
+            async def chat(self, system, user):
+                calls.append(user)
+                return '尾部反证：合同已终止' if '合同已终止' in user else '公开背景'
+        def manager(profile='model-a', scope='cloud'):
+            result=ContextManager(context_window=4096, preserve_recent=2, llm=Model())
+            result.summary_profile={'model':profile}
+            result.archive=lambda m:self.store.archive_task_evidence(self.conv.id,scope,m)
+            result.reader=lambda eid,cursor:self.store.read_task_evidence(self.conv.id,scope,eid,cursor)
+            result.summary_cache_reader=lambda key:self.store.cached_task_summary(self.conv.id,scope,key)
+            return result
+        chunk='公开背景'*5000+'合同已终止'
+        first=manager()
+        self.assertIn('合同已终止',await first._summarize_chunk(chunk))
+        restored=manager()
+        self.assertIn('合同已终止',await restored._summarize_chunk(chunk))
+        self.assertEqual(len(calls),1)
+        self.assertTrue(restored.evidence_ids)
+        await manager('model-b')._summarize_chunk(chunk)
+        await manager(scope='local')._summarize_chunk(chunk)
+        await restored._summarize_chunk(chunk+'后续修订')
+        self.assertEqual(len(calls),4)
+
+    async def test_failed_summary_does_not_create_completed_cache(self):
+        calls=[]
+        class Model:
+            async def chat(self,*args):
+                calls.append(args)
+                raise TimeoutError('unknown')
+        manager=ContextManager(llm=Model())
+        manager.summary_profile={'model':'a'}
+        manager.archive=lambda m:self.store.archive_task_evidence(self.conv.id,'cloud',m)
+        manager.summary_cache_reader=lambda key:self.store.cached_task_summary(self.conv.id,'cloud',key)
+        with self.assertRaises(TimeoutError):
+            await manager._summarize_chunk('公开材料')
+        self.assertFalse(manager.evidence_ids)
+        with self.assertRaisesRegex(RuntimeError,'不自动重发'):
+            await manager._summarize_chunk('公开材料')
+        self.assertEqual(len(calls),1)

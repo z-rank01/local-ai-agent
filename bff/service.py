@@ -825,6 +825,12 @@ class ChatSessionService:
             conversation.id, evidence_scope, message)
         agent.context_mgr.reader = lambda evidence_id, cursor: self._store.read_task_evidence(
             conversation.id, evidence_scope, evidence_id, cursor)
+        agent.context_mgr.summary_profile = {
+            'model': spec['id'], 'options': getattr(llm, 'spec', spec).get('options', {}),
+            'local_think': getattr(llm, 'think', None),
+        }
+        agent.context_mgr.summary_cache_reader = lambda key: self._store.cached_task_summary(
+            conversation.id, evidence_scope, key)
         router = copy.copy(agent.router)
         router._backend_urls = dict(router._backend_urls)
         record = self._snapshot.record

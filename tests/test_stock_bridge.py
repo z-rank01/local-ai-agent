@@ -96,12 +96,14 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         bridge = self.bridge(make_broker(calls))
         bridge.set_turn('theme-conv', 'theme-request', '研究产业链', method_id='kimi-chain')
         await bridge.call_tool('stock_theme_research_submit',
-                               {'reference': REF, 'event_id': 'c' * 16}, 'theme-conv')
+                               {'reference': REF, 'event_id': 'c' * 16,
+                                'research_question': '寻找未列出的公司并核验反证'}, 'theme-conv')
         await bridge.call_tool('stock_theme_research_find', {}, 'theme-conv')
         steps = [c['json']['tool_call'] for c in calls if c['path'].endswith('/step')]
         self.assertEqual(steps, [
             {'action': 'theme_research', 'reference': {'type': 'task', 'token': REF},
-             'event_id': 'c' * 16}, {'action': 'find', 'kind': 'theme_research'}])
+             'event_id': 'c' * 16, 'research_question': '寻找未列出的公司并核验反证'},
+            {'action': 'find', 'kind': 'theme_research'}])
 
     async def test_tracking_tools_keep_task_and_track_references_separate(self):
         calls = []

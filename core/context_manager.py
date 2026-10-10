@@ -63,6 +63,44 @@ class ContextManager:
         self.archive = None
         self.reader = None
         self.evidence_ids = set()
+        self.summary_cache_reader = None
+        self.summary_profile = None
+
+    async def _summarize_chunk(self, chunk: str) -> str:
+        import hashlib
+        import json
+        key = hashlib.sha256(json.dumps({
+            'profile': self.summary_profile, 'capacity': self._context_window,
+            'system': _AUTOCOMPACT_SYSTEM, 'instruction': _AUTOCOMPACT_USER,
+            'text': chunk,
+        }, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        if self.summary_profile is not None and self.summary_cache_reader is not None:
+            cached = self.summary_cache_reader(key)
+            if cached:
+                if cached.get('status') != 'COMPLETE':
+                    raise RuntimeError('原摘要调用结果尚未确认；保留原文，不自动重发')
+                self.evidence_ids.add(cached['evidence_id'])
+                return cached['content']
+        tracked = self.summary_profile is not None and self.archive is not None
+        if tracked:
+            self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
+                'summary_cache_key': key, 'content': '{"status":"RUNNING"}'})
+        try:
+            part = await self._llm.chat(_AUTOCOMPACT_SYSTEM, _AUTOCOMPACT_USER.format(conversation=chunk))
+        except BaseException:
+            if tracked:
+                self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
+                    'summary_cache_key': key, 'content': '{"status":"UNKNOWN"}'})
+            raise
+        part = re.sub(r"<think>[\s\S]*?</think>\s*", "", part).strip()
+        if part and self.summary_profile is not None and self.archive is not None:
+            indexed = self.archive({'role': 'assistant', 'record_kind': 'task_summary_chunk',
+                'summary_cache_key': key, 'content': part})
+            self.evidence_ids.add(indexed)
+        elif tracked:
+            self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
+                'summary_cache_key': key, 'content': '{"status":"EMPTY_RESULT"}'})
+        return part
 
     def read_evidence(self, evidence_id: str, cursor: int = 0) -> dict:
         if evidence_id not in self.evidence_ids or self.reader is None:
@@ -138,8 +176,7 @@ class ContextManager:
             summaries = []
             for start in range(0, len(conversation), chunk_chars):
                 chunk = conversation[start:start + chunk_chars]
-                part = await self._llm.chat(_AUTOCOMPACT_SYSTEM, _AUTOCOMPACT_USER.format(conversation=chunk))
-                part = re.sub(r"<think>[\s\S]*?</think>\s*", "", part).strip()
+                part = await self._summarize_chunk(chunk)
                 if not part:
                     return messages
                 summaries.append(part)
@@ -153,9 +190,7 @@ class ContextManager:
                 self.evidence_ids.add(indexed)
                 reduced = []
                 for start in range(0, len(summary), chunk_chars):
-                    part = await self._llm.chat(_AUTOCOMPACT_SYSTEM,
-                        _AUTOCOMPACT_USER.format(conversation=summary[start:start + chunk_chars]))
-                    part = re.sub(r"<think>[\s\S]*?</think>\s*", "", part).strip()
+                    part = await self._summarize_chunk(summary[start:start + chunk_chars])
                     if not part:
                         return messages
                     reduced.append(part)

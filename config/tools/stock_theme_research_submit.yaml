@@ -6,9 +6,11 @@ cloud: read
 short_description: "从已完成市场简报启动主题、产业链与公司关联研究。"
 description: >
   只有用户明确要求研究趋势、产业链、机会或公司关联时调用。
-  先用 stock_market_brief_find 取得本会话已完成简报 reference；可选用
+  先用 stock_market_brief_find 取得本会话已完成或已有已核验事件成果的简报 reference；可选用
   stock_public_evidence_find 的 event_id 作为公司公告起点。
   C01/C02 研究全部已核对的公开事件，生成独立版本；不会自动进入候选、买入或账户操作。
+  用户提出具体问题时，必须以 research_question 传入公开研究目标；省略则仅执行默认主题发现，不能声称用户的具体约束已经入队。
+  research_question 只包含公开问题和实体，不复制持仓、账户数据、私有文件或密钥。
 parameters:
   type: object
   properties:
@@ -20,4 +22,8 @@ parameters:
       type: string
       pattern: "^[0-9a-f]{16}$"
       description: "可选：已核对的公司事件编号，作为研究起点"
+    research_question:
+      type: string
+      minLength: 1
+      description: "公开研究问题及完成判据，例如寻找输入未列出的公司、核验业务关联与反证；入队后冻结"
   required: [reference]

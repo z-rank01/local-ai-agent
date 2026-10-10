@@ -131,7 +131,7 @@ class ConversationStore:
         """Archive only the already authorized model projection; original messages stay untouched."""
         import hashlib
         content = message.get('content') or ''
-        metadata = json.dumps({k: message[k] for k in ('role', 'tool_name', 'tool_call_id', 'tool_calls', 'record_kind', 'source_ids')
+        metadata = json.dumps({k: message[k] for k in ('role', 'tool_name', 'tool_call_id', 'tool_calls', 'record_kind', 'source_ids', 'summary_cache_key')
                                if k in message}, ensure_ascii=False, sort_keys=True)
         evidence_id = hashlib.sha256((metadata + '\n' + content).encode()).hexdigest()
         with self._connect() as conn:
@@ -139,6 +139,26 @@ class ConversationStore:
                          (evidence_id, conversation_id, scope, content, metadata,
                           datetime.now(timezone.utc).isoformat()))
         return evidence_id
+
+    def cached_task_summary(self, conversation_id: str, scope: str, key: str) -> dict | None:
+        """Only reuse an exact completed summary within the same authorized projection."""
+        import re
+        if not isinstance(key, str) or not re.fullmatch('[0-9a-f]{64}', key):
+            raise ValueError('摘要缓存标识无效')
+        with self._connect() as conn:
+            rows = conn.execute('SELECT id,content,metadata FROM task_evidence '
+                'WHERE conversation_id=? AND scope=? AND metadata LIKE ? ORDER BY created_at DESC',
+                (conversation_id, scope, '%' + key + '%')).fetchall()
+        for row in rows:
+            meta = json.loads(row['metadata'])
+            if meta.get('summary_cache_key') != key:
+                continue
+            if (meta.get('record_kind') == 'task_summary_chunk' and
+                    meta.get('summary_cache_key') == key and row['content'].strip()):
+                return {'status': 'COMPLETE', 'evidence_id': row['id'], 'content': row['content']}
+            if meta.get('record_kind') == 'task_summary_call':
+                return {'status': json.loads(row['content'])['status'], 'evidence_id': row['id']}
+        return None
 
     def read_task_evidence(self, conversation_id: str, scope: str, evidence_id: str,
                            cursor: int = 0, limit: int = 12000) -> dict:

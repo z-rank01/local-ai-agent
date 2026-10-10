@@ -91,6 +91,7 @@ def _track_reference_action(action_name):
 def _theme_research_action(params):
     return {'action': 'theme_research',
             'reference': {'type': 'task', 'token': params.get('reference', '')},
+            **({'research_question': params['research_question']} if params.get('research_question') else {}),
             **({'event_id': params['event_id']} if params.get('event_id') else {})}
 
 
