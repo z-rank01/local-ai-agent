@@ -79,6 +79,18 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute('SELECT model FROM calls').fetchall(), [('legacy',)])
             self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='research_receipts'").fetchone())
 
+    async def test_failed_backup_cannot_be_mistaken_for_completed_migration(self):
+        self.ledger.reserve('legacy')
+        with patch('pathlib.Path.replace', side_effect=PermissionError('backup unavailable')):
+            with self.assertRaises(PermissionError):
+                await self.call(httpx.Response(400))
+        backup = Path(self.ledger.path).with_name('model-calls.before-research.sqlite')
+        self.assertFalse(backup.exists())
+        with closing(sqlite3.connect(self.ledger.path)) as db:
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='research_receipts'").fetchone())
+        await self.call(httpx.Response(400))
+        self.assertTrue(backup.exists())
+
     async def test_rejected_parameter_is_known_failure(self):
         result, client = await self.call(httpx.Response(400))
         self.assertEqual(result['status'], 'FAILED')

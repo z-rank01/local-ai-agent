@@ -139,8 +139,12 @@ class CallBudget:
                 backup = path.with_name(path.stem + '.before-research.sqlite')
                 # One BFF process owns the ledger; this synchronous migration precedes outbound IO.
                 if not backup.exists():
-                    with closing(sqlite3.connect(str(backup))) as destination:
+                    temporary = backup.with_name('.ledger-backup-' + uuid.uuid4().hex + '.sqlite')
+                    with closing(sqlite3.connect(str(temporary))) as destination:
                         db.backup(destination)
+                        if destination.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                            raise RuntimeError('模型账本备份校验失败，未执行研究请求')
+                    temporary.replace(backup)
             with db:
                 db.execute('CREATE TABLE IF NOT EXISTS calls (id TEXT PRIMARY KEY, model TEXT, at TEXT DEFAULT CURRENT_TIMESTAMP)')
                 db.execute('CREATE TABLE IF NOT EXISTS research_receipts ('
