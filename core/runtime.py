@@ -49,8 +49,8 @@ class RuntimeServices:
         from .model_settings import cloud_write_allowed, workspace_allowed
         router = copy(self.router)
         router.cloud = cloud
-        declared_context = spec.get('context_window') or spec.get('context_length')
-        context_window = declared_context if type(declared_context) is int and declared_context >= 4096 else min(config.CONTEXT_WINDOW, 32768)
+        from .model_capacity import context_capacity
+        context_window, capacity_source = context_capacity(spec)
         agent = Agent(llm=llm, router=router, registry=self.tool_registry,
             audit=self.audit, context_mgr=ContextManager(context_window=context_window,
             compact_threshold=config.COMPACT_THRESHOLD, llm=llm), prompt_builder=self.prompt_builder,
@@ -59,7 +59,7 @@ class RuntimeServices:
         # Grant state travels with the agent so the tool list follows the switch.
         agent.workspace_cloud_allowed = workspace_allowed()
         agent.cloud_write_allowed = cloud_write_allowed()
-        agent.context_mgr.capacity_source = 'model_catalog' if context_window == declared_context else 'conservative_fallback'
+        agent.context_mgr.capacity_source = capacity_source
         return agent
 
 

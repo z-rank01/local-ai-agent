@@ -172,7 +172,7 @@ export function ModelPicker({
                     {models.map((model) => {
                       const usable = isUsable(model);
                       const isSelected = model.id === value;
-                      const context = contextLabel(model.context_window);
+                      const context = contextLabel(model.context_window) + (model.context_capacity_source === 'conservative_fallback' ? '（保守配置）' : '');
                       return (
                         <button
                           key={model.id}

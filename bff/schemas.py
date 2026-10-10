@@ -104,6 +104,7 @@ class ModelInfo(BaseModel):
     default: bool = False
     capabilities: list[str] = Field(default_factory=list)
     context_window: int | None = None
+    context_capacity_source: str | None = None
     status: str = "available"
 
 

@@ -115,6 +115,7 @@ class PublicSearchTests(unittest.IsolatedAsyncioTestCase):
 
 
 class Response:
+    status_code = 200
     def raise_for_status(self):
         pass
 
@@ -218,10 +219,23 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(Runtime.models, 'resolve', return_value=(spec, None)), \
              patch('core.market_research.read_key', return_value='configured-secret'), \
              patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)):
-            with self.assertRaises(HTTPException) as caught:
-                await generate(Runtime(), 'qwen', 'qwen3.8-flash', '只输出 JSON', PUBLIC,
-                               generation=dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536))
-        self.assertEqual(caught.exception.status_code, 502)
+            result = await generate(Runtime(), 'qwen', 'qwen3.8-flash', '只输出 JSON', PUBLIC,
+                                    generation=dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536))
+        self.assertEqual(result['status'], 'UNKNOWN')
+        self.assertEqual(len(calls), 1)
+
+    async def test_explicit_rejection_is_known_failure_and_never_retried(self):
+        calls = []
+        spec = dict(Registry._static_specs[0], model='qwen3.8-flash', base_url='https://example.aliyuncs.com/v1')
+        with patch.object(Runtime.models, 'resolve', return_value=(spec, None)), \
+             patch('core.market_research.read_key', return_value='configured-secret'), \
+             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)), \
+             patch.object(Response, 'status_code', 422):
+            result = await generate(Runtime(), 'qwen', 'qwen3.8-flash', '只输出 JSON', PUBLIC,
+                                    generation=dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536))
+        self.assertEqual(result['status'], 'FAILED')
+        self.assertEqual(result['error'], 'PROVIDER_REJECTED')
+        self.assertEqual(result['model_params']['thinking_budget'], 32768)
         self.assertEqual(len(calls), 1)
 
     def test_private_fields_and_unapproved_sources_rejected(self):

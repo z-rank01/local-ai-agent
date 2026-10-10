@@ -62,6 +62,7 @@ export type ModelInfo = {
   default: boolean;
   capabilities: string[];
   context_window?: number | null;
+  context_capacity_source?: string | null;
   status: string;
 };
 

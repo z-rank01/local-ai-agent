@@ -544,7 +544,7 @@ function ModelPane({
             </span>
           )}
           {model.context_window ? (
-            <span className="chip chip-quiet chip-mono">{model.context_window} 上下文</span>
+            <span className="chip chip-quiet chip-mono">{model.context_window} 上下文{model.context_capacity_source === 'conservative_fallback' ? '（能力未核实，保守配置）' : ''}</span>
           ) : null}
         </div>
       </div>

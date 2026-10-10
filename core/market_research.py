@@ -262,10 +262,18 @@ async def generate(runtime, provider, model, prompt, material, *, generation=Non
         payload['response_format'] = {'type': 'json_object'}
     if explicit:
         payload.update(explicit, enable_search=False)
+    params = {'max_tokens': payload.get('max_tokens'),
+              'response_format': payload.get('response_format', {}).get('type')}
+    if explicit:
+        params.update(explicit, enable_search=False, provider=spec['provider_id'], model=spec['model'])
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(600 if explicit else 180, connect=10), trust_env=False) as client:
             response = await client.post(spec['base_url'].rstrip('/') + '/chat/completions',
                 headers={'Authorization': 'Bearer ' + key}, json=payload)
+            if explicit and response.status_code in (400, 401, 403, 404, 422, 429):
+                return {'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
+                        'http_status': response.status_code, 'model_params': params,
+                        'text': '', 'usage': {}}
             response.raise_for_status()
             answer = response.json()
         choice = answer['choices'][0]
@@ -276,15 +284,18 @@ async def generate(runtime, provider, model, prompt, material, *, generation=Non
         if explicit and (choice.get('finish_reason') not in ('stop', 'length') or
                          not isinstance(answer.get('model'), str) or not answer['model']):
             raise ValueError('missing model or terminal finish metadata')
-        params = {'max_tokens': payload.get('max_tokens'),
-                  'response_format': payload.get('response_format', {}).get('type')}
-        if explicit:
-            params.update(explicit, enable_search=False, provider=spec['provider_id'], model=spec['model'])
+        if explicit and answer['model'] != spec['model']:
+            return {'status': 'FAILED', 'error': 'RESPONSE_MODEL_MISMATCH',
+                    'model_params': params, 'text': '', 'response_model': answer['model'],
+                    'response_id': answer.get('id'), 'usage': {}}
         return {'status': 'TRUNCATED' if choice.get('finish_reason') == 'length' else 'COMPLETE',
                 'text': content, 'finish_reason': choice.get('finish_reason'),
                 'model_params': params,
                 **({'response_model': answer['model'], 'response_id': answer.get('id')} if explicit else {}),
                 'usage': {k: usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens')
                           if type(usage.get(k)) is int}}
-    except (httpx.HTTPError, KeyError, IndexError, ValueError):
+    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError):
+        if explicit:
+            return {'status': 'UNKNOWN', 'error': 'NO_VERIFIED_TERMINAL_RECEIPT',
+                    'model_params': params, 'text': '', 'usage': {}}
         raise HTTPException(502, '云端分析调用失败或返回无效内容；不会自动改用其他模型') from None

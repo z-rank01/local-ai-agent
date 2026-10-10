@@ -145,6 +145,7 @@ class ChatSessionService:
 
     async def list_models(self, refresh: bool = False) -> list[ModelInfo]:
         from core.providers import read_key
+        from core.model_capacity import context_capacity
         specs = await self._runtime.models.catalog(refresh=refresh)
         return [ModelInfo(id=s['id'], name=s['model'], provider_id=s['provider_id'],
             provider_name=s['provider_name'], default=s['id'] == self._runtime.models.default,
@@ -152,7 +153,8 @@ class ChatSessionService:
             thinking_budget_supported=thinking_capability(s) == 'switch_budget',
             thinking_enabled=model_settings.thinking_setting(s),
             thinking_budget=model_settings.thinking_budget(s['id']),
-            capabilities=['text','tools','streaming'], context_window=config.CONTEXT_WINDOW,
+            capabilities=['text','tools','streaming'], context_window=context_capacity(s)[0],
+            context_capacity_source=context_capacity(s)[1],
             status='configured' if s['kind']=='local' or read_key(s.get('api_key_env','')) else 'missing_key')
             for s in specs]
 
