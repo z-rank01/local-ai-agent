@@ -19,6 +19,7 @@
 .\scripts\start-daily.ps1        # 启动（= 双击 启动.bat）；重复运行只开浏览器
 .\scripts\start-daily.ps1 -Desktop # 同一入口，改用桌面窗口显示页面（关窗=关页面）
 .\scripts\start-daily.ps1 -Build # 改了 skills/** 后必须用这个重建工具容器镜像
+.\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
 .\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 258 项、2 项跳过（2026-10-09））
@@ -27,6 +28,8 @@ docker compose up -d             # 工具容器（websearch profile 由页面开
 ```
 
 ## 改完代码后怎么让它生效（三种，别搞混）
+
+验收启动使用同一 `start-daily.ps1 -AcceptanceState <已保存的独立股票状态目录>`；它在任何启动副作用前核对目录、技能开启、任务领取暂停及无旧栈监听，并在启动股票前再次核对。前置写入或回读失败立即停止，禁止继续启动；不能将工具调用返回对象当作退出码成功。该参数不另建入口、会话库或初始化账户，账户确认仍由页面人工操作完成。
 
 | 改了什么 | 怎么生效 | 不生效时的表现 |
 | --- | --- | --- |

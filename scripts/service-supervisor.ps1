@@ -2,6 +2,53 @@
 # Docker CLI calls originate from the same process that successfully ran compose
 # during startup; Docker Desktop denies calls from the BFF's process tree here.
 
+function Assert-DailyAcceptanceState([string]$ProjectRoot, [string]$ExpectedState) {
+    if (-not $ExpectedState) { return }
+    $settingsPath = Join-Path $ProjectRoot 'data/private/daily-services.json'
+    try {
+        $settings = Get-Content -LiteralPath $settingsPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch { throw 'Acceptance settings are missing or unreadable; startup was not attempted.' }
+    if ($settings.root -isnot [string] -or -not $settings.root.Trim() -or
+        $settings.state_dir -isnot [string] -or $settings.state_dir -cne $ExpectedState -or
+        $settings.worker -isnot [bool] -or $settings.worker -or
+        $settings.enabled -isnot [bool] -or -not $settings.enabled) {
+        throw 'Acceptance state must match saved settings, with skill enabled and worker=false; startup was not attempted.'
+    }
+    if ([System.IO.Path]::IsPathRooted($ExpectedState) -or
+        'simulation' -eq $ExpectedState.TrimEnd('\', '/') -or
+        '..' -in ($ExpectedState -split '[\\/]')) {
+        throw 'Acceptance requires a separate relative stock state directory.'
+    }
+    $stockRoot = [System.IO.Path]::GetFullPath($settings.root)
+    $state = [System.IO.Path]::GetFullPath((Join-Path $stockRoot $ExpectedState))
+    $defaultState = [System.IO.Path]::GetFullPath((Join-Path $stockRoot 'simulation'))
+    if (-not (Test-Path -LiteralPath $stockRoot -PathType Container) -or
+        -not [System.IO.Path]::IsPathRooted($settings.root) -or
+        $state.Equals($defaultState, [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not $state.StartsWith($stockRoot.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Acceptance state must stay inside the connected stock repository.'
+    }
+    $ancestor = $state
+    while ($ancestor.StartsWith($stockRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        if ((Test-Path -LiteralPath $ancestor) -and
+            ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            throw 'Acceptance state cannot traverse a junction or symbolic link.'
+        }
+        if ($ancestor.Equals($stockRoot, [System.StringComparison]::OrdinalIgnoreCase)) { break }
+        $ancestor = Split-Path -Parent $ancestor
+    }
+    $port = 0
+    if ($settings.port -is [bool] -or -not [int]::TryParse([string]$settings.port, [ref]$port) -or
+        $port -lt 1024 -or $port -gt 65535 -or $port -in @(9510,9511,5173)) {
+        throw 'Acceptance stock port is invalid.'
+    }
+    foreach ($probePort in @(9510, $port)) {
+        if (Get-NetTCPConnection -LocalPort $probePort -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Exit the running stack before configuring an acceptance state; startup was not attempted.'
+        }
+    }
+}
+
 function New-DailyServiceSupervisor([string]$ProjectRoot) {
     $privateDir = Join-Path $ProjectRoot 'data/private'
     New-Item -ItemType Directory -Force -Path $privateDir | Out-Null

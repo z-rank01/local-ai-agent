@@ -4,6 +4,8 @@
 
 本仓库唯一用户入口是根目录 `启动.bat`（调用 `scripts/start-daily.ps1`）。Web 与 BFF 同源运行在 `127.0.0.1:9510`；每日操作见[日常运行指南](./docs/日常运行指南.md)。
 
+隔离验收仍使用这个入口：先保存独立股票状态目录和 `worker=false`，再调用 `scripts/start-daily.ps1 -AcceptanceState <目录>`。启动器先核对配置、路径和旧栈退出状态，失败不启动。新隔离账户的资金及完整规则由页面人工确认，不复制日常账户或伪造职责前置回执。
+
 | 准备项 | 用途 | 检查 |
 | --- | --- | --- |
 | Windows PowerShell | 启动脚本 | `$PSVersionTable.PSVersion` |

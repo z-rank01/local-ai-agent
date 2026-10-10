@@ -1,7 +1,8 @@
 ﻿#Requires -Version 5.1
 # 唯一日常入口：准备环境 → 启动工具容器、服务控制器与聊天服务（含网页）→ 打开浏览器。
 # 已运行时重复执行只会打开浏览器，不会重复启动服务。
-param([switch]$Build, [switch]$SkipTools, [switch]$RebuildWeb, [switch]$Desktop)
+param([switch]$Build, [switch]$SkipTools, [switch]$RebuildWeb, [switch]$Desktop,
+      [string]$AcceptanceState = '')
 $ErrorActionPreference = 'Stop'
 
 function Write-Step([string]$Message) { Write-Host "      $Message" -ForegroundColor DarkGray }
@@ -10,6 +11,7 @@ function Write-Warn2([string]$Message) { Write-Host "      [!!] $Message" -Foreg
 . (Join-Path $PSScriptRoot 'service-supervisor.ps1')
 
 $dailyRoot = Split-Path -Parent $PSScriptRoot
+Assert-DailyAcceptanceState $dailyRoot $AcceptanceState
 $dailyPython = Join-Path $dailyRoot '.conda/python.exe'
 if (-not (Test-Path -LiteralPath $dailyPython)) {
     throw 'Missing .conda\python.exe. Create it first: python -m venv .conda; .\.conda\python.exe -m pip install -e .'
@@ -148,6 +150,7 @@ try {
     # the chat backend escapes it. Start it before the BFF so the stock tools are
     # ready with the page. If stopped later, the launcher controller handles the
     # fixed stock_start operation instead of making the BFF create a child process.
+    Assert-DailyAcceptanceState $dailyRoot $AcceptanceState
     Write-Host '  [4/7] Stock backend' -ForegroundColor Cyan
     $dailyStockSettingsFile = Join-Path $dailyRoot 'data/private/daily-services.json'
     $dailyStock = $null
