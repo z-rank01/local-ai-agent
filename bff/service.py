@@ -818,6 +818,11 @@ class ChatSessionService:
                 llm.spec = {**spec, 'options': options}
         messages = self._store.messages_as_dicts(conversation.id, cloud=cloud)
         agent = self._runtime.agent_for(spec, llm)
+        evidence_scope = ('cloud' if cloud else 'local') + ':' + self._snapshot.id
+        agent.context_mgr.archive = lambda message: self._store.archive_task_evidence(
+            conversation.id, evidence_scope, message)
+        agent.context_mgr.reader = lambda evidence_id, cursor: self._store.read_task_evidence(
+            conversation.id, evidence_scope, evidence_id, cursor)
         router = copy.copy(agent.router)
         router._backend_urls = dict(router._backend_urls)
         record = self._snapshot.record
@@ -864,6 +869,7 @@ class ChatSessionService:
         active_tools = {}
         stock_bridge = self._runtime.stock_bridge
         if stock_bridge is not None and not answer_only:
+            agent.quality_first_research = True
             agent.stock_loop_enabled = True
             agent.stock_window_seconds = 600
             agent.extra_system_sections = list(getattr(agent, 'extra_system_sections', [])) + [

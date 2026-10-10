@@ -303,7 +303,9 @@ class StockBridge:
             observation = dict(observation)
             observation['items'] = [
                 {'reference': item.get('reference'), 'created_at': item.get('created_at'),
-                 'execution': status_labels.get(item.get('status'), '状态待核对')}
+                 'execution': status_labels.get(item.get('status'), '状态待核对'),
+                 **({'continuation_mode': 'AUTO_SAME_JOB', 'continuation_state': item.get('continuation_state')}
+                    if item.get('continuation_mode') == 'AUTO_SAME_JOB' else {})}
                 for item in (observation.get('items') or []) if isinstance(item, dict)
             ]
             observation['display_scope'] = ('任务引用只用于下一次内部报告读取，不向用户展示。'

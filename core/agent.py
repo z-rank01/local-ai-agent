@@ -268,6 +268,13 @@ class Agent:
             tool_defs = self.registry.get_definitions(
                 tier=self.tool_tier, use_short_desc=False,
                 allow_write=(not cloud) or allow_write)
+            if getattr(self.context_mgr, 'reader', None) is not None:
+                tool_defs.append({'type': 'function', 'function': {
+                    'name': 'context_evidence_read',
+                    'description': '分页回读本会话当前授权历史中的原始证据。用于核对压缩前的事实、反证和来源。',
+                    'parameters': {'type': 'object', 'properties': {
+                        'evidence_id': {'type': 'string'}, 'cursor': {'type': 'integer', 'minimum': 0}},
+                        'required': ['evidence_id'], 'additionalProperties': False}}})
             allowed_tool_names = getattr(self, 'allowed_tool_names', None)
             if allowed_tool_names is not None:
                 tool_defs = [definition for definition in tool_defs
@@ -285,19 +292,27 @@ class Agent:
                 messages[0]['content'] += '\n当前思考输出关闭。若用户明确要求开启思考模式，请询问是否愿意在顶部“模型设置”开启“思考输出”；不能声称已自行开启。普通任务无需为此打断。'
             counts = {}
             budgets = {'web_search': config.WEB_SEARCH_BUDGET, 'web_fetch': config.WEB_FETCH_BUDGET}
+            quality_research = bool(getattr(self, 'quality_first_research', False))
+            research_tools = {'web_search', 'web_fetch', 'context_evidence_read',
+                'stock_public_evidence_read', 'stock_public_evidence_find', 'stock_report_read',
+                'stock_research_find', 'stock_research_submit', 'stock_theme_research_find',
+                'stock_theme_research_submit', 'stock_market_brief', 'stock_track_read', 'stock_track_find'}
+            research_continuing, no_progress_rounds, observations = False, 0, set()
             execution_retries = 0
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             round_number = 0
             stock_deadline = None
-            while stock_deadline is not None or round_number < self.max_rounds:
-                active = [d for d in tool_defs if d['function']['name'] not in budgets or
+            while stock_deadline is not None or research_continuing or round_number < self.max_rounds:
+                active = [d for d in tool_defs if quality_research or d['function']['name'] not in budgets or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
                 stock_window_closed = stock_deadline is not None and time.monotonic() >= stock_deadline
-                generic_final_round = stock_deadline is None and round_number == self.max_rounds - 1
-                if stock_window_closed or generic_final_round:
+                no_progress_closed = quality_research and no_progress_rounds >= 2
+                generic_final_round = stock_deadline is None and not research_continuing and round_number == self.max_rounds - 1
+                if stock_window_closed or generic_final_round or no_progress_closed:
                     active = []
                     messages.append({"role": "user", "content":
-                        "[本轮股票处理窗口已到；请根据已取得的结果回答，明确未完成范围与下一轮如何继续。]"
+                        "[连续两轮没有新增有效工具结果。请交付已有成果，说明无法推进的原因与缺口。]" if no_progress_closed else
+                        "[本轮股票交付窗口已到；请给出已提交后台任务的 ID、中间成果和缺口。后台任务仍按检查点运行；未提交的步骤不能声称会自动执行。]"
                         if stock_window_closed else
                         "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
                 messages = await self.context_mgr.process(messages)
@@ -337,7 +352,7 @@ class Agent:
                             logger.warning('Local memory update failed')
                     yield AgentEvent('done', text=reply)
                     return
-                if stock_window_closed:
+                if stock_window_closed or no_progress_closed:
                     # Do not execute unadvertised calls after the finalization
                     # instruction. Complete their protocol envelopes locally.
                     for call in calls:
@@ -346,8 +361,8 @@ class Agent:
                                    'content': '{"error":"本轮窗口已到，此步骤未执行。"}'}
                         messages.append(skipped)
                         yield AgentEvent('message', data={'message': skipped})
-                    yield AgentEvent('done', text='本轮处理窗口已到，已取得的结果保留在会话中；'
-                                     '后续步骤尚未执行。请回复“继续”接续核查。')
+                    yield AgentEvent('done', text='已取得的结果保留在会话中。已提交的后台研究可继续查询；'
+                                     '本轮未执行的步骤仍列为缺口。')
                     return
                 allowed = {d['function']['name'] for d in active}
                 if (stock_deadline is None and getattr(self, 'stock_loop_enabled', False) and
@@ -355,6 +370,7 @@ class Agent:
                             call['function']['name'] in allowed for call in calls)):
                     stock_deadline = time.monotonic() + getattr(self, 'stock_window_seconds', 600)
                 stock_boundary = False
+                fresh_observation = False
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
                                                        budgets=budgets, counts=counts,
                                                        stock_deadline=stock_deadline)) as events:
@@ -362,7 +378,17 @@ class Agent:
                         if event.kind == 'stock_boundary':
                             stock_boundary = True
                         else:
+                            if quality_research and event.kind == 'tool_end' and event.data.get('status') == 'ok':
+                                import hashlib
+                                fingerprint = hashlib.sha256(json.dumps(model_projection(event.data.get('result')),
+                                    ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+                                if fingerprint not in observations:
+                                    observations.add(fingerprint)
+                                    fresh_observation = True
                             yield event
+                research_continuing = quality_research and bool(calls) and all(
+                    call['function']['name'] in research_tools for call in calls)
+                no_progress_rounds = 0 if fresh_observation else no_progress_rounds + 1
                 if stock_boundary:
                     stock_deadline = 0.0
                 for call in calls:
@@ -420,7 +446,9 @@ class Agent:
                     raise ValueError('本轮工具未开放或调用额度已用完，请基于已有结果回答。')
                 yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id']})
                 result = None
-                if hasattr(self.router, 'dispatch_stream'):
+                if name == 'context_evidence_read':
+                    result = self.context_mgr.read_evidence(**params)
+                elif hasattr(self.router, 'dispatch_stream'):
                     async with aclosing(self.router.dispatch_stream(name, params, session_id)) as stream:
                         async for packet in stream:
                             if packet.get('event') == 'result':
@@ -441,7 +469,10 @@ class Agent:
             content = json.dumps(observation, ensure_ascii=False, default=str)
             if budgets and counts is not None and name in budgets:
                 remaining = {n: max(0, b - counts.get(n, 0) - (1 if n == name else 0)) for n, b in budgets.items()}
-                content += '\n[联网额度：' + '，'.join(f'{n} 还可 {r} 次' for n, r in remaining.items()) + '；请据此规划后续检索，额度用尽后基于已有结果回答。]'
+                if getattr(self, 'quality_first_research', False):
+                    content += '\n[检索批次提示：请核对本批发现、反证与未决问题。有新证据可继续检索；长股票研究请提交现有后台研究工具，不要求用户反复发送继续。]'
+                else:
+                    content += '\n[联网额度：' + '，'.join(f'{n} 还可 {r} 次' for n, r in remaining.items()) + '；请据此规划后续检索，额度用尽后基于已有结果回答。]'
             message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
             messages.append(message)
             yield AgentEvent('message', data={'message': message})

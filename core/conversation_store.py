@@ -86,6 +86,16 @@ _MIGRATIONS: list[str] = [
     """CREATE TABLE workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL, config TEXT NOT NULL);
     ALTER TABLE conversations ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default';
     CREATE INDEX idx_conversations_workspace ON conversations(workspace_id);""",
+    """CREATE TABLE task_evidence (
+        id TEXT NOT NULL, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        scope TEXT NOT NULL, content TEXT NOT NULL, metadata TEXT NOT NULL,
+        created_at TEXT NOT NULL, PRIMARY KEY(conversation_id,scope,id));""",
+    """CREATE TABLE task_evidence_reads (
+        conversation_id TEXT NOT NULL, scope TEXT NOT NULL, evidence_id TEXT NOT NULL,
+        cursor INTEGER NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY(conversation_id,scope,evidence_id),
+        FOREIGN KEY(conversation_id,scope,evidence_id)
+        REFERENCES task_evidence(conversation_id,scope,id) ON DELETE CASCADE);""",
 ]
 
 
@@ -102,6 +112,11 @@ class ConversationStore:
     def _migrate(self, conn: sqlite3.Connection) -> None:
         current = conn.execute("PRAGMA user_version").fetchone()[0] or 0
         target = len(_MIGRATIONS)
+        if 0 < current < target:
+            backup_path = Path(self._db_path).with_suffix(f'.before-v{target}.sqlite')
+            if not backup_path.exists():
+                with sqlite3.connect(str(backup_path)) as backup:
+                    conn.backup(backup)
         for index in range(current, target):
             if index == 1:
                 self._migrate_message_versions(conn)
@@ -111,6 +126,41 @@ class ConversationStore:
                 conn.executescript(_MIGRATIONS[index])
         if current != target:
             conn.execute(f"PRAGMA user_version = {target}")
+
+    def archive_task_evidence(self, conversation_id: str, scope: str, message: dict) -> str:
+        """Archive only the already authorized model projection; original messages stay untouched."""
+        import hashlib
+        content = message.get('content') or ''
+        metadata = json.dumps({k: message[k] for k in ('role', 'tool_name', 'tool_call_id', 'tool_calls', 'record_kind', 'source_ids')
+                               if k in message}, ensure_ascii=False, sort_keys=True)
+        evidence_id = hashlib.sha256((metadata + '\n' + content).encode()).hexdigest()
+        with self._connect() as conn:
+            conn.execute('INSERT OR IGNORE INTO task_evidence VALUES(?,?,?,?,?,?)',
+                         (evidence_id, conversation_id, scope, content, metadata,
+                          datetime.now(timezone.utc).isoformat()))
+        return evidence_id
+
+    def read_task_evidence(self, conversation_id: str, scope: str, evidence_id: str,
+                           cursor: int = 0, limit: int = 12000) -> dict:
+        if type(cursor) is not int or cursor < 0 or type(limit) is not int or not 1 <= limit <= 24000:
+            raise ValueError('证据分页参数无效')
+        with self._connect() as conn:
+            row = conn.execute('SELECT * FROM task_evidence WHERE conversation_id=? AND scope=? AND id=?',
+                               (conversation_id, scope, evidence_id)).fetchone()
+        if row is None:
+            raise ValueError('当前授权上下文没有该证据')
+        body = row['content']
+        if cursor > len(body):
+            raise ValueError('证据读取位置超出正文')
+        end = min(len(body), cursor + limit)
+        with self._connect() as conn:
+            conn.execute('INSERT INTO task_evidence_reads VALUES(?,?,?,?,?) '
+                         'ON CONFLICT(conversation_id,scope,evidence_id) DO UPDATE SET '
+                         'cursor=excluded.cursor,updated_at=excluded.updated_at',
+                         (conversation_id, scope, evidence_id, end, datetime.now(timezone.utc).isoformat()))
+        return {'evidence_id': evidence_id, 'metadata': json.loads(row['metadata']),
+                'content': body[cursor:end], 'cursor': cursor, 'total_chars': len(body),
+                'next_cursor': end if end < len(body) else None}
 
     @staticmethod
     def _migrate_message_versions(conn: sqlite3.Connection) -> None:

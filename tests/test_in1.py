@@ -499,6 +499,14 @@ class CompactTests(unittest.IsolatedAsyncioTestCase):
         class Model:
             async def chat(self,*args): return 'old summary'
         manager=ContextManager(context_window=1000,compact_threshold=.6,llm=Model())
+        import tempfile
+        from core.conversation_store import ConversationStore
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        store = ConversationStore(Path(temp.name) / 'conversations.db')
+        conv = store.create_conversation()
+        manager.archive = lambda message: store.archive_task_evidence(conv.id, 'local', message)
+        manager.reader = lambda eid, cursor: store.read_task_evidence(conv.id, 'local', eid, cursor)
         messages=[{'role':'system','content':'system'}]
         for i in range(10):
             messages.extend([{'role':'user','content':str(i)},{'role':'assistant','content':'','tool_calls':[CALL]}, {'role':'tool','tool_call_id':'c1','content':'42'},{'role':'assistant','content':'ok'}])
