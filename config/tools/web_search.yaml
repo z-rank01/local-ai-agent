@@ -9,6 +9,9 @@ description: >
   当用户询问最新资讯、实时数据、不确定的事实、或任何需要联网查询的问题时使用。
   时效敏感的查询（价格、活动、新闻）可用 time_range 限定时间范围；
   购物类查询可能缺乏电商实时数据，此时如实说明来源与新旧。
+  每次返回一个批次，不是结果总量上限；需要继续时将 next_cursor 的 page、offset、page_hash 原样传回。
+  PAGE_EMPTY 仅表示该结果页为空，不证明全网没有证据；UNAVAILABLE/PARTIAL 表示有搜索引擎失败。
+  页指纹变化时重新读取该页并按URL去重，不能把失败解释为没有结果。摘要仍是线索，须读取原文核验。
 parameters:
   type: object
   properties:
@@ -17,7 +20,19 @@ parameters:
       description: "搜索关键词或问题，支持中英文"
     max_results:
       type: integer
-      description: "最大返回结果数量（默认5，最大20）"
+      description: "单批返回数量（默认5，最多20）；更多结果沿next_cursor继续"
+    page:
+      type: integer
+      minimum: 1
+      description: "搜索服务页号，默认1；继续时使用next_cursor.page"
+    offset:
+      type: integer
+      minimum: 0
+      description: "页内读取位置，默认0；继续时使用next_cursor.offset"
+    page_hash:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      description: "同一页继续时传回next_cursor.page_hash，防止结果变化后静默漏读"
     language:
       type: string
       description: "结果语言，默认 zh-CN；查英文资料可填 en-US 或 all"

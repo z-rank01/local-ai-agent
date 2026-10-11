@@ -14,10 +14,11 @@ from typing import Optional
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from readability import Document
 
 from search_pages import is_search_page
+from search_batches import select_batch
 
 logger = logging.getLogger("skill-websearch")
 logging.basicConfig(
@@ -67,9 +68,12 @@ async def health():
 
 class WebSearchRequest(BaseModel):
     query: str
-    max_results: Optional[int] = DEFAULT_SEARCH_RESULTS
+    max_results: Optional[int] = Field(default=DEFAULT_SEARCH_RESULTS, ge=1)
     language: Optional[str] = "zh-CN"
     time_range: Optional[str] = None  # day | week | month | year
+    page: int = Field(default=1, ge=1, strict=True)
+    offset: int = Field(default=0, ge=0, strict=True)
+    page_hash: Optional[str] = Field(default=None, pattern=r'^[0-9a-f]{64}$')
 
 
 @app.post("/tool/web_search")
@@ -83,7 +87,7 @@ async def web_search(req: WebSearchRequest):
     params = {
         "q": req.query,
         "format": "json",
-        "pageno": 1,
+        "pageno": req.page,
     }
     language = (req.language or "").strip()
     if language:
@@ -106,13 +110,16 @@ async def web_search(req: WebSearchRequest):
         logger.error("SearXNG request failed: %s", exc)
         return {"error": f"搜索请求失败: {exc}", "results": []}
 
-    raw_results = data.get("results", [])[:max_results]
+    try:
+        raw_results, batch = select_batch(data, page=req.page, offset=req.offset,
+                                         size=max_results, page_hash=req.page_hash)
+    except ValueError as exc:
+        return {"error": str(exc), "status": "PAGE_CHANGED_OR_INVALID", "results": [],
+                "coverage": "unknown", "next_cursor": None}
 
     results = []
     for item in raw_results:
         snippet = _clean_text(item.get("content", ""))
-        if len(snippet) > 300:
-            snippet = snippet[:297] + "..."
         results.append({
             "title": item.get("title", ""),
             "url": item.get("url", ""),
@@ -120,11 +127,12 @@ async def web_search(req: WebSearchRequest):
         })
 
     # Build a compact text summary for LLM consumption
-    summary_parts = [f"搜索「{req.query}」共 {len(results)} 条结果："]
+    summary_parts = [f"搜索「{req.query}」第 {req.page} 页，本批 {len(results)} 条；不代表全部搜索范围："]
     for i, r in enumerate(results, 1):
         summary_parts.append(f"{i}. {r['title']} | {r['url']} | {r['snippet']}")
 
     return {
+        **batch,
         "query": req.query,
         "total_results": len(results),
         "results": results,
