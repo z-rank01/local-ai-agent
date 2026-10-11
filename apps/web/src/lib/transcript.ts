@@ -85,6 +85,12 @@ export function assistantGroupStatus(blocks: TranscriptBlock[]): TranscriptBlock
   if (blocks.some((block) => block.status === 'running' || block.placeholder)) {
     return 'running';
   }
+  // A completed answer can describe a partial result or a recovered tool error.
+  // Keep tool failures in the trace; they are not the final answer's status.
+  const last = blocks[blocks.length - 1];
+  if (last?.kind === 'assistant' && last.status === 'ok') {
+    return undefined;
+  }
   if (blocks.some((block) => block.status === 'error')) {
     return 'error';
   }
