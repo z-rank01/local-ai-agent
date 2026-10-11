@@ -99,6 +99,27 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute('SELECT status FROM research_receipts WHERE call_id=?',
                 (result['ledger_call_id'],)).fetchone()[0], 'UNKNOWN')
 
+    async def test_unknown_diagnostics_are_fixed_categories_without_echo_or_retry(self):
+        from tests.test_research_stream import response, chunk
+        self.body['transport']={'stream':True,'include_usage':True}
+        cases=[([chunk('{')],None,'STREAM_MISSING_TERMINAL'),
+               ([chunk('{')],httpx.ReadTimeout('private-input-secret'),'TRANSPORT_TIMEOUT'),
+               ([chunk('{')],httpx.RemoteProtocolError('private-input-secret'),'TRANSPORT_PROTOCOL'),
+               ([{'error':{'message':'private-input-secret'}}],None,'STREAM_PROVIDER_ERROR'),
+               ([chunk('{'),chunk('}', 'stop',id='other')],None,'STREAM_IDENTITY_MISMATCH'),
+               (['private-input-secret'],None,'STREAM_INVALID_STRUCTURE')]
+        for events,error,category in cases:
+            with self.subTest(category=category):
+                stream=response(events,error);stream.status_code=200;stream.raise_for_status=lambda:None
+                result,client=await self.call(stream_response=stream)
+                self.assertEqual(result['status'],'UNKNOWN')
+                self.assertEqual(result['failure_category'],category)
+                self.assertEqual(client.stream.call_count,1)
+                with closing(sqlite3.connect(self.ledger.path)) as db:
+                    saved=db.execute('SELECT receipt FROM research_receipts WHERE call_id=?',(result['ledger_call_id'],)).fetchone()[0]
+                self.assertEqual(json.loads(saved)['failure_category'],category)
+                self.assertNotIn('private-input-secret',str(result)+saved)
+
     async def test_existing_ledger_backed_up_before_incremental_table(self):
         self.ledger.reserve('legacy')
         await self.call(httpx.Response(400))

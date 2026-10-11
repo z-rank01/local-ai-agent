@@ -6,6 +6,7 @@ import httpx
 from fastapi import HTTPException
 from .market_research import generation_parameters, _cloud_text_model
 from .providers import read_key
+from .research_stream import ResearchStreamError
 
 DUTIES = {'C01', 'C02', 'C03', 'C04'}
 PRIVATE_KEYS = {'account', 'account_id', 'cash', 'lots', 'holdings', 'orders', 'fills',
@@ -181,9 +182,21 @@ async def generate(runtime, body):
                 'text': content, 'finish_reason': reason, 'response_model': answer['model'],
                 'response_id': answer.get('id'), 'usage_status': 'REPORTED' if usage else 'NOT_REPORTED', 'usage': {k: usage[k] for k in
                     ('prompt_tokens', 'completion_tokens', 'total_tokens') if type(usage.get(k)) is int}})
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        if isinstance(exc, ResearchStreamError):
+            category = exc.category
+        elif isinstance(exc, httpx.TimeoutException):
+            category = 'TRANSPORT_TIMEOUT'
+        elif isinstance(exc, httpx.RemoteProtocolError):
+            category = 'TRANSPORT_PROTOCOL'
+        elif isinstance(exc, httpx.HTTPStatusError):
+            category = 'HTTP_UNCONFIRMED_FAILURE'
+        elif isinstance(exc, httpx.HTTPError):
+            category = 'TRANSPORT_FAILURE'
+        else:
+            category = 'RESPONSE_INVALID_STRUCTURE'
         return finish({**receipt, **progress_receipt, 'status': 'UNKNOWN', 'text': '', 'usage': {},
-                'error': 'NO_VERIFIED_TERMINAL_RECEIPT'})
+                'error': 'NO_VERIFIED_TERMINAL_RECEIPT', 'failure_category': category})
     finally:
         if not finished:
             finish({**receipt, **progress_receipt, 'status': 'UNKNOWN', 'error': 'REQUEST_INTERRUPTED', 'usage': {}})

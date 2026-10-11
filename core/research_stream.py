@@ -3,6 +3,13 @@ import json
 import httpx
 
 
+class ResearchStreamError(ValueError):
+    """Fixed diagnostic category; never includes source content or provider text."""
+    def __init__(self, category):
+        self.category = category
+        super().__init__(category)
+
+
 async def read_completion(response, progress):
     content, identity, model, reason, usage = [], None, None, None, {}
     lines = response.aiter_lines().__aiter__()
@@ -20,12 +27,17 @@ async def read_completion(response, progress):
         raw = line[5:].strip()
         if raw == '[DONE]':
             break
-        event = json.loads(raw)
+        try:
+            event = json.loads(raw)
+        except ValueError as exc:
+            raise ResearchStreamError('STREAM_INVALID_JSON') from exc
+        if not isinstance(event, dict):
+            raise ResearchStreamError('STREAM_INVALID_STRUCTURE')
         if event.get('error'):
-            raise ValueError('Provider stream error without verified completion')
+            raise ResearchStreamError('STREAM_PROVIDER_ERROR')
         current_id, current_model = event.get('id'), event.get('model')
         if (identity and current_id and identity != current_id) or (model and current_model and model != current_model):
-            raise ValueError('Mixed stream identities')
+            raise ResearchStreamError('STREAM_IDENTITY_MISMATCH')
         previous = (identity, model)
         identity, model = current_id or identity, current_model or model
         if (identity, model) != previous:
@@ -33,25 +45,29 @@ async def read_completion(response, progress):
         if isinstance(event.get('usage'), dict):
             usage = event['usage']
         choices = event.get('choices') or []
+        if not isinstance(choices, list) or any(not isinstance(choice, dict) for choice in choices):
+            raise ResearchStreamError('STREAM_INVALID_STRUCTURE')
         if len(choices) > 1:
-            raise ValueError('Unexpected multiple completions')
+            raise ResearchStreamError('STREAM_MULTIPLE_COMPLETIONS')
         for choice in choices:
             if choice.get('index', 0) != 0:
-                raise ValueError('Unexpected completion index')
+                raise ResearchStreamError('STREAM_COMPLETION_INDEX')
             delta = choice.get('delta') or {}
+            if not isinstance(delta, dict):
+                raise ResearchStreamError('STREAM_INVALID_STRUCTURE')
             if delta.get('tool_calls'):
-                raise ValueError('Research completion unexpectedly requested a tool')
+                raise ResearchStreamError('STREAM_UNEXPECTED_TOOL')
             text = delta.get('content')
             if text is not None:
                 if not isinstance(text, str) or (reason is not None and text):
-                    raise ValueError('Content after terminal completion')
+                    raise ResearchStreamError('STREAM_INVALID_CONTENT')
                 content.append(text)
             finish = choice.get('finish_reason')
             if finish:
                 if reason is not None and finish != reason:
-                    raise ValueError('Conflicting terminal metadata')
+                    raise ResearchStreamError('STREAM_TERMINAL_CONFLICT')
                 reason = finish
     if not identity or not model or reason not in ('stop', 'length'):
-        raise ValueError('Stream has no verified terminal metadata')
+        raise ResearchStreamError('STREAM_MISSING_TERMINAL')
     return {'id': identity, 'model': model, 'usage': usage,
             'choices': [{'finish_reason': reason, 'message': {'content': ''.join(content)}}]}
