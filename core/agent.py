@@ -302,24 +302,37 @@ class Agent:
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             round_number = 0
             stock_deadline = None
+            public_research_deadline = None
             handoff_attempted = False
+            handoff_prepared = False
             background_submitted = False
             handoff_tools = {'stock_theme_research_submit', 'stock_research_submit'}
             while stock_deadline is not None or research_continuing or round_number < self.max_rounds:
                 active = [d for d in tool_defs if quality_research or d['function']['name'] not in budgets or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
-                stock_window_closed = stock_deadline is not None and time.monotonic() >= stock_deadline
+                public_window_closed = public_research_deadline is not None and time.monotonic() >= public_research_deadline
+                stock_window_closed = (stock_deadline is not None and time.monotonic() >= stock_deadline) or public_window_closed
                 no_progress_closed = quality_research and no_progress_rounds >= 2
                 generic_final_round = stock_deadline is None and not research_continuing and round_number == self.max_rounds - 1
                 handoff_round = (quality_research and stock_window_closed and not no_progress_closed
                     and not handoff_attempted and not background_submitted
                     and any(d['function']['name'] in handoff_tools for d in active))
                 if handoff_round:
-                    handoff_attempted = True
-                    active = [d for d in active if d['function']['name'] in handoff_tools]
+                    # A search-only stock question may not yet own a safe brief reference.
+                    # Allow one lookup step before submission; the normal stock ticket
+                    # still governs every dispatched operation and UNKNOWN is never redone.
+                    preparing = public_window_closed and stock_deadline is None and not handoff_prepared
+                    if preparing:
+                        handoff_prepared = True
+                    else:
+                        handoff_attempted = True
+                    offered_handoff = handoff_tools | ({'stock_market_brief_find', 'stock_research_find'} if preparing else set())
+                    active = [d for d in active if d['function']['name'] in offered_handoff]
                     messages.append({'role': 'system', 'content':
-                        '股票研究交付窗口已到，进入后台交接步骤。若原问题尚未完成且用户已授权研究，'
+                        '研究交付窗口已到，进入后台交接步骤。仅当原问题属于用户已授权的股票、公司或产业公开研究且尚未完成时，'
                         '请用现有提交工具将待研究的公开问题交给股票工作进程。只用已核对的证券身份或本会话安全引用；'
+                        '尚无安全引用时，可先使用本轮提供的查找工具取得已有简报或研究引用，不刷新简报。'
+                        '非股票研究不能改写成股票任务；没有适用后台能力时如实说明未完成范围。'
                         '必须填写 research_question，保留问题、反证及完成判据。个股任务使用 reuse/continue，'
                         '不得用 redo 或新任务绕过 UNKNOWN。不得传持仓、账户或私有文件。'
                         '若已有后台任务、问题已完成或缺少合法输入，交付已有成果并明确缺口，不另建任务。'
@@ -381,6 +394,11 @@ class Agent:
                                      '本轮未执行的步骤仍列为缺口。')
                     return
                 allowed = {d['function']['name'] for d in active}
+                if (public_research_deadline is None and quality_research and getattr(self, 'stock_loop_enabled', False)
+                        and any(d['function']['name'] in handoff_tools for d in tool_defs)
+                        and any(call['function']['name'] in ('web_search', 'web_fetch')
+                                and call['function']['name'] in allowed for call in calls)):
+                    public_research_deadline = time.monotonic() + getattr(self, 'stock_window_seconds', 600)
                 if (stock_deadline is None and getattr(self, 'stock_loop_enabled', False) and
                         any(call['function']['name'].startswith('stock_') and
                             call['function']['name'] in allowed for call in calls)):
@@ -467,7 +485,7 @@ class Agent:
                     raise ValueError('后台交接必须明确传入公开研究问题，不能丢失原任务目标。')
                 if allowed is not None and name not in allowed:
                     if budgets and name in budgets:
-                        raise ValueError(f'本轮 {name} 的联网额度已用完。请基于已有结果综合回答并如实说明信息来源；如需更多检索，请用户再发一条消息继续（每轮额度会重新计算）。')
+                        raise ValueError(f'当前步骤未开放 {name}；该请求未执行。请遵守当前交付或交接阶段，不能据此声称配额已用尽或没有检索结果。')
                     raise ValueError('本轮工具未开放或调用额度已用完，请基于已有结果回答。')
                 yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id']})
                 result = None
