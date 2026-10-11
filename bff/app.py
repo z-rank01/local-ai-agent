@@ -219,11 +219,12 @@ def _find_pids_on_port(port: int) -> list[int]:
     if os.name != 'nt':
         return []
     try:
-        completed = subprocess.run(['netstat', '-ano', '-p', 'tcp'], capture_output=True, text=True, timeout=10)
+        completed = subprocess.run(['netstat', '-ano', '-p', 'tcp'], capture_output=True,
+                                   text=True, errors='replace', timeout=10)
     except Exception:
         return []
     pids = set()
-    for line in completed.stdout.splitlines():
+    for line in (completed.stdout or '').splitlines():
         parts = line.split()
         if len(parts) >= 5 and parts[0].upper().startswith('TCP') and parts[3].upper() == 'LISTENING':
             host, _, port_text = parts[1].rpartition(':')

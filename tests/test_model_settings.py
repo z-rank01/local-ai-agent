@@ -229,6 +229,22 @@ class ThinkingInjectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(payloads[-1]['think'])
 
 class ShutdownStackTests(unittest.IsolatedAsyncioTestCase):
+    def test_port_probe_empty_output_does_not_block_shutdown(self):
+        from bff import app as bff_app
+        from types import SimpleNamespace
+        with patch.object(bff_app.os, 'name', 'nt'), patch.object(
+                bff_app.subprocess, 'run', return_value=SimpleNamespace(stdout=None)) as run:
+            self.assertEqual(bff_app._find_pids_on_port(9510), [])
+            self.assertEqual(run.call_args.kwargs['errors'], 'replace')
+
+    def test_port_probe_keeps_pid_after_unreadable_localized_heading(self):
+        from bff import app as bff_app
+        from types import SimpleNamespace
+        output = '\ufffd\ufffd\ufffd\n TCP 127.0.0.1:9510 0.0.0.0:0 LISTENING 123\n'
+        with patch.object(bff_app.os, 'name', 'nt'), patch.object(
+                bff_app.subprocess, 'run', return_value=SimpleNamespace(stdout=output)):
+            self.assertEqual(bff_app._find_pids_on_port(9510), [123])
+
     async def test_shutdown_stack_endpoint_guards_and_payload(self):
         from bff import app as bff_app
         from core.stock_service import stock_service
