@@ -11,8 +11,10 @@ HAZARDS = ('wrong_security', 'fabricated_source', 'private_search_leak',
 
 
 def digest(value):
+    # Match services.paper.common.digest used by the frozen stock batch.
+    # Compact JSON has a different hash even when the parsed values match.
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
-                                    separators=(',', ':')).encode()).hexdigest()
+                                    allow_nan=False, default=str).encode()).hexdigest()
 
 
 def validate_manifest(manifest, rubric):

@@ -10,6 +10,13 @@ STOCK_ROOT = os.environ.get('STOCK_REPLAY_TEST_ROOT')
 
 @unittest.skipUnless(STOCK_ROOT and Path(STOCK_ROOT).is_dir(), 'requires connected stock checkout')
 class ReplayPolicyTests(unittest.TestCase):
+    def test_blind_review_hash_matches_stock_frozen_material(self):
+        from scripts.quality_review import digest as review_digest
+        from services.paper.common import digest as stock_digest
+        material = {'research_question': '核对反证', 'evidence': {'values': [1, 2.5, None]},
+                    'method': {'version': 'v1', 'body': '来源与日期'}}
+        self.assertEqual(review_digest(material), stock_digest(material))
+
     @classmethod
     def setUpClass(cls):
         sys.path.insert(0, STOCK_ROOT)
