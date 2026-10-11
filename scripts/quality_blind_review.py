@@ -60,9 +60,16 @@ def normalize(events, binding, model):
     review = json.loads(raw)
     if set(review) != {'scores', 'hazards', 'rationale', 'boundary', 'boundary_reason'}:
         raise ValueError('Unexpected review fields; human approval cannot be model-generated')
-    if (set(review['scores']) != set(DIMENSIONS)
+    if (not isinstance(review['scores'], dict) or not set(DIMENSIONS).issubset(review['scores'])
             or any(type(value) is not int or value not in (0, 1, 2) for value in review['scores'].values())):
         raise ValueError('Six integer scores from 0 to 2 are required')
+    extra_scores = {key: value for key, value in review['scores'].items() if key not in DIMENSIONS}
+    if extra_scores:
+        # All six required scores must already be explicit. Never infer or rename
+        # a missing dimension; keep non-rubric extras in an auditable repair note.
+        review['scores'] = {key: review['scores'][key] for key in DIMENSIONS}
+        review['schema_repairs'] = [{'kind': 'NON_RUBRIC_SCORE_FIELDS', 'original': extra_scores,
+                                     'action': 'Excluded from frozen six-dimension totals; required scores unchanged'}]
     if (set(review['hazards']) != set(HAZARDS)
             or any(type(value) is not bool for value in review['hazards'].values())):
         raise ValueError('All four hazard flags must be explicit booleans')
@@ -94,6 +101,15 @@ def run_one(client, packet, rubric, raw_root, reviews, model):
             raise ValueError('Existing review belongs to a different packet; preserve it')
         return 'ALREADY_REVIEWED'
     if folder.exists():
+        if (folder/'binding.json').exists() and (folder/'events.jsonl').exists():
+            binding = read(folder/'binding.json')
+            if binding['packet_hash'] != digest(packet) or binding['rubric_hash'] != digest(rubric):
+                raise ValueError('Reserved review packet changed; do not recover or resend')
+            events = [json.loads(line) for line in (folder/'events.jsonl').read_text(encoding='utf-8').splitlines()]
+            if events and events[-1]['event'] == 'session.completed':
+                review = normalize(events, binding, model)
+                write_new(result, review)
+                return 'COMPLETED_RECEIPT_RECOVERED_NO_MODEL_CALL'
         return 'RESERVED_NOT_RESENT'
     status = client.get('/api/admin/stock-service')
     status.raise_for_status()

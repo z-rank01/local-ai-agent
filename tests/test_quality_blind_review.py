@@ -51,6 +51,15 @@ class BlindReviewTests(unittest.TestCase):
         self.review['scores'][DIMENSIONS[0]] = True
         with self.assertRaises(ValueError): normalize(self.events(), self.binding, 'qwen:qwen3.8-flash')
 
+    def test_extra_dimension_is_recorded_without_changing_required_scores(self):
+        original = dict(self.review['scores'])
+        self.review['scores']['followup_readiness'] = 0
+        normalized = normalize(self.events(), self.binding, 'qwen:qwen3.8-flash')
+        self.assertEqual(normalized['scores'], original)
+        self.assertEqual(normalized['schema_repairs'][0]['original'], {'followup_readiness': 0})
+        del self.review['scores']['followup_readability']
+        with self.assertRaises(ValueError): normalize(self.events(), self.binding, 'qwen:qwen3.8-flash')
+
     def test_existing_reservation_never_resends(self):
         with tempfile.TemporaryDirectory() as tmp:
             raw, reviews = Path(tmp)/'raw', Path(tmp)/'reviews'
@@ -71,6 +80,20 @@ class BlindReviewTests(unittest.TestCase):
             self.assertEqual(run_one(client, self.packet, self.rubric, raw, reviews, 'qwen:qwen3.8-flash'),
                              'ALREADY_REVIEWED')
             self.assertEqual(before, path.read_bytes())
+            self.assertFalse(client.mock_calls)
+
+    def test_completed_raw_receipt_can_be_recovered_without_model_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, reviews = Path(tmp)/'raw', Path(tmp)/'reviews'
+            folder = raw/self.packet['blind_id']; folder.mkdir(parents=True); reviews.mkdir()
+            (folder/'binding.json').write_text(json.dumps(self.binding), encoding='utf-8')
+            (folder/'events.jsonl').write_text('\n'.join(json.dumps(e) for e in self.events()), encoding='utf-8')
+            client = Mock()
+            self.assertEqual(run_one(client, self.packet, self.rubric, raw, reviews, 'qwen:qwen3.8-flash'),
+                             'COMPLETED_RECEIPT_RECOVERED_NO_MODEL_CALL')
+            saved = json.loads((reviews/(self.packet['blind_id']+'.json')).read_text())
+            self.assertEqual(saved['scores'], self.review['scores'])
+            self.assertTrue(saved['boundary'])
             self.assertFalse(client.mock_calls)
 
 
