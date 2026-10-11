@@ -86,3 +86,46 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError,'不自动重发'):
             await manager._summarize_chunk('公开材料')
         self.assertEqual(len(calls),1)
+
+    async def test_summary_target_accounts_for_preserved_turn_without_cutting_sources(self):
+        import re
+        instructions = []
+        class Model:
+            async def chat(self, system, user):
+                instructions.append(user)
+                return '关键反证：合同终止；需要核对现金流，来源保留。'
+        async def compact(recent):
+            manager = ContextManager(context_window=4096, preserve_recent=2, llm=Model())
+            manager.archive = lambda m: self.store.archive_task_evidence(self.conv.id, 'local', m)
+            manager.reader = lambda eid, cursor: self.store.read_task_evidence(self.conv.id, 'local', eid, cursor)
+            source = '公开财报正文。' * 160 + '合同终止，不得视作订单增长。'
+            messages = [{'role':'user','content':'核对收入与反证'},
+                {'role':'tool','tool_call_id':'source','content':source},
+                {'role':'assistant','content':'待核对'},
+                {'role':'user','content':recent}, {'role':'assistant','content':'当前任务'}]
+            result = await manager.auto_compact(messages)
+            eid = manager.archive(messages[1])
+            self.assertEqual(manager.read_evidence(eid)['content'], source)
+            self.assertIn('合同终止', result[0]['content'])
+            self.assertEqual(result[-2]['content'], recent)
+            return int(re.search(r'约为 (\d+) 字符', instructions[-1]).group(1))
+        roomy = await compact('请继续核对')
+        tight = await compact('当前要求与条件。' * 200)
+        self.assertLess(tight, roomy)
+        self.assertTrue(all('合同终止，不得视作订单增长。' in value for value in instructions))
+
+    async def test_expanding_summary_retains_original_and_archived_counterevidence(self):
+        class Model:
+            async def chat(self, system, user):
+                return user + '不能压缩的额外说明。'
+        manager = ContextManager(context_window=4096, preserve_recent=2, llm=Model())
+        manager.archive = lambda m: self.store.archive_task_evidence(self.conv.id, 'local', m)
+        manager.reader = lambda eid, cursor: self.store.read_task_evidence(self.conv.id, 'local', eid, cursor)
+        messages = [{'role':'user','content':'核对合同'},
+                    {'role':'tool','content':'正文。'*1500+'末尾修订：合同终止'},
+                    {'role':'assistant','content':'待核验'},
+                    {'role':'user','content':'继续'}, {'role':'assistant','content':'处理中'}]
+        result = await manager.auto_compact(messages)
+        self.assertEqual(result, messages)
+        eid = manager.archive(messages[1])
+        self.assertIn('合同终止', manager.read_evidence(eid)['content'])

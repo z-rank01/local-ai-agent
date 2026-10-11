@@ -24,7 +24,9 @@ _AUTOCOMPACT_SYSTEM = (
 )
 
 _AUTOCOMPACT_USER = """\
-请将以下对话历史整理为可续行的研究索引。保留问题、决定、关键事实、反证、冲突、未完成事项及来源位置；按实际内容决定篇幅，不只摘录开头。
+请将以下对话历史整理为可续行的研究索引。保留问题、决定、关键事实、反证、冲突、未完成事项及来源位置，不只摘录开头。
+
+本段索引的上下文目标约为 {target_chars} 字符。这是摘要的篇幅指引，不是删除证据的指令；所有原始历史已另存并可按 evidence_id 回读。合并重复内容，用简表记录变化、关键数字、否定条件及其证据编号，不复制整篇报告、重复的研究问题、工具 JSON 或每次相同的操作约束。对后续追问重要但放不下的细节，保留具体问题及原文证据位置；不能用“详见原文”替代关键反证或已作决定。证据不足照实保留，不为满足篇幅省略冲突。
 
 ## 用户意图
 用户的核心需求和目标
@@ -66,12 +68,16 @@ class ContextManager:
         self.summary_cache_reader = None
         self.summary_profile = None
 
-    async def _summarize_chunk(self, chunk: str) -> str:
+    async def _summarize_chunk(self, chunk: str, *, target_chars: int | None = None) -> str:
         import hashlib
         import json
+        if target_chars is None:
+            target_chars = max(256, int(self._context_window * 2.5 / 1.33 * 0.1))
+        instruction = _AUTOCOMPACT_USER.format(conversation=chunk, target_chars=target_chars)
         key = hashlib.sha256(json.dumps({
             'profile': self.summary_profile, 'capacity': self._context_window,
             'system': _AUTOCOMPACT_SYSTEM, 'instruction': _AUTOCOMPACT_USER,
+            'target_chars': target_chars,
             'text': chunk,
         }, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         if self.summary_profile is not None and self.summary_cache_reader is not None:
@@ -86,7 +92,7 @@ class ContextManager:
             self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
                 'summary_cache_key': key, 'content': '{"status":"RUNNING"}'})
         try:
-            part = await self._llm.chat(_AUTOCOMPACT_SYSTEM, _AUTOCOMPACT_USER.format(conversation=chunk))
+            part = await self._llm.chat(_AUTOCOMPACT_SYSTEM, instruction)
         except BaseException:
             if tracked:
                 self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
@@ -173,10 +179,19 @@ class ContextManager:
             # Every character is read. A bounded input window is scheduling,
             # never a prefix truncation. Completed source text remains pageable.
             chunk_chars = max(2000, int(self._context_window * 2.5 / 1.33 * 0.4))
+            # Leave room for the preserved current turn and durable source index.
+            # This is an instruction target, never output truncation or a provider cap.
+            index_chars = sum(len(eid) + 1 for eid in self.evidence_ids)
+            available_tokens = max(0, int(self._context_window * self._compact_threshold)
+                                   - self.estimate_tokens(system_msgs + to_keep))
+            available_chars = int(available_tokens * _AVG_CHARS_PER_TOKEN / _PADDING_FACTOR)
+            summary_target = max(256, min(chunk_chars, (available_chars - index_chars) // 2))
+            chunk_count = max(1, (len(conversation) + chunk_chars - 1) // chunk_chars)
+            part_target = max(256, summary_target // chunk_count)
             summaries = []
             for start in range(0, len(conversation), chunk_chars):
                 chunk = conversation[start:start + chunk_chars]
-                part = await self._summarize_chunk(chunk)
+                part = await self._summarize_chunk(chunk, target_chars=part_target)
                 if not part:
                     return messages
                 summaries.append(part)
@@ -184,13 +199,15 @@ class ContextManager:
             # Persist the detailed index before reducing it again. Reduction must
             # make progress; a verbose/failed model cannot silently erase evidence.
             source_ids = sorted(self.evidence_ids)
-            while len(summary) > chunk_chars:
+            while len(summary) > summary_target:
                 indexed = self.archive({'role': 'assistant', 'record_kind': 'task_summary',
                     'source_ids': source_ids, 'content': summary})
                 self.evidence_ids.add(indexed)
                 reduced = []
+                reduce_count = max(1, (len(summary) + chunk_chars - 1) // chunk_chars)
                 for start in range(0, len(summary), chunk_chars):
-                    part = await self._summarize_chunk(summary[start:start + chunk_chars])
+                    part = await self._summarize_chunk(summary[start:start + chunk_chars],
+                        target_chars=max(256, summary_target // reduce_count))
                     if not part:
                         return messages
                     reduced.append(part)
