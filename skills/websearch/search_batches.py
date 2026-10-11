@@ -6,6 +6,27 @@ from pathlib import Path
 from uuid import uuid4
 
 
+def engine_capabilities(config):
+    """Public capability metadata only; configuration prose is never evidence."""
+    if not isinstance(config, dict) or not isinstance(config.get('engines'), list):
+        return None
+    result = []
+    for engine in config['engines']:
+        if not isinstance(engine, dict) or engine.get('enabled') is not True:
+            continue
+        if not isinstance(engine.get('categories'), list):
+            return None
+        if 'general' not in engine['categories']:
+            continue
+        if (not isinstance(engine.get('name'), str) or
+                not re.fullmatch(r'[A-Za-z0-9 _.-]{1,80}', engine['name']) or
+                type(engine.get('paging')) is not bool or
+                type(engine.get('time_range_support')) is not bool):
+            return None  # Incomplete declarations must not imply full support.
+        result.append({key: engine[key] for key in ('name', 'paging', 'time_range_support')})
+    return result or None
+
+
 class PageSnapshots:
     """Container-local immutable transport snapshots, not a second evidence database."""
     def __init__(self, root):
@@ -52,6 +73,20 @@ def select_batch(data, *, page, offset, size, page_hash=None):
     status = ('PARTIAL' if rows else 'UNAVAILABLE') if failed_engines else ('OK' if rows else 'PAGE_EMPTY')
     following = ({'page': page, 'offset': end, 'page_hash': fingerprint} if end < len(rows)
                  else {'page': page + 1, 'offset': 0} if rows else None)
+    capabilities = data.get('_engine_capabilities')
+    support = 'UNKNOWN'
+    unsupported = []
+    if (isinstance(capabilities, list) and capabilities and all(
+            isinstance(engine, dict) and isinstance(engine.get('name'), str) and
+            type(engine.get('paging')) is bool for engine in capabilities)):
+        unsupported = [engine['name'] for engine in capabilities if engine['paging'] is False]
+        support = ('UNSUPPORTED' if len(unsupported) == len(capabilities) else
+                   'PARTIAL' if unsupported else 'SUPPORTED')
+        # Reading the rest of this immutable page is always allowed.
+        if support == 'UNSUPPORTED' and end == len(rows):
+            following = None
     return rows[offset:end], {'status': status, 'page': page, 'offset': offset,
         'page_hash': fingerprint, 'page_result_count': len(rows), 'next_cursor': following,
-        'coverage': 'provider_page_only', 'provider_failures': failed_engines}
+        'coverage': 'provider_page_only', 'provider_failures': failed_engines,
+        'pagination_support': support, 'non_paging_engines': unsupported,
+        'diagnostic_role': 'UNTRUSTED_PROVIDER_STATUS_NOT_RESEARCH_EVIDENCE'}

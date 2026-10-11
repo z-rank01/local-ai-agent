@@ -151,6 +151,11 @@ async def public_search(runtime, body):
                 'page': found['page'], 'offset': found['offset'],
                 'page_hash': found['page_hash'], 'page_result_count': found['page_result_count'],
                 'accepted_url_count': len(urls),
+                'pagination_support': found.get('pagination_support') if found.get('pagination_support') in
+                                      {'SUPPORTED', 'PARTIAL', 'UNSUPPORTED', 'UNKNOWN'} else 'UNKNOWN',
+                'non_paging_engines': [name for name in found.get('non_paging_engines', [])
+                                      if isinstance(name, str) and re.fullmatch(r'[A-Za-z0-9 _.-]{1,80}', name)]
+                                     if isinstance(found.get('non_paging_engines'), list) else [],
                 'provider_failures': [list(row) for row in found.get('provider_failures', [])
                                       if isinstance(row, (list, tuple)) and len(row) == 2
                                       and all(isinstance(value, str) for value in row)]

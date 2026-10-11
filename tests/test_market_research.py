@@ -95,6 +95,20 @@ class PublicSearchTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(cursor=cursor), self.assertRaises(HTTPException):
                 await public_search(runtime, {**body, 'cursor': cursor})
 
+    async def test_pagination_coverage_diagnostic_is_preserved_without_free_form_fields(self):
+        runtime = SearchRuntime()
+        response = {'status':'OK','results':[], 'coverage':'provider_page_only',
+                    'page':1,'offset':0,'page_hash':'a'*64,'page_result_count':0,'next_cursor':None,
+                    'pagination_support':'UNSUPPORTED','non_paging_engines':['bing',{'private':'secret'}]}
+        runtime.router.dispatch = AsyncMock(return_value=response)
+        body = {'symbol':'000001','name':'公开公司','source':'csrc','cursor':{'page':1,'offset':0}}
+        result = await public_search(runtime, body)
+        self.assertEqual(result['pagination_support'], 'UNSUPPORTED')
+        self.assertEqual(result['non_paging_engines'], ['bing'])
+        self.assertNotIn('secret', str(result))
+        response['pagination_support'] = 'invented state'
+        self.assertEqual((await public_search(runtime, body))['pagination_support'], 'UNKNOWN')
+
     async def test_paging_page_change_and_failure_are_not_no_match(self):
         runtime = SearchRuntime()
         body = {'symbol': '000001', 'name': '公开公司', 'source': 'csrc',

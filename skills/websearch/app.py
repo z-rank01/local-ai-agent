@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from readability import Document
 
 from search_pages import is_search_page
-from search_batches import select_batch, PageSnapshots
+from search_batches import select_batch, PageSnapshots, engine_capabilities
 from pathlib import Path
 import tempfile
 
@@ -43,16 +43,24 @@ _HEADERS = {
 
 app = FastAPI(title="skill-websearch")
 _client: httpx.AsyncClient | None = None
+_engine_capabilities = None
 
 
 @app.on_event("startup")
 async def _startup():
-    global _client
+    global _client, _engine_capabilities
     _client = httpx.AsyncClient(
         timeout=FETCH_TIMEOUT,
         headers=_HEADERS,
         follow_redirects=True,
     )
+    try:
+        response = await _client.get(f"{SEARXNG_URL}/config", timeout=5)
+        response.raise_for_status()
+        _engine_capabilities = engine_capabilities(response.json())
+    except (httpx.HTTPError, ValueError, TypeError):
+        _engine_capabilities = None
+        logger.warning("Search engine pagination capabilities unavailable")
     logger.info("skill-websearch started — searxng=%s", SEARXNG_URL)
 
 
@@ -110,6 +118,8 @@ async def web_search(req: WebSearchRequest):
             resp = await _client.get(f"{SEARXNG_URL}/search", params=params)
             resp.raise_for_status()
             data = resp.json()
+            if isinstance(data, dict):
+                data['_engine_capabilities'] = _engine_capabilities
     except ValueError as exc:
         return {"error": str(exc), "status": "PAGE_CHANGED_OR_INVALID", "results": [],
                 "coverage": "unknown", "next_cursor": None}
@@ -139,6 +149,11 @@ async def web_search(req: WebSearchRequest):
 
     # Build a compact text summary for LLM consumption
     summary_parts = [f"搜索「{req.query}」第 {req.page} 页，本批 {len(results)} 条；不代表全部搜索范围："]
+    if batch['non_paging_engines']:
+        summary_parts.append('检索覆盖说明（非研究证据）：以下引擎不支持翻页：' +
+                             '、'.join(batch['non_paging_engines']) + '。没有后续游标不代表没有更多资料。')
+    elif batch['pagination_support'] == 'UNKNOWN':
+        summary_parts.append('检索覆盖说明（非研究证据）：引擎分页能力未知。')
     for i, r in enumerate(results, 1):
         summary_parts.append(f"{i}. {r['title']} | {r['url']} | {r['snippet']}")
 
