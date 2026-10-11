@@ -55,18 +55,19 @@ engines:
     weight: 0.5
     disabled: false
 
-  # 以下实测本网络不可用，仅登记原因备查（2026-09-07）：
+  # 以下保留历史停用原因；恢复须有当前环境实测。
   # 百度 — 对机器流量弹验证码墙（SearxEngineCaptchaException，引擎被自动挂起 1 小时）
   - name: baidu
     engine: baidu
     shortcut: bd
     disabled: true
 
-  # 搜狗 — 容器内 DNS 解析 www.sogou.com 失败（Errno -5）
+  # 搜狗 — 2026-10-12复测已恢复；公司年报两页各10条，无引擎错误。
+  # 仍只作发现线索，原始回执见 search-engine-probe-v1/sogou-pages.json。
   - name: sogou
     engine: sogou
     shortcut: sg
-    disabled: true
+    disabled: false
 
   # DuckDuckGo — 连接 html.duckduckgo.com 超时
   - name: duckduckgo

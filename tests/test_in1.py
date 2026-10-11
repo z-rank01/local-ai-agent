@@ -124,6 +124,32 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
             from core.providers import ModelRegistry
             return ModelRegistry()
 
+    async def test_temporary_catalog_failure_retains_exact_model_but_successful_removal_does_not(self):
+        registry = self.make_registry(self.CLOUD)
+        self.addAsyncCleanup(registry.close)
+        with patch('core.providers._probe_ollama_models',return_value=None), \
+             patch('core.providers._probe_compatible_models',side_effect=[['qwen3.8-flash'],None,[]]):
+            await registry.catalog(refresh=True)
+            original, _ = registry.resolve('qwen','qwen3.8-flash')
+            await registry.catalog(refresh=True)
+            retained, _ = registry.resolve('qwen','qwen3.8-flash')
+            self.assertEqual(retained['model'],original['model'])
+            self.assertEqual(retained['base_url'],original['base_url'])
+            self.assertEqual(retained['discovery_status'],'RETAINED_AFTER_PROBE_FAILURE')
+            await registry.catalog(refresh=True)
+            with self.assertRaises(ValueError):registry.resolve('qwen','qwen3.8-flash')
+
+    async def test_failed_discovery_does_not_copy_models_to_changed_provider_destination(self):
+        registry = self.make_registry(self.CLOUD)
+        self.addAsyncCleanup(registry.close)
+        with patch('core.providers._probe_ollama_models',return_value=None), \
+             patch('core.providers._probe_compatible_models',side_effect=[['qwen3.8-flash'],None]):
+            await registry.catalog(refresh=True)
+            registry._static_specs = [{**spec,'base_url':'https://changed.invalid/v1'}
+                                     if spec.get('kind')=='cloud' else spec for spec in registry._static_specs]
+            await registry.catalog(refresh=True)
+            with self.assertRaises(ValueError):registry.resolve('qwen','qwen3.8-flash')
+
     async def test_discovered_models_merge_and_static_wins(self):
         registry = self.make_registry(self.CLOUD)
         self.addAsyncCleanup(registry.close)

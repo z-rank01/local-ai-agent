@@ -99,7 +99,11 @@ async def _probe_compatible_models(spec):
                                     headers={'Authorization': f'Bearer {key}'})
             if resp.status_code != 200:
                 return None
-            return [m.get('id') for m in resp.json().get('data', []) if m.get('id')]
+            rows = resp.json().get('data')
+            if not isinstance(rows, list) or any(not isinstance(row, dict) or
+                    not isinstance(row.get('id'), str) or not row['id'] for row in rows):
+                return None
+            return [row['id'] for row in rows]
     except Exception:
         return None
 
@@ -279,9 +283,9 @@ class ModelRegistry:
     async def catalog(self, refresh=False):
         """Static specs merged with models discovered from the providers themselves.
 
-        Static entries always win on id conflicts (they carry options such as
-        enable_thinking). Discovery failures degrade to the static list: Ollama
-        keeps its configured entry, cloud providers their models.json entries.
+        Static entries win. A failed cloud catalog probe retains previously
+        discovered models for the exact same provider endpoint/key selector;
+        it does not prove model removal or authorize a fallback model.
         """
         async with self._catalog_lock:
             now = time.monotonic()
@@ -302,6 +306,14 @@ class ModelRegistry:
                     cloud_specs.setdefault(spec['provider_id'], spec)
             for provider_id, spec in cloud_specs.items():
                 names = await _probe_compatible_models(spec)
+                if names is None:
+                    for previous in self.specs:
+                        if (previous.get('provider_id') == provider_id and
+                                previous.get('base_url') == spec.get('base_url') and
+                                previous.get('api_key_env', '') == spec.get('api_key_env', '') and
+                                previous.get('kind') == 'cloud'):
+                            merged.setdefault(previous['id'], {**previous,
+                                'discovery_status': 'RETAINED_AFTER_PROBE_FAILURE'})
                 for name in names or []:
                     if _NON_CHAT_MODEL.search(name):
                         continue
@@ -309,7 +321,7 @@ class ModelRegistry:
                         'id': f'{provider_id}:{name}', 'provider_id': provider_id,
                         'provider_name': spec['provider_name'], 'model': name,
                         'base_url': spec['base_url'], 'api_key_env': spec.get('api_key_env', ''),
-                        'kind': 'cloud'})
+                        'kind': 'cloud', 'discovery_status': 'DISCOVERED'})
             self.specs = list(merged.values())
             self._catalog_fetched_at = now
             return self.specs
