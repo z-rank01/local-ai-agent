@@ -7,6 +7,37 @@ materials. Scoring and UNKNOWN handling remain outside this policy module.
 POLICY_VERSION = 'quality-replay-v5'
 
 
+def incomplete_output(status, reason):
+    return {'run_status': 'UNKNOWN' if status == 'UNKNOWN' else 'FAILED',
+            'data_quality': 'PARTIAL', 'verdict': None, 'report': reason,
+            'evidence_refs': [], 'missing': [reason],
+            'data': {'truncated': True, 'finish_reason': 'length'} if status == 'TRUNCATED' else {}}
+
+
+def restore_attempt(status, saved, duty, failures):
+    """Reconcile an existing reservation without reissuing unknown requests.
+
+    Terminal node files may be absent after a crash between the ledger write and
+    checkpoint write. Known failure/truncation must keep their actual semantics.
+    """
+    if status == 'SUCCEEDED' and saved.get('validated_output'):
+        return {'action': 'return', 'output': saved['validated_output']}
+    reply = saved.get('reply', {})
+    if status == 'TRUNCATED' and reply.get('finish_reason') == 'length':
+        if duty == 'C03' and saved.get('profile') == 'standard':
+            return {'action': 'expand'}
+        return {'action': 'return', 'output': incomplete_output('TRUNCATED', '明确截断，保留原回执')}
+    if status == 'FAILED' and reply.get('known_failure'):
+        return {'action': 'return', 'output': incomplete_output('FAILED',
+            saved.get('validation_error') or reply.get('provider_error') or '已知调用失败')}
+    if status == 'FAILED' and saved.get('validation_error') and not reply.get('unfinished'):
+        if failures + 1 < 3:
+            return {'action': 'repair', 'feedback': saved['validation_error']}
+        return {'action': 'return', 'output': incomplete_output('FAILED', saved['validation_error'])}
+    return {'action': 'return', 'output': incomplete_output('UNKNOWN',
+        '原调用已预留，尚无可核对终态；未重发')}
+
+
 def validate_result(registry, request, parsed, *, arm, final_repair=False):
     from pydantic import ValidationError
     from services.agents.contracts import validate_output
