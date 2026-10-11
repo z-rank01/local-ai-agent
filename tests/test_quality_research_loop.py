@@ -40,3 +40,47 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len([e for e in events if e.kind=='tool_end']),3)
         self.assertIsNone(observed[-1])
         self.assertEqual(events[-1].kind,'done')
+
+    async def handoff(self, submission, arguments):
+        offered, dispatched = [], []
+        class Model:
+            cloud = False
+            async def chat_stream_with_tools(self, messages, tools):
+                offered.append([t['function']['name'] for t in tools or []])
+                number = len(offered)
+                if number <= 2:
+                    name = 'stock_report_read' if number == 1 else submission
+                    args = {} if number == 1 else arguments
+                    yield '', {'role': 'assistant', 'content': '', 'tool_calls': [
+                        {'id': str(number), 'function': {'name': name, 'arguments': args}}]}
+                else:
+                    yield '', {'role': 'assistant', 'content': '交付已有成果及后台受理状态'}
+        class Router:
+            async def dispatch(self, name, params, session):
+                dispatched.append((name, params))
+                return {'status': 'TIME_LIMIT'} if name == 'stock_report_read' else {'status': 'QUEUED', 'reference': 'a'*64}
+        async def process(messages): return messages
+        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[
+            {'type': 'function', 'function': {'name': name}} for name in (
+                'stock_report_read', 'stock_theme_research_submit', 'stock_research_submit', 'file_write')]),
+            audit=SimpleNamespace(record=lambda *a:None), context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw:'test'), max_rounds=5)
+        agent.quality_first_research = agent.stock_loop_enabled = True
+        events = [e async for e in agent.run([{'role':'user','content':'继续研究公开政策的公司关联与反证'}])]
+        return offered, dispatched, events
+
+    async def test_expired_stock_window_hands_off_then_finalizes(self):
+        offered, calls, events = await self.handoff('stock_theme_research_submit',
+            {'reference':'a'*64, 'research_question':'核验政策公司关联与反证'})
+        self.assertEqual(set(offered[1]), {'stock_theme_research_submit', 'stock_research_submit'})
+        self.assertEqual([name for name, _ in calls], ['stock_report_read', 'stock_theme_research_submit'])
+        self.assertEqual(offered[2], [])
+        self.assertEqual(events[-1].kind, 'done')
+
+    async def test_handoff_cannot_execute_write_redo_or_drop_question(self):
+        for name, params in [('file_write', {'path':'x','content':'x'}),
+                ('stock_research_submit', {'symbol':'600000','research_mode':'redo'}),
+                ('stock_theme_research_submit', {'reference':'a'*64})]:
+            with self.subTest(name=name):
+                _, calls, _ = await self.handoff(name, params)
+                self.assertEqual([n for n, _ in calls], ['stock_report_read'])

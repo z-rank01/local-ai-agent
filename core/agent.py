@@ -302,13 +302,29 @@ class Agent:
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             round_number = 0
             stock_deadline = None
+            handoff_attempted = False
+            background_submitted = False
+            handoff_tools = {'stock_theme_research_submit', 'stock_research_submit'}
             while stock_deadline is not None or research_continuing or round_number < self.max_rounds:
                 active = [d for d in tool_defs if quality_research or d['function']['name'] not in budgets or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
                 stock_window_closed = stock_deadline is not None and time.monotonic() >= stock_deadline
                 no_progress_closed = quality_research and no_progress_rounds >= 2
                 generic_final_round = stock_deadline is None and not research_continuing and round_number == self.max_rounds - 1
-                if stock_window_closed or generic_final_round or no_progress_closed:
+                handoff_round = (quality_research and stock_window_closed and not no_progress_closed
+                    and not handoff_attempted and not background_submitted
+                    and any(d['function']['name'] in handoff_tools for d in active))
+                if handoff_round:
+                    handoff_attempted = True
+                    active = [d for d in active if d['function']['name'] in handoff_tools]
+                    messages.append({'role': 'system', 'content':
+                        '股票研究交付窗口已到，进入后台交接步骤。若原问题尚未完成且用户已授权研究，'
+                        '请用现有提交工具将待研究的公开问题交给股票工作进程。只用已核对的证券身份或本会话安全引用；'
+                        '主题任务必须填写 research_question，保留问题、反证及完成判据。个股任务使用 reuse/continue，'
+                        '不得用 redo 或新任务绕过 UNKNOWN。不得传持仓、账户或私有文件。'
+                        '若已有后台任务、问题已完成或缺少合法输入，交付已有成果并明确缺口，不另建任务。'
+                        '只有收到真实受理回执才可声称后台会继续；无需让用户重复发送继续。'})
+                elif stock_window_closed or generic_final_round or no_progress_closed:
                     active = []
                     messages.append({"role": "user", "content":
                         "[连续两轮没有新增有效工具结果。请交付已有成果，说明无法推进的原因与缺口。]" if no_progress_closed else
@@ -352,7 +368,7 @@ class Agent:
                             logger.warning('Local memory update failed')
                     yield AgentEvent('done', text=reply)
                     return
-                if stock_window_closed or no_progress_closed:
+                if (stock_window_closed and not handoff_round) or no_progress_closed:
                     # Do not execute unadvertised calls after the finalization
                     # instruction. Complete their protocol envelopes locally.
                     for call in calls:
@@ -373,12 +389,15 @@ class Agent:
                 fresh_observation = False
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
                                                        budgets=budgets, counts=counts,
-                                                       stock_deadline=stock_deadline)) as events:
+                                                       stock_deadline=None if handoff_round else stock_deadline,
+                                                       research_handoff=handoff_round)) as events:
                     async for event in events:
                         if event.kind == 'stock_boundary':
                             stock_boundary = True
                         else:
                             if quality_research and event.kind == 'tool_end' and event.data.get('status') == 'ok':
+                                if event.data.get('name') in handoff_tools:
+                                    background_submitted = True
                                 import hashlib
                                 fingerprint = hashlib.sha256(json.dumps(model_projection(event.data.get('result')),
                                     ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
@@ -421,7 +440,7 @@ class Agent:
     # ── Internal helpers ────────────────────────────────────────────────
 
     async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None, budgets=None,
-                             counts=None, stock_deadline=None):
+                             counts=None, stock_deadline=None, research_handoff=False):
         stock_boundary = False
         for tc in tool_calls:
             fn = tc.get('function', {})
@@ -440,6 +459,10 @@ class Agent:
                 params = json.loads(raw) if isinstance(raw, str) else raw
                 if not isinstance(params, dict):
                     raise ValueError('工具参数必须是 JSON 对象')
+                if research_handoff and name == 'stock_research_submit' and params.get('research_mode', 'reuse') not in ('reuse', 'continue'):
+                    raise ValueError('后台交接只能复用研究，不能以新版本绕过未知调用。')
+                if research_handoff and name == 'stock_theme_research_submit' and not str(params.get('research_question') or '').strip():
+                    raise ValueError('后台交接必须明确传入公开研究问题，不能丢失原任务目标。')
                 if allowed is not None and name not in allowed:
                     if budgets and name in budgets:
                         raise ValueError(f'本轮 {name} 的联网额度已用完。请基于已有结果综合回答并如实说明信息来源；如需更多检索，请用户再发一条消息继续（每轮额度会重新计算）。')
