@@ -20,6 +20,7 @@ INSTRUCTION = '''你现在进行独立、隐藏组别的研究质量评审。你
 每个维度都给出简洁理由，指向材料内的原文或字段以及回答内相应句子。有错误时逐字指出错误，不重写或替回答补全。风险标志只在有证据表明该问题发生时为true；无法从材料判断的过程事项在理由中标明，不编造过程检查。明显需要人判断才可定分的边界样本 boundary=true 并写出具体复核点；不得声称已经人工复核。
 只返回一个JSON对象，包含scores（六项整数）、hazards（四项布尔）、rationale（按维度列证据及理由的对象）、boundary（布尔）、boundary_reason（字符串）。不要返回隐藏思维链、组别猜测或任何human_review字段。
 '''
+REVIEW_PROTOCOL = 'closed-tools-v1'
 
 
 def read(path):
@@ -99,12 +100,16 @@ def run_one(client, packet, rubric, raw_root, reviews, model):
         old = read(result)
         if old['packet_hash'] != digest(packet) or old['rubric_hash'] != digest(rubric):
             raise ValueError('Existing review belongs to a different packet; preserve it')
+        if old.get('review_protocol') != REVIEW_PROTOCOL or old.get('reviewer_model') != model:
+            raise ValueError('Existing review uses another protocol or model; use a separate artifact directory')
         return 'ALREADY_REVIEWED'
     if folder.exists():
         if (folder/'binding.json').exists() and (folder/'events.jsonl').exists():
             binding = read(folder/'binding.json')
             if binding['packet_hash'] != digest(packet) or binding['rubric_hash'] != digest(rubric):
                 raise ValueError('Reserved review packet changed; do not recover or resend')
+            if binding.get('review_protocol') != REVIEW_PROTOCOL or binding.get('reviewer_model') != model:
+                raise ValueError('Reserved review uses another protocol or model; preserve it')
             events = [json.loads(line) for line in (folder/'events.jsonl').read_text(encoding='utf-8').splitlines()]
             if events and events[-1]['event'] == 'session.completed':
                 review = normalize(events, binding, model)
@@ -119,7 +124,7 @@ def run_one(client, packet, rubric, raw_root, reviews, model):
         raise ValueError('Original acceptance environment is not ready')
     folder.mkdir(parents=True, exist_ok=False)
     binding = {'blind_id': bid, 'packet_hash': digest(packet), 'rubric_hash': digest(rubric),
-               'instruction_hash': digest(INSTRUCTION)}
+               'instruction_hash': digest(INSTRUCTION), 'review_protocol': REVIEW_PROTOCOL, 'reviewer_model': model}
     write_new(folder/'reservation.json', binding)
     events = []
     try:
@@ -128,7 +133,7 @@ def run_one(client, packet, rubric, raw_root, reviews, model):
         response.raise_for_status()
         binding['conversation_id'] = response.json()['id']
         request = {'request_id': uuid.uuid4().hex, 'conversation_id': binding['conversation_id'],
-                   'model': model, 'message': message}
+                   'model': model, 'message': message, 'allow_tools': False}
         write_new(folder/'binding.json', binding)
         write_new(folder/'request.json', request)
         with client.stream('POST', '/api/chat/stream', json=request) as response:
@@ -169,6 +174,10 @@ def main():
                'Origin': 'http://127.0.0.1:9510'}
     with httpx.Client(base_url='http://127.0.0.1:9510', headers=headers, trust_env=False,
                       timeout=httpx.Timeout(None, connect=15)) as client:
+        schema = client.get('/openapi.json')
+        schema.raise_for_status()
+        if 'allow_tools' not in schema.json()['components']['schemas']['ChatRequest']['properties']:
+            raise RuntimeError('BFF answer-only request contract not loaded; reload through the unique launcher')
         for path in sorted(args.pack.glob('*.json')):
             if path.name == 'rubric.json':
                 continue

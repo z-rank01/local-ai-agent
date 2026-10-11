@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from scripts.quality_blind_review import message_for, normalize, run_one
+from scripts.quality_blind_review import message_for, normalize, run_one, REVIEW_PROTOCOL
 from scripts.quality_review import DIMENSIONS, HAZARDS, digest
 
 
@@ -14,7 +14,8 @@ class BlindReviewTests(unittest.TestCase):
                        'material': {'question': '核对反证'}, 'answer': {'report': '待评答案'}}
         self.rubric = {'dimensions': dict.fromkeys(DIMENSIONS, '0/1/2')}
         self.binding = {'blind_id': 'a'*32, 'packet_hash': digest(self.packet),
-                        'rubric_hash': digest(self.rubric), 'conversation_id': 'isolated'}
+                        'rubric_hash': digest(self.rubric), 'conversation_id': 'isolated',
+                        'review_protocol': REVIEW_PROTOCOL, 'reviewer_model': 'qwen:qwen3.8-flash'}
         self.review = {'scores': dict.fromkeys(DIMENSIONS, 1),
                        'hazards': dict.fromkeys(HAZARDS, False),
                        'rationale': dict.fromkeys(DIMENSIONS, '原文位置及限定理由'),
