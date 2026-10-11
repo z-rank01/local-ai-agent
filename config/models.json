@@ -6,8 +6,12 @@
     "model": "qwen3.5-flash",
     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "api_key_env": "DASHSCOPE_API_KEY",
-    "capabilities": ["text"],
-    "options": {"enable_thinking": false},
+    "capabilities": [
+      "text"
+    ],
+    "options": {
+      "enable_thinking": false
+    },
     "analysis_max_tokens": 8192
   },
   {
@@ -17,7 +21,9 @@
     "model": "qwen3.8-max",
     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "api_key_env": "DASHSCOPE_API_KEY",
-    "capabilities": ["text"],
+    "capabilities": [
+      "text"
+    ],
     "analysis_max_tokens": 8192
   },
   {
@@ -27,6 +33,11 @@
     "model": "qwen3.8-flash",
     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "api_key_env": "DASHSCOPE_API_KEY",
-    "capabilities": ["text"]
+    "capabilities": [
+      "text"
+    ],
+    "context_window": 1000000,
+    "context_reference": "https://help.aliyun.com/zh/model-studio/qwen3-8-flash",
+    "context_verified_at": "2026-10-12"
   }
 ]
