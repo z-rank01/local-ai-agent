@@ -150,7 +150,12 @@ async def public_search(runtime, body):
                 'coverage': 'provider_page_only', 'next_cursor': following,
                 'page': found['page'], 'offset': found['offset'],
                 'page_hash': found['page_hash'], 'page_result_count': found['page_result_count'],
-                'accepted_url_count': len(urls)}
+                'accepted_url_count': len(urls),
+                'provider_failures': [list(row) for row in found.get('provider_failures', [])
+                                      if isinstance(row, (list, tuple)) and len(row) == 2
+                                      and all(isinstance(value, str) for value in row)]
+                                     if isinstance(found.get('provider_failures', []), list) else [],
+                'diagnostic_role': 'UNTRUSTED_PROVIDER_STATUS_NOT_RESEARCH_EVIDENCE'}
     return {'status': 'OK' if urls else 'NO_MATCH', 'urls': urls}
 
 

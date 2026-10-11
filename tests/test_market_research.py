@@ -62,10 +62,13 @@ class PublicSearchTests(unittest.IsolatedAsyncioTestCase):
         response = {'results': [{'url': 'https://www.csrc.gov.cn/article'}],
                     'status': 'PARTIAL', 'coverage': 'provider_page_only',
                     'page': 2, 'offset': 12, 'page_hash': 'a'*64, 'page_result_count': 25,
+                    'provider_failures': [['engine', '验证码'], {'private': 'unvalidated'}],
                     'next_cursor': {'page': 2, 'offset': 24, 'page_hash': 'a'*64}}
         runtime.router.dispatch = AsyncMock(return_value=response)
         result = await public_search(runtime, body)
         self.assertEqual(result['status'], 'PARTIAL')
+        self.assertEqual(result['provider_failures'], [['engine', '验证码']])
+        self.assertEqual(result['diagnostic_role'], 'UNTRUSTED_PROVIDER_STATUS_NOT_RESEARCH_EVIDENCE')
         self.assertEqual(result['next_cursor'], response['next_cursor'])
         self.assertEqual(result['urls'], ['https://www.csrc.gov.cn/article'])
         self.assertEqual(runtime.router.dispatch.call_args.args[1]['offset'], 12)
