@@ -101,7 +101,8 @@ def execute_fixed_case(runner, case, sample, execution, root):
     checkpoint = root / ('execution-' + digest(rid) + '.json')
     saved = json.loads(checkpoint.read_text(encoding='utf-8')) if checkpoint.exists() else {
         'binding': binding, 'company': {'quality_first': arm == 'quality',
-                                      'input_chars': execution['input_chars']}}
+                                      'input_chars': execution['input_chars'],
+                                      'window_plan_version': execution.get('company_window_plan_version', 0) if arm == 'quality' else 0}}
     if saved['binding'] != binding:
         raise RuleError('Frozen replay checkpoint does not match this treatment')
     def save():
