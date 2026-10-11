@@ -85,7 +85,28 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(manager.evidence_ids)
         with self.assertRaisesRegex(RuntimeError,'不自动重发'):
             await manager._summarize_chunk('公开材料')
+        with self.assertRaisesRegex(RuntimeError,'不自动重发'):
+            await manager._summarize_chunk('公开材料', target_chars=999)
         self.assertEqual(len(calls),1)
+
+    async def test_legacy_unknown_summary_is_not_reissued_under_new_prompt(self):
+        import hashlib, json
+        from core.context_manager import _AUTOCOMPACT_USER_V1, _AUTOCOMPACT_SYSTEM
+        class Model:
+            async def chat(self, *args):
+                raise AssertionError('legacy UNKNOWN must remain isolated')
+        manager = ContextManager(llm=Model())
+        manager.summary_profile = {'model':'a'}
+        manager.archive = lambda m: self.store.archive_task_evidence(self.conv.id, 'cloud', m)
+        manager.summary_cache_reader = lambda key: self.store.cached_task_summary(self.conv.id, 'cloud', key)
+        key = hashlib.sha256(json.dumps({'profile':manager.summary_profile,
+            'capacity':manager.context_window, 'system':_AUTOCOMPACT_SYSTEM,
+            'instruction':_AUTOCOMPACT_USER_V1, 'text':'原始未决历史'},
+            ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        manager.archive({'role':'assistant','record_kind':'task_summary_call',
+                         'summary_cache_key':key,'content':'{"status":"UNKNOWN"}'})
+        with self.assertRaisesRegex(RuntimeError,'不自动重发'):
+            await manager._summarize_chunk('原始未决历史', target_chars=1000)
 
     async def test_summary_target_accounts_for_preserved_turn_without_cutting_sources(self):
         import re

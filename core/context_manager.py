@@ -23,10 +23,8 @@ _AUTOCOMPACT_SYSTEM = (
     "你是一个对话摘要助手。将对话历史压缩为结构化摘要，保留所有关键信息。"
 )
 
-_AUTOCOMPACT_USER = """\
-请将以下对话历史整理为可续行的研究索引。保留问题、决定、关键事实、反证、冲突、未完成事项及来源位置，不只摘录开头。
-
-本段索引的上下文目标约为 {target_chars} 字符。这是摘要的篇幅指引，不是删除证据的指令；所有原始历史已另存并可按 evidence_id 回读。合并重复内容，用简表记录变化、关键数字、否定条件及其证据编号，不复制整篇报告、重复的研究问题、工具 JSON 或每次相同的操作约束。对后续追问重要但放不下的细节，保留具体问题及原文证据位置；不能用“详见原文”替代关键反证或已作决定。证据不足照实保留，不为满足篇幅省略冲突。
+_AUTOCOMPACT_USER_V1 = """\
+请将以下对话历史整理为可续行的研究索引。保留问题、决定、关键事实、反证、冲突、未完成事项及来源位置；按实际内容决定篇幅，不只摘录开头。
 
 ## 用户意图
 用户的核心需求和目标
@@ -48,6 +46,16 @@ AI 已经执行的操作和关键结果
 ---
 对话历史：
 {conversation}"""
+
+_AUTOCOMPACT_INDEX_GUIDANCE = (
+    '本段索引的上下文目标约为 {target_chars} 字符。这是摘要的篇幅指引，不是删除证据的指令；'
+    '所有原始历史已另存并可按 evidence_id 回读。合并重复内容，用简表记录变化、关键数字、否定条件及其证据编号，'
+    '不复制整篇报告、重复的研究问题、工具 JSON 或每次相同的操作约束。'
+    '对后续追问重要但放不下的细节，保留具体问题及原文证据位置；不能用“详见原文”替代关键反证或已作决定。'
+    '证据不足照实保留，不为满足篇幅省略冲突。'
+)
+_AUTOCOMPACT_USER = _AUTOCOMPACT_USER_V1.replace(
+    '；按实际内容决定篇幅，不只摘录开头。', '，不只摘录开头。\n\n' + _AUTOCOMPACT_INDEX_GUIDANCE)
 
 
 class ContextManager:
@@ -80,7 +88,16 @@ class ContextManager:
             'target_chars': target_chars,
             'text': chunk,
         }, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        # A prompt/target change is not permission to bypass an unresolved call.
+        identity = {'profile': self.summary_profile, 'capacity': self._context_window, 'text': chunk}
+        input_key = hashlib.sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        legacy_key = hashlib.sha256(json.dumps({**identity, 'system': _AUTOCOMPACT_SYSTEM,
+            'instruction': _AUTOCOMPACT_USER_V1}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         if self.summary_profile is not None and self.summary_cache_reader is not None:
+            for guard_key in (input_key, legacy_key):
+                guard = self.summary_cache_reader(guard_key)
+                if guard and guard.get('status') not in ('COMPLETE', 'EMPTY_RESULT'):
+                    raise RuntimeError('原摘要调用结果尚未确认；保留原文，不自动重发（摘要策略变化不解除未知状态）')
             cached = self.summary_cache_reader(key)
             if cached:
                 if cached.get('status') != 'COMPLETE':
@@ -90,11 +107,15 @@ class ContextManager:
         tracked = self.summary_profile is not None and self.archive is not None
         if tracked:
             self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
+                'summary_cache_key': input_key, 'content': '{"status":"RUNNING"}'})
+            self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
                 'summary_cache_key': key, 'content': '{"status":"RUNNING"}'})
         try:
             part = await self._llm.chat(_AUTOCOMPACT_SYSTEM, instruction)
         except BaseException:
             if tracked:
+                self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
+                    'summary_cache_key': input_key, 'content': '{"status":"UNKNOWN"}'})
                 self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
                     'summary_cache_key': key, 'content': '{"status":"UNKNOWN"}'})
             raise
@@ -106,6 +127,10 @@ class ContextManager:
         elif tracked:
             self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
                 'summary_cache_key': key, 'content': '{"status":"EMPTY_RESULT"}'})
+        if tracked:
+            self.archive({'role': 'assistant', 'record_kind': 'task_summary_call',
+                'summary_cache_key': input_key,
+                'content': '{"status":"COMPLETE"}' if part else '{"status":"EMPTY_RESULT"}'})
         return part
 
     def read_evidence(self, evidence_id: str, cursor: int = 0) -> dict:
