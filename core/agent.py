@@ -320,7 +320,7 @@ class Agent:
                     messages.append({'role': 'system', 'content':
                         '股票研究交付窗口已到，进入后台交接步骤。若原问题尚未完成且用户已授权研究，'
                         '请用现有提交工具将待研究的公开问题交给股票工作进程。只用已核对的证券身份或本会话安全引用；'
-                        '主题任务必须填写 research_question，保留问题、反证及完成判据。个股任务使用 reuse/continue，'
+                        '必须填写 research_question，保留问题、反证及完成判据。个股任务使用 reuse/continue，'
                         '不得用 redo 或新任务绕过 UNKNOWN。不得传持仓、账户或私有文件。'
                         '若已有后台任务、问题已完成或缺少合法输入，交付已有成果并明确缺口，不另建任务。'
                         '只有收到真实受理回执才可声称后台会继续；无需让用户重复发送继续。'})
@@ -463,7 +463,7 @@ class Agent:
                     raise ValueError('工具参数必须是 JSON 对象')
                 if research_handoff and name == 'stock_research_submit' and params.get('research_mode', 'reuse') not in ('reuse', 'continue'):
                     raise ValueError('后台交接只能复用研究，不能以新版本绕过未知调用。')
-                if research_handoff and name == 'stock_theme_research_submit' and not str(params.get('research_question') or '').strip():
+                if research_handoff and name in ('stock_theme_research_submit', 'stock_research_submit') and not str(params.get('research_question') or '').strip():
                     raise ValueError('后台交接必须明确传入公开研究问题，不能丢失原任务目标。')
                 if allowed is not None and name not in allowed:
                     if budgets and name in budgets:

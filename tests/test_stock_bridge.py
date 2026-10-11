@@ -436,6 +436,19 @@ class ResearchChainActionTests(unittest.IsolatedAsyncioTestCase):
         result = await bridge.call_tool('stock_research_submit', {'name': '比亚迪'}, 'c')
         self.assertNotIn('一次只能提交一个标的', result.get('error', ''))
 
+    async def test_company_question_is_preserved_and_invalid_question_rejected(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls))
+        bridge.set_turn('c', 'r', '研究600001现金流与反证')
+        await bridge.call_tool('stock_research_submit',
+            {'symbol':'600001', 'research_question':'核对公司公开现金流及反证'}, 'c')
+        step = next(c['json']['tool_call'] for c in calls if c['path'].endswith('/step'))
+        self.assertEqual(step['research_question'], '核对公司公开现金流及反证')
+        count = len(calls)
+        result = await bridge.call_tool('stock_research_submit', {'symbol':'600001','research_question':[]}, 'c')
+        self.assertIn('error', result)
+        self.assertEqual(len(calls), count)
+
     async def test_boundary_is_terminal_for_the_turn(self):
         calls = []
         bridge = self.bridge(make_broker(calls, step_responses=[

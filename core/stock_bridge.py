@@ -118,6 +118,8 @@ def _public_evidence_read_action(params):
 
 def _submit_action(params):
     action = {'action': 'submit', 'kind': 'research'}
+    if params.get('research_question') is not None:
+        action['research_question'] = params['research_question']
     mode = params.get('research_mode')
     if mode:
         action['research_mode'] = mode
@@ -222,6 +224,9 @@ class StockBridge:
                 type(params['page']) is not int or params['page'] < 1):
             return {'error': '报告页码必须是从 1 开始的整数。'}
         if tool == 'stock_research_submit':
+            question = params.get('research_question')
+            if question is not None and (not isinstance(question, str) or not question.strip() or '\x00' in question):
+                return {'error': 'research_question 必须是非空公开研究问题。'}
             symbol = params.get('symbol')
             name = params.get('name')
             if symbol and name:
