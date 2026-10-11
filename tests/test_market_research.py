@@ -55,6 +55,60 @@ class SearchRuntime:
 
 
 class PublicSearchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_paging_preserves_cursor_and_partial_receipt(self):
+        runtime = SearchRuntime()
+        body = {'symbol': '000001', 'name': '公开公司', 'source': 'csrc',
+                'cursor': {'page': 2, 'offset': 12, 'page_hash': 'a'*64}}
+        response = {'results': [{'url': 'https://www.csrc.gov.cn/article'}],
+                    'status': 'PARTIAL', 'coverage': 'provider_page_only',
+                    'page': 2, 'offset': 12, 'page_hash': 'a'*64, 'page_result_count': 25,
+                    'next_cursor': {'page': 2, 'offset': 24, 'page_hash': 'a'*64}}
+        runtime.router.dispatch = AsyncMock(return_value=response)
+        result = await public_search(runtime, body)
+        self.assertEqual(result['status'], 'PARTIAL')
+        self.assertEqual(result['next_cursor'], response['next_cursor'])
+        self.assertEqual(result['urls'], ['https://www.csrc.gov.cn/article'])
+        self.assertEqual(runtime.router.dispatch.call_args.args[1]['offset'], 12)
+        # Filtering every URL does not mean all search results have been exhausted.
+        response['results'] = [{'url': 'https://other.example/article'}]
+        result = await public_search(runtime, body)
+        self.assertEqual(result['urls'], [])
+        self.assertEqual(result['next_cursor'], response['next_cursor'])
+        for bad in ({'page': 2, 'offset': 12, 'page_hash': 'a'*64},
+                    {'page': 2, 'offset': 25, 'page_hash': 'a'*64},
+                    {'page': 4, 'offset': 0},
+                    {'page': 2, 'offset': 24, 'page_hash': 'b'*64}):
+            response['next_cursor'] = bad
+            self.assertEqual((await public_search(runtime, body))['status'],
+                             'PAGING_UNSUPPORTED_OR_INVALID')
+
+    async def test_paging_rejects_old_container_and_malformed_cursor(self):
+        runtime = SearchRuntime()
+        body = {'symbol': '000001', 'name': '公开公司', 'source': 'csrc'}
+        result = await public_search(runtime, {**body, 'cursor': {'page': 2, 'offset': 0}})
+        self.assertEqual(result['status'], 'PAGING_UNSUPPORTED_OR_INVALID')
+        for cursor in ({}, {'page': True, 'offset': 0}, {'page': 1, 'offset': 3},
+                       {'page': 1, 'offset': 0, 'query': 'private'}):
+            with self.subTest(cursor=cursor), self.assertRaises(HTTPException):
+                await public_search(runtime, {**body, 'cursor': cursor})
+
+    async def test_paging_page_change_and_failure_are_not_no_match(self):
+        runtime = SearchRuntime()
+        body = {'symbol': '000001', 'name': '公开公司', 'source': 'csrc',
+                'cursor': {'page': 2, 'offset': 12, 'page_hash': 'a'*64}}
+        runtime.router.dispatch = AsyncMock(return_value={
+            'status': 'PAGE_CHANGED_OR_INVALID', 'error': 'changed'})
+        result = await public_search(runtime, body)
+        self.assertEqual(result['next_cursor'], {'page': 2, 'offset': 0})
+        self.assertEqual(result['status'], 'PAGE_CHANGED_OR_INVALID')
+        body['cursor'] = {'page': 2, 'offset': 0}
+        for state in ('PAGE_EMPTY', 'UNAVAILABLE'):
+            runtime.router.dispatch.return_value = {
+                'status': state, 'results': [], 'coverage': 'provider_page_only',
+                'page': 2, 'offset': 0, 'page_hash': 'a'*64,
+                'page_result_count': 0, 'next_cursor': None}
+            self.assertEqual((await public_search(runtime, body))['status'], state)
+
     async def test_announcement_search_uses_own_notice_path_and_rejects_brokerage_and_other_codes(self):
         runtime = SearchRuntime()
         valid = 'https://data.eastmoney.com/notices/detail/688312/AN202608271234567890.html'

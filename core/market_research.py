@@ -62,8 +62,11 @@ async def public_search(runtime, body):
     """Search only a trusted public stock identity; snippets are never evidence."""
     base = {'symbol', 'name', 'source'}
     expanded = base | {'purpose', 'terms'}
-    if not isinstance(body, dict) or set(body) not in (base, expanded, expanded | {'question'}):
+    paging = isinstance(body, dict) and 'cursor' in body
+    fields = set(body) - {'cursor'} if isinstance(body, dict) else set()
+    if not isinstance(body, dict) or fields not in (base, expanded, expanded | {'question'}):
         raise HTTPException(422, '公开搜索参数无效')
+    cursor = _search_cursor(body['cursor']) if paging else {}
     symbol, name, source = body['symbol'], body['name'], body['source']
     purpose, terms = body.get('purpose', 'company_direct'), body.get('terms', [])
     question = body.get('question', '')
@@ -89,12 +92,40 @@ async def public_search(runtime, body):
     query = ((question + ' ' if question else '') + ' '.join(terms) + (' ' + symbol + ' ' + name if purpose != 'industry_background' else '')
              if terms else f'{symbol} {name}') + (f' site:{search_scope}' if host else '')
     try:
-        found = await runtime.router.dispatch('web_search', {'query': query, 'max_results': 12},
+        found = await runtime.router.dispatch('web_search', {'query': query, 'max_results': 12, **cursor},
                                               session_id='stock-public-research')
     except Exception:
         return {'status': 'UNAVAILABLE', 'urls': []}
+    if paging and isinstance(found, dict) and found.get('status') == 'PAGE_CHANGED_OR_INVALID':
+        return {'status': 'PAGE_CHANGED_OR_INVALID', 'urls': [], 'coverage': 'unknown',
+                'next_cursor': {'page': cursor['page'], 'offset': 0}}
     if not isinstance(found, dict) or found.get('error'):
         return {'status': 'UNAVAILABLE', 'urls': []}
+    if paging:
+        # Old containers silently ignore unknown fields. Never accept that as paging.
+        try:
+            following = found.get('next_cursor')
+            if (found.get('coverage') != 'provider_page_only' or
+                    type(found.get('page')) is not int or found['page'] != cursor['page'] or
+                    type(found.get('offset')) is not int or found['offset'] != cursor['offset'] or
+                    not isinstance(found.get('page_hash'), str) or
+                    not re.fullmatch(r'[0-9a-f]{64}', found['page_hash']) or
+                    type(found.get('page_result_count')) is not int or found['page_result_count'] < 0 or
+                    found['page_result_count'] < cursor['offset'] or
+                    found.get('status') not in {'OK', 'PARTIAL', 'UNAVAILABLE', 'PAGE_EMPTY'} or
+                    not isinstance(found.get('results'), list) or 'next_cursor' not in found):
+                raise ValueError()
+            if following is not None:
+                _search_cursor(following)
+                if not ((following['page'] == cursor['page'] and following['offset'] > cursor['offset']
+                         and following['offset'] < found['page_result_count']
+                         and following.get('page_hash') == found['page_hash']) or
+                        (following['page'] == cursor['page'] + 1 and following['offset'] == 0
+                         and found['page_result_count'] > 0)):
+                    raise ValueError()
+        except (ValueError, HTTPException):
+            return {'status': 'PAGING_UNSUPPORTED_OR_INVALID', 'urls': [],
+                    'coverage': 'unknown', 'next_cursor': None}
     rows = found.get('results')
     urls = []
     for row in rows if isinstance(rows, list) else []:
@@ -114,7 +145,24 @@ async def public_search(runtime, body):
             if source == 'announcement' and (parsed.query or parsed.fragment):
                 continue
             urls.append(url)
+    if paging:
+        return {'status': found['status'], 'urls': urls,
+                'coverage': 'provider_page_only', 'next_cursor': following,
+                'page': found['page'], 'offset': found['offset'],
+                'page_hash': found['page_hash'], 'page_result_count': found['page_result_count'],
+                'accepted_url_count': len(urls)}
     return {'status': 'OK' if urls else 'NO_MATCH', 'urls': urls}
+
+
+def _search_cursor(value):
+    if (not isinstance(value, dict) or set(value) not in ({'page', 'offset'}, {'page', 'offset', 'page_hash'}) or
+            type(value.get('page')) is not int or value['page'] < 1 or
+            type(value.get('offset')) is not int or value['offset'] < 0 or
+            ('page_hash' in value and (not isinstance(value['page_hash'], str) or
+                                     not re.fullmatch(r'[0-9a-f]{64}', value['page_hash']))) or
+            (value['offset'] > 0 and 'page_hash' not in value)):
+        raise HTTPException(422, '公开搜索游标无效')
+    return dict(value)
 
 
 async def available_models(runtime, *, refresh=False):
