@@ -101,3 +101,8 @@ powershell Start-Process …（由聊天后端调用）
 直连只读研究在现有 `model-calls.sqlite` 增量保存 RUNNING 与终态回执；首次迁移已有库前备份 `model-calls.before-research.sqlite`。不保存模型正文或隐藏思维链，不以累计次数阻断已授权研究。股票检查点仍负责重入和 UNKNOWN 隔离。
 
 退出诊断：Windows 端口探测须容忍本地化编码和空 stdout，不得让辅助 netstat 诊断阻断股票优雅关闭、启动器容器停止及 BFF 退出；仍沿用唯一退出流程。
+
+| 搜索工具更新 | 操作与核验 |
+| --- | --- |
+| 修改 skills/websearch 后 | 唯一入口 start-daily.ps1 -Build 同时构建搜索镜像；构建不改变搜索技能开关，启动仍由保存的开关决定。失败时停止启动，日志 data/logs/websearch-build.log |
+| 生效核验 | 搜索容器 OpenAPI 的 WebSearchRequest 应含 page、offset、page_hash；通过内部搜索接口实测游标，不能只检查源码 |
