@@ -248,7 +248,9 @@ class StockBridge:
             # Direct dispatch outside a BFF turn (tests, tooling).
             self.set_turn(session_id, None)
             state = self._turns[session_id]
-        if state.get('boundary'):
+        handoff = (tool == 'stock_theme_research_submit' and bool(params.get('research_question')) or
+                   tool == 'stock_research_submit' and params.get('research_mode', 'reuse') in ('reuse', 'continue'))
+        if state.get('boundary') and not (state['boundary'] == 'TIME_LIMIT' and handoff):
             # A broker boundary is terminal for the turn; short-circuit locally
             # instead of letting our sequence counter desync from the server.
             return {'error': ('旧版请求的工具步数已满。' if state['boundary'] == 'STEP_LIMIT' else
@@ -273,6 +275,9 @@ class StockBridge:
         if status in ('STEP_LIMIT', 'TIME_LIMIT'):
             # Boundary responses carry no tool/code/context keys by contract.
             state['boundary'] = status
+            # A boundary response does not consume a broker step. A permitted
+            # handoff must retain that sequence and the original ticket/input.
+            state['sequence'] -= 1
             return {'error': ('旧版请求的工具步数已满。' if status == 'STEP_LIMIT' else
                               '本轮处理窗口已到。') + '已取得的结果保留，请基于已有结果回答，后续可在下一轮继续。',
                     'status': status}

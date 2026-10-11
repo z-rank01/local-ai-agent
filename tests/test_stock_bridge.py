@@ -452,6 +452,23 @@ class ResearchChainActionTests(unittest.IsolatedAsyncioTestCase):
         steps = [c for c in calls if c['path'].endswith('/step')]
         self.assertEqual(len(steps), 2)
 
+    async def test_time_boundary_handoff_keeps_ticket_and_unconsumed_sequence(self):
+        calls = []
+        bridge = self.bridge(make_broker(calls, step_responses=[
+            {'sequence':1, 'continue':False, 'status':'TIME_LIMIT', 'observation':{}},
+            {**ok_step({'kind':'task'}, seq=1), 'continue':False, 'code':'TASK_SUBMITTED'},
+        ]))
+        bridge.set_turn('c', 'r', '研究政策产业链和反证')
+        await bridge.call_tool('stock_research_find', {}, 'c')
+        blocked = await bridge.call_tool('stock_account_view', {}, 'c')
+        self.assertEqual(blocked['status'], 'TIME_LIMIT')
+        result = await bridge.call_tool('stock_theme_research_submit',
+            {'reference':REF, 'research_question':'研究政策产业链和反证'}, 'c')
+        self.assertEqual(result['code'], 'TASK_SUBMITTED')
+        steps = [c['json'] for c in calls if c['path'].endswith('/step')]
+        self.assertEqual([s['sequence'] for s in steps], [1, 1])
+        self.assertEqual([s['ticket'] for s in steps], [TICKET, TICKET])
+
     async def test_submit_validation_happens_before_http(self):
         calls = []
         bridge = self.bridge(make_broker(calls))
