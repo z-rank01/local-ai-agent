@@ -91,7 +91,7 @@ class BlindReviewTests(unittest.TestCase):
             client = Mock()
             self.assertEqual(run_one(client, self.packet, self.rubric, raw, reviews, 'qwen:qwen3.8-flash'),
                              'COMPLETED_RECEIPT_RECOVERED_NO_MODEL_CALL')
-            saved = json.loads((reviews/(self.packet['blind_id']+'.json')).read_text())
+            saved = json.loads((reviews/(self.packet['blind_id']+'.json')).read_text(encoding='utf-8'))
             self.assertEqual(saved['scores'], self.review['scores'])
             self.assertTrue(saved['boundary'])
             self.assertFalse(client.mock_calls)
