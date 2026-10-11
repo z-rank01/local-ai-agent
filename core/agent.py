@@ -396,7 +396,9 @@ class Agent:
                             stock_boundary = True
                         else:
                             if quality_research and event.kind == 'tool_end' and event.data.get('status') == 'ok':
-                                if event.data.get('name') in handoff_tools:
+                                if (event.data.get('name') in handoff_tools and
+                                        isinstance(event.data.get('result'), dict) and
+                                        event.data['result'].get('code') == 'TASK_SUBMITTED'):
                                     background_submitted = True
                                 import hashlib
                                 fingerprint = hashlib.sha256(json.dumps(model_projection(event.data.get('result')),

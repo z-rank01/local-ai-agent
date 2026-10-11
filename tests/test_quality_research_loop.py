@@ -41,7 +41,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(observed[-1])
         self.assertEqual(events[-1].kind,'done')
 
-    async def handoff(self, submission, arguments):
+    async def handoff(self, submission, arguments, first_submit_code=None):
         offered, dispatched = [], []
         class Model:
             cloud = False
@@ -49,7 +49,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
                 offered.append([t['function']['name'] for t in tools or []])
                 number = len(offered)
                 if number <= 2:
-                    name = 'stock_report_read' if number == 1 else submission
+                    name = ('stock_research_submit' if first_submit_code else 'stock_report_read') if number == 1 else submission
                     args = {} if number == 1 else arguments
                     yield '', {'role': 'assistant', 'content': '', 'tool_calls': [
                         {'id': str(number), 'function': {'name': name, 'arguments': args}}]}
@@ -58,6 +58,8 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         class Router:
             async def dispatch(self, name, params, session):
                 dispatched.append((name, params))
+                if len(dispatched) == 1 and first_submit_code:
+                    return {'status':'TOOL_RETURNED', 'code':first_submit_code, 'broker_continue':False}
                 return {'status': 'TIME_LIMIT'} if name == 'stock_report_read' else {'status': 'QUEUED', 'reference': 'a'*64}
         async def process(messages): return messages
         agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[
@@ -84,3 +86,10 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(name=name):
                 _, calls, _ = await self.handoff(name, params)
                 self.assertEqual([n for n, _ in calls], ['stock_report_read'])
+
+    async def test_only_actual_acceptance_suppresses_later_handoff(self):
+        for code, expected in [('TASK_SUBMITTED', 1), ('NEEDS_REFERENCE', 2)]:
+            with self.subTest(code=code):
+                _, calls, _ = await self.handoff('stock_theme_research_submit',
+                    {'reference':'a'*64, 'research_question':'核对政策传导'}, first_submit_code=code)
+                self.assertEqual(len(calls), expected)
