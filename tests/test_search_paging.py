@@ -1,16 +1,31 @@
 import importlib.util
 import sys
 import unittest
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1] / 'skills' / 'websearch'
 sys.path.insert(0, str(ROOT))
-from search_batches import select_batch
+from search_batches import select_batch, PageSnapshots
 
 
 class SearchBatchTests(unittest.TestCase):
+    def test_snapshot_scopes_query_and_survives_reader_restart(self):
+        with tempfile.TemporaryDirectory() as root:
+            cache = PageSnapshots(root)
+            params = {'q': '公开政策', 'pageno': 1}
+            data = {'results': [{'url': 'https://example.com/a'}]}
+            _, meta = select_batch(data, page=1, offset=0, size=1)
+            cache.save(params, meta['page_hash'], data)
+            self.assertEqual(PageSnapshots(root).read(params, meta['page_hash']), data)
+            for changed in ({**params, 'q': '另一问题'}, {**params, 'pageno': 2}):
+                with self.assertRaises(ValueError):
+                    cache.read(changed, meta['page_hash'])
+            with self.assertRaises(ValueError):
+                cache.read(params, '../outside')
+
     def test_more_than_twenty_results_are_reachable_without_gaps(self):
         pages = {1: [{'url': f'https://example.com/{i}'} for i in range(37)],
                  2: [{'url': f'https://example.com/{i}'} for i in range(37, 60)], 3: []}
@@ -52,10 +67,20 @@ class SearchHandlerTests(unittest.IsolatedAsyncioTestCase):
             calls.append(kwargs['params'])
             return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {'results': rows})
         service._client = SimpleNamespace(get=get)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        service._page_snapshots = PageSnapshots(tmp.name)
         first = await service.web_search(service.WebSearchRequest(query='公开问题', max_results=20, page=2))
+        original_rows = list(rows)
+        rows.reverse()  # Provider ordering changes; continuation must not fetch it again.
         second = await service.web_search(service.WebSearchRequest(query='公开问题', max_results=20,
                                                                   **first['next_cursor']))
-        self.assertEqual([c['pageno'] for c in calls], [2, 2])
+        self.assertEqual([c['pageno'] for c in calls], [2])
         self.assertEqual(len(first['results']) + len(second['results']), 25)
         self.assertTrue(first['results'][0]['snippet'].endswith('末尾反证'))
         self.assertEqual(second['next_cursor'], {'page': 3, 'offset': 0})
+        self.assertEqual([r['url'] for r in first['results'] + second['results']],
+                         [r['url'] for r in original_rows])
+        unavailable = await service.web_search(service.WebSearchRequest(query='不同问题', **first['next_cursor']))
+        self.assertEqual(unavailable['status'], 'PAGE_CHANGED_OR_INVALID')
+        self.assertEqual(len(calls), 1)

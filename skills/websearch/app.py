@@ -18,7 +18,9 @@ from pydantic import BaseModel, Field
 from readability import Document
 
 from search_pages import is_search_page
-from search_batches import select_batch
+from search_batches import select_batch, PageSnapshots
+from pathlib import Path
+import tempfile
 
 logger = logging.getLogger("skill-websearch")
 logging.basicConfig(
@@ -30,6 +32,7 @@ SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://searxng:8080")
 FETCH_TIMEOUT = int(os.environ.get("FETCH_TIMEOUT", "30"))
 MAX_FETCH_CHARS = int(os.environ.get("MAX_FETCH_CHARS", "20000"))
 DEFAULT_SEARCH_RESULTS = 5
+_page_snapshots = PageSnapshots(Path(tempfile.gettempdir()) / 'websearch-page-snapshots')
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -101,9 +104,15 @@ async def web_search(req: WebSearchRequest):
                 req.query, max_results, language, req.time_range)
 
     try:
-        resp = await _client.get(f"{SEARXNG_URL}/search", params=params)
-        resp.raise_for_status()
-        data = resp.json()
+        if req.offset:
+            data = _page_snapshots.read(params, req.page_hash)
+        else:
+            resp = await _client.get(f"{SEARXNG_URL}/search", params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except ValueError as exc:
+        return {"error": str(exc), "status": "PAGE_CHANGED_OR_INVALID", "results": [],
+                "coverage": "unknown", "next_cursor": None}
     except httpx.TimeoutException:
         return {"error": "搜索超时，请稍后重试", "results": []}
     except Exception as exc:
@@ -113,6 +122,8 @@ async def web_search(req: WebSearchRequest):
     try:
         raw_results, batch = select_batch(data, page=req.page, offset=req.offset,
                                          size=max_results, page_hash=req.page_hash)
+        if not req.offset:
+            _page_snapshots.save(params, batch['page_hash'], data)
     except ValueError as exc:
         return {"error": str(exc), "status": "PAGE_CHANGED_OR_INVALID", "results": [],
                 "coverage": "unknown", "next_cursor": None}
