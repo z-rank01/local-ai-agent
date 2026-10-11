@@ -19,5 +19,14 @@
     "api_key_env": "DASHSCOPE_API_KEY",
     "capabilities": ["text"],
     "analysis_max_tokens": 8192
+  },
+  {
+    "provider_id": "qwen",
+    "provider_name": "通义千问",
+    "kind": "cloud",
+    "model": "qwen3.8-flash",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "api_key_env": "DASHSCOPE_API_KEY",
+    "capabilities": ["text"]
   }
 ]

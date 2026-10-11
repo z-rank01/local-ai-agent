@@ -124,6 +124,18 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
             from core.providers import ModelRegistry
             return ModelRegistry()
 
+    async def test_verified_research_model_is_available_after_cold_start_discovery_failure(self):
+        items=json.loads((Path(__file__).resolve().parents[1]/'config/models.json').read_text(encoding='utf-8'))
+        registry=self.make_registry(items)
+        self.addAsyncCleanup(registry.close)
+        with patch('core.providers._probe_ollama_models',return_value=None), \
+             patch('core.providers._probe_compatible_models',return_value=None):
+            await registry.catalog(refresh=True)
+        spec,_=registry.resolve('qwen','qwen3.8-flash')
+        self.assertEqual(spec['kind'],'cloud')
+        self.assertEqual(spec['base_url'],'https://dashscope.aliyuncs.com/compatible-mode/v1')
+        self.assertEqual(spec['api_key_env'],'DASHSCOPE_API_KEY')
+
     async def test_temporary_catalog_failure_retains_exact_model_but_successful_removal_does_not(self):
         registry = self.make_registry(self.CLOUD)
         self.addAsyncCleanup(registry.close)
