@@ -159,7 +159,8 @@ class CallBudget:
     def finish_research(self, call_id, receipt):
         # Never save prompts, source text, generated text, credentials or hidden reasoning here.
         allowed = {'status', 'execution_hash', 'model_params', 'finish_reason', 'response_id',
-                   'response_model', 'usage', 'usage_status', 'error', 'http_status'}
+                   'response_model', 'usage', 'usage_status', 'error', 'http_status',
+                   'rejection_category', 'input_chars'}
         public_receipt = {key: value for key, value in receipt.items() if key in allowed}
         with closing(sqlite3.connect(self.path, timeout=20)) as db, db:
             db.execute('UPDATE research_receipts SET status=?,receipt=?,updated_at=CURRENT_TIMESTAMP WHERE call_id=?',

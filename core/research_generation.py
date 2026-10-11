@@ -14,6 +14,28 @@ PRIVATE_KEYS = {'account', 'account_id', 'cash', 'lots', 'holdings', 'orders', '
 ROOT_FIELDS = {'as_of', 'material', 'evidence_ids', 'analysis_contract', 'validation_feedback'}
 
 
+async def rejection_metadata(response):
+    """Classify an explicit rejection without retaining provider text or echoed input."""
+    category = {401: 'AUTHENTICATION', 403: 'ACCESS_DENIED',
+                404: 'ENDPOINT_OR_MODEL_UNAVAILABLE', 429: 'RATE_LIMIT'}.get(response.status_code, 'UNCLASSIFIED')
+    try:
+        await response.aread()
+        body = response.json()
+        error = body.get('error', body) if isinstance(body, dict) else {}
+        if isinstance(error, dict):
+            # Only fixed labels leave this function; never log the raw body/message.
+            text = ' '.join(str(error.get(key, '')) for key in ('code', 'type', 'message')).lower()
+            if any(marker in text for marker in ('context_length_exceeded', 'maximum context length',
+                    'input length exceeds', 'input token count exceeds', 'input is too long')):
+                category = 'CONTEXT_LENGTH_EXCEEDED'
+            elif any(marker in text for marker in ('unsupported parameter', 'unsupported_parameter',
+                                                  'unrecognized request argument')):
+                category = 'UNSUPPORTED_PARAMETER'
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+        pass  # The HTTP status already proves rejection, even if its body is unreadable.
+    return {'http_status': response.status_code, 'rejection_category': category}
+
+
 def _public_cash_paths(packet):
     """Only company financial snapshots may use the public balance-sheet cash field."""
     import re
@@ -108,7 +130,8 @@ async def generate(runtime, body):
                             {'role': 'user', 'content': json.dumps(material, ensure_ascii=False, allow_nan=False)}]}
     if transport is not None:
         payload.update(stream=True, stream_options={'include_usage': True})
-    receipt = {'execution_hash': body['execution_hash'], 'model_params': {
+    receipt = {'execution_hash': body['execution_hash'],
+        'input_chars': sum(len(message['content']) for message in payload['messages']), 'model_params': {
         **params, 'provider': body['provider'], 'model': spec['model'],
         'response_format': payload['response_format'], 'enable_search': False, 'stream': payload['stream'],
         **({'stream_options': payload['stream_options']} if transport is not None else {})}}
@@ -136,14 +159,14 @@ async def generate(runtime, body):
                 async with client.stream('POST', url, headers={'Authorization': 'Bearer ' + key}, json=payload) as response:
                     if response.status_code in (400, 401, 403, 404, 422, 429):
                         return finish({**receipt, 'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
-                            'http_status': response.status_code, 'text': '', 'usage': {}})
+                            **await rejection_metadata(response), 'text': '', 'usage': {}})
                     response.raise_for_status()
                     answer = await read_completion(response, progress)
             else:
                 response = await client.post(url, headers={'Authorization': 'Bearer ' + key}, json=payload)
                 if response.status_code in (400, 401, 403, 404, 422, 429):
                     return finish({**receipt, 'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
-                        'http_status': response.status_code, 'text': '', 'usage': {}})
+                        **await rejection_metadata(response), 'text': '', 'usage': {}})
                 response.raise_for_status()
                 answer = response.json()
         choice = answer['choices'][0]

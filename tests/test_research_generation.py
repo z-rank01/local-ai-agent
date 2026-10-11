@@ -124,6 +124,27 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['status'], 'FAILED')
         self.assertEqual(client.post.call_count, 1)
 
+    async def test_rejection_preserves_safe_diagnosis_without_provider_echo(self):
+        self.body['transport'] = {'stream': True, 'include_usage': True}
+        response = httpx.Response(400, json={'error': {'code': 'context_length_exceeded',
+            'message': 'maximum context length; echoed private-secret-material'}})
+        result, client = await self.call(stream_response=response)
+        self.assertEqual(result['status'], 'FAILED')
+        self.assertEqual(result['rejection_category'], 'CONTEXT_LENGTH_EXCEEDED')
+        self.assertEqual(result['http_status'], 400)
+        self.assertGreater(result['input_chars'], 0)
+        self.assertEqual(client.stream.call_count, 1)
+        with closing(sqlite3.connect(self.ledger.path)) as db:
+            receipt = db.execute('SELECT receipt FROM research_receipts WHERE call_id=?',
+                                 (result['ledger_call_id'],)).fetchone()[0]
+        self.assertNotIn('private-secret-material', receipt + str(result))
+        self.assertEqual(json.loads(receipt)['rejection_category'], 'CONTEXT_LENGTH_EXCEEDED')
+
+    async def test_plain_400_does_not_invent_a_context_failure(self):
+        result, _ = await self.call(httpx.Response(400, json={'error': {'message': 'invalid request'}}))
+        self.assertEqual(result['rejection_category'], 'UNCLASSIFIED')
+        self.assertEqual(result['status'], 'FAILED')
+
     async def test_private_material_rejected_before_network(self):
         self.body['material']['material']['holdings'] = ['private']
         with self.assertRaises(HTTPException):
