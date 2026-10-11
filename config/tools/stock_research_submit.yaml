@@ -18,6 +18,8 @@ description: >
   本会话的任务可用 stock_research_find 查询、stock_report_read 读取。
   停止生成不会取消研究；取消研究只能用 stock_research_cancel。
   有具体公开研究问题时必须传 research_question，入队后冻结并传给 C03。
+  保留该公开问题原有的指标、报告期间、比较对象、反证及完成判据；可原样传递公开内容，
+  不要用通用研究模板替代、遗漏要求或擅自扩大同行范围。只有部分要求可执行时仍传完整公开问题，由报告明确缺口。
   不传账户、持仓或私有文件；复用任务不会改写其冻结问题，问题不一致时会明确拒绝交接。
 parameters:
   type: object
@@ -34,4 +36,4 @@ parameters:
     research_question:
       type: string
       minLength: 1
-      description: "公开研究目标、反证及完成判据；入队冻结，不能含账户或私有内容"
+      description: "完整公开研究问题，保留用户指定指标、期间、比较对象、反证及完成判据；入队冻结，不能含账户或私有内容"
