@@ -16,7 +16,7 @@ import unittest
 from unittest.mock import Mock
 
 STOCK_ROOT = os.environ.get('STOCK_REPLAY_TEST_ROOT')
-DRIVER = os.environ.get('QUALITY_REPLAY_DRIVER')
+DRIVER = os.environ.get('QUALITY_REPLAY_DRIVER') or str(Path(__file__).resolve().parents[1]/'scripts/quality_replay_driver.py')
 
 
 @unittest.skipUnless(STOCK_ROOT and DRIVER, 'requires stock checkout and candidate driver')

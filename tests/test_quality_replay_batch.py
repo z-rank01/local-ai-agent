@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
 
-DRIVER=os.environ.get('QUALITY_REPLAY_DRIVER')
+DRIVER=os.environ.get('QUALITY_REPLAY_DRIVER') or str(Path(__file__).resolve().parents[1]/'scripts/quality_replay_driver.py')
 
 
 @unittest.skipUnless(DRIVER, 'requires candidate driver')
