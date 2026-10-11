@@ -62,10 +62,14 @@ async def public_search(runtime, body):
     """Search only a trusted public stock identity; snippets are never evidence."""
     base = {'symbol', 'name', 'source'}
     expanded = base | {'purpose', 'terms'}
-    if not isinstance(body, dict) or set(body) not in (base, expanded):
+    if not isinstance(body, dict) or set(body) not in (base, expanded, expanded | {'question'}):
         raise HTTPException(422, '公开搜索参数无效')
     symbol, name, source = body['symbol'], body['name'], body['source']
     purpose, terms = body.get('purpose', 'company_direct'), body.get('terms', [])
+    question = body.get('question', '')
+    if (not isinstance(question, str) or len(question) > 240 or
+            re.search(r'https?://|file:|[A-Za-z]:[\\/]|[\x00-\x1f]', question)):
+        raise HTTPException(422, '公开研究问题格式无效')
     public_theme = (purpose == 'industry_background' and source in ('csrc', 'ndrc', 'web')
                     and symbol == '' and name == '' and bool(terms))
     if (not public_theme and (not isinstance(symbol, str) or not re.fullmatch(r'\d{6}', symbol) or
@@ -78,11 +82,11 @@ async def public_search(runtime, body):
         raise HTTPException(422, '仅可查询公开证券和核准来源')
     if 'web_search' not in runtime.tool_registry.known_tools:
         return {'status': 'DISABLED', 'urls': []}
-    if any(re.search(r'私有|私人|我的(?:账户|持仓)|密钥|密码|账户余额|交易口令', term) for term in terms):
+    if any(re.search(r'私有|私人|我的(?:账户|持仓)|密钥|密码|账户余额|交易口令', term) for term in [*terms, question]):
         raise HTTPException(422, '公开证据检索不能包含账户或私有信息')
     host = LOOKUP_HOSTS.get(source, '')
     search_scope = host + '/notices/detail/' + symbol + '/' if source == 'announcement' else host
-    query = (' '.join(terms) + (' ' + symbol + ' ' + name if purpose != 'industry_background' else '')
+    query = ((question + ' ' if question else '') + ' '.join(terms) + (' ' + symbol + ' ' + name if purpose != 'industry_background' else '')
              if terms else f'{symbol} {name}') + (f' site:{search_scope}' if host else '')
     try:
         found = await runtime.router.dispatch('web_search', {'query': query, 'max_results': 12},

@@ -90,6 +90,19 @@ class PublicSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await public_search(runtime, {'symbol': '000001', 'name': '公开公司',
             'source': 'csrc'}), {'status': 'DISABLED', 'urls': []})
 
+    async def test_public_question_reaches_search_without_private_payload(self):
+        runtime = SearchRuntime()
+        payload = {'symbol': '', 'name': '', 'source': 'csrc',
+                   'purpose': 'industry_background', 'terms': ['农机', '补贴'],
+                   'question': '农机补贴是否已实际兑付，哪些地区存在结算延迟？'}
+        await public_search(runtime, payload)
+        self.assertIn(payload['question'], runtime.calls[-1][1]['query'])
+        count = len(runtime.calls)
+        for question in ('查询我的持仓', '读取私有报告', 'http://127.0.0.1/secret', 'C:\\private\\report', '问题\n注入'):
+            with self.assertRaises(HTTPException):
+                await public_search(runtime, {**payload, 'question': question})
+        self.assertEqual(len(runtime.calls), count)
+
     async def test_public_industry_question_does_not_include_company_or_private_text(self):
         runtime = SearchRuntime()
         result = await public_search(runtime, {'symbol': '000001', 'name': '公开公司',
