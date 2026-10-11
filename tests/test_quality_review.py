@@ -8,6 +8,16 @@ from scripts.quality_review import DIMENSIONS, HAZARDS, digest, blind_packet, su
 
 
 class QualityReviewTests(unittest.TestCase):
+    def test_packet_preserves_research_date_without_group_metadata(self):
+        sample = self.manifest['samples'][0]
+        result = next(r for r in self.results if r['sample'] == sample)
+        case = {**self.case, 'as_of': '2026-10-12T00:00:00+08:00'}
+        packet, binding = blind_packet(sample, result, case)
+        self.assertEqual(packet['research_context'], {'as_of': case['as_of']})
+        self.assertNotIn('arm', packet)
+        self.assertNotIn('sample', packet)
+        self.assertEqual(binding['packet_hash'], digest(packet))
+
     def setUp(self):
         self.rubric = {'dimensions': dict.fromkeys(DIMENSIONS, '0/1/2'),
                        'targets': {f'Q{i:02}': 'counterevidence' for i in range(1, 7)},

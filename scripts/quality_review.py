@@ -64,7 +64,11 @@ def blind_packet(sample, result, case):
             return [analysis(v) for v in value]
         return value
     answer['data'] = analysis(raw.get('data', {}))
-    packet = {'blind_id': sample['blind_id'], 'material': deepcopy(case['material']), 'answer': answer}
+    # The generator receives Request.as_of outside material. Reviewers need that
+    # same neutral context to assess dates without seeing the treatment group.
+    packet = {'blind_id': sample['blind_id'],
+              'research_context': {'as_of': case.get('as_of')},
+              'material': deepcopy(case['material']), 'answer': answer}
     binding = {'blind_id': sample['blind_id'], 'packet_hash': digest(packet),
                'result_hash': digest(result), 'input_hash': case['input_hash']}
     return packet, binding
