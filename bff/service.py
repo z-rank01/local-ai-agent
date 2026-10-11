@@ -439,7 +439,8 @@ class ChatSessionService:
             data={"conversation": self._conversation_summary(conversation).model_dump()},
         )
 
-        import_result = self.import_local_paths(message)
+        import_result = (self.import_local_paths(message) if request.allow_tools
+                         else WorkspaceImportResponse(rewritten_text=message))
         rewritten_text = import_result.rewritten_text
         if import_result.attachments:
             yield UIStreamEvent(
@@ -453,7 +454,7 @@ class ChatSessionService:
             conversation.id,
             role="user",
             content=rewritten_text,
-            metadata={"cloud_safe": True},
+            metadata={"cloud_safe": True, "allow_tools": request.allow_tools},
         )
         yield UIStreamEvent(
             event="user.accepted",
@@ -470,6 +471,7 @@ class ChatSessionService:
             response_to_message_id=user_message.id,
             response_version_number=1,
             request_id=request.request_id,
+            answer_only=not request.allow_tools,
         )) as events:
             async for event in events:
                 yield event
@@ -854,7 +856,7 @@ class ChatSessionService:
             agent.memory = MemoryManager(router, llm)
         agent.extra_system_sections = ["当前工作区：" + record["name"] + "。所有文件路径必须属于以下已挂载根目录：\n" + "\n".join(self._snapshot.roots) + "\n默认执行目录：" + self._snapshot.cwd + "。可以读写所有这些目录；目录之间使用完整路径。"]
         method_id = conversation.research_method
-        if method_id != 'auto':
+        if method_id != 'auto' and not answer_only:
             from core.stock_service import stock_service
             try:
                 rows = (await stock_service.request('/api/control/methods'))['methods']

@@ -241,7 +241,7 @@ class Agent:
         cloud = getattr(self.llm, "cloud", False)
         try:
             ws_sections = []
-            if self.memory and not cloud:
+            if self.allow_tools and self.memory and not cloud:
                 try:
                     title = self.memory.derive_conversation_title(messages)
                     await self.memory.ensure_memory_scaffold(session_id, conversation_key, title)
@@ -255,7 +255,7 @@ class Agent:
             # only reach a cloud model when the workspace grant is on, mirroring the
             # memory gate above (IN1.4 boundary).
             workspace_granted = getattr(self, 'workspace_cloud_allowed', config.WORKSPACE_CLOUD_ALLOWED)
-            if not cloud or workspace_granted:
+            if self.allow_tools and (not cloud or workspace_granted):
                 try:
                     messages = await self._inject_context_into_messages(messages, session_id)
                 except Exception:
@@ -286,7 +286,7 @@ class Agent:
                 messages[0]["content"] += "\n本轮云端只获授权读取工作区，写入与执行类工具未开放（修改文件、运行代码或命令均不可用）。可以读取、列出和转换文件、联网检索。用户要求写入、修改或执行时，先说明该权限未开启，并请其在顶部“模型设置”单独开启“允许云端写入与执行”；不要用读取结果冒充已完成写入，也不要提供未执行的代码当作结果。"
             if not self.allow_tools:
                 tool_defs = []
-                messages[0]['content'] += '\n本次仅重新组织回答，使用已有工具结果，不重复执行工具；如需重新执行请用户另发一轮指令。'
+                messages[0]['content'] += '\n本轮只使用已提供的会话材料生成回答，不调用工具、不预取工作区文件。材料不足时明确说明缺口，不声称已核对未提供的证据。'
             messages[0]['content'] += '\n执行任务必须通过本轮实际提供的工具调用，代码块本身不会执行。没有执行结果时不得声称已经读取、修改或生成文件。用户只要求讨论或只读时遵守该范围。'
             if cloud and getattr(self.llm, 'spec', {}).get('options', {}).get('enable_thinking', None) is False:
                 messages[0]['content'] += '\n当前思考输出关闭。若用户明确要求开启思考模式，请询问是否愿意在顶部“模型设置”开启“思考输出”；不能声称已自行开启。普通任务无需为此打断。'
@@ -373,7 +373,7 @@ class Agent:
                         execution_retries += 1
                         messages.append({'role': 'system', 'content': '执行检查：你刚才说要继续操作，却只输出了代码，代码块不会被执行。请根据用户原任务及只读/讨论等限制判断：若仍需且已获授权执行，使用实际工具调用继续；若用户只需要示例或存在阻碍，明确说明未执行及原因。不新增用户未授权的操作，不把代码示例当作已完成结果。'})
                         continue
-                    if self.memory and not cloud:
+                    if self.allow_tools and self.memory and not cloud:
                         try:
                             await self.memory.update_memory_after_turn(session_id, conversation_key,
                                 self.memory.derive_conversation_title(messages), messages)

@@ -156,6 +156,7 @@ class ChatRequest(BaseModel):
     provider_id: str | None = None
     model: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)
+    allow_tools: bool = True
 
 
 class WorkspaceImportRequest(BaseModel):

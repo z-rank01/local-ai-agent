@@ -208,6 +208,21 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await providers._probe_ollama_models('http://ollama'),['a:1','b:2'])
 
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_answer_only_turn_has_no_tools_import_or_prefetch(self):
+        req = ChatRequest(message='核对给定材料，不读取 C:\\untrusted\\example.txt',
+                          model='qwen:qwen3.5-flash', allow_tools=False)
+        with patch.object(self.service, 'import_local_paths', side_effect=AssertionError('unexpected import')) as imported:
+            with patch.object(Agent, '_inject_context_into_messages', side_effect=AssertionError('unexpected prefetch')) as prefetch:
+                events = [event async for event in self.service.stream_chat(req)]
+        self.assertFalse(imported.called)
+        self.assertFalse(prefetch.called)
+        self.assertEqual(self.seen_tools[-1], [])
+        self.assertNotIn('tool.started', [event.event for event in events])
+        rows = self.runtime.store.get_messages(events[0].conversation_id)
+        user = next(row for row in rows if row.role == 'user')
+        self.assertFalse(json.loads(user.metadata)['allow_tools'])
+        self.assertEqual(user.content, req.message)
+
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -503,8 +518,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.runs,1)
         ends=[e for e in events if e.kind=='tool_end']
         self.assertEqual(ends[-1].data['status'],'error')
-        self.assertIn('额度',ends[-1].data['result']['error'])
-        self.assertIn('每轮额度会重新计算',ends[-1].data['result']['error'])
+        self.assertIn('该请求未执行',ends[-1].data['result']['error'])
+        self.assertIn('当前步骤未开放',ends[-1].data['result']['error'])
 
     async def test_budget_remaining_visible_in_tool_message(self):
         parent=self

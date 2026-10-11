@@ -202,6 +202,9 @@ class ThinkingInjectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_discovered_default_sends_no_thinking_params(self):
         with patch.object(model_settings, 'settings_path', lambda: Path(self.tmp.name)/'settings.json'):
             spec={'id':'qwen:qwen3.8-flash','provider_id':'qwen','provider_name':'通义千问','model':'qwen3.8-flash','kind':'cloud','base_url':'https://example.invalid','api_key_env':'IN1_FAKE_KEY'}
+            # The production catalog now contains this model. Simulate a single
+            # discovered entry, not a duplicate of its configured counterpart.
+            self.runtime.models.specs = [row for row in self.runtime.models.specs if row['id'] != spec['id']]
             self.runtime.models.specs.append(spec)
             payloads=[]
             client, transport = self.mock_client(spec, payloads)

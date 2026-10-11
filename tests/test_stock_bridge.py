@@ -660,6 +660,14 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         _ = [e async for e in self.service.regenerate_chat(cid, request_id='stock-turn-3')]
         self.assertEqual(len(stub.turns), before)
 
+    async def test_explicit_answer_only_request_opens_no_broker_session(self):
+        stub = self.install_bridge(['must not be read'])
+        self.stock_model()
+        events = [e async for e in self.service.stream_chat(ChatRequest(
+            message='只评审给定文本', model='qwen:qwen3.5-flash', allow_tools=False))]
+        self.assertEqual(stub.turns, [])
+        self.assertNotIn('tool.started', [event.event for event in events])
+
     async def test_next_turn_uses_saved_public_cursor_with_new_broker_turn(self):
         stub = self.install_bridge([])
         reference = 'a' * 64
