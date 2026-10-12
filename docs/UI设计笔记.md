@@ -88,7 +88,7 @@
 | 三态 | 加载=`.loading` 行 / `dots`；空态=`.empty` / `.ws-empty` 一句话给下一步；错误见下行 | 占位文案不假设会随断点失效的方向 |
 | 错误通道 | 会话级错误=`Transcript` 的 `.notice-bar.notice-err`（`role="alert"`、可关闭、离线带"重新连接"）；面板/浮层操作失败=`lib/notify` 的 toast（`role="status"`、2.2s）；面板内状态错误=`.panel-ok` 就地（`role="alert"`） | 同一错误只走一个通道 |
 | 执行轨迹 | 石墨黑 `.trace`：整轨折叠 + 每步可展开；步骤双色轴 `think`（蓝）/ `tool`（灰）/ `answer`（绿），状态 tone ok/error/running；单/多工具同一版式，不得双份渲染 | `app/ToolTrace.tsx` |
-| 报告三级 | 卡片 `ReportCard`（本地报告 + 页/版本/时间 chips + "阅读全文"）→ Sheet 文档视图（浅色 markdown，可"放大"）→ `.reader` 沉浸阅读；**措辞中性，只说"本地报告"，不暗示模型已读或未读** | `app/ReportCard.tsx`、`app/Sheet.tsx`、`app/Reader.tsx` |
+| 会话报告阅读 | `ReportCard`（本地报告 + 页/版本/时间 chips + "阅读全文"）直接进入 `.reader` 宽屏阅读；首/前/后/末页按钮读取同一报告，失败保留原页，关闭返回会话；正文和折叠区复用Markdown。文件预览仍走Sheet；**措辞中性，不暗示模型已读或未读** | `app/ReportCard.tsx`、`app/Reader.tsx`、`lib/report.ts` |
 | 会话/文件行 | 行主体是 `button`，操作钮是行内并列真 button；**禁止 role=button 内嵌 button、禁止 span onClick 伪按钮** | `app/ConversationDrawer.tsx`、`panels/WorkspacePanel.tsx` |
 
 ## 5. 动效预算

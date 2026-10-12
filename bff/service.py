@@ -234,6 +234,30 @@ class ChatSessionService:
             for message in self._store.get_messages(conversation_id) if message.role != "protocol"
         ]
 
+    async def read_report_page(self, conversation_id: str, message_id: str,
+                               page: int, request_id: str) -> dict:
+        self._require_conversation(conversation_id)
+        message = self._store.get_message(message_id)
+        if not message or message.conversation_id != conversation_id or not message.active:
+            raise HTTPException(404, '本会话中没有这份报告记录')
+        result = self._parse_tool_result(message)
+        if (message.role != 'tool' or message.tool_name != 'stock_report_read'
+                or not isinstance(result, dict) or not isinstance(result.get('local_result'), str)):
+            raise HTTPException(422, '这条记录不是已保存的股票报告')
+        try:
+            reference = json.loads(message.metadata or '{}').get('params', {}).get('reference')
+        except (ValueError, AttributeError):
+            reference = None
+        if not isinstance(reference, str) or not re.fullmatch(r'[0-9a-f]{64}', reference):
+            raise HTTPException(409, '这份历史报告缺少可核对的读取引用，仍可阅读已保存页面')
+        bridge = self._runtime.stock_bridge
+        if bridge is None:
+            raise HTTPException(503, '股票技能未连接，已保存页面仍可阅读；连接后可重试翻页')
+        try:
+            return await bridge.read_report_page(conversation_id, reference, page, request_id)
+        except ValueError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
     def import_local_paths(self, text: str) -> WorkspaceImportResponse:
         from core.input_utils import detect_file_paths
         for raw in detect_file_paths(text):

@@ -89,7 +89,7 @@ export function AssistantTurn({
             <ReportCard
               key={block.id}
               info={info}
-              onRead={() => onReadReport({title: info.title, content: info.content})}
+              onRead={() => onReadReport(info)}
             />
           );
         }

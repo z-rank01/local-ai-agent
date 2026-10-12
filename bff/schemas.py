@@ -23,6 +23,13 @@ class ResearchMethodChoice(BaseModel):
     method_id: str = Field(min_length=1, max_length=60)
 
 
+class ReportPageRequest(BaseModel):
+    model_config = {'extra': 'forbid'}
+    message_id: str = Field(min_length=1, max_length=100)
+    page: int = Field(ge=1, strict=True)
+    request_id: str = Field(min_length=1, max_length=100)
+
+
 class MessageRecord(BaseModel):
     id: str
     conversation_id: str

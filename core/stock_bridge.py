@@ -408,6 +408,41 @@ class StockBridge:
             'broker_sequence': step.get('sequence'),
         }
 
+    async def read_report_page(self, conversation_id: str, reference: str, page: int,
+                               request_id: str) -> dict:
+        """Local UI read, isolated from the model's mutable per-turn state."""
+        if not _REFERENCE_RE.fullmatch(reference) or type(page) is not int or page < 1:
+            raise ValueError('报告引用或页码无效')
+        try:
+            prepared = await self._post('/api/master/broker/prepare', {
+                'actor': ACTOR, 'conversation': conversation_id, 'request_id': request_id,
+                'query': f'读取本会话已保存报告第 {page} 页', 'method_id': 'auto',
+                'report_body_scope': 'local',
+            })
+            ticket = prepared['ticket']
+            step = await self._post('/api/master/broker/step', {
+                'ticket': ticket, 'actor': ACTOR, 'conversation': conversation_id,
+                'sequence': 1, 'tool_call': _report_action({'reference': reference, 'page': page}),
+            })
+            finished = await self._post('/api/master/broker/finish', {
+                'ticket': ticket, 'actor': ACTOR, 'conversation': conversation_id, 'completion': '',
+            })
+        except (_BridgeError, KeyError) as exc:
+            raise ValueError('报告读取暂时失败，已显示的页面保留，请稍后重试。') from exc
+        if step.get('status') != 'TOOL_RETURNED' or step.get('code') in (
+                'BAD_PAGE', 'F01_FAILED', 'NEEDS_REFERENCE', 'RULE_BLOCKED', 'INVALID_TOOL'):
+            raise ValueError('该报告页暂不可读，请重新打开报告核对页数或连接状态。')
+        local = next((r.get('text') for r in finished.get('local_results', [])
+                      if isinstance(r, dict) and r.get('sequence') == 1), None)
+        if not isinstance(local, str) or not local:
+            raise ValueError('未取得报告正文，已显示的页面保留。')
+        footer = re.search(r'\n\n---\n\n第 (\d+)/(\d+) 页。可继续说[^\n]*\s*$', local)
+        actual_page, total = (int(footer[1]), int(footer[2])) if footer else (1, 1)
+        if actual_page != page or total < page:
+            raise ValueError('报告页码回执不一致，已显示的页面保留。')
+        return {'content': local[:footer.start()] if footer else local,
+                'page': actual_page, 'page_count': total}
+
     async def finish_turn(self, conversation_id: str) -> list[dict]:
         """Finish the turn and return local results keyed to broker step numbers."""
         state = self._turns.pop(conversation_id, None)

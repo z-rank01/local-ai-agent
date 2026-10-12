@@ -135,6 +135,7 @@ export default function App(): JSX.Element {
   const draftRef = useRef({input, attachedPaths, conversationId, workspaceId});
   draftRef.current = {input, attachedPaths, conversationId, workspaceId};
   const readerReturnToSheetRef = useRef(false);
+  const reportReadingPositionsRef = useRef(new Map<string, ReadingReport>());
   const deltaBufferRef = useRef<Record<string, {kind: 'assistant' | 'reasoning'; text: string}>>({});
   const deltaTimerRef = useRef<number | null>(null);
   const pendingPromptRef = useRef('');
@@ -528,6 +529,7 @@ export default function App(): JSX.Element {
             text: detail,
             summary: eventText(event, 'summary'),
             toolResult,
+            messageId: event.message_id,
             status: statusValue,
             collapsible: true,
             collapsed: true,
@@ -538,6 +540,7 @@ export default function App(): JSX.Element {
             text: detail || block.text,
             summary: eventText(event, 'summary') || eventText(event, 'headline') || (event.data.status === 'error' ? '执行失败' : '已完成'),
             toolResult: toolResult ?? block.toolResult,
+            messageId: event.message_id ?? block.messageId,
             status: statusValue,
             elapsed: typeof event.data.elapsed === 'number' ? event.data.elapsed : block.elapsed,
             collapsed: (detail || block.text).length > 120 || (detail || block.text).includes('\n'),
@@ -555,7 +558,8 @@ export default function App(): JSX.Element {
             return block;
           }
           const existing = (typeof block.toolResult === 'object' && block.toolResult !== null ? block.toolResult : {}) as Record<string, unknown>;
-          return {...block, toolResult: {...existing, local_result: localResult}};
+          return {...block, messageId: event.message_id ?? block.messageId,
+            toolResult: {...existing, local_result: localResult}};
         }));
         break;
       }
@@ -983,10 +987,15 @@ export default function App(): JSX.Element {
     notify(message, 'error');
   }, []);
 
-  const openReportInSheet = useCallback((report: ReadingReport) => {
-    setSheetDoc({title: report.title, content: report.content});
-    setSheetView('doc');
-    setSheetOpen(true);
+  const openConversationReport = useCallback((report: ReadingReport) => {
+    readerReturnToSheetRef.current = false;
+    setSheetOpen(false);
+    setReaderZoomed(true);
+    setReadingReport(report.sourceMessageId ? reportReadingPositionsRef.current.get(report.sourceMessageId) ?? report : report);
+  }, []);
+
+  const rememberReportPage = useCallback((report: ReadingReport) => {
+    if (report.sourceMessageId) reportReadingPositionsRef.current.set(report.sourceMessageId, report);
   }, []);
 
   const handleZoomDoc = () => {
@@ -1246,7 +1255,7 @@ export default function App(): JSX.Element {
         onDelete={(messageId) => { void removeMessage(messageId); }}
         onRegenerate={(messageId) => { void regenerateLast(messageId); }}
         onSwitchVersion={(messageId, direction) => { void switchAssistantVersion(messageId, direction); }}
-        onReadReport={openReportInSheet}
+        onReadReport={openConversationReport}
         editingMessageId={editingMessage?.messageId ?? null}
         onCancelEdit={cancelEditMessage}
         editText={editText}
@@ -1326,6 +1335,8 @@ export default function App(): JSX.Element {
       />
       <Reader
         report={readingReport}
+        conversationId={conversationId ?? undefined}
+        onPageRead={rememberReportPage}
         onClose={closeReportReader}
         zoomed={readerZoomed}
         onToggleZoom={toggleReaderZoom}

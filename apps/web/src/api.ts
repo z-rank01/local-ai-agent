@@ -59,6 +59,14 @@ async function requestJson<T>(path: string, init?: RequestInit, baseUrl = DEFAUL
   return readJson<T>(await apiFetch(`${baseUrl}${path}`, init));
 }
 export function fetchWorkspaces(): Promise<Workspace[]> { return requestJson('/api/workspaces'); }
+
+export function fetchReportPage(conversationId: string, messageId: string, page: number):
+  Promise<{content: string; page: number; page_count: number}> {
+  return requestJson(`/api/conversations/${encodeURIComponent(conversationId)}/report-page`, {
+    method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({message_id: messageId, page, request_id: crypto.randomUUID()}),
+  });
+}
 export function saveWorkspace(body: Record<string, unknown>, id?: string): Promise<Workspace> {
   if (Array.isArray(body.roots)) body = {...body, roots: body.roots.map(root => {const r = root as {host_path: string; name?: string; id?: string}; return {host_path: r.host_path, name: r.name, id: r.id};})};
   return requestJson('/api/workspaces' + (id ? '/' + encodeURIComponent(id) : ''), {

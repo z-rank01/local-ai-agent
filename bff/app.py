@@ -30,6 +30,7 @@ from .schemas import (
     ProviderInfo,
     RegenerateRequest,
     ResearchMethodChoice,
+    ReportPageRequest,
     UIStreamEvent,
     UpdateConversationRequest,
     WorkspaceDeleteResponse,
@@ -318,6 +319,13 @@ async def delete_conversation(conversation_id: str) -> Response:
 @app.get("/api/conversations/{conversation_id}/messages", response_model=list[MessageRecord])
 async def list_messages(conversation_id: str) -> list[MessageRecord]:
     return get_chat_service().get_messages(conversation_id)
+
+
+@app.post('/api/conversations/{conversation_id}/report-page')
+async def read_report_page(conversation_id: str, request: ReportPageRequest):
+    return await get_chat_service().read_report_page(
+        conversation_id, request.message_id, request.page, request.request_id)
+
 @app.delete("/api/conversations/{conversation_id}/messages/{message_id}", status_code=204)
 async def delete_message(conversation_id: str, message_id: str) -> Response:
     get_chat_service().delete_message(conversation_id, message_id)

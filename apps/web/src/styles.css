@@ -757,6 +757,9 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
   color: var(--on-ink-2); font-size: var(--text-xs);
 }
 .reader-btn:hover { background: var(--ink-line-2); color: var(--on-ink); }
+.reader-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--ink-line-2); font-size: var(--text-xs); }
+.reader-btn:disabled { color: var(--on-ink-3); cursor: not-allowed; }
+.reader-feedback { padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--ink-line-2); border-radius: var(--radius-sm); color: var(--on-ink-2); }
 .reader-body { flex: 1; overflow-y: auto; padding: 32px 24px 96px; }
 .reader-col { max-width: 680px; margin: 0 auto; transition: max-width var(--motion-base) var(--ease-standard); }
 .reader.zoomed .reader-col { max-width: 920px; }

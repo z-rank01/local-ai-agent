@@ -4,6 +4,9 @@ import {formatTime} from './format';
 export type ReadingReport = {
   title: string;
   content: string;
+  sourceMessageId?: string;
+  page?: number;
+  pageCount?: number;
 };
 
 export function localReportContent(block: TranscriptBlock): string {
@@ -54,7 +57,8 @@ export function buildReportCardInfo(block: TranscriptBlock): ReadingReport & {me
   if (block.createdAt) {
     meta.push(`读取于 ${formatTime(block.createdAt)}`);
   }
-  return {title, meta, content: localReportContent(block)};
+  return {title, meta, content: localReportContent(block), sourceMessageId: block.messageId ?? undefined,
+    page: page ?? 1, pageCount: pageCount ?? undefined};
 }
 
 export function readConversationSummary(event: UIStreamEvent): ConversationSummary | null {
