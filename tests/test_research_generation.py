@@ -166,6 +166,71 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['rejection_category'], 'UNCLASSIFIED')
         self.assertEqual(result['status'], 'FAILED')
 
+    async def test_dashscope_diagnostics_preserved_without_echo_or_resend(self):
+        trace = '649b2bbc-c541-9e16-9845-db7fe4fe5b2d'
+        cases = [
+            ('Range of input length should be [1, 262144]', 'CONTEXT_LENGTH_EXCEEDED'),
+            ('Range of max_tokens should be [1, 65536]', 'PARAMETER_OUT_OF_RANGE'),
+            ('The thinking_budget parameter must be a positive integer and not greater than 32768', 'PARAMETER_OUT_OF_RANGE'),
+            ('parameter.enable_thinking only support stream call', 'PARAMETER_COMBINATION_INVALID'),
+            ('invalid request; echoed maximum context length private-secret', 'PARAMETER_INVALID'),
+        ]
+        for streaming in (False, True):
+            if streaming:
+                self.body['transport'] = {'stream': True, 'include_usage': True}
+            for message, category in cases:
+                with self.subTest(stream=streaming, category=category):
+                    response = httpx.Response(400, json={'code': 'InvalidParameter',
+                        'message': message + '; private-secret', 'request_id': trace})
+                    result, client = await self.call(**({'stream_response': response} if streaming else {'response': response}))
+                    self.assertEqual(result['status'], 'FAILED')
+                    self.assertEqual(result['rejection_category'], category)
+                    self.assertEqual(result['provider_error_code'], 'InvalidParameter')
+                    self.assertEqual(result['provider_request_id'], trace)
+                    sent = (client.stream if streaming else client.post).call_args.kwargs['json']
+                    for key, value in PARAMS.items(): self.assertEqual(sent[key], value)
+                    self.assertEqual((client.stream if streaming else client.post).call_count, 1)
+                    with closing(sqlite3.connect(self.ledger.path)) as db:
+                        saved = db.execute('SELECT receipt FROM research_receipts WHERE call_id=?',
+                            (result['ledger_call_id'],)).fetchone()[0]
+                    self.assertEqual(json.loads(saved)['provider_request_id'], trace)
+                    self.assertNotIn('private-secret', str(result) + saved)
+
+    async def test_unreadable_rejection_body_still_preserves_valid_header_trace(self):
+        trace = '649b2bbc-c541-9e16-9845-db7fe4fe5b2d'
+        result, client = await self.call(httpx.Response(400, text='private-secret', headers={'X-Request-ID': trace}))
+        self.assertEqual(result['rejection_category'], 'UNCLASSIFIED')
+        self.assertEqual(result['provider_request_id'], trace)
+        self.assertEqual(client.post.call_count, 1)
+        self.assertNotIn('private-secret', str(result))
+
+    async def test_unknown_error_codes_and_invalid_or_conflicting_trace_not_stored(self):
+        trace = '649b2bbc-c541-9e16-9845-db7fe4fe5b2d'
+        for headers, expected in (({'X-Request-ID': 'secret-input'}, 'NOT_REPORTED'),
+                ({'X-Request-ID': trace}, 'CONFLICT')):
+            body = {'error': {'code': 'secret-input', 'message': 'invalid request'},
+                    'request_id': 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' if expected == 'CONFLICT' else 'secret-input'}
+            result, _ = await self.call(httpx.Response(400, json=body, headers=headers))
+            self.assertEqual(result['provider_request_id_status'], expected)
+            self.assertNotIn('provider_request_id', result)
+            self.assertNotIn('provider_error_code', result)
+            self.assertNotIn('secret-input', str(result))
+
+    async def test_fixed_content_rejection_and_http_auth_priority(self):
+        result, _ = await self.call(httpx.Response(400, json={'error': {'code': 'DataInspectionFailed'}}))
+        self.assertEqual(result['rejection_category'], 'CONTENT_REJECTED')
+        result, _ = await self.call(httpx.Response(401, json={'error': {'code': 'InvalidParameter',
+            'message': 'maximum context length'}}))
+        self.assertEqual(result['rejection_category'], 'AUTHENTICATION')
+
+    async def test_ledger_itself_drops_unvetted_diagnostic_fields(self):
+        call_id = self.ledger.begin_research('qwen:qwen3.8-flash', 'a'*64, 'b'*64, PARAMS)
+        self.ledger.finish_research(call_id, {'status': 'FAILED', 'provider_error_code': 'secret-input',
+            'provider_request_id': 'secret-input', 'provider_request_id_status': 'secret-input', 'message': 'secret-input'})
+        with closing(sqlite3.connect(self.ledger.path)) as db:
+            receipt = db.execute('SELECT receipt FROM research_receipts WHERE call_id=?', (call_id,)).fetchone()[0]
+        self.assertNotIn('secret-input', receipt)
+
     async def test_private_material_rejected_before_network(self):
         self.body['material']['material']['holdings'] = ['private']
         with self.assertRaises(HTTPException):

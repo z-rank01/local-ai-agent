@@ -166,6 +166,13 @@ class CallBudget:
                    'response_model', 'usage', 'usage_status', 'error', 'http_status',
                    'rejection_category', 'failure_category', 'input_chars'}
         public_receipt = {key: value for key, value in receipt.items() if key in allowed}
+        from .research_errors import safe_error_code, safe_request_id
+        for field, validator in (('provider_error_code', safe_error_code), ('provider_request_id', safe_request_id)):
+            checked = validator(receipt.get(field))
+            if checked is not None:
+                public_receipt[field] = checked
+        if receipt.get('provider_request_id_status') in ('REPORTED', 'CONFLICT', 'NOT_REPORTED'):
+            public_receipt['provider_request_id_status'] = receipt['provider_request_id_status']
         with closing(sqlite3.connect(self.path, timeout=20)) as db, db:
             db.execute('UPDATE research_receipts SET status=?,receipt=?,updated_at=CURRENT_TIMESTAMP WHERE call_id=?',
                        (receipt['status'], json.dumps(public_receipt, ensure_ascii=False), call_id))
