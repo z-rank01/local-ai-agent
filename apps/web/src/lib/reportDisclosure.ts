@@ -26,7 +26,12 @@ export function splitReportDisclosures(content: string): ReportPart[] {
       let end = i + 1;
       let valid = false;
       for (; end < lines.length; end += 1) {
-        if (!fence && lines[end] === '</details>') { valid = true; break; }
+        if (!fence && lines[end].endsWith('</details>')) {
+          const tail = lines[end].slice(0, -'</details>'.length);
+          if (tail) body.push(tail);
+          valid = true;
+          break;
+        }
         if (!fence && lines[end].startsWith('<details>')) break;
         body.push(lines[end]); updateFence(lines[end]);
       }

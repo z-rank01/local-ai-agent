@@ -35,3 +35,8 @@ test('incomplete or nested wrappers preserve all text instead of hiding evidence
     assert.ok(split(content).map(p => p.content).join('\n').includes(content.includes('末尾') ? '未闭合末尾' : '嵌套资料'));
   }
 });
+test('a paginated long line keeps its final characters before the closing wrapper', () => {
+  const parts = split(`<details><summary>${title}</summary>\n本页原文末尾</details>\n`);
+  assert.equal(parts[0].kind, 'disclosure');
+  assert.equal(parts[0].content, '本页原文末尾');
+});

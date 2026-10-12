@@ -7,6 +7,7 @@ import {notify} from '../lib/notify';
 import {Accordion} from '../ui/Accordion';
 import {Collapse} from '../ui/Collapse';
 import {Icon} from '../ui/Icon';
+import {Markdown} from '../ui/Markdown';
 
 export type StockPanelProps = {onChanged?: () => void};
 
@@ -62,6 +63,7 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
   const [challenge, setChallenge] = useState('');
   const [query, setQuery] = useState('');
   const [reply, setReply] = useState('');
+  const [reportReply, setReportReply] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   /* 变更进行中时跳过轮询；revision 单调递增，丢弃迟到的读回结果 */
   const mutating = useRef(false);
@@ -139,6 +141,7 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
         setChallenge(result.challenge);
       } else if (result.reply) {
         setReply(result.reply);
+        setReportReply(action === 'operator' && /^报告 [\w-]+(?: [1-9][0-9]*)?$/.test(String(extra.query ?? '').trim()));
       } else {
         setStatus(result);
         setChallenge('');
@@ -559,7 +562,7 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
                 {buttonLabel('operator', '提交')}
               </button>
             </div>
-            {reply ? <pre className="mono-block">{reply}</pre> : null}
+            {reply ? reportReply ? <Markdown content={reply} /> : <pre className="mono-block">{reply}</pre> : null}
           </Accordion>
         ) : null}
       </Accordion>
