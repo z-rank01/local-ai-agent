@@ -119,6 +119,9 @@ def _public_evidence_read_action(params):
 
 def _submit_action(params):
     action = {'action': 'submit', 'kind': 'research'}
+    for key in ('research_focus', 'source_reference', 'event_id', 'comparison_targets'):
+        if params.get(key) is not None:
+            action[key] = params[key]
     if params.get('research_question') is not None:
         action['research_question'] = params['research_question']
     mode = params.get('research_mode')
@@ -225,6 +228,18 @@ class StockBridge:
                 type(params['page']) is not int or params['page'] < 1):
             return {'error': '报告页码必须是从 1 开始的整数。'}
         if tool == 'stock_research_submit':
+            focus = params.get('research_focus', 'company')
+            if focus not in ('event_impact', 'company', 'comparison'):
+                return {'error': 'research_focus 只能是 event_impact / company / comparison。'}
+            if focus == 'event_impact' and (not isinstance(params.get('source_reference'), str)
+                    or not _REFERENCE_RE.fullmatch(params['source_reference'])
+                    or not re.fullmatch(r'[0-9a-f]{16}', str(params.get('event_id', '')))):
+                return {'error': '事件点评须提供本会话来源引用及已保存事件编号。'}
+            targets = params.get('comparison_targets', [])
+            if not isinstance(targets, list) or any(not isinstance(n, str) or not n.strip() for n in targets):
+                return {'error': 'comparison_targets 须为股票名称列表。'}
+            if focus == 'comparison' and not targets:
+                return {'error': '公司比较须指定至少一家另一公司。'}
             question = params.get('research_question')
             if question is not None and (not isinstance(question, str) or not question.strip() or '\x00' in question):
                 return {'error': 'research_question 必须是非空公开研究问题。'}

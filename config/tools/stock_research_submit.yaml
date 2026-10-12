@@ -21,9 +21,28 @@ description: >
   保留该公开问题原有的指标、报告期间、比较对象、反证及完成判据；可原样传递公开内容，
   不要用通用研究模板替代、遗漏要求或擅自扩大同行范围。只有部分要求可执行时仍传完整公开问题，由报告明确缺口。
   不传账户、持仓或私有文件；复用任务不会改写其冻结问题，问题不一致时会明确拒绝交接。
+  research_focus 按用户问题语义选择：event_impact 解释公告经营影响，company 做公司研究，comparison 做指定公司比较。
+  event_impact 先查找并读取本会话已保存事件，传 source_reference 和 event_id；公告主体须与研究公司一致。
+  comparison 的主公司仍用 name/symbol，其他用户指定公司名称放 comparison_targets；不得擅自遗漏、替换或新增指定对象。
 parameters:
   type: object
   properties:
+    research_focus:
+      type: string
+      enum: [event_impact, company, comparison]
+      description: "按问题选择公告经营影响、公司研究或指定公司比较；默认company"
+    source_reference:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      description: "事件点评的本会话已保存来源任务引用，来自股票查找工具"
+    event_id:
+      type: string
+      pattern: "^[0-9a-f]{16}$"
+      description: "与来源引用绑定、已读取的公告事件编号"
+    comparison_targets:
+      type: array
+      items: {type: string, minLength: 1}
+      description: "用户指定的其他股票名称；主公司仍用name/symbol，不自行换算代码"
     symbol:
       type: string
       description: "6 位股票代码，如 600150；与 name 二选一，且必须出现在用户本轮消息中"
