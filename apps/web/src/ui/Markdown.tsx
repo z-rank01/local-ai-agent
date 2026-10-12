@@ -2,6 +2,7 @@ import {useWorkspaceId} from '../lib/workspace';
 import {workspaceRawUrl} from '../api';
 import {copyText} from '../lib/format';
 import {Icon} from './Icon';
+import {splitReportDisclosures} from '../lib/reportDisclosure';
 import React, {useState} from 'react';
 import ReactMarkdown from 'react-markdown';
 import type {Components} from 'react-markdown';
@@ -116,15 +117,17 @@ const components: Components = {
 };
 
 export function Markdown({content, className}: {content: string; className?: string}): JSX.Element {
+  const render = (text: string): JSX.Element => (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeKatex, rehypeHighlight]}
+      components={components}>{text}</ReactMarkdown>
+  );
   return (
     <div className={['md', className].filter(Boolean).join(' ')}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeKatex, rehypeHighlight]}
-        components={components}
-      >
-        {content}
-      </ReactMarkdown>
+      {splitReportDisclosures(content).map((part, index) => part.kind === 'disclosure'
+        ? <details className="md-disclosure" key={index}>
+            <summary>{part.title}</summary><div className="md">{render(part.content)}</div>
+          </details>
+        : <React.Fragment key={index}>{render(part.content)}</React.Fragment>)}
     </div>
   );
 }

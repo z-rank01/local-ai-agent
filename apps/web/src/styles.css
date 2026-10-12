@@ -536,6 +536,10 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 
 /* Markdown 排版 */
 .md { font-size: var(--ui-size); }
+.md-disclosure { border-block: 1px solid var(--border-soft); padding-block: var(--space-2); }
+.md-disclosure > summary { cursor: pointer; font-size: var(--text-sm); font-weight: 600; }
+.md-disclosure[open] > .md { margin-top: var(--space-4); }
+
 .md > * + * { margin-top: 12px; }
 .md h2 { font-size: var(--text-lg); letter-spacing: var(--tracking-display); margin-top: 26px; }
 .md h3 { font-size: var(--text-base); margin-top: 22px; }
