@@ -324,7 +324,8 @@ async def list_messages(conversation_id: str) -> list[MessageRecord]:
 @app.post('/api/conversations/{conversation_id}/report-page')
 async def read_report_page(conversation_id: str, request: ReportPageRequest):
     return await get_chat_service().read_report_page(
-        conversation_id, request.message_id, request.page, request.request_id)
+        conversation_id, request.message_id, request.page, request.request_id,
+        section=request.section, revision=request.revision)
 
 @app.delete("/api/conversations/{conversation_id}/messages/{message_id}", status_code=204)
 async def delete_message(conversation_id: str, message_id: str) -> Response:

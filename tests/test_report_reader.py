@@ -107,3 +107,38 @@ class ReportReaderAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.status_code,200)
             self.assertEqual(result.json()['content'],'完整证据')
             client.close()
+
+    async def test_sections_and_revision_are_forwarded_only_after_record_authorization(self):
+        revision='b'*64
+        await self.service.read_report_page('c','report',1,'read',section='references',revision=revision)
+        self.bridge.read_report_page.assert_awaited_once_with('c',REF,1,'read',section='references',revision=revision)
+
+    async def test_changed_document_is_a_conflict_without_replacing_old_history(self):
+        from core.stock_bridge import ReportUpdated
+        self.bridge.read_report_page.side_effect=ReportUpdated('报告已更新')
+        before=self.message.tool_result
+        with self.assertRaises(HTTPException) as exc:
+            await self.service.read_report_page('c','report',1,'read',section='body',revision='b'*64)
+        self.assertEqual(exc.exception.status_code,409)
+        self.assertEqual(exc.exception.detail['code'],'REPORT_UPDATED')
+        self.assertEqual(self.message.tool_result,before)
+
+
+class ReaderDocumentBridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_typed_local_document_and_update_conflict(self):
+        from core.stock_bridge import ReportUpdated
+        document={'layout':'research-reader-v2','section':'body','page':1,'page_count':1,
+                  'content':'中文正文','blocks':[{'kind':'markdown','content':'中文正文'}]}
+        calls=[]
+        def handler(request):
+            payload=json.loads(request.content);calls.append(payload)
+            if request.url.path.endswith('/prepare'):return httpx.Response(200,json={'ticket':'reader'})
+            if request.url.path.endswith('/step'):return httpx.Response(200,json={'status':'TOOL_RETURNED','code':'READER_DOCUMENT'})
+            return httpx.Response(200,json={'local_results':[{'sequence':1,'text':json.dumps(document)}]})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            bridge=StockBridge('http://stock','',client=client)
+            self.assertEqual((await bridge.read_report_page('c',REF,1,'read',section='body'))['content'],'中文正文')
+            self.assertEqual(calls[1]['tool_call']['report_layout'],'reader-v2')
+            document.update(error='REPORT_UPDATED',message='报告已更新')
+            with self.assertRaises(ReportUpdated):
+                await bridge.read_report_page('c',REF,1,'read-2',section='body',revision='b'*64)

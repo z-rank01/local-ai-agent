@@ -10,6 +10,7 @@ in the stock repository (frozen 2026-09-07).
 from __future__ import annotations
 
 import logging
+import json
 import re
 import uuid
 
@@ -409,10 +410,17 @@ class StockBridge:
         }
 
     async def read_report_page(self, conversation_id: str, reference: str, page: int,
-                               request_id: str) -> dict:
+                               request_id: str, *, section: str | None = None,
+                               revision: str | None = None) -> dict:
         """Local UI read, isolated from the model's mutable per-turn state."""
         if not _REFERENCE_RE.fullmatch(reference) or type(page) is not int or page < 1:
             raise ValueError('报告引用或页码无效')
+        action = _report_action({'reference': reference, 'page': page})
+        if section is not None:
+            if section not in ('body', 'references'):
+                raise ValueError('报告阅读区域无效')
+            action.update(report_layout='reader-v2', report_section=section)
+            if revision:action['report_revision'] = revision
         try:
             prepared = await self._post('/api/master/broker/prepare', {
                 'actor': ACTOR, 'conversation': conversation_id, 'request_id': request_id,
@@ -422,7 +430,7 @@ class StockBridge:
             ticket = prepared['ticket']
             step = await self._post('/api/master/broker/step', {
                 'ticket': ticket, 'actor': ACTOR, 'conversation': conversation_id,
-                'sequence': 1, 'tool_call': _report_action({'reference': reference, 'page': page}),
+                'sequence': 1, 'tool_call': action,
             })
             finished = await self._post('/api/master/broker/finish', {
                 'ticket': ticket, 'actor': ACTOR, 'conversation': conversation_id, 'completion': '',
@@ -436,6 +444,20 @@ class StockBridge:
                       if isinstance(r, dict) and r.get('sequence') == 1), None)
         if not isinstance(local, str) or not local:
             raise ValueError('未取得报告正文，已显示的页面保留。')
+        if section is not None and step.get('code') == 'READER_DOCUMENT':
+            try:
+                document = json.loads(local)
+                if document.get('layout') != 'research-reader-v2':raise ValueError()
+                if document.get('error') == 'REPORT_UPDATED':
+                    raise ReportUpdated(document.get('message') or '报告已更新，请重新载入。')
+                if (document.get('error') or document.get('section') != section
+                        or document.get('page') != page or type(document.get('page_count')) is not int
+                        or document['page_count'] < page or not isinstance(document.get('blocks'), list)):
+                    raise ValueError()
+                return document
+            except ReportUpdated:raise
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise ValueError('报告展示回执无效，当前页面保留。') from exc
         footer = re.search(r'\n\n---\n\n第 (\d+)/(\d+) 页。可继续说[^\n]*\s*$', local)
         actual_page, total = (int(footer[1]), int(footer[2])) if footer else (1, 1)
         if actual_page != page or total < page:
@@ -489,4 +511,8 @@ class StockBridge:
 
 
 class _BridgeError(Exception):
+    pass
+
+
+class ReportUpdated(ValueError):
     pass

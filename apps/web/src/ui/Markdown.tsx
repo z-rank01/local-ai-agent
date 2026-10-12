@@ -116,10 +116,23 @@ const components: Components = {
   table: Table,
 };
 
-export function Markdown({content, className}: {content: string; className?: string}): JSX.Element {
+export function Markdown({content, className, compactHeadings = false, onSourceReference}: {
+  content: string; className?: string; compactHeadings?: boolean;
+  onSourceReference?: (alias: string) => void;
+}): JSX.Element {
+  const reportComponents: Components = {...components,
+    ...(compactHeadings ? {h1: ({children}: {children?: React.ReactNode}) => <h3>{children}</h3>,
+      h2: ({children}: {children?: React.ReactNode}) => <h4>{children}</h4>} : {}),
+    a: props => {
+      const alias = /^#report-source-(\d+)$/.exec(props.href ?? '')?.[1];
+      return alias && onSourceReference
+        ? <button type="button" className="report-source-link" onClick={() => onSourceReference(alias)}>{props.children}</button>
+        : <Anchor {...props} />;
+    },
+  };
   const render = (text: string): JSX.Element => (
     <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeKatex, rehypeHighlight]}
-      components={components}>{text}</ReactMarkdown>
+      components={reportComponents}>{text}</ReactMarkdown>
   );
   return (
     <div className={['md', className].filter(Boolean).join(' ')}>

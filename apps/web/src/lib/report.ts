@@ -1,5 +1,6 @@
 import type {ConversationSummary, TranscriptBlock, UIStreamEvent} from '../types';
 import {formatTime} from './format';
+import type {ReportPage, ReportSection} from './reportDocument';
 
 export type ReadingReport = {
   title: string;
@@ -7,6 +8,9 @@ export type ReadingReport = {
   sourceMessageId?: string;
   page?: number;
   pageCount?: number;
+  section?: ReportSection;
+  readerDocument?: ReportPage;
+  readerPositions?: Partial<Record<ReportSection, ReportPage>>;
 };
 
 export function localReportContent(block: TranscriptBlock): string {
@@ -46,7 +50,7 @@ export function buildReportCardInfo(block: TranscriptBlock): ReadingReport & {me
       : null;
   const pageCount = footer ? Number(footer[2]) : typeof observation?.page_count === 'number' ? observation.page_count : null;
   if (page !== null) {
-    meta.push(pageCount ? `第 ${page} / ${pageCount} 页` : `第 ${page} 页`);
+    meta.push(pageCount ? `原整篇 第 ${page} / ${pageCount} 页` : `原整篇 第 ${page} 页`);
   }
   const version = ['version', 'report_version', 'brief_version', 'version_number']
     .map((key) => observation?.[key])

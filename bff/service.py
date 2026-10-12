@@ -235,7 +235,8 @@ class ChatSessionService:
         ]
 
     async def read_report_page(self, conversation_id: str, message_id: str,
-                               page: int, request_id: str) -> dict:
+                               page: int, request_id: str, *, section: str | None = None,
+                               revision: str | None = None) -> dict:
         self._require_conversation(conversation_id)
         message = self._store.get_message(message_id)
         if not message or message.conversation_id != conversation_id or not message.active:
@@ -254,8 +255,12 @@ class ChatSessionService:
         if bridge is None:
             raise HTTPException(503, '股票技能未连接，已保存页面仍可阅读；连接后可重试翻页')
         try:
-            return await bridge.read_report_page(conversation_id, reference, page, request_id)
+            return await bridge.read_report_page(conversation_id, reference, page, request_id,
+                **({'section': section, 'revision': revision} if section is not None else {}))
         except ValueError as exc:
+            from core.stock_bridge import ReportUpdated
+            if isinstance(exc, ReportUpdated):
+                raise HTTPException(409, {'message': str(exc), 'code': 'REPORT_UPDATED'}) from exc
             raise HTTPException(503, str(exc)) from exc
 
     def import_local_paths(self, text: str) -> WorkspaceImportResponse:

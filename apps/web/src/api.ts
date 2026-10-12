@@ -40,7 +40,7 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
 export async function ensureBrowserSession(): Promise<void> { await requestJson('/api/status'); }
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public conversationId?: string) { super(message); }
+  constructor(message: string, public status: number, public conversationId?: string, public code?: string) { super(message); }
 }
 async function readJson<T>(response: Response): Promise<T> {
   const raw = await response.text();
@@ -50,8 +50,8 @@ async function readJson<T>(response: Response): Promise<T> {
   }
   if (!response.ok) {
     const detail = (value as {detail?: unknown})?.detail;
-    const structured = detail as {message?: string; conversation_id?: string} | null;
-    throw new ApiError(typeof detail === 'string' ? detail : structured?.message ?? `操作失败（HTTP ${response.status}）`, response.status, structured?.conversation_id);
+    const structured = detail as {message?: string; conversation_id?: string; code?: string} | null;
+    throw new ApiError(typeof detail === 'string' ? detail : structured?.message ?? `操作失败（HTTP ${response.status}）`, response.status, structured?.conversation_id, structured?.code);
   }
   return value as T;
 }
@@ -60,11 +60,12 @@ async function requestJson<T>(path: string, init?: RequestInit, baseUrl = DEFAUL
 }
 export function fetchWorkspaces(): Promise<Workspace[]> { return requestJson('/api/workspaces'); }
 
-export function fetchReportPage(conversationId: string, messageId: string, page: number):
-  Promise<{content: string; page: number; page_count: number}> {
+export function fetchReportPage(conversationId: string, messageId: string, page: number,
+  section?: import('./lib/reportDocument').ReportSection, revision?: string):
+  Promise<import('./lib/reportDocument').ReportPage> {
   return requestJson(`/api/conversations/${encodeURIComponent(conversationId)}/report-page`, {
     method: 'POST', headers: {'content-type': 'application/json'},
-    body: JSON.stringify({message_id: messageId, page, request_id: crypto.randomUUID()}),
+    body: JSON.stringify({message_id: messageId, page, request_id: crypto.randomUUID(), section, revision}),
   });
 }
 export function saveWorkspace(body: Record<string, unknown>, id?: string): Promise<Workspace> {

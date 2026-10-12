@@ -28,6 +28,8 @@ class ReportPageRequest(BaseModel):
     message_id: str = Field(min_length=1, max_length=100)
     page: int = Field(ge=1, strict=True)
     request_id: str = Field(min_length=1, max_length=100)
+    section: Literal['body', 'references'] | None = None
+    revision: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
 
 
 class MessageRecord(BaseModel):

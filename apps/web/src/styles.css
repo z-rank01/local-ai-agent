@@ -757,6 +757,16 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
   color: var(--on-ink-2); font-size: var(--text-xs);
 }
 .reader-btn:hover { background: var(--ink-line-2); color: var(--on-ink); }
+.reader-sections { display: flex; justify-content: center; gap: var(--space-2); padding: var(--space-2); border-bottom: 1px solid var(--ink-line-2); }
+.reader-sections .reader-btn[aria-pressed="true"] { background: var(--ink-line-2); color: var(--on-ink); }
+.report-reference { border-bottom: 1px solid var(--ink-line-2); }
+.report-reference-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; padding: var(--space-4) 0; color: var(--on-ink); text-align: left; }
+.report-reference-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
+.report-reference[data-open="true"] > .report-reference-body { grid-template-rows: 1fr; }
+.report-reference-body-in { overflow: hidden; min-height: 0; }
+.report-reference-content { padding-bottom: var(--space-4); }
+.report-technical .md { overflow-wrap: anywhere; }
+.report-source-link { color: var(--accent-on-ink); text-decoration: underline; font: inherit; }
 .reader-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--ink-line-2); font-size: var(--text-xs); }
 .reader-btn:disabled { color: var(--on-ink-3); cursor: not-allowed; }
 .reader-feedback { padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--ink-line-2); border-radius: var(--radius-sm); color: var(--on-ink-2); }

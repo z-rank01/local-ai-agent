@@ -135,6 +135,7 @@ export default function App(): JSX.Element {
   const draftRef = useRef({input, attachedPaths, conversationId, workspaceId});
   draftRef.current = {input, attachedPaths, conversationId, workspaceId};
   const readerReturnToSheetRef = useRef(false);
+  const reportTriggerRef = useRef<HTMLElement | null>(null);
   const reportReadingPositionsRef = useRef(new Map<string, ReadingReport>());
   const deltaBufferRef = useRef<Record<string, {kind: 'assistant' | 'reasoning'; text: string}>>({});
   const deltaTimerRef = useRef<number | null>(null);
@@ -218,6 +219,15 @@ export default function App(): JSX.Element {
     setReaderZoomed(false);
     if (restore && readerReturnToSheetRef.current) { setSheetOpen(true); setSheetView("doc"); }
     readerReturnToSheetRef.current = false;
+    if (restore && reportTriggerRef.current) {
+      const trigger = reportTriggerRef.current;
+      window.requestAnimationFrame(() => {
+        if (trigger.isConnected) {
+          trigger.focus({preventScroll: true});
+          trigger.closest('.report-card')?.scrollIntoView({block: 'center'});
+        }
+      });
+    }
   }, []);
 
   const draftKey = (id: string | null, ws: string) => `local-ai-agent.draft.${id ?? 'new.' + ws}`;
@@ -988,6 +998,7 @@ export default function App(): JSX.Element {
   }, []);
 
   const openConversationReport = useCallback((report: ReadingReport) => {
+    reportTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     readerReturnToSheetRef.current = false;
     setSheetOpen(false);
     setReaderZoomed(true);
@@ -1002,6 +1013,7 @@ export default function App(): JSX.Element {
     if (!sheetDoc) {
       return;
     }
+    reportTriggerRef.current = null;
     readerReturnToSheetRef.current = true;
     setSheetOpen(false);
     setReaderZoomed(false);
