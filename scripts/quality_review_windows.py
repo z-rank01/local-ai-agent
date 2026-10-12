@@ -155,7 +155,11 @@ def collect_readings(plan, packet, receipts):
         if receipt['status'] != 'SUCCEEDED':
             gaps.append({'request_hash': key, 'status': receipt['status']})
             continue
-        if not receipt.get('response_id') or receipt.get('finish_reason') != 'stop':
+        provider_complete = receipt.get('response_id') and receipt.get('finish_reason') == 'stop'
+        bff_complete = (receipt.get('receipt_kind') == 'BFF_SESSION_COMPLETED'
+                        and receipt.get('message_id') and receipt.get('session_completed') is True
+                        and receipt.get('errors') == [])
+        if not (provider_complete or bff_complete):
             gaps.append({'request_hash': key, 'status': 'UNCONFIRMED_OR_TRUNCATED'})
             continue
         readings.append(validate_reading(expected[key], receipt['result']))
