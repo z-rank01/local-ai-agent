@@ -638,7 +638,7 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .trace-toggle .ico-sm { rotate: 0deg; transition: rotate var(--motion-base) var(--ease-standard); }
 .trace[data-open="true"] > .trace-head .trace-toggle .ico-sm { rotate: 180deg; }
 
-.steps-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
+.steps-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
 .trace[data-open="true"] > .steps-body { grid-template-rows: 1fr; }
 .steps-body > .steps-body-in { overflow: hidden; min-height: 0; }
 .steps { padding: 2px 14px 12px; display: grid; gap: 2px; }
@@ -955,7 +955,7 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
   padding: 16px 14px 12px; border-bottom: 1px solid var(--border-soft);
 }
 .sheet-title { font-size: var(--text-base); font-weight: 600; flex: 1; }
-.sheet-scroll { flex: 1; overflow-y: auto; padding: 12px 14px 24px; display: grid; gap: 10px; align-content: start; }
+.sheet-scroll { flex: 1; overflow-y: auto; padding: 12px 14px 24px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
 
 .panel { border-radius: var(--radius-md); background: var(--surface); }
 .panel-head {
@@ -966,10 +966,10 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .panel-meta { flex: 1; min-width: 0; text-align: right; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel-chev { color: var(--muted); rotate: 0deg; transition: rotate var(--motion-base) var(--ease-standard); }
 .panel[data-collapsed="false"] > .panel-head .panel-chev { rotate: 180deg; }
-.panel-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
+.panel-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
 .panel[data-collapsed="false"] > .panel-body { grid-template-rows: 1fr; }
 .panel-body > .panel-in { overflow: hidden; min-height: 0; }
-.panel-content { padding: var(--nest-pad) var(--nest-pad-in) var(--nest-pad-in); display: grid; gap: 12px; }
+.panel-content { padding: var(--nest-pad) var(--nest-pad-in) var(--nest-pad-in); display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .panel-hint { font-size: var(--text-xs); color: var(--muted); line-height: 1.55; }
 .panel-divider { height: 1px; background: var(--border-soft); }
 .panel-ok {
@@ -980,7 +980,7 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .row-lead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lead-title { font-size: var(--text-sm); font-weight: 600; }
-.field { display: grid; gap: 6px; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .field-label { font-size: var(--text-xs); font-weight: 500; color: var(--fg-2); }
 .field-inline { display: flex; gap: 8px; align-items: center; }
 .field-inline .grow { flex: 1; }
@@ -996,10 +996,10 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .acc[data-open="true"] > .acc-head .ico-sm { rotate: 180deg; }
 /* 可展开头部hover反馈：箭头与元信息由弱文本升到次文本，不动底色避免贴边色块 */
 .acc-head:hover .ico-sm, .review-head:hover .ico-sm, .picker-group-head:hover .ico-sm { color: var(--fg-2); }
-.acc-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
+.acc-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
 .acc[data-open="true"] > .acc-body { grid-template-rows: 1fr; }
 .acc-body > .acc-in { overflow: hidden; min-height: 0; }
-.acc-content { padding: var(--nest-pad); display: grid; gap: 10px; }
+.acc-content { padding: var(--nest-pad); display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 /* 二级手风琴退化为发丝行：取消卡片镀铬，与父级正文左对齐，
  * 层级靠字重下沉（600 → 500）与间距表达，不再卡套卡 */
 .acc .acc { background: none; box-shadow: none; border-radius: 0; }
@@ -1019,10 +1019,10 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .review-head .rmain { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-head .ico-sm { color: var(--muted); rotate: 0deg; transition: rotate var(--motion-base) var(--ease-standard); }
 .review[data-open="true"] > .review-head .ico-sm { rotate: 180deg; }
-.review-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
+.review-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
 .review[data-open="true"] > .review-body { grid-template-rows: 1fr; }
 .review-body > .review-body-in { overflow: hidden; min-height: 0; }
-.review-content { padding: var(--nest-gap-2) 10px 10px; font-size: var(--text-xs); color: var(--fg-2); display: grid; gap: 8px; }
+.review-content { padding: var(--nest-gap-2) 10px 10px; font-size: var(--text-xs); color: var(--fg-2); display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .mono-block {
   margin: 0; padding: 8px 10px; border-radius: var(--radius-sm);
   background: var(--ink); color: var(--on-ink-2);
@@ -1034,7 +1034,7 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
   font-size: 11px; padding: 3px 9px; border-radius: var(--radius-pill);
   background: var(--fg-soft); color: var(--fg-2); font-family: var(--code-font);
 }
-.stock-summary { display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--card); box-shadow: var(--shadow-card); }
+.stock-summary { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--card); box-shadow: var(--shadow-card); }
 .stock-line { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--muted); }
 .stock-line b { color: var(--fg); font-weight: 500; }
 .model-card { display: grid; gap: 6px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--card); box-shadow: var(--shadow-card); }
@@ -1467,7 +1467,7 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .skill-filter { position: relative; }
 .skill-filter .ico-sm { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--muted); pointer-events: none; }
 .skill-filter .input { padding-left: 30px; border-radius: var(--radius-pill); }
-.skill-list { display: grid; gap: 2px; }
+.skill-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .skill {
   border-radius: var(--radius-md);
   transition: background var(--motion-fast) var(--ease-standard),
@@ -1494,11 +1494,11 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .skill-name { font-size: var(--text-xs); font-weight: 600; }
 .skill-desc { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-top > .switch { flex: none; margin-right: 6px; }
-.skill-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
+.skill-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr; transition: grid-template-rows var(--motion-base) var(--ease-standard); }
 .skill-body > .skill-in { overflow: hidden; min-height: 0; }
 .skill[data-open="true"] > .skill-body { grid-template-rows: 1fr; }
 .skill-content {
-  display: grid; gap: 10px;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px;
   margin: 0 10px 6px; padding: 10px 2px 6px;
   border-top: 1px solid var(--border-soft);
 }

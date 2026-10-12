@@ -122,7 +122,8 @@
 6. **文案**：省略号全角"…"；用「工作台」「会话列表」等界面名称指路，不写会随断点失效的方向假设；确认分级见第 4 节按钮行。
 7. **不加依赖**：新需求先用现有栈（react-markdown / highlight.js / katex 等）解决；确需新库先征得同意。
 8. **铁律相关**：新可开关能力沿用"技能开关"模式；不加第二启动/退出路径；页面不暗示可直接操控 docker/股票进程（启动器 9511 托管）。
-9. 提交前：build + typecheck + 单测过；`git status` 只提交本任务文件。
+9. **单列网格必须 `minmax(0, 1fr)`**：任何 `display: grid` 的单列堆叠容器（折叠体 `.x-body`、内容体 `.x-content`、`.field`、`.sheet-scroll` 等）必须声明 `grid-template-columns: minmax(0, 1fr)`。深层子孙里不可折行的长串（如路径、型号 ID）的 min-content 贡献会穿透 `overflow: hidden` 逐层向上撑破网格轨道，导致内容画出卡片外；文本省略号（`overflow:hidden`+`text-overflow`）管不住这条贡献链（2026-10 技能卡展开溢出实测）。
+10. 提交前：build + typecheck + 单测过；`git status` 只提交本任务文件。
 
 ## 8. 新功能 UI checklist（按序过一遍）
 
