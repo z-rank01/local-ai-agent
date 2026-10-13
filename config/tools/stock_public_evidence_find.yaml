@@ -5,6 +5,10 @@ tier: extended
 cloud: read
 short_description: "查找每日简报或公司研究中的公开证据。"
 description: >
+  查询确定的公司财务指标时，优先同时传 subject_symbol（本任务已核验代码）、financial_metric 和 report_period，
+  不传 search。服务端核对对象及原任务字段，返回同一证券、指标、季度期间的精确读取位置；
+  例如 assets 是资产总计，revenue 是营业收入，parent_profit 是归母净利润，profit 是合并净利润，ocf 是经营现金流。
+  结构化参数不完整、证券不属于本任务或期间无效会明确拒绝，不猜对象、不静默改期或退回模糊查找。
   已读取报告时，优先使用该报告返回的 source_reference；不得把旧简报引用与新研究的事件混用。
   先用 stock_market_brief_find、stock_theme_research_find 或 stock_research_find 获取本会话已完成简报或主题公司研究的 reference。
   再按标题、公司代码、原文词语或报告页查找公开事件。结果覆盖整份已分析简报，
@@ -30,6 +34,18 @@ description: >
 parameters:
   type: object
   properties:
+    subject_symbol:
+      type: string
+      pattern: "^[0-9]{6}$"
+      description: "可选结构化财务定位：本任务核验的证券代码；须与指标和期间同时传，不传search"
+    financial_metric:
+      type: string
+      enum: [revenue, parent_profit, profit, ocf, cost, assets, liabilities, parent_equity, share_capital, cash, short_debt, long_debt, bonds, rd]
+      description: "可选结构化财务指标，assets=资产总计、parent_profit=归母净利润、profit=合并净利润；share_capital是股本金额，不是实际股份数"
+    report_period:
+      type: string
+      pattern: "^[0-9]{8}$"
+      description: "可选结构化财务期间：YYYYMMDD，只能0331/0630/0930/1231季度末，按用户要求或共同报告期选择"
     reference:
       type: string
       pattern: "^[0-9a-f]{64}$"

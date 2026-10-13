@@ -105,6 +105,7 @@ def _report_action(params):
 def _public_evidence_find_action(params):
     return {'action': 'public_evidence_find',
             'reference': {'type': 'task', 'token': params.get('reference', '')},
+            **{key: params[key] for key in ('subject_symbol','financial_metric','report_period') if params.get(key)},
             **({'search': params['search']} if params.get('search') else {}),
             **({'report_page': params['report_page']} if params.get('report_page') is not None else {}),
             **({'cursor': params['cursor']} if params.get('cursor') else {})}
