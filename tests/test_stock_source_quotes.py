@@ -280,6 +280,34 @@ from bff.schemas import ChatRequest
 
 
 class SourceQuoteServiceTests(ServiceTests):
+    async def test_program_scale_repair_keeps_raw_output_local_and_correct_final(self):
+        from tests.test_stock_calculation_review import history, REF
+        conv=await self.install_review_history()
+        for message in history():
+            self.runtime.store.add_message(conv.id,role='protocol',metadata={'cloud_safe':True,'message':message})
+        generated='114001200元 / 500764121.06元 ≈ 2.28倍。履约与回款仍待核。'
+        calls=[]
+        class Model:
+            cloud=True
+            model='qwen3.5-flash'
+            async def chat_stream_with_tools(self,*args):
+                calls.append(1)
+                yield generated,None
+                yield '',{'role':'assistant','content':generated}
+            async def close(self):pass
+        self.runtime.models.clients['qwen:qwen3.5-flash']=Model()
+        events=[e async for e in self.service.stream_chat(ChatRequest(conversation_id=conv.id,
+            message='解释已保存报告'+REF,provider_id='qwen',model='qwen3.5-flash'))]
+        final=next(e.data['text'] for e in events if e.event=='assistant.completed')
+        self.assertIn('0.23倍',final);self.assertNotIn('2.28倍',final)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(''.join(e.data['text'] for e in events if e.event=='assistant.delta'),final)
+        rows=self.runtime.store.get_messages(conv.id)
+        repaired=[json.loads(r.metadata) for r in rows if json.loads(r.metadata).get('quality_status')=='repaired_program_scale']
+        self.assertEqual(repaired[0]['original_answer'],generated)
+        self.assertFalse(repaired[0]['cloud_safe'])
+        self.assertFalse(any(generated==m.get('content') for m in self.runtime.store.messages_as_dicts(conv.id,cloud=True)))
+
     async def test_format_repair_preserves_original_locally_and_final_stream_matches(self):
         conv=await self.install_review_history()
         self.runtime.store.add_message(conv.id,role='protocol',metadata={'cloud_safe':True,'message':{
@@ -308,7 +336,7 @@ class SourceQuoteServiceTests(ServiceTests):
         cloud=self.runtime.store.messages_as_dicts(conv.id,cloud=True)
         self.assertFalse(any(generated==m.get('content') for m in cloud))
         local=self.runtime.store.messages_as_dicts(conv.id,cloud=False)
-        self.assertTrue(any('引文排版已按唯一授权原文' in m.get('content','') for m in local))
+        self.assertTrue(any('确定的局部修复' in m.get('content','') for m in local))
     async def install_review_history(self):
         conv=self.runtime.store.create_conversation()
         self.runtime.store.add_message(conv.id,role='protocol',metadata={'cloud_safe':True,'message':{

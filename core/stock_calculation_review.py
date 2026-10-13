@@ -1,0 +1,151 @@
+"""Read-only consistency checks for typed public program scale receipts.
+
+No formula execution, natural-language intent routing or research submission.
+Only a matched explicit division can be repaired. Other reasoning remains a
+model judgement and is not certified by this narrow arithmetic check.
+"""
+from __future__ import annotations
+
+import json
+import re
+from decimal import Decimal, InvalidOperation, localcontext
+
+_NUM = r'(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?'
+_DIV = re.compile(r'(?<![\w,.])(?P<n>'+_NUM+r')\s*(?P<nu>亿元|万元|元)\s*[/÷]\s*'
+                  r'(?P<d>'+_NUM+r')\s*(?P<du>亿元|万元|元)\s*(?:≈|=|约为|约等于)\s*[*_]*\s*'
+                  r'(?P<result>'+_NUM+r')\s*[*_]*\s*(?P<unit>倍|%|％)')
+_FACTORS = {'元': Decimal(1), '万元': Decimal(10000), '亿元': Decimal(100000000)}
+
+
+def validate_calculations(value):
+    """Validate a backend calculation receipt, not primary source authority."""
+    if not isinstance(value, list):
+        raise ValueError('程序计算回执必须为列表')
+    for row in value:
+        if (not isinstance(row, dict) or row.get('kind') != 'EVENT_SCALE'
+                or row.get('version') != 'event-scale-calculation-v1'
+                or not re.fullmatch(r'\d{6}', str(row.get('symbol', '')))
+                or not re.fullmatch(r'[12]\d{3}1231', str(row.get('annual_period', '')))
+                or not re.fullmatch(r'[0-9a-f]{64}', str(row.get('reader_revision', '')))):
+            raise ValueError('程序计算类型、期间或展示版本无效')
+        try:
+            with localcontext() as ctx:
+                ctx.prec = 28
+                for key in ('amount_yuan', 'annual_revenue_yuan', 'ratio', 'percent'):
+                    if not isinstance(row.get(key), str) or not re.fullmatch(r'\d+(?:\.\d+)?', row[key]):
+                        raise ValueError('程序数值格式无效')
+                n, d, ratio, percent = (Decimal(row[k]) for k in ('amount_yuan', 'annual_revenue_yuan', 'ratio', 'percent'))
+                if n <= 0 or d <= 0 or ratio != n / d or percent != ratio * 100:
+                    raise ValueError('程序数值与比值不一致')
+        except (InvalidOperation, ZeroDivisionError):
+            raise ValueError('程序数值不适用') from None
+    return value
+
+
+def calculation_index(messages):
+    """Latest successful paired report only, never user/model-stage content."""
+    calls, latest = {}, {}
+    for row in messages:
+        if row.get('role') == 'assistant':
+            for call in row.get('tool_calls') or []:
+                fn = call.get('function', {})
+                if fn.get('name') != 'stock_report_read':
+                    continue
+                try:
+                    args = fn.get('arguments', {})
+                    args = json.loads(args) if isinstance(args, str) else args
+                    ref = args.get('reference', '')
+                    if isinstance(ref, str) and re.fullmatch('[0-9a-f]{64}', ref):
+                        calls[call.get('id')] = ref
+                except (TypeError, ValueError, AttributeError):
+                    continue
+        if row.get('role') != 'tool' or row.get('tool_name') != 'stock_report_read':
+            continue
+        ref = calls.get(row.get('tool_call_id'))
+        if not ref:
+            continue
+        try:
+            value = json.loads(row.get('content') or '{}')
+            if value.get('error') or value.get('status') in ('RULE_BLOCKED', 'FAILED', 'ERROR'):
+                continue
+            value = value.get('model_observation', value)
+            if value.get('kind') != 'local_report_page' or value.get('source_reference') != ref:
+                continue
+            # New versions without a valid computation do not inherit one.
+            latest[ref] = []
+            rows = validate_calculations(value.get('program_calculations', []))
+            pages = value.get('answer_pages')
+            if rows and (not isinstance(pages, list) or not pages
+                    or not all(isinstance(page, dict) and page.get('reader_revision') == item['reader_revision']
+                               for page in pages for item in rows)):
+                continue
+            latest[ref] = [{**item, 'source_reference': ref} for item in rows]
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return latest
+
+
+def calculation_records(messages):
+    return [item for rows in calculation_index(messages).values() for item in rows]
+
+
+def _source_matches(text, unit, source):
+    value = Decimal(text.replace(',', ''))
+    ground = Decimal(source)
+    displayed = value * _FACTORS[unit]
+    # Permit presentation rounding such as 50,076.41万元, without accepting a
+    # changed denominator (e.g. half-year revenue or annualised revenue).
+    half_step = Decimal(10) ** value.as_tuple().exponent * _FACTORS[unit] / 2
+    return abs(displayed - ground) <= half_step and abs(displayed - ground) <= abs(ground) * Decimal('0.000001')
+
+
+def repair_scale_divisions(reply, records):
+    """Correct a source-matched division and isolate its dependent false scale.
+
+    Unsupported expressions and unrelated figures are left unchanged. This
+    does not approve the report, its sources or its business conclusions.
+    """
+    paragraphs = re.split(r'\n\s*\n', reply)
+    edits, bad_scales = [], []
+    for position, paragraph in enumerate(paragraphs):
+        def repair(match):
+            candidates = [row for row in records
+                          if _source_matches(match['n'], match['nu'], row['amount_yuan'])
+                          and _source_matches(match['d'], match['du'], row['annual_revenue_yuan'])]
+            unique = {(r['ratio'], r['annual_period']) for r in candidates}
+            if len(unique) != 1:
+                return match[0]
+            row = candidates[0]
+            expected = Decimal(row['ratio']) if match['unit'] == '倍' else Decimal(row['percent'])
+            claimed = Decimal(match['result'].replace(',', ''))
+            epsilon = Decimal(10) ** claimed.as_tuple().exponent / 2
+            if claimed > 0 and abs(expected - claimed) <= epsilon:
+                return match[0]
+            exact = format(expected.quantize(Decimal('0.01')), 'f')
+            start, end = match.span('result')
+            local_start, local_end = start - match.start(), end - match.start()
+            changed = match[0][:local_start] + exact + match[0][local_end:]
+            edits.append({'paragraph': position, 'original_expression': match[0],
+                          'replacement': changed, 'reason': 'BOUND_EVENT_SCALE_ARITHMETIC',
+                          'source_reference': row['source_reference'], 'reader_revision': row['reader_revision']})
+            bad_scales.append((position, match['result'], match['unit'], row))
+            return changed
+        paragraphs[position] = _DIV.sub(repair, paragraph)
+    for position, paragraph in enumerate(paragraphs):
+        if not re.search(r'合同|中标|项目', paragraph) or not re.search(r'营收|营业收入|规模', paragraph):
+            continue
+        for expression_position, bad, unit, row in bad_scales:
+            marker = re.search(r'(?<![\d.,])' + re.escape(bad) + r'\s*[*_]*\s*' + re.escape(unit), paragraph)
+            if not marker or position == expression_position:
+                continue
+            preceding = paragraph[max(0, marker.start()-12):marker.start()]
+            if re.search(r'并非|不是|不等于|不能|错误|不应', preceding):
+                continue
+            edits.append({'paragraph': position, 'original_paragraph': paragraph,
+                          'reason': 'DEPENDENT_UNSUPPORTED_SCALE_INFERENCE',
+                          'source_reference': row['source_reference'], 'reader_revision': row['reader_revision']})
+            percent = format(Decimal(row['percent']).quantize(Decimal('0.01')), 'f')
+            paragraphs[position] = ('经营规模仅作参照：项目总额约为' + row['annual_period'][:4]
+                                    + '年度营收的' + percent + '%，不代表当年新增收入、利润或收入确认预测。')
+            break
+    return '\n\n'.join(paragraphs), edits

@@ -364,12 +364,32 @@ class StockBridge:
             answer_pages = observation.get('answer_pages')
             if not state.get('allow_report_body'):
                 observation.pop('answer_pages', None)
+                observation.pop('program_calculations', None)
             elif isinstance(answer_pages, list) and answer_pages:
                 if all(isinstance(item, dict) and item.get('kind') == 'local_report_page'
                        and isinstance(item.get('body'), str) and type(item.get('page_count')) is int
                        and item['page_count'] >= 1 and type(item.get('requested_page')) is int
                        and 1 <= item['requested_page'] <= item['page_count']
                        for item in answer_pages):
+                    if 'program_calculations' in observation:
+                        from .stock_calculation_review import validate_calculations
+                        try:
+                            calculations = validate_calculations(observation['program_calculations'])
+                            body_text = ''.join(item['body'] for item in answer_pages)
+                            from decimal import Decimal
+                            for calc in calculations:
+                                if (not all(item.get('reader_revision') == calc['reader_revision'] for item in answer_pages)
+                                        or calc['amount_yuan'] not in body_text
+                                        or calc['annual_revenue_yuan'] not in body_text
+                                        or calc['annual_period'] not in body_text
+                                        or format(Decimal(calc['percent']).quantize(Decimal('0.01')), 'f')+'%' not in body_text):
+                                    raise ValueError('程序计算与正文或展示版本不一致')
+                            observation['page_reading'] += (
+                                'program_calculations是同一正文、同一展示版本的程序规模参照，'
+                                '不是模型估计或当年收入预测；倍数与百分数按程序值解释，保留基数、单位和年度。')
+                        except (TypeError, ValueError):
+                            observation.pop('program_calculations', None)
+                            observation['page_reading'] += '程序计算回执未通过数值或展示版本核验，相关计算仍待核。'
                     observation['page_reading'] += (
                         'answer_pages 是与新版阅读器正文一致的已保存阶段分析，优先据此回答原问题；'
                         '阶段分析属于模型输出，不是来源原文。用户要求核对原文时，'
@@ -383,7 +403,10 @@ class StockBridge:
                     )
                 else:
                     observation.pop('answer_pages', None)
+                    observation.pop('program_calculations', None)
                     observation['page_reading'] += '新版正文投影未通过校验，仅能解释当前旧页，勿声称已读新版正文。'
+            else:
+                observation.pop('program_calculations', None)
         elif tool in ('stock_public_evidence_find', 'stock_public_evidence_read') and isinstance(observation, dict) and observation.get('kind') in ('public_evidence_find', 'public_evidence_read'):
             observation = dict(observation)
             observation['source_reference'] = params['reference']

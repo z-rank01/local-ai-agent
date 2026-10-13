@@ -969,7 +969,7 @@ class ChatSessionService:
                         # audit. This is not new evidence or a cloud message.
                         save('protocol', metadata={**meta, 'cloud_safe': False,
                             'message': {'role': 'system', 'content':
-                                '引文排版已按唯一授权原文局部修复；这不认证其他事实或缺失判断。'},
+                                '已按本轮授权原文或同版程序结果作确定的局部修复；其他事实和缺失判断仍须核验。'},
                             'quality_status': event.data['quality_status'],
                             'original_answer': event.data['original_answer'],
                             'quality_edits': event.data['quality_edits']})

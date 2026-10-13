@@ -265,6 +265,8 @@ class Agent:
         source_quote_originals = original_texts(messages)
         source_read_records = original_records(messages)
         source_index = source_task_index(messages)
+        from .stock_calculation_review import calculation_index
+        source_calculation_index = calculation_index(messages)
         self.pending_source_review = ''
         cloud = getattr(self.llm, "cloud", False)
         try:
@@ -432,12 +434,16 @@ class Agent:
                         messages.append(source_index_message)
                     messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
                 messages = index_prior_explanations(messages)
+                source_calculation_index.update(calculation_index(messages))
                 messages = await self.context_mgr.process(messages)
                 accumulated = None
                 quote_guard = stock_read_seen and (quality_research or getattr(self, 'stock_source_review_enabled', False))
                 pending_tokens = []
                 reviewing_thinking = False
-                quote_buffering = False
+                # With a typed program receipt, defer visible prose until its
+                # numeric claims have been checked. Reasoning protocol remains
+                # unchanged and is not part of the calculation audit.
+                quote_buffering = quote_guard and any(source_calculation_index.values())
                 review_visible_prefix = ''
                 self.audit.record('model_tools_offered', {'session_id': session_id,
                     'names': [d['function']['name'] for d in active],
@@ -549,6 +555,30 @@ class Agent:
                     reply = accumulated.get('content') or ''
                     source_quote_originals = list(dict.fromkeys(source_quote_originals + original_texts(messages)))
                     source_read_records.extend(original_records(messages))
+                    from .stock_calculation_review import repair_scale_divisions
+                    current_ref_tokens = set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', user_request))
+                    if not current_ref_tokens and source_index:
+                        current_ref_tokens = {source_index[0]['source_reference']}
+                    program_records = [row for ref, rows in source_calculation_index.items()
+                                       if ref in current_ref_tokens for row in rows]
+                    calculated_reply, calculation_edits = repair_scale_divisions(reply, program_records)
+                    if calculation_edits:
+                        yield AgentEvent('quality_repaired', data={'original_answer': reply,
+                            'quality_edits': calculation_edits, 'quality_status': 'repaired_program_scale'})
+                        emitted_chars = len(review_visible_prefix) - sum(len(token) for token in pending_tokens)
+                        if calculated_reply[:emitted_chars] != reply[:emitted_chars]:
+                            # Replace the visible draft as well as final text,
+                            # so an earlier streamed wrong number does not stay.
+                            yield AgentEvent('quality_rejected', data={'quality_status': 'replaced_program_scale_draft',
+                                'message': {'role': 'system', 'content': '已用同版程序结果局部纠正规模比值，原错误文字仅留审计。'},
+                                'rejected_answer': reply, 'quality_issues': calculation_edits})
+                            emitted_chars = 0
+                        reply = calculated_reply
+                        accumulated = {**accumulated, 'content': reply}
+                        messages[-1] = accumulated
+                        pending_tokens = [reply[emitted_chars:]]
+                        self.audit.record('program_scale_repaired', {'session_id': session_id,
+                            'count': len(calculation_edits), 'provider_call_added': False})
                     repaired, format_edits = repair_quote_format(reply, source_quote_originals)
                     if format_edits:
                         yield AgentEvent('quality_repaired', data={'original_answer': reply,
