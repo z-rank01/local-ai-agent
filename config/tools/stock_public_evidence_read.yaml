@@ -9,9 +9,10 @@ description: >
   event_id 必须来自 stock_public_evidence_find。读取本事件的来源、日期、
   事实引文、分析、反证、观察事项和有位置的原文段落。长正文用 next_cursor 续取。
   kind 为 ORIGINAL_TEXT 或 PEER_ORIGINAL_TEXT（旧事件未标 kind 时沿用原文）的 excerpt.text，才可加引号称为逐字引文；SOURCE_FIELD 是结构化财报字段，CONDITIONAL_CALCULATION 是条件计算，AI_COMPARABILITY_INFERENCE 是推断，必须区分。
-  不得删词、拼接或规范化 PDF 空格后仍称逐字引文。摘短句时也须保持原样，
-  优先摘取 10 到 30 字、无需改动引号或空格的连续子串，并在输出前逐字符核对；
-  无法保证时只作明确标注的转述。给出对应 excerpt_id 与 location。
+  不得删词、拼接或改写后仍称逐字引文。按当前问题摘取完整、保留条件的连续原句，
+  不设固定引文字数；在输出前逐字符核对，无法保证时只作明确标注的转述。
+  excerpt_id 和游标用于内部核对，不展示在普通回答正文。
+  出处给实际来源名称、链接及可核验原文位置，不能将内部游标当作PDF页码。
   不要把行业背景当成某公司受益的直接证据。
   source 是事件类别，不是发布机构。引用来源时使用 source_provenance 和实际 URL；
   公告 PDF 链接属于提供方附件时，不得自行称其来自证券交易所或监管机构。
