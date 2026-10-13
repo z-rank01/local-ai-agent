@@ -249,6 +249,11 @@ class Agent:
         import uuid
         conversation_key = conversation_key or session_id
         messages = strip_think_tags_from_history(messages)
+        stock_read_tools = ('stock_report_read', 'stock_public_evidence_read')
+        # Read provenance comes from authorized tool history, before compaction can
+        # replace its protocol messages with a source index. It is turn-local.
+        stock_read_seen = any(m.get('role') == 'tool' and m.get('tool_name') in stock_read_tools
+                              for m in messages)
         cloud = getattr(self.llm, "cloud", False)
         try:
             ws_sections = []
@@ -355,9 +360,8 @@ class Agent:
                         "[本轮股票交付窗口已到。围绕原问题交付已核对判断、依据、反证及缺口。报告卡承载任务引用，用户未明确要求时不重复内部ID。仅按真实受理回执与当前状态说明后台进度，未受理或已暂停的任务不能声称正在自动运行；不新增用户未授权任务。]"
                         if stock_window_closed else
                         "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
-                read_tools = ('stock_report_read', 'stock_public_evidence_read')
-                if (any(counts.get(name, 0) for name in read_tools) or any(
-                        m.get('role') == 'tool' and m.get('tool_name') in read_tools for m in messages)):
+                stock_read_seen = stock_read_seen or any(counts.get(name, 0) for name in stock_read_tools)
+                if stock_read_seen:
                     # Transient control guidance belongs to this model view, not user history.
                     # Keep one fresh copy after evidence reads instead of accumulating it.
                     messages = [m for m in messages if not (m.get('role') == 'system'

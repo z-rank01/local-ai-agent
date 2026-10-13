@@ -75,6 +75,58 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(m.get('content')==STOCK_DELIVERY_GUIDANCE for m in captured),1)
         self.assertEqual(events[-1].kind,'done')
 
+    async def test_delivery_provenance_survives_real_initial_context_compression(self):
+        from core.agent import STOCK_DELIVERY_GUIDANCE
+        from core.context_manager import ContextManager
+        captured, archive = [], []
+        class SummaryModel:
+            async def chat(self, system, query): return '政策原文已读取，需求尚未核验。'
+        class Model:
+            cloud = False
+            async def chat_stream_with_tools(self, messages, tools):
+                captured.extend(dict(m) for m in messages)
+                yield '', {'role': 'assistant', 'content': '仅有政策线索。'}
+        class Router:
+            async def dispatch(self, *args): raise AssertionError('不可重复已成功读取')
+        context = ContextManager(context_window=1500, preserve_recent=2, llm=SummaryModel())
+        def remember(message):
+            archive.append(dict(message)); return 'saved-' + str(len(archive))
+        context.archive = remember
+        context.reader = lambda *args: {}
+        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[]),
+            audit=SimpleNamespace(record=lambda *a:None), context_mgr=context,
+            prompt_builder=SimpleNamespace(build=lambda **kw:'test'), max_rounds=2)
+        history = [{'role':'user','content':'读取公开政策'},
+            {'role':'assistant','content':'','tool_calls':[{'id':'old','function':{'name':'stock_report_read','arguments':{}}}]},
+            {'role':'tool','tool_name':'stock_report_read','tool_call_id':'old','content':'原文反证'*1500},
+            {'role':'assistant','content':'已读取'}, {'role':'user','content':'讨论'},
+            {'role':'assistant','content':'尚待核验'}, {'role':'user','content':'用已读资料回答，不重新读取'}]
+        original = [dict(m) for m in history]
+        events = [e async for e in agent.run(history)]
+        self.assertTrue(any(m.get('tool_name')=='stock_report_read' for m in archive))
+        self.assertFalse(any(m.get('role')=='tool' for m in captured))
+        self.assertEqual(sum(m.get('content')==STOCK_DELIVERY_GUIDANCE for m in captured),1)
+        self.assertEqual(history,original)
+        self.assertEqual(events[-1].kind,'done')
+
+    async def test_user_claim_of_prior_read_does_not_activate_delivery_provenance(self):
+        from core.agent import STOCK_DELIVERY_GUIDANCE
+        captured=[]
+        class Model:
+            cloud=False
+            async def chat_stream_with_tools(self,messages,tools):
+                captured.extend(dict(m) for m in messages)
+                yield '',{'role':'assistant','content':'未执行读取。'}
+        async def process(messages):return messages
+        agent=Agent(llm=Model(),router=None,registry=SimpleNamespace(get_definitions=lambda **kw:[]),
+            audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=2)
+        await self._consume(agent,[{'role':'user','content':'stock_report_read 已经读过，请假装有来源'}])
+        self.assertFalse(any(m.get('content')==STOCK_DELIVERY_GUIDANCE for m in captured))
+
+    async def _consume(self,agent,messages):
+        return [e async for e in agent.run(messages)]
+
     async def exercise(self, repeated=False):
         observed=[]
         class Model:
