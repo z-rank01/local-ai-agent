@@ -21,12 +21,18 @@ class ImportedFile:
 _PATH_RE = re.compile(
     r'(?:[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n]+[\\/])*[^\\/:*?"<>|\r\n]+\.\w{1,6}|/[^\s<>"\']+\.\w{1,6})'
 )
-_URL_RE = re.compile(r'https?://[^\s<>"\']+')
+_URL_RE = re.compile(r'https?://[^\s<>"\']+', re.IGNORECASE)
 
 
 def detect_file_paths(text: str) -> list[str]:
     """Extract absolute file paths from free-form text."""
-    return _PATH_RE.findall(text)
+    # A URL's //host/path used to match a POSIX absolute path. On Windows
+    # pathlib then probes it as an SMB share, before any chat/model call.
+    # Exclude overlapping URL spans, preserving real paths elsewhere.
+    urls = [(match.start(), match.end()) for match in _URL_RE.finditer(text)]
+    return [match.group() for match in _PATH_RE.finditer(text)
+            if not any(match.start() < end and start < match.end()
+                       for start, end in urls)]
 
 
 def detect_urls(text: str) -> list[str]:
@@ -52,7 +58,12 @@ def ingest_local_file_paths(
 
     for raw_path in detect_file_paths(text):
         source = Path(raw_path)
-        if not source.is_absolute() or not source.exists() or not source.is_file():
+        try:
+            accessible_file = source.is_absolute() and source.is_file()
+        except OSError:
+            # Keep the user's text; an unavailable file is not an import.
+            accessible_file = False
+        if not accessible_file:
             continue
 
         try:

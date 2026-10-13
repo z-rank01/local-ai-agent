@@ -267,7 +267,11 @@ class ChatSessionService:
         from core.input_utils import detect_file_paths
         for raw in detect_file_paths(text):
             path = Path(raw)
-            if path.is_absolute() and path.is_file():
+            try:
+                accessible_file = path.is_absolute() and path.is_file()
+            except OSError:
+                accessible_file = False
+            if accessible_file:
                 try:
                     text = text.replace(raw, self._snapshot.virtual(path))
                 except HTTPException:
