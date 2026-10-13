@@ -12,7 +12,7 @@ _LABEL = re.compile(r'原文|原句|原话|(?:逐字|准确)(?:引文|引用)|�
 _QUOTES = re.compile(r'“([^”\n]+)”|"([^"\n]+)"')
 _PARAPHRASE = re.compile(r'转述|概括|释义|意译|不是原文|非逐字')
 _SEARCH_LABEL = re.compile(r'检索词|搜索词|关键词|检索示例|未找到|未出现|等字样')
-_ABSENCE = re.compile(r'(?:文件|通知|原文|公告|文中|条款)[^\n。；]{0,45}?(?:未(?:明确)?(?:规定|出现|提及|找到|见)|没有|不存在|无[“"\w\u4e00-\u9fff])')
+_ABSENCE = re.compile(r'(?:文件|通知|原文|公告|文中|条款)[^\n。；]{0,45}?(?:未(?:明确)?(?:规定|出现|提及|找到|见)|没有|不存在|无(?!法|从)[“"\w\u4e00-\u9fff])')
 READ_TOOLS = frozenset({'stock_public_evidence_find', 'stock_public_evidence_read',
                        'stock_report_read', 'stock_research_find', 'stock_theme_research_find',
                        'stock_market_brief_find', 'context_evidence_read'})
@@ -292,6 +292,10 @@ def unverified_quotes(reply, originals):
                 # itself a claim that these words occur in the document.
                 label = re.sub(r'[*_`]', '', text).strip()
                 if re.fullmatch(r'(?:原文|原句|原话|准确引文|逐字引文)(?:引文|引用|条款)?[：:]?', label):
+                    continue
+                if re.fullmatch(r'\((?:excerpt_?id|正文字符|来源位置)[：:].*\)', label):
+                    # A standalone location annotation is not a literal quote.
+                    # This does not certify its source ID or numeric position.
                     continue
                 quotes = [text]
             for text in quotes:

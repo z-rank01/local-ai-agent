@@ -13,6 +13,16 @@ def source_message(text, kind='ORIGINAL_TEXT', **extra):
 
 
 class SourceQuoteTests(unittest.TestCase):
+    def test_inability_to_infer_is_not_a_source_absence_claim(self):
+        for reply in ('仅凭该文件无法确认2026需求已兑现。', '这份通知无从证明实际销量。'):
+            self.assertFalse(unverified_absence_claims(reply,[]))
+        for reply in ('该文件没有公布兑付金额。', '原文无结转条款。', '通知未规定资金收回。'):
+            self.assertTrue(unverified_absence_claims(reply,[]))
+
+    def test_standalone_source_position_note_not_checked_as_verbatim_prose(self):
+        reply='准确原文：\n\n> “真实原句。”\n> *(excerpt_id: aabbcc，正文字符 10-16)*'
+        self.assertFalse(unverified_quotes(reply,['真实原句。']))
+        self.assertTrue(unverified_quotes('准确原文：\n\n> “虚构原句。”\n> *(excerpt_id: aabbcc)*',['真实原句。']))
     def test_label_not_a_literal_claim_and_whitespace_restored_to_actual_source(self):
         reply='准确原文：\n\n> **原文引文：**\n> “截至 2024 年 12 月 31 日未用完的中央下达资金额度收回中央。”'
         source='截至2024年12月31日未用完的中央下达资金额度收回中央。'
