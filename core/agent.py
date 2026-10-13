@@ -310,13 +310,13 @@ class Agent:
                     if prior_index:
                         self.context_mgr.evidence_ids.update(row['evidence_id'] for row in prior_index)
                         self.audit.record('task_explanation_view', {'session_id': session_id,
-                            'version': 'reader-material-index-v1' if material_index else explanation_view_version,
+                            'version': 'reader-material-index-v2' if material_index else explanation_view_version,
                             'indexed_messages': len(prior_index), 'indexed_report_materials': len(material_index),
                             'before_chars': sum(len(row.get('content') or '') for row in history),
                             'after_chars': sum(len(row.get('content') or '') for row in view)})
                         explanation_view_active = True
                         if material_index:
-                            explanation_view_version = 'reader-material-index-v1'
+                            explanation_view_version = 'reader-material-index-v2'
                         return view
                 except Exception:
                     # No durable index means no replacement of the original

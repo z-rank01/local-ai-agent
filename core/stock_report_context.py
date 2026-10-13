@@ -76,10 +76,11 @@ def report_material_view(messages, archive):
     for position, reference, envelope, value in reports:
         if reference not in latest:
             continue
-        already_indexed = value.get('material_view_version') == 'reader-material-index-v1'
-        if already_indexed and (position == latest[reference] or not _body_pages(value)):
+        already_indexed = value.get('material_view_version') in ('reader-material-index-v1','reader-material-index-v2')
+        prior_comparison = position != latest[reference] and isinstance(value.get('comparison_context'),dict)
+        if already_indexed and (position == latest[reference] or not _body_pages(value) and not prior_comparison):
             continue
-        if not isinstance(value.get('body'), str) and not _body_pages(value):
+        if not isinstance(value.get('body'), str) and not _body_pages(value) and not prior_comparison:
             continue
         row = messages[position]
         eid = value.get('legacy_material_evidence_id') if already_indexed else archive({**row, 'record_kind': 'report_model_material'})
@@ -89,7 +90,8 @@ def report_material_view(messages, archive):
         projected.pop('body', None)
         if position != latest[reference]:
             projected.pop('answer_pages', None)
-        projected.update(material_view_version='reader-material-index-v1',
+            projected.pop('comparison_context', None)
+        projected.update(material_view_version='reader-material-index-v2',
                          legacy_material_evidence_id=eid,
                          material_reading=(
                              '旧整篇页面和模型阶段材料已完整归档，可用context_evidence_read回读；'
@@ -97,6 +99,7 @@ def report_material_view(messages, archive):
                              '仍是已保存模型分析，保持其中部分成果与未完成项含义。'
                              '逐字引文、印发日期和资金适用范围须以实际公开来源读取回执为依据；'
                              '网页发布日期不自动等于文件印发日期，规定应收回不证明已实际收回。'
+                             '旧报告的完整比较字段目录也在同一归档中，当前最新目录保持完整；'
                              '若比较历史版本或查原阶段推断，请回读相应证据；不向用户展示内部索引。'))
         if 'model_observation' in envelope:
             projected = {**envelope, 'model_observation': projected}
