@@ -1,9 +1,9 @@
-display_name: "恢复中断的研究"
+display_name: "继续研究"
 name: stock_research_resume
 backend: stock-bridge
 tier: extended
 cloud: read
-short_description: "恢复一个中断的研究任务（条件严格）。"
+short_description: "接续研究，恢复确定拒绝窗口或综合已保存成功成果。"
 description: >
   恢复本会话一个已中断的个股研究，或用户明确要求在外部条件改善后恢复主题研究的唯一已知供应商拒绝窗口。
   使用 stock_research_find 或 stock_theme_research_find 返回的本会话 64 位任务引用。
@@ -12,6 +12,8 @@ description: >
   缺少材料（NEEDS_MATERIALS）的研究不能恢复，只能 redo 重新研究。
   主题恢复由服务端核验原冻结版本、原输入和确定失败回执，保留原失败并关联一个稳定恢复尝试；
   只恢复该窗口，不代表已完成全文综合。成功、活跃或UNKNOWN调用不会重发；不得改引用绕过拒绝。
+  用户要汇总已成功阅读的部分时，continuation_stage=partial_synthesis；服务器绑定真实成功回执与原文，
+  新任务沿原问题、已启用方法和模型参数开展部分综合，未完成或被拒来源保留为覆盖缺口，不会重跑原阅读。
   被拒绝时把拒绝码如实告诉用户，不要重试相同参数。
 parameters:
   type: object
@@ -19,5 +21,9 @@ parameters:
     reference:
       type: string
       description: "本会话个股或主题查找返回的 64 位任务引用"
+    continuation_stage:
+      type: string
+      enum: [partial_synthesis]
+      description: "仅在用户接续已保存主题分析、需要成功窗口部分综合时提供；省略沿原恢复规则。"
   required:
     - reference

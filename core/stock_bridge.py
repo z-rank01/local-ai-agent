@@ -151,6 +151,13 @@ def _reference_action(action_name):
     return build
 
 
+def _resume_action(params):
+    action = _reference_action('resume_research')(params)
+    if params.get('continuation_stage') is not None:
+        action['continuation_stage'] = params['continuation_stage']
+    return action
+
+
 _TOOL_ACTIONS = {
     'stock_account_view': _account_action,
     'stock_research_find': _find_action,
@@ -171,7 +178,7 @@ _TOOL_ACTIONS = {
     'stock_market_brief': _market_brief_action,
     'stock_market_brief_continue': _reference_action('continue_market_brief'),
     'stock_research_cancel': _reference_action('cancel_research'),
-    'stock_research_resume': _reference_action('resume_research'),
+    'stock_research_resume': _resume_action,
 }
 
 _SYMBOL_RE = re.compile(r'^\d{6}$')
