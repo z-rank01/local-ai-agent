@@ -15,6 +15,22 @@ class ModelCapacityTests(unittest.TestCase):
 
 
 class DeclaredResearchContextTests(unittest.IsolatedAsyncioTestCase):
+    async def test_verified_chat_model_keeps_large_report_and_late_counterevidence(self):
+        import json
+        from pathlib import Path
+        from core.context_manager import ContextManager
+        from unittest.mock import AsyncMock
+        items = json.loads((Path(__file__).resolve().parents[1]/'config/models.json').read_text(encoding='utf-8'))
+        spec = next(item for item in items if item['model']=='qwen3.5-flash')
+        capacity, source = context_capacity(spec)
+        self.assertEqual((capacity,source),(1000000,'model_catalog'))
+        messages = [{'role':'user','content':'已保存公开报告与原文。'*23000+'末尾反证：历史资金不能证明当前需求。'}]
+        manager = ContextManager(context_window=capacity)
+        manager.auto_compact = AsyncMock(side_effect=AssertionError('unnecessary compression'))
+        self.assertGreater(manager.estimate_tokens(messages),110000)
+        self.assertEqual(await manager.process(messages),messages)
+        manager.auto_compact.assert_not_awaited()
+
     async def test_verified_qwen_capacity_preserves_report_beyond_old_fallback(self):
         import json
         from pathlib import Path

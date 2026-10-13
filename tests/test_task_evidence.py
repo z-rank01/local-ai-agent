@@ -150,3 +150,44 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, messages)
         eid = manager.archive(messages[1])
         self.assertIn('合同终止', manager.read_evidence(eid)['content'])
+
+    async def test_nonshrinking_summary_is_not_repeated_for_transient_guidance(self):
+        calls=[]
+        class Model:
+            async def chat(self, system, user):
+                calls.append(user)
+                return user+'不能缩短的说明'
+        manager=ContextManager(context_window=4096,preserve_recent=2,llm=Model())
+        manager.archive=lambda m:self.store.archive_task_evidence(self.conv.id,'local',m)
+        manager.reader=lambda eid,cursor:self.store.read_task_evidence(self.conv.id,'local',eid,cursor)
+        messages=[{'role':'user','content':'核对'}, {'role':'tool','content':'原文。'*1900+'末尾：合同取消'},
+                  {'role':'assistant','content':'待核'}, {'role':'user','content':'继续'}, {'role':'assistant','content':'当前问题'}]
+        result=await manager.process(messages)
+        self.assertEqual(result,messages)
+        count=len(calls)
+        self.assertGreater(count,0)
+        self.assertEqual(await manager.process(messages+[{'role':'system','content':'按当前问题交付'}]),
+                         messages+[{'role':'system','content':'按当前问题交付'}])
+        self.assertEqual(len(calls),count)
+        eid=manager.archive(messages[1])
+        self.assertIn('末尾：合同取消',manager.read_evidence(eid)['content'])
+
+    async def test_failed_compaction_blocks_oversize_send_without_retry(self):
+        calls=[]
+        class Model:
+            async def chat(self,*args):
+                calls.append(args)
+                raise TimeoutError('unknown')
+        manager=ContextManager(context_window=4096,preserve_recent=2,llm=Model())
+        manager.summary_profile={'model':'fixed'}
+        manager.archive=lambda m:self.store.archive_task_evidence(self.conv.id,'cloud',m)
+        manager.reader=lambda eid,cursor:self.store.read_task_evidence(self.conv.id,'cloud',eid,cursor)
+        manager.summary_cache_reader=lambda key:self.store.cached_task_summary(self.conv.id,'cloud',key)
+        messages=[{'role':'user','content':'核对'}, {'role':'tool','content':'完整原文。'*6000+'末尾反证'},
+                  {'role':'assistant','content':'待核'}, {'role':'user','content':'继续'}, {'role':'assistant','content':'当前问题'}]
+        for extra in ([],[{'role':'system','content':'保留当前问题'}]):
+            with self.assertRaisesRegex(RuntimeError,'不能发送超窗材料或重复压缩'):
+                await manager.process(messages+extra)
+        self.assertEqual(len(calls),1)
+        eid=manager.archive(messages[1])
+        self.assertIn('末尾反证',manager.read_evidence(eid,len(messages[1]['content'])-20)['content'])

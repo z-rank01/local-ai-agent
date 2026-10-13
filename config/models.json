@@ -4,6 +4,9 @@
     "provider_name": "通义千问",
     "kind": "cloud",
     "model": "qwen3.5-flash",
+    "context_window": 1000000,
+    "context_reference": "https://help.aliyun.com/zh/model-studio/qwen3-5-flash",
+    "context_verified_at": "2026-10-13",
     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "api_key_env": "DASHSCOPE_API_KEY",
     "capabilities": [

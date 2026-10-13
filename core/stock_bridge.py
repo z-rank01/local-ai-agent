@@ -367,6 +367,9 @@ class StockBridge:
                        for item in answer_pages):
                     observation['page_reading'] += (
                         'answer_pages 是与新版阅读器正文一致的已保存阶段分析，优先据此回答原问题；'
+                        '阶段分析属于模型输出，不是来源原文。用户要求核对原文时，'
+                        '须使用 stock_public_evidence_find 和 stock_public_evidence_read 读取对应资料；'
+                        '没有读到原文时只能明确转述阶段分析，不称原文已核实，也不把转述放进逐字引号。'
                         '其页数仅指正文，与旧 body 的整篇页数不同，同页分片按数组顺序拼接。'
                         '后续补查未完成时保持部分成果含义；程序归档成功不等于研究完成。'
                         '原 body 保留旧版过程页，不用初稿缺口覆盖后续已取得的依据。'

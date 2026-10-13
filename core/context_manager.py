@@ -75,6 +75,9 @@ class ContextManager:
         self.evidence_ids = set()
         self.summary_cache_reader = None
         self.summary_profile = None
+        # One manager belongs to one turn. Failed preparation must not restart
+        # immediately when the agent adds transient delivery instructions.
+        self._compact_failure = None
 
     async def _summarize_chunk(self, chunk: str, *, target_chars: int | None = None) -> str:
         import hashlib
@@ -218,6 +221,7 @@ class ContextManager:
                 chunk = conversation[start:start + chunk_chars]
                 part = await self._summarize_chunk(chunk, target_chars=part_target)
                 if not part:
+                    self._compact_failure = '历史摘要返回空结果'
                     return messages
                 summaries.append(part)
             summary = '\n\n'.join(summaries)
@@ -234,11 +238,13 @@ class ContextManager:
                     part = await self._summarize_chunk(summary[start:start + chunk_chars],
                         target_chars=max(256, summary_target // reduce_count))
                     if not part:
+                        self._compact_failure = '历史摘要整理返回空结果'
                         return messages
                     reduced.append(part)
                 next_summary = '\n\n'.join(reduced)
                 if len(next_summary) >= len(summary):
                     logger.warning('AutoCompact made no progress; keeping original evidence')
+                    self._compact_failure = '历史摘要没有缩短内容'
                     return messages
                 summary = next_summary
             indexed = self.archive({'role': 'assistant', 'record_kind': 'task_summary',
@@ -246,10 +252,12 @@ class ContextManager:
             self.evidence_ids.add(indexed)
         except Exception as exc:
             logger.error("AutoCompact LLM call failed: %s", exc)
+            self._compact_failure = '历史摘要调用未完成或结果尚未确认'
             return messages
 
         if not summary:
             logger.warning("AutoCompact returned empty summary, keeping original")
+            self._compact_failure = '历史摘要返回空结果'
             return messages
 
         summary_msg: dict = {
@@ -275,8 +283,11 @@ class ContextManager:
     async def process(self, messages: list[dict]) -> list[dict]:
         result = self.micro_compact(messages)
         threshold = int(self._context_window * self._compact_threshold)
-        if self.estimate_tokens(result) > threshold:
+        if self.estimate_tokens(result) > threshold and self._compact_failure is None:
             result = await self.auto_compact(result)
+        if self._compact_failure and self.estimate_tokens(result) > self._context_window:
+            raise RuntimeError(self._compact_failure + '；原始证据已保留。本轮历史超过模型已记录的上下文容量，'
+                               '不能发送超窗材料或重复压缩；当前问题尚未执行。')
         return result
 
     @staticmethod
