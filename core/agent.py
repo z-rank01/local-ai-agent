@@ -425,7 +425,7 @@ class Agent:
                         '本步骤只生成已授权公开来源工具的参数，不生成研究结论。依当前问题选择回执索引中的对应任务；'
                         '任务引用、事件编号和游标保持配套，不猜编号、不改模型、不创建或恢复研究。'
                         '检索用原文连续词语；没有命中可说明当前查询缺口。当前步骤工具由交付核验指定，参数仍由你根据语义选择。\n'
-                        + source_index_guidance(source_index) + '\n' + source_repair_feedback},
+                        + '当前优先工具：' + candidate + '。\n' + source_index_guidance(source_index) + '\n' + source_repair_feedback},
                         {'role': 'user', 'content': user_request}] + source_repair_protocol
                     request_options = {}
                     if selected_source_tool:
