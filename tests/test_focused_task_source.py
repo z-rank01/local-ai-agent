@@ -87,4 +87,5 @@ class FocusedTaskLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(p['reference']==fixture.REF for p in dispatched))
         native=[r for n,r in observations if n=='native_model_request']
         self.assertTrue(all(r['source_lookup_index_version']=='current-task-lookup-index-v1' and r['source_lookup_reference_count']==1 for r in native))
+        self.assertEqual([r['source_lookup_phase'] for r in native],['explanation','parameters','parameters','explanation'])
         self.assertTrue(all(r['parameters']['enable_thinking'] is True and 'tool_choice' not in r['parameters'] for r in native))

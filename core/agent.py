@@ -517,6 +517,7 @@ class Agent:
                     if selected_source_tool or getattr(self.llm,'observes_native_requests',False):
                         request_options['request_observer'] = lambda event, data: self.audit.record(event, {
                             'session_id': session_id,'program_source_count':len(current_calculations),
+                            'source_lookup_phase':'parameters',
                             'source_lookup_index_version':lookup_context['version'],
                             'source_lookup_selection':lookup_context['selection'],
                             'source_lookup_reference_count':len(lookup_context['rows']),
@@ -529,6 +530,7 @@ class Agent:
                     if getattr(self.llm, 'observes_native_requests', False):
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
                             event, {'session_id': session_id, 'view_version': explanation_view_version if explanation_view_active else None,
+                                    'source_lookup_phase':'explanation',
                                     'source_lookup_index_version':lookup_context['version'],
                                     'source_lookup_selection':lookup_context['selection'],
                                     'source_lookup_reference_count':len(lookup_context['rows']),
