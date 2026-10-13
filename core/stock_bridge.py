@@ -428,12 +428,20 @@ class StockBridge:
         elif tool in ('stock_public_evidence_find', 'stock_public_evidence_read') and isinstance(observation, dict) and observation.get('kind') in ('public_evidence_find', 'public_evidence_read'):
             observation = dict(observation)
             observation['source_reference'] = params['reference']
+            if tool == 'stock_public_evidence_read' and not state.get('allow_report_body'):
+                observation.pop('financial_fields', None)
+            elif tool == 'stock_public_evidence_read' and 'financial_fields' in observation:
+                from .stock_financial_receipts import financial_fields_from_read
+                observation['financial_fields'] = financial_fields_from_read(observation)
             observation['source_reading'] = (
                 '本结果只属于 source_reference 指向的任务。事件编号及 read_cursor/next_cursor 必须与该引用配套使用；'
                 '不要换成旧简报引用。没有命中仅说明当前查询未命中，不证明原文不存在。'
                 '需要逐字原文时读取实际 excerpts；目录、阶段转述和分析字段不能代替原文。'
                 '查找是词语匹配；未命中可改用短词，或省略search列出本任务来源目录。'
-                '来源目录的next_cursor继续find；事件read_cursor开始read，读取的next_cursor继续同事件。')
+                '来源目录的next_cursor继续find；事件read_cursor开始read，读取的next_cursor继续同事件。'
+                'financial_fields若提供，只对应本页实际读取的结构化财务字段，原值、证券、期间、出处与元/万元/亿元换算配套；'
+                '不是公告逐字原文，也不证明业务可比或现金流代表回款质量。引用使用该字段对应地址，不能配其他PDF或网页。'
+                '没有这项附加结构不证明资料不存在；用户正文用易懂名称和单位，不展示内部枚举或编号。')
         elif tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief':
             page = params.get('page', 1)
             if page > 1:
