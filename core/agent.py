@@ -424,7 +424,10 @@ class Agent:
                     selected_messages = [{'role': 'system', 'content':
                         '本步骤只生成已授权公开来源工具的参数，不生成研究结论。依当前问题选择回执索引中的对应任务；'
                         '任务引用、事件编号和游标保持配套，不猜编号、不改模型、不创建或恢复研究。'
-                        '检索用原文连续词语；没有命中可说明当前查询缺口。当前步骤工具由交付核验指定，参数仍由你根据语义选择。\n'
+                        '查找是词语匹配，不是语义搜索。不要把问题改写成原文未出现的组合标题或日期短句。'
+                        '没有命中时改用更短的原文词语，或省略search列出当前任务的已保存来源目录，按标题选择再读取；'
+                        '目录分页next_cursor仅用于继续find，read_cursor仅用于对应事件read。'
+                        '不重发相同未命中查询，不把无命中当作原文不存在。参数仍由你根据语义选择。\n'
                         '当前来源读取回执next_cursor非空时沿原任务与事件续读，取得后文条件；不要重复旧游标或拿其他来源代替。\n'
                         + '当前优先工具：' + candidate + '。\n' + source_index_guidance(source_index) + '\n' + source_repair_feedback},
                         {'role': 'user', 'content': user_request}] + source_repair_protocol
@@ -566,12 +569,22 @@ class Agent:
                         if source_parameter_step and event.kind == 'tool_end':
                             result = event.data.get('result') or {}
                             result = result.get('model_observation', result) if isinstance(result, dict) else {}
-                            # Only a successful actual lookup may require the
-                            # paired read. Errors/misses do not become facts or
-                            # trigger unchanged-parameter retries.
-                            source_repair_phase = ('read' if event.data.get('status') == 'ok' and isinstance(result, dict)
-                                and ((event.data.get('name') == 'stock_public_evidence_find' and result.get('items'))
-                                     or (event.data.get('name') == 'stock_public_evidence_read' and result.get('next_cursor'))) else None)
+                            # A search miss keeps the parameter step focused so
+                            # the model can simplify its query or list sources.
+                            # Never rewrite its query or select an event for it.
+                            source_repair_phase = None
+                            if event.data.get('status') == 'ok' and isinstance(result, dict):
+                                if event.data.get('name') == 'stock_public_evidence_find':
+                                    if result.get('items'):
+                                        source_repair_phase = 'read'
+                                    elif result.get('kind') == 'public_evidence_find':
+                                        source_repair_phase = 'find'
+                                        source_repair_feedback = (
+                                            '本次查询未命中。原文是否存在尚不能确定；'
+                                            '下一步选择更短词语，或省略search列出本任务来源目录。'
+                                            '不要重复相同查询，不要生成事实结论。')
+                                elif event.data.get('name') == 'stock_public_evidence_read' and result.get('next_cursor'):
+                                    source_repair_phase = 'read'
                         if event.kind == 'stock_boundary':
                             stock_boundary = True
                         else:

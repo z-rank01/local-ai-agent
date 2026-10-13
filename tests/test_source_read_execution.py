@@ -68,6 +68,45 @@ class SourceChoiceProviderTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SourceReadExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missed_query_keeps_focus_then_model_lists_sources_and_reads(self):
+        contexts, dispatched = [], []
+        class Model:
+            cloud=False
+            supports_source_read_choice=False
+            async def chat_stream_with_tools(self,messages,tools,**kw):
+                contexts.append(messages)
+                step=len(contexts)
+                if step in (1,5):
+                    text='原文：“虚构的原句”。' if step==1 else '原文：“未用完的中央额度收回”。'
+                    yield text,None;yield '',{'role':'assistant','content':text}
+                    return
+                if step==3:
+                    assert not any('旧错误答案' in m.get('content','') for m in messages)
+                    assert '省略search列出' in messages[0]['content']
+                    assert any('"total": 0' in m.get('content','') for m in messages if m.get('role')=='tool')
+                name='stock_public_evidence_read' if step==4 else 'stock_public_evidence_find'
+                args={'reference':'a'*64}
+                if step==2: args['search']='问题改写的组合词'
+                if step==4: args['event_id']='b'*16
+                yield '',{'role':'assistant','content':'','tool_calls':[{'id':str(step),'function':{'name':name,'arguments':args}}]}
+        class Router:
+            async def dispatch(self,name,params,session):
+                dispatched.append((name,params))
+                if name.endswith('find'):
+                    return {'kind':'public_evidence_find','total':0,'items':[]} if params.get('search') else {
+                        'kind':'public_evidence_find','total':1,'items':[{'event_id':'b'*16,'title':'资金管理通知'}]}
+                return {'kind':'public_evidence_read','excerpts':[{'kind':'ORIGINAL_TEXT','text':'未用完的中央额度收回。'}]}
+        agent=test_stock_source_quotes.SourceQuoteLoopTests.agent(self,Model(),Router(),['stock_public_evidence_find','stock_public_evidence_read'])
+        history=test_stock_source_quotes.SourceQuoteLoopTests.history(self)
+        history.insert(1,{'role':'assistant','content':'旧错误答案'})
+        events=[e async for e in agent.run(history)]
+        self.assertEqual(dispatched[0][1]['search'],'问题改写的组合词')
+        self.assertNotIn('search',dispatched[1][1])
+        self.assertEqual(len(dispatched),3)
+        self.assertEqual(events[-1].kind,'done')
+        self.assertIn('未用完的中央额度收回',events[-1].text)
+        self.assertTrue(any('旧错误答案' in m.get('content','') for m in contexts[-1]))
+
     async def test_source_continuation_keeps_late_counterevidence_before_answer(self):
         reads=[];rounds=[]
         class Model:

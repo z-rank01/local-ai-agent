@@ -9,6 +9,8 @@ description: >
   先用 stock_market_brief_find、stock_theme_research_find 或 stock_research_find 获取本会话已完成简报或主题公司研究的 reference。
   再按标题、公司代码、原文词语或报告页查找公开事件。结果覆盖整份已分析简报，
   空白分隔的多个词在同一事件的标题及原文中全部匹配，允许分布在不同段落；无空白的短句保持连续匹配。
+  这不是语义搜索；不要拼造原文没有的组合标题。未命中可改用短词，或省略 search 列出本任务全部已保存来源目录，
+  用真实标题选择事件后读取。来源目录不代表原文已读，目录 next_cursor 只能继续 find。
   命中只定位资料，具体数字与条款仍须读取相应原文，不能从标题直接确认。
   每次返回一页，next_cursor 非空时继续查找；命中项带 read_cursor 时，可直接作为首次 stock_public_evidence_read 的 cursor 定位匹配字段。页内事件只能在 page_mapping 为
   CONFIRMED 时断言；UNCONFIRMED 时要说明页码无法核对。
@@ -26,7 +28,7 @@ parameters:
     search:
       type: string
       maxLength: 80
-      description: "可选：标题、代码或原文词语；空白分隔多个词均需在同一事件中出现，短句可连续定位"
+      description: "可选：标题、代码或原文词语；多词全部匹配。省略或空字符串列出当前任务来源目录；未命中可缩短词语或列目录"
     report_page:
       type: integer
       minimum: 1
