@@ -479,6 +479,24 @@ class Agent:
                 if source_parameter_step:
                     source_repair_protocol.append(accumulated)
                     if not calls:
+                        # A continuation planner may stop after usable raw
+                        # evidence has arrived. Return to full-context delivery
+                        # rather than discarding those successful reads. The
+                        # normal quote/absence checks still apply to the answer.
+                        if original_texts(source_repair_protocol):
+                            from .stock_source_quotes import complete_sources
+                            self.audit.record('source_read_delivery_transition', {
+                                'session_id': session_id,
+                                'reason': 'SOURCE_CONTINUATION_NO_CALL_AFTER_READ',
+                                'complete_source_count': len(complete_sources(original_records(source_repair_protocol)))})
+                            source_repair_phase = None
+                            messages.append({'role': 'system', 'content':
+                                '来源定位步骤已取得实际原文，现回到完整授权上下文回答原问题。'
+                                '上一定位步骤的文字只是草稿，不能替代原文。按已读原文给准确短引文和来源；'
+                                '若next_cursor仍非空，尚未完整读到末尾，不声称全文已读或文件没有某条款。'
+                                '已核对条款可以交付，其他未核事项及影响分别说明。'})
+                            round_number += 1
+                            continue
                         yield AgentEvent('quality_rejected', data={'quality_status':'rejected_source_execution',
                             'message':{'role':'system','content':'来源补查参数生成没有返回工具调用，原文核对未完成。'},
                             'rejected_answer':accumulated.get('content',''),

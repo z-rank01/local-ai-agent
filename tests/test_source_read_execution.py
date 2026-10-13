@@ -68,6 +68,35 @@ class SourceChoiceProviderTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SourceReadExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_no_continuation_call_after_raw_read_returns_to_checked_delivery(self):
+        contexts=[];reads=[]
+        class Model:
+            cloud=False
+            supports_source_read_choice=False
+            async def chat_stream_with_tools(self,messages,tools,**kw):
+                contexts.append(messages)
+                step=len(contexts)
+                if step==2:
+                    yield '',{'role':'assistant','content':'','tool_calls':[{'id':'read','function':{
+                        'name':'stock_public_evidence_read','arguments':{'reference':'a'*64,'event_id':'b'*16}}}]}
+                    return
+                text='原文：“虚构原句”。' if step==1 else '定位步骤草稿不能作为原文' if step==3 else '原文：“未用完的中央额度收回”。仍未读完全部原文。'
+                yield text,None;yield '',{'role':'assistant','content':text}
+        class Router:
+            async def dispatch(self,name,params,session):
+                reads.append(params)
+                return {'kind':'public_evidence_read','job_id':'job','event_id':'b'*16,'total_excerpts':2,
+                    'excerpts':[{'kind':'ORIGINAL_TEXT','excerpt_id':'first','text':'未用完的中央额度收回。'}],
+                    'next_cursor':'tail'}
+        agent=test_stock_source_quotes.SourceQuoteLoopTests.agent(self,Model(),Router(),['stock_public_evidence_find','stock_public_evidence_read'])
+        events=[e async for e in agent.run(test_stock_source_quotes.SourceQuoteLoopTests.history(self))]
+        self.assertEqual(len(reads),1)
+        self.assertEqual(len(contexts),4)
+        self.assertTrue(any('尚未完整读到末尾' in m.get('content','') for m in contexts[-1]))
+        self.assertEqual(events[-1].kind,'done')
+        self.assertIn('仍未读完',events[-1].text)
+        self.assertNotIn('定位步骤草稿',''.join(e.text for e in events if e.kind=='token'))
+
     async def test_missed_query_keeps_focus_then_model_lists_sources_and_reads(self):
         contexts, dispatched = [], []
         class Model:
