@@ -11,6 +11,7 @@ import re
 from decimal import Decimal, InvalidOperation, localcontext
 from urllib.parse import urlparse
 import ipaddress
+from copy import deepcopy
 
 _NUM = r'(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?'
 _DIV = re.compile(r'(?<![\w,.])(?P<n>'+_NUM+r')\s*(?P<nu>亿元|万元|元)\s*[/÷]\s*'
@@ -128,6 +129,11 @@ def current_program_records(index,user_request,source_index):
 
 def program_source_guidance(records):
     if not records:return None
+    from .stock_financial_receipts import currency_display
+    view=deepcopy(records)
+    for row in view:
+        row['unit_display']={'项目总额':currency_display(row['amount_yuan']),
+                             '年度营业收入':currency_display(row['annual_revenue_yuan'])}
     return ('[当前任务已授权程序规模参照及基数来源索引，非模型阶段推断，不向用户展示内部编号。'
             '金额、年度和比值是同版程序结果；年度字段若提供SOURCE_FIELD，属于已保存的结构化财务来源，'
             '不是半年年化、模型估计或逐字年报全文。用户要求年度参照时采用该年度基数，'
@@ -135,7 +141,10 @@ def program_source_guidance(records):
             '需要核对字段时，annual_source.event_id/read_cursor与外层source_reference配套调用现有读取工具，'
             '不能替换引用或编造游标。需要年报原句则另核对真实原文，字段不充当逐字引文。'
             '比例仅作规模参照，签约、利润、回款、收入确认年份和完成度须另有依据。]\n'
-            +json.dumps(records,ensure_ascii=False))
+            +'unit_display只将同一已验证人民币数值转换为展示单位并保留精度；可四舍五入并写约，'
+            '不能截掉小数后仍标成精确值。复用已有授权回执不代表本轮重新读取或更新资料，'
+            '仅实际新工具成功才可声称本轮重新核对。\n'
+            +json.dumps(view,ensure_ascii=False))
 
 
 def _source_matches(text, unit, source):

@@ -123,6 +123,7 @@ def context_index(messages):
 
 
 def current_guidance(index,question,source_index,read_records=None):
+    from .stock_financial_receipts import currency_display
     refs=set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])',question))
     if not refs and source_index:refs={source_index[0]['source_reference']}
     rows=[{'source_reference':ref,**deepcopy(value)} for ref,value in index.items() if ref in refs and value]
@@ -131,6 +132,9 @@ def current_guidance(index,question,source_index,read_records=None):
               for r in read_records or [] for s in r.get('excerpts',[]) if isinstance(s,dict) and s.get('text')}
     for row in rows:
         for subject in row['subjects']:
+            for metric in subject['metrics']:
+                if metric.get('status')=='SOURCE_BOUND':
+                    metric['unit_display']=currency_display(metric['value_yuan'])
             for field in (subject.get('field_catalogue') or {}).get('fields',[]):
                 key=(row['source_reference'],field['event_id'],field['excerpt_id'],field['kind'],field['url'],field['location'])
                 field['receipt_status']='HISTORICAL_READ_RECEIPT_PRESENT' if key in received else 'NO_MATCH_IN_AVAILABLE_RECEIPTS'
@@ -144,6 +148,8 @@ def current_guidance(index,question,source_index,read_records=None):
             'HISTORICAL_READ_RECEIPT_PRESENT仅表示同任务/事件/字段/地址位置有成功历史回执；NO_MATCH_IN_AVAILABLE_RECEIPTS不证明没读过或资料不存在，可回读补核。'
             '需要新原值时按该字段event_id/read_cursor和source_reference调用现有读取，或用subject_symbol/financial_metric/report_period结构化查找；不能直接把目录当作财报事实。'
             '这是结构化来源字段，不是年报逐字原文，不认证业务可比性或投资结论；报告仍是部分成果。'
+            'unit_display仅将已绑定的同一人民币原值精确转换为元、万元、亿元，不是新财务指标。'
+            '复用保存报告或历史读取须说明是已有资料，不声称本轮新读取；四舍五入写约，不能截数后仍标精确。'
             '额外资产、负债、单季或TTM陈述按对应证券、指标和期间回读来源；人民币元换算万元除10000、亿元除100000000，比较前核对双方单位。'
             '不能只凭经营现金流净额较高认定回款质量更好；还须核对营运资金、支付和收款构成。'
             '业务交集和客户关系需要业务原文；财务字段的绑定状态不能作为业务已证实的来源等级。'

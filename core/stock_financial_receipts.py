@@ -20,6 +20,21 @@ def _number(value):
     if not number.is_finite():raise ValueError('非有限值')
     return number
 
+def currency_display(value):
+    """Format one already validated CNY scalar, without choosing its source.
+
+    Source, subject, period and business calculation remain the caller's
+    responsibility. This does not parse model prose or choose a denominator.
+    """
+    number = _number(value)
+    with localcontext() as ctx:
+        ctx.prec = max(28, len(number.as_tuple().digits) + 10)
+        def fixed(divisor):
+            text = format(number / Decimal(divisor), 'f')
+            return text.rstrip('0').rstrip('.') if '.' in text else text
+        return {'元': fixed(1), '万元': fixed(10000), '亿元': fixed(100000000)}
+
+
 def financial_fields_from_read(observation):
     fields=observation.get('financial_fields')
     if not isinstance(fields,list) or observation.get('kind')!='public_evidence_read':return []
