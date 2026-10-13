@@ -425,6 +425,7 @@ class Agent:
                         '本步骤只生成已授权公开来源工具的参数，不生成研究结论。依当前问题选择回执索引中的对应任务；'
                         '任务引用、事件编号和游标保持配套，不猜编号、不改模型、不创建或恢复研究。'
                         '检索用原文连续词语；没有命中可说明当前查询缺口。当前步骤工具由交付核验指定，参数仍由你根据语义选择。\n'
+                        '当前来源读取回执next_cursor非空时沿原任务与事件续读，取得后文条件；不要重复旧游标或拿其他来源代替。\n'
                         + '当前优先工具：' + candidate + '。\n' + source_index_guidance(source_index) + '\n' + source_repair_feedback},
                         {'role': 'user', 'content': user_request}] + source_repair_protocol
                     request_options = {}
@@ -568,9 +569,9 @@ class Agent:
                             # Only a successful actual lookup may require the
                             # paired read. Errors/misses do not become facts or
                             # trigger unchanged-parameter retries.
-                            source_repair_phase = ('read' if event.data.get('name') == 'stock_public_evidence_find'
-                                and event.data.get('status') == 'ok' and isinstance(result, dict)
-                                and result.get('items') else None)
+                            source_repair_phase = ('read' if event.data.get('status') == 'ok' and isinstance(result, dict)
+                                and ((event.data.get('name') == 'stock_public_evidence_find' and result.get('items'))
+                                     or (event.data.get('name') == 'stock_public_evidence_read' and result.get('next_cursor'))) else None)
                         if event.kind == 'stock_boundary':
                             stock_boundary = True
                         else:

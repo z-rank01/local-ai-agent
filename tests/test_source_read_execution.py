@@ -68,6 +68,40 @@ class SourceChoiceProviderTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SourceReadExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_source_continuation_keeps_late_counterevidence_before_answer(self):
+        reads=[];rounds=[]
+        class Model:
+            cloud=False
+            supports_source_read_choice=False
+            async def chat_stream_with_tools(self,messages,tools,**kw):
+                rounds.append(1)
+                if len(rounds)==1:
+                    text='原文：“保证新增收入”。'
+                    yield text,None;yield '',{'role':'assistant','content':text}
+                elif len(rounds)==2:
+                    yield '',{'role':'assistant','content':'','tool_calls':[{'id':'lookup','function':{
+                        'name':'stock_public_evidence_find','arguments':{'reference':'a'*64,'search':'合同'}}}]}
+                elif len(reads)<2:
+                    cursor='' if not reads else 'tail'
+                    yield '',{'role':'assistant','content':'','tool_calls':[{'id':'read'+str(len(reads)),'function':{
+                        'name':'stock_public_evidence_read','arguments':{'reference':'a'*64,'event_id':'b'*16,'cursor':cursor}}}]}
+                else:
+                    text='原文：“合同已经终止”。不能把合同总额计为新增收入。'
+                    yield text,None;yield '',{'role':'assistant','content':text}
+        class Router:
+            async def dispatch(self,name,params,session):
+                if name.endswith('find'):
+                    return {'kind':'public_evidence_find','items':[{'event_id':'b'*16}]}
+                reads.append(params['cursor'])
+                return {'kind':'public_evidence_read','excerpts':[{'kind':'ORIGINAL_TEXT','text':
+                    '原合同金额一亿元。' if len(reads)==1 else '合同已经终止，不应计为新增收入。'}],
+                    'next_cursor':'tail' if len(reads)==1 else ''}
+        agent=test_stock_source_quotes.SourceQuoteLoopTests.agent(self,Model(),Router(),['stock_public_evidence_find','stock_public_evidence_read'])
+        events=[e async for e in agent.run(test_stock_source_quotes.SourceQuoteLoopTests.history(self))]
+        self.assertEqual(reads,['','tail'])
+        self.assertEqual(events[-1].kind,'done')
+        self.assertIn('合同已经终止',events[-1].text)
+
     async def test_parameter_step_without_call_is_not_published_as_completed_research(self):
         rounds=[]
         class Model:

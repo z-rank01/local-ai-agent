@@ -8,6 +8,8 @@ description: >
   已读取报告时，优先使用该报告返回的 source_reference；不得把旧简报引用与新研究的事件混用。
   先用 stock_market_brief_find、stock_theme_research_find 或 stock_research_find 获取本会话已完成简报或主题公司研究的 reference。
   再按标题、公司代码、原文词语或报告页查找公开事件。结果覆盖整份已分析简报，
+  空白分隔的多个词在同一事件的标题及原文中全部匹配，允许分布在不同段落；无空白的短句保持连续匹配。
+  命中只定位资料，具体数字与条款仍须读取相应原文，不能从标题直接确认。
   每次返回一页，next_cursor 非空时继续查找；命中项带 read_cursor 时，可直接作为首次 stock_public_evidence_read 的 cursor 定位匹配字段。页内事件只能在 page_mapping 为
   CONFIRMED 时断言；UNCONFIRMED 时要说明页码无法核对。
   unread_count 是原目录中未深读的候选数，不是此会话未读数；
@@ -24,7 +26,7 @@ parameters:
     search:
       type: string
       maxLength: 80
-      description: "可选：事件标题、公司代码或原文中的连续词语；多个词拼接可能不命中，可用更短词语定位"
+      description: "可选：标题、代码或原文词语；空白分隔多个词均需在同一事件中出现，短句可连续定位"
     report_page:
       type: integer
       minimum: 1

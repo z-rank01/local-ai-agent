@@ -125,7 +125,9 @@ def source_task_index(messages):
 
 
 def source_index_guidance(index):
-    return ('[本会话实际读取回执索引，最近读取的报告在前；不是新的事实或原文。'
+    return ('[内部工具定位索引，最近读取的报告在前；不得把字段、编号或引用哈希展示为报告正文。'
+            'sources只表示本会话成功查找/读取时登记的来源，不是任务全部资料；空列表表示尚未通过工具定位，'
+            '不证明报告没有原文或该文件不存在。不是新的事实或原文。'
             '依原问题选择对应任务，事件与游标须配套使用source_reference，不用阶段文字里的旧引用替换；'
             '曾经的模型回答不能证明条款。]\n' + json.dumps(index, ensure_ascii=False))
 
