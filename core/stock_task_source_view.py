@@ -14,6 +14,24 @@ TOOLS = {'stock_public_evidence_find', 'stock_public_evidence_read'}
 KINDS = {'public_evidence_find', 'public_evidence_read'}
 
 
+def lookup_index(index, question):
+    """Locate explicit tasks for both answer and source-parameter views.
+
+    This narrows an index, not Broker permission or model tool arguments.
+    The full receipts and other-task evidence pointers remain recoverable.
+    """
+    requested=set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])',question or ''))
+    if not requested:return {'rows':index,'selection':'all_known','note':'','version':None}
+    selected=[row for row in index if row.get('source_reference') in requested]
+    known={row.get('source_reference') for row in selected}
+    note=('\n本步骤定位索引仅列当前问题明确指定的任务；其他任务完整证据仍可沿已有evidence_id回读。'
+          '不能因同URL或旧摘录编号改用其他任务引用，索引选择不改变Broker授权或自动替换工具参数。')
+    if requested-known:
+        note+='当前指定引用有未在成功回执索引中定位的项；不能以其他已知引用代替，需如实说明定位缺口。'
+    return {'rows':selected,'selection':'explicit_partial' if requested-known else 'explicit_known',
+            'note':note,'version':'current-task-lookup-index-v1'}
+
+
 def current_task_source_view(messages, archive):
     last_user=max((i for i,m in enumerate(messages) if m.get('role')=='user'),default=-1)
     if archive is None or last_user<0:return messages,[]

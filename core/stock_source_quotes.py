@@ -425,7 +425,16 @@ def prune_empty_sections(text):
         line=lines[i].strip()
         return i not in remove and bool(line) and (i in fenced or
             not re.match(r'^#{1,6}\s|^(?:-{3,}|\*{3,}|_{3,})$',line))
+    def attribution_only(i):
+        if i in fenced:return False
+        line=re.sub(r'[*_]', '', lines[i]).strip()
+        return bool(re.fullmatch(
+            r'(?:注[：:]\s*)?(?:以上|以下|上述|下列)(?:内容|表述|引文)?'
+            r'(?:均为|均是|均摘自|均来自|为)(?:公告|文件|政策|通知)?(?:的)?'
+            r'(?:原文摘录|原文引文|原文)(?:[，,；;。]\s*(?:来源|出处)(?:见|列于)(?:下表|上表|来源表))?[。.]?',line))
     for position,(i,depth) in enumerate(headings):
         end=next((j for j,d in headings[position+1:] if d<=depth),len(lines))
-        if not any(substance(j) for j in range(i+1,end)):remove.add(i)
+        if not any(substance(j) and not attribution_only(j) for j in range(i+1,end)):
+            remove.add(i)
+            remove.update(j for j in range(i+1,end) if attribution_only(j))
     return '\n'.join(line for i,line in enumerate(lines) if i not in remove).strip()

@@ -379,6 +379,7 @@ class Agent:
             source_index_message = None
             program_source_message = None
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
+            from .stock_task_source_view import lookup_index
             round_number = 0
             stock_deadline = None
             public_research_deadline = None
@@ -424,6 +425,7 @@ class Agent:
                         if stock_window_closed else
                         "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
                 stock_read_seen = stock_read_seen or any(counts.get(name, 0) for name in stock_read_tools)
+                lookup_context = lookup_index(source_index, user_request)
                 if quote_repair_active:
                     from .stock_source_quotes import READ_TOOLS
                     active = [d for d in active if d['function']['name'] in READ_TOOLS]
@@ -438,11 +440,12 @@ class Agent:
                     new_index = source_task_index(messages)
                     new_tokens = {row['source_reference'] for row in new_index}
                     source_index = new_index + [row for row in source_index if row['source_reference'] not in new_tokens]
+                    lookup_context = lookup_index(source_index, user_request)
                     if source_index_message is not None:
                         messages = [m for m in messages if not (m.get('role') == 'system' and
                                     m.get('content') == source_index_message['content'])]
                     if source_index:
-                        source_index_message = {'role': 'system', 'content': source_index_guidance(source_index)}
+                        source_index_message = {'role': 'system', 'content': source_index_guidance(lookup_context['rows'])+lookup_context['note']}
                         messages.append(source_index_message)
                     messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
                 messages = index_prior_explanations(messages)
@@ -505,7 +508,7 @@ class Agent:
                         '目录分页next_cursor仅用于继续find，read_cursor仅用于对应事件read。'
                         '不重发相同未命中查询，不把无命中当作原文不存在。参数仍由你根据语义选择。\n'
                         '当前来源读取回执next_cursor非空时沿原任务与事件续读，取得后文条件；不要重复旧游标或拿其他来源代替。\n'
-                        + '当前优先工具：' + candidate + '。\n' + source_index_guidance(source_index)
+                        + '当前优先工具：' + candidate + '。\n' + source_index_guidance(lookup_context['rows'])+lookup_context['note']
                         + '\n'+(program_guidance or '')+'\n' + source_repair_feedback},
                         {'role': 'user', 'content': user_request}] + source_repair_protocol
                     request_options = {}
@@ -514,6 +517,9 @@ class Agent:
                     if selected_source_tool or getattr(self.llm,'observes_native_requests',False):
                         request_options['request_observer'] = lambda event, data: self.audit.record(event, {
                             'session_id': session_id,'program_source_count':len(current_calculations),
+                            'source_lookup_index_version':lookup_context['version'],
+                            'source_lookup_selection':lookup_context['selection'],
+                            'source_lookup_reference_count':len(lookup_context['rows']),
                             'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
                             'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
                             'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
@@ -523,6 +529,9 @@ class Agent:
                     if getattr(self.llm, 'observes_native_requests', False):
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
                             event, {'session_id': session_id, 'view_version': explanation_view_version if explanation_view_active else None,
+                                    'source_lookup_index_version':lookup_context['version'],
+                                    'source_lookup_selection':lookup_context['selection'],
+                                    'source_lookup_reference_count':len(lookup_context['rows']),
                                     'source_task_view_version':'current-task-source-index-v1' if source_task_view_active else None,
                                     'program_source_count':len(current_calculations),
                                     'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
