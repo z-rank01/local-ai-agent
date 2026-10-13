@@ -183,7 +183,22 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         result = await bridge.call_tool('stock_report_read', {'reference': REF}, 'company-page')
         self.assertEqual(result['model_observation']['kind'], 'local_report_page')
         self.assertEqual(result['model_observation']['body'], page['body'])
+        self.assertEqual(result['model_observation']['source_reference'], REF)
         self.assertIn('已随本轮交给模型阅读', result['model_observation']['page_reading'])
+
+    async def test_source_binding_echoes_authorised_task_without_parent_fallback(self):
+        calls=[]
+        parent='c'*64
+        bridge=self.bridge(make_broker(calls,step_responses=[
+            ok_step({'kind':'public_evidence_find','source_reference':parent,'items':[{'event_id':'d'*16}]}),
+            ok_step({'kind':'public_evidence_read','event_id':'d'*16,'excerpts':[]},seq=2)]))
+        bridge.set_turn('bound','bound-read','只读当前报告来源')
+        found=await bridge.call_tool('stock_public_evidence_find',{'reference':REF,'search':'安徽'},'bound')
+        self.assertEqual(found['model_observation']['source_reference'],REF)
+        read=await bridge.call_tool('stock_public_evidence_read',{'reference':REF,'event_id':'d'*16},'bound')
+        self.assertEqual(read['model_observation']['source_reference'],REF)
+        self.assertTrue(all(c['json']['tool_call']['reference']['token']==REF for c in calls if c['path'].endswith('/step')))
+        self.assertIn('不证明原文不存在',found['model_observation']['source_reading'])
 
     async def test_answer_pages_keep_legacy_page_and_prefer_current_body(self):
         current = {'kind': 'local_report_page', 'requested_page': 1, 'page_count': 1,

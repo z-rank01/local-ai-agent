@@ -349,11 +349,16 @@ class StockBridge:
             # turn.  Pass it through untouched: the model read the page, so it may
             # explain it.  The attachment still reaches the user for exact values.
             page = params.get('page', 1)
+            # Echo only this broker-authorised task token, never guess or replace
+            # a parent brief token mentioned by a historical model stage.
+            observation['source_reference'] = params['reference']
             observation['page_reading'] = (
                 '以上 body 是本地报告的第 {page} 页正文，已随本轮交给模型阅读；'
                 '引用其中的数字、日期或状态时必须与正文一致，不要改写或四舍五入。'
                 '整份报告可能分页，page_count 是总页数；需要后续页时继续读取下一页。'
                 '涉及公司公告的自查、声明或预计时写明来自公司公告，'
+                '核对本报告来源时，公开证据查找和读取使用本结果的 source_reference；'
+                '不要从阶段原文或旧消息另取简报引用，与本报告事件编号混用。'
                 '不要表述为已独立证实；用户未要求时不要展示任务引用哈希或工具名。'
             ).format(page=page)
             answer_pages = observation.get('answer_pages')
@@ -379,6 +384,13 @@ class StockBridge:
                 else:
                     observation.pop('answer_pages', None)
                     observation['page_reading'] += '新版正文投影未通过校验，仅能解释当前旧页，勿声称已读新版正文。'
+        elif tool in ('stock_public_evidence_find', 'stock_public_evidence_read') and isinstance(observation, dict) and observation.get('kind') in ('public_evidence_find', 'public_evidence_read'):
+            observation = dict(observation)
+            observation['source_reference'] = params['reference']
+            observation['source_reading'] = (
+                '本结果只属于 source_reference 指向的任务。事件编号及 read_cursor/next_cursor 必须与该引用配套使用；'
+                '不要换成旧简报引用。没有命中仅说明当前查询未命中，不证明原文不存在。'
+                '需要逐字原文时读取实际 excerpts；目录、阶段转述和分析字段不能代替原文。')
         elif tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief':
             page = params.get('page', 1)
             if page > 1:

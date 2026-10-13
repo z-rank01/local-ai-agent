@@ -119,6 +119,33 @@ class SourceQuoteLoopTests(unittest.IsolatedAsyncioTestCase):
                  'content':json.dumps({'answer_pages':[{'body':'已保存模型阶段分析。'}]})},
                 {'role':'user','content':'请核对资金回收条款，不创建或恢复研究。'}]
 
+    async def test_unread_absence_claim_is_repaired_by_actual_source_read(self):
+        calls=[];runs=[]
+        class Model:
+            cloud=False
+            async def chat_stream_with_tools(self,messages,tools):
+                runs.append(1)
+                if len(runs)==1:
+                    text='结论：文件未规定资金收回。'
+                    yield text,None
+                    yield '',{'role':'assistant','content':text}
+                elif len(runs)==2:
+                    yield '',{'role':'assistant','content':'','tool_calls':[{'id':'read-tail','function':{
+                        'name':'stock_public_evidence_read','arguments':{'reference':'a'*64,'event_id':'b'*16}}}]}
+                else:
+                    text='原文：“未用完的中央额度收回”。这不证明下一年度需求兑现。'
+                    yield text,None
+                    yield '',{'role':'assistant','content':text}
+        class Router:
+            async def dispatch(self,name,params,session):
+                calls.append(name)
+                return {'kind':'public_evidence_read','excerpts':[{'kind':'ORIGINAL_TEXT','text':'未用完的中央额度收回。'}]}
+        events=[e async for e in self.agent(Model(),Router(),['stock_public_evidence_read']).run(self.history())]
+        self.assertEqual(calls,['stock_public_evidence_read'])
+        self.assertEqual(len([e for e in events if e.kind=='quality_rejected']),1)
+        self.assertNotIn('未规定资金收回',''.join(e.text for e in events if e.kind=='token'))
+        self.assertIn('未用完的中央额度收回',events[-1].text)
+
     async def test_rejected_literal_reads_source_then_delivers_without_mutating_tools(self):
         seen,calls=[],[]
         class Model:

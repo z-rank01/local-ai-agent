@@ -5,6 +5,7 @@ tier: extended
 cloud: read
 short_description: "按事件读取可追溯的公开原文和分析。"
 description: >
+  reference 使用对应查找结果的 source_reference，与 event_id 和游标保持同一任务；不要换成原始简报引用。
   event_id 必须来自 stock_public_evidence_find。读取本事件的来源、日期、
   事实引文、分析、反证、观察事项和有位置的原文段落。长正文用 next_cursor 续取。
   kind 为 ORIGINAL_TEXT 或 PEER_ORIGINAL_TEXT（旧事件未标 kind 时沿用原文）的 excerpt.text，才可加引号称为逐字引文；SOURCE_FIELD 是结构化财报字段，CONDITIONAL_CALCULATION 是条件计算，AI_COMPARABILITY_INFERENCE 是推断，必须区分。
@@ -22,7 +23,7 @@ parameters:
     reference:
       type: string
       pattern: "^[0-9a-f]{64}$"
-      description: "stock_market_brief_find、stock_theme_research_find 或 stock_research_find 返回的本会话安全任务引用"
+      description: "与当前证据查找结果或已读报告 source_reference 一致的本会话任务引用"
     event_id:
       type: string
       pattern: "^[0-9a-f]{16}$"
