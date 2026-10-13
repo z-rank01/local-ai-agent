@@ -6,6 +6,75 @@ from core import config
 
 
 class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
+    async def delivery_context(self, expired):
+        captured, calls = [], []
+        class Model:
+            cloud = False
+            async def chat_stream_with_tools(self, messages, tools):
+                captured.append(([dict(m) for m in messages], tools))
+                if len(captured) == 1:
+                    yield '', {'role': 'assistant', 'content': '', 'tool_calls': [{
+                        'id': 'read', 'function': {'name': 'stock_report_read', 'arguments': {'reference': 'a'*64}}}]}
+                else:
+                    yield '', {'role': 'assistant', 'content': '已提供证据仅支持部分判断，尚未综合。'}
+        class Router:
+            async def dispatch(self, name, params, session):
+                calls.append(name)
+                return {'status': 'TIME_LIMIT'} if expired else {'body': '公告披露中标，但尚未签约。'}
+        async def process(messages): return messages
+        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[
+            {'type':'function','function':{'name':'stock_report_read'}}]),
+            audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=5)
+        agent.quality_first_research=agent.stock_loop_enabled=True
+        query='只读已保存研究，不提交或恢复任务。'
+        events=[e async for e in agent.run([{'role':'user','content':query}])]
+        return captured,calls,events,query
+
+    async def test_stock_read_delivery_rules_reach_actual_next_model_context(self):
+        from core.agent import STOCK_DELIVERY_GUIDANCE
+        captured,calls,events,query=await self.delivery_context(False)
+        messages,tools=captured[-1]
+        self.assertEqual(calls,['stock_report_read'])
+        self.assertEqual([m['content'] for m in messages if m['role']=='user'],[query])
+        self.assertEqual(sum(m.get('content')==STOCK_DELIVERY_GUIDANCE for m in messages),1)
+        self.assertIn('二手数字',messages[-1]['content'])
+        self.assertEqual(events[-1].kind,'done')
+
+    async def test_expired_read_only_window_does_not_demand_ids_or_invent_running_task(self):
+        captured,calls,events,query=await self.delivery_context(True)
+        messages,tools=captured[-1]
+        self.assertIsNone(tools)
+        self.assertEqual(calls,['stock_report_read'])
+        self.assertEqual([m['content'] for m in messages if m['role']=='user'],[query])
+        closing=next(m for m in messages if '本轮股票交付窗口已到' in m.get('content',''))
+        self.assertEqual(closing['role'],'system')
+        self.assertNotIn('请给出已提交后台任务的 ID',closing['content'])
+        self.assertNotIn('后台任务仍按检查点运行',closing['content'])
+        self.assertIn('已暂停',closing['content'])
+        self.assertEqual(events[-1].kind,'done')
+
+    async def test_saved_authorized_report_gets_delivery_rules_without_repeated_read(self):
+        from core.agent import STOCK_DELIVERY_GUIDANCE
+        captured=[]
+        class Model:
+            cloud=False
+            async def chat_stream_with_tools(self,messages,tools):
+                captured.extend(dict(m) for m in messages)
+                yield '',{'role':'assistant','content':'根据已读取材料，目前只能确认政策线索。'}
+        class Router:
+            async def dispatch(self,*args):raise AssertionError('不要重复已成功读取')
+        async def process(messages):return messages
+        agent=Agent(llm=Model(),router=Router(),registry=SimpleNamespace(get_definitions=lambda **kw:[]),
+            audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=2)
+        history=[{'role':'assistant','content':'','tool_calls':[{'id':'prior','function':{'name':'stock_report_read','arguments':{}}}]},
+            {'role':'tool','tool_name':'stock_report_read','tool_call_id':'prior','content':'已授权政策原文'},
+            {'role':'user','content':'基于已读取材料回答，不重复工具读取。'}]
+        events=[e async for e in agent.run(history)]
+        self.assertEqual(sum(m.get('content')==STOCK_DELIVERY_GUIDANCE for m in captured),1)
+        self.assertEqual(events[-1].kind,'done')
+
     async def exercise(self, repeated=False):
         observed=[]
         class Model:

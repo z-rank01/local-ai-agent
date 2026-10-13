@@ -21,6 +21,17 @@ from .audit_logger import AuditLogger
 from .context_manager import ContextManager
 from .llm_client import LLMClient, strip_think_tags_from_history
 from .prompt_builder import PromptBuilder
+
+
+STOCK_DELIVERY_GUIDANCE = (
+    '股票资料分析答复：直接回答用户问题、依据、反证和观察条件；状态或技术核对问题仍按原问法回答。'
+    '界面已有报告卡，用户未明确要求时不展示任务引用、哈希、执行元信息表或重复流程清单。'
+    '文件发布、政策表态和企业身份不是需求或收益已兑现的证明；二手数字注明报道来源与期间，'
+    '旧年度资料只作历史风险线索，未核对适用关系不能当当期反证。'
+    '模型阶段输出与来源原文分开；初稿未补查不等于后续没有补查，部分分析不称完整综合。'
+    '依据使用实际资料名称、日期和已提供链接；没有可定位来源就保留待核，转述不冒充逐字引文。'
+    '保持自然易懂，不强制套完整研究报告模板；完整来源与阶段过程可由报告卡展开。'
+)
 from .tool_registry import ToolRegistry
 from .tool_router import ToolRouter
 
@@ -339,11 +350,19 @@ class Agent:
                         '只有收到真实受理回执才可声称后台会继续；无需让用户重复发送继续。'})
                 elif stock_window_closed or generic_final_round or no_progress_closed:
                     active = []
-                    messages.append({"role": "user", "content":
+                    messages.append({"role": "system", "content":
                         "[连续两轮没有新增有效工具结果。请交付已有成果，说明无法推进的原因与缺口。]" if no_progress_closed else
-                        "[本轮股票交付窗口已到；请给出已提交后台任务的 ID、中间成果和缺口。后台任务仍按检查点运行；未提交的步骤不能声称会自动执行。]"
+                        "[本轮股票交付窗口已到。围绕原问题交付已核对判断、依据、反证及缺口。报告卡承载任务引用，用户未明确要求时不重复内部ID。仅按真实受理回执与当前状态说明后台进度，未受理或已暂停的任务不能声称正在自动运行；不新增用户未授权任务。]"
                         if stock_window_closed else
                         "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
+                read_tools = ('stock_report_read', 'stock_public_evidence_read')
+                if (any(counts.get(name, 0) for name in read_tools) or any(
+                        m.get('role') == 'tool' and m.get('tool_name') in read_tools for m in messages)):
+                    # Transient control guidance belongs to this model view, not user history.
+                    # Keep one fresh copy after evidence reads instead of accumulating it.
+                    messages = [m for m in messages if not (m.get('role') == 'system'
+                                and m.get('content') == STOCK_DELIVERY_GUIDANCE)]
+                    messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
                 messages = await self.context_mgr.process(messages)
                 accumulated = None
                 async with aclosing(self.llm.chat_stream_with_tools(messages, active or None)) as stream:
