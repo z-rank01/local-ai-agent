@@ -447,7 +447,7 @@ class Agent:
                               and not (m.get('role')=='system' and m.get('content')==program_source_message['content'])]
                 program_guidance=(program_source_guidance(current_calculations)
                                   if self.allow_tools and (not cloud or workspace_granted) else None)
-                comparison_guidance=(current_guidance(source_comparison_index,user_request,source_index)
+                comparison_guidance=(current_guidance(source_comparison_index,user_request,source_index,source_read_records)
                                      if self.allow_tools and (not cloud or workspace_granted) else None)
                 if comparison_guidance:
                     program_guidance='\n\n'.join(g for g in (program_guidance,comparison_guidance) if g)
@@ -500,17 +500,17 @@ class Agent:
                         request_options['request_observer'] = lambda event, data: self.audit.record(event, {
                             'session_id': session_id,'program_source_count':len(current_calculations),
                             'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
-                            'calculation_context_version':'program-source-index-v1' if program_guidance else None, **data})
+                            'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
                     stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None, **request_options)
                 else:
                     final_request_options = {}
-                    if explanation_view_active and getattr(self.llm, 'observes_native_requests', False):
+                    if getattr(self.llm, 'observes_native_requests', False):
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
-                            event, {'session_id': session_id, 'view_version': explanation_view_version,
+                            event, {'session_id': session_id, 'view_version': explanation_view_version if explanation_view_active else None,
                                     'program_source_count':len(current_calculations),
                                     'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
                                     'delivery_context_version':'current-user-delivery-v1' if quote_guard and current_user_question else None,
-                                    'calculation_context_version':'program-source-index-v1' if program_guidance else None, **data})
+                                    'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
                     final_messages=messages
                     if quote_guard and current_user_question:
                         # A turn-local echo after the tool material. Keep the
