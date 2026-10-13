@@ -296,8 +296,9 @@ class Agent:
                     logger.warning('Workspace prefetch skipped')
             explanation_view_active = False
             explanation_view_version = 'prior-explanation-index-v1'
+            source_task_view_active = False
             def index_prior_explanations(history):
-                nonlocal explanation_view_active, explanation_view_version
+                nonlocal explanation_view_active, explanation_view_version, source_task_view_active
                 if not (self.allow_tools and (not cloud or workspace_granted) and stock_read_seen
                         and getattr(self.context_mgr, 'archive', None) is not None
                         and getattr(self.context_mgr, 'reader', None) is not None):
@@ -305,19 +306,25 @@ class Agent:
                 try:
                     from .stock_source_quotes import prior_explanation_view
                     from .stock_report_context import report_material_view
+                    from .stock_task_source_view import current_task_source_view
                     view, prior_index = prior_explanation_view(history, self.context_mgr.archive)
                     view, material_index = report_material_view(view, self.context_mgr.archive)
+                    view, other_source_index = current_task_source_view(view, self.context_mgr.archive)
                     prior_index += material_index
+                    prior_index += other_source_index
                     if prior_index:
                         self.context_mgr.evidence_ids.update(row['evidence_id'] for row in prior_index)
                         self.audit.record('task_explanation_view', {'session_id': session_id,
                             'version': 'reader-material-index-v2' if material_index else explanation_view_version,
                             'indexed_messages': len(prior_index), 'indexed_report_materials': len(material_index),
+                            'indexed_other_task_source_receipts':len(other_source_index),
                             'before_chars': sum(len(row.get('content') or '') for row in history),
                             'after_chars': sum(len(row.get('content') or '') for row in view)})
                         explanation_view_active = True
                         if material_index:
                             explanation_view_version = 'reader-material-index-v2'
+                        if other_source_index:
+                            source_task_view_active = True
                         return view
                 except Exception:
                     # No durable index means no replacement of the original
@@ -516,6 +523,7 @@ class Agent:
                     if getattr(self.llm, 'observes_native_requests', False):
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
                             event, {'session_id': session_id, 'view_version': explanation_view_version if explanation_view_active else None,
+                                    'source_task_view_version':'current-task-source-index-v1' if source_task_view_active else None,
                                     'program_source_count':len(current_calculations),
                                     'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
                                     'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
