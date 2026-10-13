@@ -187,7 +187,19 @@ class CompatibleClient:
         self.model = spec['model']
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(120, connect=20), trust_env=False)
 
-    async def chat_stream_with_tools(self, messages, tools=None):
+    @property
+    def supports_source_read_choice(self):
+        # Capability was checked for this exact catalogue entry; never turn off
+        # thinking or switch models to make a selected call acceptable.
+        return (self.spec.get('source_read_tool_choice', {}).get('mode') == 'named_non_thinking'
+                and self.spec.get('options', {}).get('enable_thinking') is False)
+
+    async def chat_stream_with_tools(self, messages, tools=None, *, selected_source_tool=None, request_observer=None):
+        if selected_source_tool is not None:
+            names = {item.get('function', {}).get('name') for item in tools or []}
+            if (not self.supports_source_read_choice or selected_source_tool not in names or
+                    selected_source_tool not in ('stock_public_evidence_find', 'stock_public_evidence_read')):
+                raise RuntimeError('所选模型或当前授权工具不支持指定来源读取；未改变思考、模型或工具权限。')
         key = read_key(self.spec['api_key_env'])
         if not key:
             raise RuntimeError('所选模型尚未配置 API Key，请在 Web 右侧模型设置填写密钥。')
@@ -201,7 +213,18 @@ class CompatibleClient:
         payload.update(model=self.model, messages=clean, stream=True)
         if tools:
             payload['tools'] = tools
-        self.budget.reserve(self.spec['id'])
+        if selected_source_tool:
+            payload['tool_choice'] = {'type': 'function', 'function': {'name': selected_source_tool}}
+        call_id = self.budget.reserve(self.spec['id'])
+        if request_observer:
+            import hashlib
+            request_observer('native_model_request', {
+                'call_id': call_id, 'model': self.spec['id'],
+                'parameters': {key: value for key, value in payload.items() if key not in ('messages', 'tools')},
+                'tool_names': [item['function']['name'] for item in tools or []],
+                'message_count': len(clean),
+                'input_chars': len(json.dumps(clean,ensure_ascii=False)),
+                'input_hash': hashlib.sha256(json.dumps(clean,ensure_ascii=False,sort_keys=True).encode()).hexdigest()})
         accumulated = {'role': 'assistant', 'content': '', 'reasoning_content': ''}
         calls, finished, thinking_open = {}, False, False
         try:
@@ -251,6 +274,8 @@ class CompatibleClient:
                 raise RuntimeError('模型连接提前中断，已保留收到的内容。')
             if calls:
                 accumulated['tool_calls'] = [calls[i] for i in sorted(calls)]
+            if selected_source_tool and (not calls or any(call['function']['name'] != selected_source_tool for call in calls.values())):
+                raise RuntimeError('供应商未返回指定的来源工具调用；原结果保留，未自动重发或降级。')
             if not accumulated['content'] and not calls:
                 raise RuntimeError('模型没有返回回答或工具调用，请重试本轮。')
             yield '', accumulated

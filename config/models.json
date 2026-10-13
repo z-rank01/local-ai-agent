@@ -7,6 +7,11 @@
     "context_window": 1000000,
     "context_reference": "https://help.aliyun.com/zh/model-studio/qwen3-5-flash",
     "context_verified_at": "2026-10-13",
+    "source_read_tool_choice": {
+      "mode": "named_non_thinking",
+      "reference": "https://help.aliyun.com/zh/model-studio/qwen-function-calling",
+      "verified_at": "2026-10-13"
+    },
     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "api_key_env": "DASHSCOPE_API_KEY",
     "capabilities": [

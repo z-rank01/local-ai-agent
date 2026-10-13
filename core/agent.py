@@ -257,9 +257,10 @@ class Agent:
         # replace its protocol messages with a source index. It is turn-local.
         stock_read_seen = any(m.get('role') == 'tool' and m.get('tool_name') in stock_read_tools
                               for m in messages)
-        from .stock_source_quotes import original_texts, original_records
+        from .stock_source_quotes import original_texts, original_records, source_task_index
         source_quote_originals = original_texts(messages)
         source_read_records = original_records(messages)
+        source_index = source_task_index(messages)
         self.pending_source_review = ''
         cloud = getattr(self.llm, "cloud", False)
         try:
@@ -324,6 +325,10 @@ class Agent:
             execution_retries = 0
             quote_repairs = 0
             quote_repair_active = False
+            source_repair_phase = None
+            source_repair_feedback = ''
+            source_repair_protocol = []
+            source_index_message = None
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             round_number = 0
             stock_deadline = None
@@ -378,6 +383,18 @@ class Agent:
                     # Keep one fresh copy after evidence reads instead of accumulating it.
                     messages = [m for m in messages if not (m.get('role') == 'system'
                                 and m.get('content') == STOCK_DELIVERY_GUIDANCE)]
+                    from .stock_source_quotes import source_index_guidance
+                    # Retain the pre-compression index and merge actual new
+                    # receipts. No source material or old evidence is rewritten.
+                    new_index = source_task_index(messages)
+                    new_tokens = {row['source_reference'] for row in new_index}
+                    source_index = new_index + [row for row in source_index if row['source_reference'] not in new_tokens]
+                    if source_index_message is not None:
+                        messages = [m for m in messages if not (m.get('role') == 'system' and
+                                    m.get('content') == source_index_message['content'])]
+                    if source_index:
+                        source_index_message = {'role': 'system', 'content': source_index_guidance(source_index)}
+                        messages.append(source_index_message)
                     messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
                 messages = await self.context_mgr.process(messages)
                 accumulated = None
@@ -389,7 +406,28 @@ class Agent:
                 self.audit.record('model_tools_offered', {'session_id': session_id,
                     'names': [d['function']['name'] for d in active],
                     'source_quote_repair': quote_repair_active})
-                async with aclosing(self.llm.chat_stream_with_tools(messages, active or None)) as stream:
+                selected_source_tool = None
+                if source_repair_phase and getattr(self.llm, 'supports_source_read_choice', False):
+                    candidate = 'stock_public_evidence_' + source_repair_phase
+                    if any(d['function']['name'] == candidate for d in active):
+                        selected_source_tool = candidate
+                if selected_source_tool:
+                    # Generate only the read parameters from the current task
+                    # and actual source receipts. Old assistant guesses do not
+                    # belong to this lookup step. The full authorised history
+                    # remains available for the eventual answer and re-reading.
+                    selected_messages = [{'role': 'system', 'content':
+                        '本步骤只生成已授权公开来源工具的参数，不生成研究结论。依当前问题选择回执索引中的对应任务；'
+                        '任务引用、事件编号和游标保持配套，不猜编号、不改模型、不创建或恢复研究。'
+                        '检索用原文连续词语；没有命中可说明当前查询缺口。当前步骤工具由交付核验指定，参数仍由你根据语义选择。\n'
+                        + source_index_guidance(source_index) + '\n' + source_repair_feedback},
+                        {'role': 'user', 'content': user_request}] + source_repair_protocol
+                    stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None,
+                        selected_source_tool=selected_source_tool,
+                        request_observer=lambda event, data: self.audit.record(event, {'session_id': session_id, **data}))
+                else:
+                    stream_source = self.llm.chat_stream_with_tools(messages, active or None)
+                async with aclosing(stream_source) as stream:
                     async for token, msg in stream:
                         if msg is not None:
                             accumulated = msg
@@ -422,6 +460,8 @@ class Agent:
                         tc['id'] = 'call_' + uuid.uuid4().hex
                     tc.setdefault('type', 'function')
                 messages.append(accumulated)
+                if selected_source_tool:
+                    source_repair_protocol.append(accumulated)
                 if quote_guard and not calls:
                     from .stock_source_quotes import (original_texts, original_records, complete_sources,
                         unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs)
@@ -440,6 +480,9 @@ class Agent:
                         if quote_repairs < 2 and active and not stock_window_closed and not no_progress_closed:
                             quote_repairs += 1
                             quote_repair_active = True
+                            source_repair_phase = 'find'
+                            source_repair_feedback = feedback
+                            source_repair_protocol = []
                             messages.append({'role': 'system', 'content': feedback})
                             continue
                         # A local defect must not discard independent useful results.
@@ -499,6 +542,17 @@ class Agent:
                                                        stock_deadline=None if handoff_round else stock_deadline,
                                                        research_handoff=handoff_round)) as events:
                     async for event in events:
+                        if selected_source_tool and event.kind == 'message' and event.data.get('message', {}).get('role') == 'tool':
+                            source_repair_protocol.append(event.data['message'])
+                        if selected_source_tool and event.kind == 'tool_end' and event.data.get('name') == selected_source_tool:
+                            result = event.data.get('result') or {}
+                            result = result.get('model_observation', result) if isinstance(result, dict) else {}
+                            # Only a successful actual lookup may require the
+                            # paired read. Errors/misses do not become facts or
+                            # trigger unchanged-parameter retries.
+                            source_repair_phase = ('read' if selected_source_tool == 'stock_public_evidence_find'
+                                and event.data.get('status') == 'ok' and isinstance(result, dict)
+                                and result.get('items') else None)
                         if event.kind == 'stock_boundary':
                             stock_boundary = True
                         else:

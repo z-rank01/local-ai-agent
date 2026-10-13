@@ -74,6 +74,62 @@ def original_texts(messages):
             ('ORIGINAL_TEXT', 'PEER_ORIGINAL_TEXT') and isinstance(excerpt.get('text'), str)]
 
 
+def source_task_index(messages):
+    """Index authorised tool receipts, never parse user prose or stage hashes.
+
+    Older receipts lack source_reference; link their successful response to its
+    own tool call. This changes only the current model view, not stored history.
+    """
+    calls, rows = {}, {}
+    for order, message in enumerate(messages):
+        if message.get('role') == 'assistant':
+            for call in message.get('tool_calls', []) or []:
+                fn = call.get('function', {})
+                if fn.get('name') not in ('stock_report_read', 'stock_public_evidence_find', 'stock_public_evidence_read'):
+                    continue
+                try:
+                    args = fn.get('arguments', {})
+                    args = json.loads(args) if isinstance(args, str) else args
+                    token = args.get('reference', '')
+                    if isinstance(token, str) and re.fullmatch('[0-9a-f]{64}', token):
+                        calls[call.get('id')] = token
+                except (TypeError, ValueError, AttributeError):
+                    continue
+        if message.get('role') != 'tool' or message.get('tool_name') not in ('stock_report_read', 'stock_public_evidence_find', 'stock_public_evidence_read'):
+            continue
+        try:
+            value = json.loads(message.get('content') or '{}')
+            if not isinstance(value, dict) or value.get('error'):
+                continue
+            value = value.get('model_observation', value)
+            if not isinstance(value, dict) or value.get('kind') not in ('market_brief_page', 'local_report_page', 'public_evidence_find', 'public_evidence_read'):
+                continue
+            token = calls.get(message.get('tool_call_id'))
+            if not token:
+                continue
+            row = rows.pop(token, {'source_reference': token, 'sources': {}})
+            if value['kind'] in ('market_brief_page', 'local_report_page'):
+                row['report_read'] = True
+                row['_report_order'] = order
+            items = value.get('items', []) if value['kind'] == 'public_evidence_find' else [value] if value['kind'] == 'public_evidence_read' else []
+            for item in items:
+                event_id = item.get('event_id') if isinstance(item, dict) else None
+                if isinstance(event_id, str) and re.fullmatch('[0-9a-f]{16}', event_id):
+                    row['sources'][event_id] = {key: item[key] for key in ('event_id', 'title', 'read_cursor', 'next_cursor', 'url') if key in item}
+            rows[token] = row
+        except (TypeError, ValueError):
+            continue
+    ordered = sorted(rows.values(), key=lambda row: row.get('_report_order', -1), reverse=True)
+    return [{**{key: value for key, value in row.items() if key != '_report_order'},
+             'sources': list(row['sources'].values())} for row in ordered]
+
+
+def source_index_guidance(index):
+    return ('[本会话实际读取回执索引，最近读取的报告在前；不是新的事实或原文。'
+            '依原问题选择对应任务，事件与游标须配套使用source_reference，不用阶段文字里的旧引用替换；'
+            '曾经的模型回答不能证明条款。]\n' + json.dumps(index, ensure_ascii=False))
+
+
 def complete_sources(records):
     """Coverage is receipt based; a last page or a search miss is insufficient."""
     groups = {}
