@@ -12,7 +12,25 @@ _LABEL = re.compile(r'原文|原句|原话|(?:逐字|准确)(?:引文|引用)|�
 _QUOTES = re.compile(r'“([^”\n]+)”|"([^"\n]+)"')
 _PARAPHRASE = re.compile(r'转述|概括|释义|意译|不是原文|非逐字')
 _SEARCH_LABEL = re.compile(r'检索词|搜索词|关键词|检索示例|未找到|未出现|等字样')
-_ABSENCE = re.compile(r'(?:文件|通知|原文|公告|文中|条款)[^\n。；]{0,45}?(?:未(?:明确)?(?:规定|出现|提及|找到|见)|没有|不存在|无(?!法|从)[“"\w\u4e00-\u9fff])')
+_ABSENCE = re.compile(r'(?:文件|通知|原文|公告|文中|条款)[^\n。；，|]*?(?:未(?:明确)?(?:规定|披露|公布|提供|出现|提及|找到|见)|没有|不存在|无(?!法|从)[“"\w\u4e00-\u9fff])')
+_BRIEF_ABSENCE = re.compile(r'^(?:无(?!法|从|论)|没有|缺乏|不存在)[^\n。；：→|]*?(?:计划|时间表|条款|安排|数据|材料|信息|证据|预算|方案|说明|记录|细节|指标|成本|毛利率)')
+_ABSENCE_QUALIFIER = re.compile(
+    r'尚未核对|尚未读完|待核(?:对|查)?|待确认|不能(?:断言|确认|认定|推断|推出|证明|据|从|由)|'
+    r'无法(?:判断|确认|确定|证明)|无从(?:判断|确认|确定|证明)|不代表|不能说|并不意味着|'
+    r'如果|假如|假设|倘若|(?:^|[：:])若|未找到|未检索到|未命中|没有找到|尚未取得|尚未获取|'
+    r'(?:无|没有|缺乏)(?:足够|充分|可靠|确凿|已核验|适用|完整)(?:的)?(?:证据|数据|信息)|'
+    r'没有证据(?:证明|表明|支持|显示|确认)|'
+    r'本页|已读片段|已提供材料|当前材料|当前已读范围|目前取得的材料|本次检索')
+_READ_SCOPE = re.compile(r'^\s*(?:在|就)?(?:本页|已读片段|已提供材料|当前材料|当前已读范围|目前取得的材料|本次检索)(?:中|内|而言)?\s*$')
+
+
+def _brief_absence(text, partial=False):
+    # Short claims often live in a heading, list label or table cell rather
+    # than a sentence containing "公告". This inspects output, never intent.
+    text = re.sub(r'^\s*(?:#{1,6}\s+|\d+[.)、]\s*|[-+*]\s+|>\s*)', '', text)
+    text = text.lstrip().lstrip('*_`')
+    return bool((re.match(r'^(?:无(?!法|从|论)|没有|缺乏|不存在)', text) if partial else
+                 _BRIEF_ABSENCE.search(text)))
 READ_TOOLS = frozenset({'stock_public_evidence_find', 'stock_public_evidence_read',
                        'stock_report_read', 'stock_research_find', 'stock_theme_research_find',
                        'stock_market_brief_find', 'context_evidence_read'})
@@ -21,7 +39,9 @@ READ_TOOLS = frozenset({'stock_public_evidence_find', 'stock_public_evidence_rea
 def may_start_literal_quote(text):
     # This inspects generated prose, never the user's research direction.
     # Ordinary introductory/partial output continues to stream unchanged.
-    return bool(_LABEL.search(text) or _ABSENCE.search(text))
+    return bool(_LABEL.search(text) or _ABSENCE.search(text) or
+                any(_brief_absence(cell, partial=True) for line in text.splitlines()
+                    for cell in re.split(r'(?<!\\)\|', line)))
 
 
 def original_records(messages):
@@ -314,11 +334,39 @@ def unverified_absence_claims(reply, sources):
     It never selects a research direction from the user's message.
     """
     issues = []
+    fence = None
     for index, paragraph in enumerate(re.split(r'\n\s*\n', reply)):
         for line_index, line in enumerate(paragraph.splitlines()):
-            if not _ABSENCE.search(line) or re.search(r'尚未核对|尚未读完|不能断言|不代表|不能说|并不意味着|待核对', line):
+            marker = re.match(r'^\s*(`{3,}|~{3,})', line)
+            if fence is not None:
+                if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence):
+                    fence = None
                 continue
-            if not any((source['title'] in line or (source['url'] and source['url'] in line)) for source in sources):
+            if marker:
+                fence = marker[1]
+                continue
+            table = line.lstrip().startswith('|')
+            # A qualifier belongs to its clause/cell, not to every assertion
+            # later on the same line. Preserve the original line coordinates
+            # for the existing local isolation and saved failure protocol.
+            sentences = [line] if table else re.split(r'[。；]', line)
+            bad = False
+            for sentence in sentences:
+                scoped = False
+                clauses = re.split(r'(?<!\\)\|', sentence) if table else sentence.split('，')
+                for clause in clauses:
+                    if not table and _READ_SCOPE.fullmatch(clause):
+                        scoped = True
+                    if scoped or not (_ABSENCE.search(clause) or _brief_absence(clause)) or _ABSENCE_QUALIFIER.search(clause):
+                        continue
+                    attribution = line if table else clause
+                    if not any((source.get('title') and source['title'] in attribution) or
+                               (source.get('url') and source['url'] in attribution) for source in sources):
+                        bad = True
+                        break
+                if bad:
+                    break
+            if bad:
                 issues.append({'paragraph': index, 'line': line_index, 'quote': line.strip(),
                                'reason': 'SOURCE_ABSENCE_WITHOUT_COMPLETE_ATTRIBUTED_READ'})
     return issues
@@ -330,6 +378,8 @@ def quote_feedback(issues):
             '阶段分析、搜索目录、财报字段或模型推断不能替代逐字原文。\n' + quotes +
             '\n保留其他有效判断，只修正相关段落。原问题需要原文核对时，通过本轮现有公开证据查找/读取工具'
             '取得对应原文及末尾条件；也可明确标为转述并说明原文尚未核对。'
+            '列表标题和表格中的“无计划”“无条款”等也属于缺失断言；只确认某步骤尚未发生，'
+            '不能推成没有计划或没有安排。尚未核对时说明已读范围与待核内容，不把不确定改成已证实没有。'
             '若确需判断文件没有某项规定，须完整读取对应来源，并在该判断旁注明来源标题或链接。'
             '没有找到或没有读完不能写成原文没有该条款。不新增研究、恢复任务、改模型或重发未知调用。')
 
