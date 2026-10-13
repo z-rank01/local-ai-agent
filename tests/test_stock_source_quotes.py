@@ -3,7 +3,8 @@ import unittest
 from types import SimpleNamespace
 
 from core.agent import Agent
-from core.stock_source_quotes import original_texts, unverified_quotes, isolate_quote_paragraphs
+from core.stock_source_quotes import (original_texts, original_records, complete_sources,
+    unverified_quotes, unverified_absence_claims, isolate_quote_paragraphs)
 
 
 def source_message(text, kind='ORIGINAL_TEXT', **extra):
@@ -12,6 +13,32 @@ def source_message(text, kind='ORIGINAL_TEXT', **extra):
 
 
 class SourceQuoteTests(unittest.TestCase):
+    def test_original_section_keeps_scope_across_nested_heading_and_blank_blocks(self):
+        reply='## 二、准确原文与出处\n\n### 文件信息\n\n日期另列。\n\n### 文中相关条款定位\n\n关于资金的条款为：\n\n> "模型改写的资金条款"\n\n## 三、解释\n\n检索词：“未用完”。'
+        self.assertEqual([x['quote'] for x in unverified_quotes(reply,[])],['模型改写的资金条款'])
+        self.assertFalse(unverified_quotes(reply,['模型改写的资金条款']))
+
+    def test_unquoted_markdown_original_is_checked_but_explicit_paraphrase_is_not(self):
+        reply='## 来源原文\n\n> 订单已经取消。\n> 后续不得确认收入。'
+        self.assertEqual(len(unverified_quotes(reply,[])),2)
+        self.assertFalse(unverified_quotes(reply,['订单已经取消。后续不得确认收入。']))
+        self.assertFalse(unverified_quotes('## 来源转述（非逐字）\n\n> 订单取消。',[]))
+
+    def test_absence_requires_whole_original_and_local_source_attribution(self):
+        def page(ids,tail=False,kind='ORIGINAL_TEXT'):
+            return source_message('',job_id='job',event_id='event',title='通知甲',url='https://example.org/a',
+                total_excerpts=2,next_cursor='' if tail else 'cursor',
+                excerpts=[{'excerpt_id':str(i),'kind':kind,'text':'通知原文'+str(i)} for i in ids])
+        # Repeated reads and the last page alone cannot prove complete coverage.
+        self.assertFalse(complete_sources(original_records([page([1],True),page([1],True)])))
+        sources=complete_sources(original_records([page([0]),page([1],True)]))
+        self.assertTrue(unverified_absence_claims('文件未规定结转。',sources))
+        self.assertTrue(unverified_absence_claims('通知乙未规定结转。',sources))
+        self.assertFalse(unverified_absence_claims('通知甲未规定结转。',sources))
+        self.assertTrue(unverified_absence_claims('通知甲未规定结转。',[]))
+        self.assertFalse(unverified_absence_claims('原文尚未读完，不能断言文件没有结转条款。',[]))
+        self.assertFalse(complete_sources(original_records([page([0,1],True,'SOURCE_FIELD')])))
+
     def test_model_summary_search_and_financial_fields_are_not_literal_originals(self):
         text='国家直接安排安徽省60亿元'
         messages=[{'role':'user','content':text},

@@ -30,6 +30,9 @@ STOCK_DELIVERY_GUIDANCE = (
     '旧年度资料只作历史风险线索，未核对适用关系不能当当期反证。'
     '模型阶段输出与来源原文分开；初稿未补查不等于后续没有补查，部分分析不称完整综合。'
     '依据使用实际资料名称、日期和已提供链接；没有可定位来源就保留待核，转述不冒充逐字引文。'
+    '核对条款或提供逐字引文时，以实际公开证据读取回执中的原文为准；必要时先查找再读取命中位置和后续条件。'
+    '本会话旧回答不是原文证据。尚未读取或只读取部分页面，不能断言文件没有某项条款；'
+    '确需作该断言时完整回读相应来源，并在判断旁给出来源标题或链接。'
     '保持自然易懂，不强制套完整研究报告模板；完整来源与阶段过程可由报告卡展开。'
 )
 from .tool_registry import ToolRegistry
@@ -254,8 +257,9 @@ class Agent:
         # replace its protocol messages with a source index. It is turn-local.
         stock_read_seen = any(m.get('role') == 'tool' and m.get('tool_name') in stock_read_tools
                               for m in messages)
-        from .stock_source_quotes import original_texts
+        from .stock_source_quotes import original_texts, original_records
         source_quote_originals = original_texts(messages)
+        source_read_records = original_records(messages)
         self.pending_source_review = ''
         cloud = getattr(self.llm, "cloud", False)
         try:
@@ -419,11 +423,13 @@ class Agent:
                     tc.setdefault('type', 'function')
                 messages.append(accumulated)
                 if quote_guard and not calls:
-                    from .stock_source_quotes import (original_texts, unverified_quotes,
-                        quote_feedback, isolate_quote_paragraphs)
+                    from .stock_source_quotes import (original_texts, original_records, complete_sources,
+                        unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs)
                     reply = accumulated.get('content') or ''
                     source_quote_originals = list(dict.fromkeys(source_quote_originals + original_texts(messages)))
+                    source_read_records.extend(original_records(messages))
                     issues = unverified_quotes(reply, source_quote_originals)
+                    issues += unverified_absence_claims(reply, complete_sources(source_read_records))
                     if issues:
                         feedback = quote_feedback(issues)
                         self.audit.record('source_quote_rejected', {'session_id': session_id,
