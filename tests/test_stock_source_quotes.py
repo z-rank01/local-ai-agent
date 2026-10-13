@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from core.agent import Agent
 from core.stock_source_quotes import (original_texts, original_records, complete_sources,
-    unverified_quotes, unverified_absence_claims, isolate_quote_paragraphs)
+    unverified_quotes, unverified_absence_claims, isolate_quote_paragraphs, repair_quote_format)
 
 
 def source_message(text, kind='ORIGINAL_TEXT', **extra):
@@ -13,6 +13,37 @@ def source_message(text, kind='ORIGINAL_TEXT', **extra):
 
 
 class SourceQuoteTests(unittest.TestCase):
+    def test_label_not_a_literal_claim_and_whitespace_restored_to_actual_source(self):
+        reply='准确原文：\n\n> **原文引文：**\n> “截至 2024 年 12 月 31 日未用完的中央下达资金额度收回中央。”'
+        source='截至2024年12月31日未用完的中央下达资金额度收回中央。'
+        repaired, edits = repair_quote_format(reply, [source])
+        self.assertEqual(len(edits), 1)
+        self.assertIn('“'+source+'”', repaired)
+        self.assertFalse(unverified_quotes(repaired, [source]))
+
+    def test_trailing_ellipsis_is_editorial_outside_exact_literal_prefix(self):
+        reply='原文：“多项支持政策，按照9:1的原则……”'
+        repaired, edits = repair_quote_format(reply, ['多项支持政策，按照9:1的原则实行央地共担。'])
+        self.assertEqual(repaired, '原文：“多项支持政策，按照9:1的原则”（引文节选，末尾省略）')
+        self.assertEqual(edits[0]['reason'], 'TRAILING_ELLIPSIS')
+        self.assertFalse(unverified_quotes(repaired, ['多项支持政策，按照9:1的原则实行央地共担。']))
+
+    def test_ambiguous_source_or_changed_dates_numbers_words_not_repaired(self):
+        cases=[('原文：“合同 已终止”',['合同  已终止','合同已终止']),
+               ('原文：“2026年金额60亿元”',['2024年金额60亿元']),
+               ('原文：“金额60亿元”',['金额6亿元']),
+               ('原文：“资金已经收回”',['资金应当收回']),
+               ('原文：“多项…共担。”',['多项政策实行央地共担。'])]
+        for reply, sources in cases:
+            self.assertEqual(repair_quote_format(reply,sources),(reply,[]))
+            self.assertTrue(unverified_quotes(reply,sources))
+
+    def test_local_repair_only_changes_labelled_quote_not_ordinary_prose(self):
+        reply='讨论原计划2024 年。\n\n原句：“2024 年期限”\n\n检索词：“2024 年期限”'
+        repaired, _=repair_quote_format(reply,['2024年期限'])
+        self.assertIn('原句：“2024年期限”',repaired)
+        self.assertIn('讨论原计划2024 年',repaired)
+        self.assertIn('检索词：“2024 年期限”',repaired)
     def test_cloud_reference_binds_complete_read_without_private_job_id(self):
         def page(ref, ids, tail=False):
             return source_message('',source_reference=ref,event_id='event',title='通知甲',url='https://example.org/a',
@@ -116,6 +147,22 @@ class SourceQuoteTests(unittest.TestCase):
 
 
 class SourceQuoteLoopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_known_format_defect_repaired_without_provider_or_tool_retry(self):
+        calls=[]
+        class Model:
+            cloud=False
+            async def chat_stream_with_tools(self,*args):
+                calls.append(1)
+                text='依据原文：“2024 年未用完的中央额度收回……”'
+                yield text,None
+                yield '',{'role':'assistant','content':text}
+        history=self.history()+[source_message('2024年未用完的中央额度收回中央。')]
+        events=[e async for e in self.agent(Model(),SimpleNamespace(),['stock_public_evidence_read']).run(history)]
+        self.assertEqual(len(calls),1)
+        self.assertEqual(len([e for e in events if e.kind=='quality_repaired']),1)
+        self.assertFalse(any(e.kind in ('quality_rejected','tool_start') for e in events))
+        self.assertIn('“2024年未用完的中央额度收回”',events[-1].text)
+        self.assertEqual(''.join(e.text for e in events if e.kind=='token'),events[-1].text)
     def agent(self, model, router, tools):
         async def process(messages):return messages
         agent=Agent(llm=model,router=router,registry=SimpleNamespace(get_definitions=lambda **kw:[
@@ -223,6 +270,33 @@ from bff.schemas import ChatRequest
 
 
 class SourceQuoteServiceTests(ServiceTests):
+    async def test_format_repair_preserves_original_locally_and_final_stream_matches(self):
+        conv=await self.install_review_history()
+        self.runtime.store.add_message(conv.id,role='protocol',metadata={'cloud_safe':True,'message':{
+            'role':'assistant','content':'','tool_calls':[{'id':'raw','type':'function','function':{
+                'name':'stock_public_evidence_read','arguments':'{}'}}]}})
+        raw=source_message('2024年未用完的中央额度收回中央。');raw['tool_call_id']='raw'
+        self.runtime.store.add_message(conv.id,role='protocol',metadata={'cloud_safe':True,'message':raw})
+        generated='原文：“2024 年未用完的中央额度收回……”'
+        class Model:
+            cloud=True
+            model='qwen3.5-flash'
+            async def chat_stream_with_tools(self,*args):
+                yield generated,None
+                yield '',{'role':'assistant','content':generated}
+            async def close(self):pass
+        self.runtime.models.clients['qwen:qwen3.5-flash']=Model()
+        events=[e async for e in self.service.stream_chat(ChatRequest(conversation_id=conv.id,
+            message='核对已保存原句',provider_id='qwen',model='qwen3.5-flash'))]
+        final=next(e.data['text'] for e in events if e.event=='assistant.completed')
+        self.assertEqual(''.join(e.data['text'] for e in events if e.event=='assistant.delta'),final)
+        self.assertIn('“2024年未用完的中央额度收回”',final)
+        rows=self.runtime.store.get_messages(conv.id)
+        repaired=[json.loads(r.metadata) for r in rows if json.loads(r.metadata).get('quality_status')=='repaired_literal_format']
+        self.assertEqual(repaired[0]['original_answer'],generated)
+        self.assertFalse(repaired[0]['cloud_safe'])
+        cloud=self.runtime.store.messages_as_dicts(conv.id,cloud=True)
+        self.assertFalse(any(generated==m.get('content') for m in cloud))
     async def install_review_history(self):
         conv=self.runtime.store.create_conversation()
         self.runtime.store.add_message(conv.id,role='protocol',metadata={'cloud_safe':True,'message':{

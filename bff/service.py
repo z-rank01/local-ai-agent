@@ -964,6 +964,13 @@ class ChatSessionService:
                             text += token
                             if brief_comparison is None:
                                 yield emit('assistant.delta', block_id=block, data={'text': token, 'model': spec['id']})
+                    elif event.kind == 'quality_repaired':
+                        # Retain the generated prose and exact local edits for
+                        # audit. This is not new evidence or a cloud message.
+                        save('protocol', metadata={**meta, 'cloud_safe': False,
+                            'quality_status': event.data['quality_status'],
+                            'original_answer': event.data['original_answer'],
+                            'quality_edits': event.data['quality_edits']})
                     elif event.kind == 'quality_rejected':
                         # Keep the failed prose locally in existing protocol metadata;
                         # the next model view gets the typed correction, not a false fact.

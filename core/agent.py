@@ -289,22 +289,29 @@ class Agent:
                 except Exception:
                     logger.warning('Workspace prefetch skipped')
             explanation_view_active = False
+            explanation_view_version = 'prior-explanation-index-v1'
             def index_prior_explanations(history):
-                nonlocal explanation_view_active
+                nonlocal explanation_view_active, explanation_view_version
                 if not (self.allow_tools and (not cloud or workspace_granted) and stock_read_seen
                         and getattr(self.context_mgr, 'archive', None) is not None
                         and getattr(self.context_mgr, 'reader', None) is not None):
                     return history
                 try:
                     from .stock_source_quotes import prior_explanation_view
+                    from .stock_report_context import report_material_view
                     view, prior_index = prior_explanation_view(history, self.context_mgr.archive)
+                    view, material_index = report_material_view(view, self.context_mgr.archive)
+                    prior_index += material_index
                     if prior_index:
                         self.context_mgr.evidence_ids.update(row['evidence_id'] for row in prior_index)
                         self.audit.record('task_explanation_view', {'session_id': session_id,
-                            'version': 'prior-explanation-index-v1', 'indexed_messages': len(prior_index),
+                            'version': 'reader-material-index-v1' if material_index else explanation_view_version,
+                            'indexed_messages': len(prior_index), 'indexed_report_materials': len(material_index),
                             'before_chars': sum(len(row.get('content') or '') for row in history),
                             'after_chars': sum(len(row.get('content') or '') for row in view)})
                         explanation_view_active = True
+                        if material_index:
+                            explanation_view_version = 'reader-material-index-v1'
                         return view
                 except Exception:
                     # No durable index means no replacement of the original
@@ -470,7 +477,7 @@ class Agent:
                     final_request_options = {}
                     if explanation_view_active and getattr(self.llm, 'observes_native_requests', False):
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
-                            event, {'session_id': session_id, 'view_version': 'prior-explanation-index-v1', **data})
+                            event, {'session_id': session_id, 'view_version': explanation_view_version, **data})
                     stream_source = self.llm.chat_stream_with_tools(messages, active or None, **final_request_options)
                 async with aclosing(stream_source) as stream:
                     async for token, msg in stream:
@@ -537,10 +544,22 @@ class Agent:
                         raise RuntimeError('来源补查未返回工具调用，尚未完成原文核对；已取得结果保留，未自动重发或改思考设置。')
                 if quote_guard and not calls:
                     from .stock_source_quotes import (original_texts, original_records, complete_sources,
-                        unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs)
+                        unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs,
+                        repair_quote_format)
                     reply = accumulated.get('content') or ''
                     source_quote_originals = list(dict.fromkeys(source_quote_originals + original_texts(messages)))
                     source_read_records.extend(original_records(messages))
+                    repaired, format_edits = repair_quote_format(reply, source_quote_originals)
+                    if format_edits:
+                        yield AgentEvent('quality_repaired', data={'original_answer': reply,
+                            'quality_edits': format_edits, 'quality_status': 'repaired_literal_format'})
+                        emitted_chars = len(review_visible_prefix) - sum(len(token) for token in pending_tokens)
+                        reply = repaired
+                        accumulated = {**accumulated, 'content': reply}
+                        messages[-1] = accumulated
+                        pending_tokens = [reply[emitted_chars:]]
+                        self.audit.record('source_quote_format_repaired', {'session_id': session_id,
+                            'count': len(format_edits), 'provider_call_added': False})
                     issues = unverified_quotes(reply, source_quote_originals)
                     issues += unverified_absence_claims(reply, complete_sources(source_read_records))
                     if issues:

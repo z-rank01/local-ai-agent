@@ -214,6 +214,50 @@ def complete_sources(records):
             if group['tail'] and len(group['ids']) == key[2] for title in group['titles'] if title]
 
 
+def repair_quote_format(reply, originals):
+    """Restore a unique literal span, never infer words, dates or numbers.
+
+    Only whitespace and trailing editorial ellipses are repairable. Keep the
+    exact source spelling and let the ordinary literal checker reject all
+    remaining differences. Multiple distinct source spellings are ambiguous.
+    """
+    edits = []
+    for issue in unverified_quotes(reply, originals):
+        quote = issue['quote']
+        prefix = re.sub(r'(?:…+|\.{3,})$', '', quote).rstrip()
+        omitted = prefix != quote.rstrip()
+        target = ''.join(prefix.split())
+        if not target:
+            continue
+        matches = set()
+        for source in originals:
+            positions = [i for i, char in enumerate(source) if not char.isspace()]
+            normalized = ''.join(source[i] for i in positions)
+            start = normalized.find(target)
+            while start >= 0:
+                matches.add(source[positions[start]:positions[start + len(target) - 1] + 1])
+                start = normalized.find(target, start + 1)
+        if len(matches) != 1:
+            continue
+        exact = matches.pop()
+        # Change only this checked quote on this line, not matching prose,
+        # links or unlabelled discussion elsewhere in the answer.
+        paragraphs = re.split(r'\n\s*\n', reply)
+        lines = paragraphs[issue['paragraph']].splitlines()
+        line = lines[issue['line']]
+        changed = line.replace(quote, exact, 1)
+        if omitted:
+            changed += '（引文节选，末尾省略）'
+        if changed == line:
+            continue
+        lines[issue['line']] = changed
+        paragraphs[issue['paragraph']] = '\n'.join(lines)
+        reply = '\n\n'.join(paragraphs)
+        edits.append({**issue, 'replacement': exact,
+                      'reason': 'TRAILING_ELLIPSIS' if omitted else 'WHITESPACE_ONLY'})
+    return reply, edits
+
+
 def unverified_quotes(reply, originals):
     """Return affected paragraphs; exact characters/spaces are intentional."""
     issues = []
@@ -243,7 +287,13 @@ def unverified_quotes(reply, originals):
             quotes = [quote[1] if quote[1] is not None else quote[2]
                       for quote in _QUOTES.finditer(line)]
             if line.lstrip().startswith('>') and not quotes:
-                quotes = [re.sub(r'^\s*>\s?', '', line)]
+                text = re.sub(r'^\s*>\s?', '', line)
+                # A Markdown label introduces the following quote; it is not
+                # itself a claim that these words occur in the document.
+                label = re.sub(r'[*_`]', '', text).strip()
+                if re.fullmatch(r'(?:原文|原句|原话|准确引文|逐字引文)(?:引文|引用|条款)?[：:]?', label):
+                    continue
+                quotes = [text]
             for text in quotes:
                 if not any(text in original for original in originals):
                     issues.append({'paragraph': index, 'line': line_index, 'quote': text})
