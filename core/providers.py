@@ -217,10 +217,12 @@ class CompatibleClient:
         if selected_source_tool:
             payload['tool_choice'] = {'type': 'function', 'function': {'name': selected_source_tool}}
         call_id = self.budget.reserve(self.spec['id'])
+        from .native_response import NativeStreamReceipt
+        receipt = NativeStreamReceipt(uuid.uuid4().hex)
         if request_observer:
             import hashlib
             request_observer('native_model_request', {
-                'call_id': call_id, 'model': self.spec['id'],
+                'call_id': call_id, 'model': self.spec['id'], 'local_attempt_id': receipt.attempt_id,
                 'parameters': {key: value for key, value in payload.items() if key not in ('messages', 'tools')},
                 'tool_names': [item['function']['name'] for item in tools or []],
                 'message_count': len(clean),
@@ -231,7 +233,14 @@ class CompatibleClient:
         try:
             async with self._client.stream('POST', self.spec['base_url'].rstrip('/') + '/chat/completions',
                 headers={'Authorization': f'Bearer {key}'}, json=payload) as response:
+                receipt.headers(response.status_code,response.headers)
                 if response.status_code >= 400:
+                    receipt.failure_category='HTTP_REJECTED'
+                    try:
+                        raw_error=await response.aread()
+                        receipt.rejection_body(json.loads(raw_error),response.headers)
+                    except (ValueError,httpx.RequestError):
+                        pass  # The HTTP rejection is known even if its body is unavailable.
                     raise RuntimeError(f'所选模型请求失败（HTTP {response.status_code}），未切换模型。')
                 async for line in response.aiter_lines():
                     if not line.startswith('data:'):
@@ -239,8 +248,14 @@ class CompatibleClient:
                     raw = line[5:].strip()
                     if raw == '[DONE]':
                         break
-                    chunk = json.loads(raw)
+                    try:
+                        chunk = json.loads(raw)
+                    except ValueError:
+                        receipt.failure_category='STREAM_PROTOCOL_ERROR'
+                        raise
+                    receipt.chunk(chunk)
                     if chunk.get('error'):
+                        receipt.failure_category='STREAM_PROVIDER_ERROR'
                         raise RuntimeError('模型流返回错误，已保留收到的内容。')
                     for choice in chunk.get('choices', []):
                         delta = choice.get('delta', {})
@@ -267,23 +282,44 @@ class CompatibleClient:
                         reason = choice.get('finish_reason')
                         if reason:
                             if reason not in ('stop', 'tool_calls'):
+                                receipt.failure_category='OUTPUT_TRUNCATED' if reason=='length' else 'UNSUPPORTED_FINISH'
                                 raise RuntimeError('模型输出未完整结束，已保留收到的内容。')
                             finished = True
             if thinking_open:
                 yield '</think>', None
             if not finished:
+                receipt.failure_category='EARLY_EOF'
                 raise RuntimeError('模型连接提前中断，已保留收到的内容。')
             if calls:
                 accumulated['tool_calls'] = [calls[i] for i in sorted(calls)]
             if selected_source_tool and (not calls or any(call['function']['name'] != selected_source_tool for call in calls.values())):
+                receipt.failure_category='TOOL_CHOICE_NOT_HONOURED'
                 error = RuntimeError('供应商未返回指定的来源工具调用；原结果保留，未自动重发或降级。')
                 error.source_visible_response = accumulated.get('content', '')
                 raise error
             if not accumulated['content'] and not calls:
+                receipt.failure_category='EMPTY_RESULT'
                 raise RuntimeError('模型没有返回回答或工具调用，请重试本轮。')
+            receipt.delivery_status='COMPLETE'
             yield '', accumulated
-        except httpx.RequestError:
+        except httpx.RequestError as error:
+            receipt.delivery_status='FAILED'
+            if receipt.failure_category is None:
+                receipt.failure_category='NETWORK_TIMEOUT' if isinstance(error,httpx.TimeoutException) else 'NETWORK_ERROR'
             raise RuntimeError('无法连接所选模型或响应超时；没有自动重试或切换模型。') from None
+        except (asyncio.CancelledError,GeneratorExit):
+            if receipt.delivery_status!='COMPLETE':
+                receipt.delivery_status='CANCELLED'
+                receipt.failure_category='CALLER_CANCELLED'
+            raise
+        except BaseException:
+            receipt.delivery_status='FAILED'
+            if receipt.failure_category is None:
+                receipt.failure_category='STREAM_PROTOCOL_ERROR'
+            raise
+        finally:
+            if request_observer:
+                request_observer('native_model_result', {'call_id':call_id,'model':self.spec['id'], **receipt.result()})
 
     async def chat(self, system, user_message):
         result = ''

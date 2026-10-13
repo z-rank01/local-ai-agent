@@ -64,7 +64,12 @@ class SourceChoiceProviderTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict('os.environ',{'IN1_FAKE_KEY':'dummy'}),self.assertRaisesRegex(RuntimeError,'未返回指定'):
             _=[e async for e in client.chat_stream_with_tools([],tools,selected_source_tool='stock_public_evidence_find',
                 request_observer=lambda *args:observed.append(args))]
-        self.assertEqual(len(observed),1)
+        self.assertEqual(sum(event=='native_model_request' for event,_ in observed),1)
+        terminal=[data for event,data in observed if event=='native_model_result']
+        self.assertEqual(len(terminal),1)
+        self.assertEqual(terminal[0]['result_status'],'COMPLETE')
+        self.assertEqual(terminal[0]['delivery_status'],'FAILED')
+        self.assertEqual(terminal[0]['failure_category'],'TOOL_CHOICE_NOT_HONOURED')
 
 
 class SourceReadExecutionTests(unittest.IsolatedAsyncioTestCase):
