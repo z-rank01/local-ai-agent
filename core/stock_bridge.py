@@ -353,6 +353,9 @@ class StockBridge:
             # Echo only this broker-authorised task token, never guess or replace
             # a parent brief token mentioned by a historical model stage.
             observation['source_reference'] = params['reference']
+            if tool == 'stock_public_evidence_read' and 'source_coverage' in observation:
+                from .stock_source_coverage import validated_source_coverage
+                observation['source_coverage'] = validated_source_coverage(observation)
             observation['page_reading'] = (
                 '以上 body 是本地报告的第 {page} 页正文，已随本轮交给模型阅读；'
                 '引用其中的数字、日期或状态时必须与正文一致，不要改写或四舍五入。'
@@ -442,6 +445,10 @@ class StockBridge:
                 'financial_fields若提供，只对应本页实际读取的结构化财务字段，原值、证券、期间、出处与元/万元/亿元换算配套；'
                 '不是公告逐字原文，也不证明业务可比或现金流代表回款质量。引用使用该字段对应地址，不能配其他PDF或网页。'
                 '没有这项附加结构不证明资料不存在；用户正文用易懂名称和单位，不展示内部枚举或编号。')
+            if observation.get('source_coverage'):
+                observation['source_reading'] += ('source_coverage仅是本页实际涉及URL的保存原文范围；'
+                    '公司目录total_excerpts不是单公告段数。保存范围读完不等于网站/PDF完整采集或研究完成，'
+                    '普通正文不展示快照哈希；按实际原文和问题判断，不把尚未投产推成无计划。')
         elif tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief':
             page = params.get('page', 1)
             if page > 1:

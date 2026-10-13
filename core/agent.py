@@ -438,6 +438,8 @@ class Agent:
                         messages.append(source_index_message)
                     messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
                 messages = index_prior_explanations(messages)
+                from .stock_source_coverage import merge_read_records
+                source_read_records=merge_read_records(source_read_records,original_records(messages))
                 source_calculation_index.update(calculation_index(messages))
                 source_comparison_index.update(context_index(messages))
                 from .stock_calculation_review import current_program_records,program_source_guidance
@@ -449,8 +451,13 @@ class Agent:
                                   if self.allow_tools and (not cloud or workspace_granted) else None)
                 comparison_guidance=(current_guidance(source_comparison_index,user_request,source_index,source_read_records)
                                      if self.allow_tools and (not cloud or workspace_granted) else None)
+                from .stock_source_coverage import coverage_guidance
+                saved_coverage_guidance=(coverage_guidance(source_read_records,user_request,source_index)
+                                        if self.allow_tools and (not cloud or workspace_granted) else None)
                 if comparison_guidance:
                     program_guidance='\n\n'.join(g for g in (program_guidance,comparison_guidance) if g)
+                if saved_coverage_guidance:
+                    program_guidance='\n\n'.join(g for g in (program_guidance,saved_coverage_guidance) if g)
                 if program_guidance:
                     program_source_message={'role':'system','content':program_guidance}
                     messages.append(program_source_message)
@@ -499,6 +506,7 @@ class Agent:
                     if selected_source_tool or getattr(self.llm,'observes_native_requests',False):
                         request_options['request_observer'] = lambda event, data: self.audit.record(event, {
                             'session_id': session_id,'program_source_count':len(current_calculations),
+                            'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
                             'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
                             'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
                     stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None, **request_options)
@@ -508,6 +516,7 @@ class Agent:
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
                             event, {'session_id': session_id, 'view_version': explanation_view_version if explanation_view_active else None,
                                     'program_source_count':len(current_calculations),
+                                    'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
                                     'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
                                     'delivery_context_version':'current-user-delivery-v1' if quote_guard and current_user_question else None,
                                     'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
@@ -598,7 +607,7 @@ class Agent:
                         repair_quote_format)
                     reply = accumulated.get('content') or ''
                     source_quote_originals = list(dict.fromkeys(source_quote_originals + original_texts(messages)))
-                    source_read_records.extend(original_records(messages))
+                    source_read_records=merge_read_records(source_read_records,original_records(messages))
                     from .stock_calculation_review import repair_scale_divisions,repair_scale_units
                     program_records=current_calculations
                     calculated_reply, calculation_edits = repair_scale_divisions(reply, program_records)
