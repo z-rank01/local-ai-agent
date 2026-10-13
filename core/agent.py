@@ -366,6 +366,7 @@ class Agent:
             source_repair_feedback = ''
             source_repair_protocol = []
             source_index_message = None
+            program_source_message = None
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             round_number = 0
             stock_deadline = None
@@ -435,6 +436,16 @@ class Agent:
                     messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
                 messages = index_prior_explanations(messages)
                 source_calculation_index.update(calculation_index(messages))
+                from .stock_calculation_review import current_program_records,program_source_guidance
+                current_calculations=current_program_records(source_calculation_index,user_request,source_index)
+                if program_source_message:
+                    messages=[m for m in messages if m is not program_source_message
+                              and not (m.get('role')=='system' and m.get('content')==program_source_message['content'])]
+                program_guidance=(program_source_guidance(current_calculations)
+                                  if self.allow_tools and (not cloud or workspace_granted) else None)
+                if program_guidance:
+                    program_source_message={'role':'system','content':program_guidance}
+                    messages.append(program_source_message)
                 messages = await self.context_mgr.process(messages)
                 accumulated = None
                 quote_guard = stock_read_seen and (quality_research or getattr(self, 'stock_source_review_enabled', False))
@@ -471,19 +482,24 @@ class Agent:
                         '目录分页next_cursor仅用于继续find，read_cursor仅用于对应事件read。'
                         '不重发相同未命中查询，不把无命中当作原文不存在。参数仍由你根据语义选择。\n'
                         '当前来源读取回执next_cursor非空时沿原任务与事件续读，取得后文条件；不要重复旧游标或拿其他来源代替。\n'
-                        + '当前优先工具：' + candidate + '。\n' + source_index_guidance(source_index) + '\n' + source_repair_feedback},
+                        + '当前优先工具：' + candidate + '。\n' + source_index_guidance(source_index)
+                        + '\n'+(program_guidance or '')+'\n' + source_repair_feedback},
                         {'role': 'user', 'content': user_request}] + source_repair_protocol
                     request_options = {}
                     if selected_source_tool:
                         request_options['selected_source_tool'] = selected_source_tool
                     if selected_source_tool or getattr(self.llm,'observes_native_requests',False):
-                        request_options['request_observer'] = lambda event, data: self.audit.record(event, {'session_id': session_id, **data})
+                        request_options['request_observer'] = lambda event, data: self.audit.record(event, {
+                            'session_id': session_id,'program_source_count':len(current_calculations),
+                            'calculation_context_version':'program-source-index-v1' if program_guidance else None, **data})
                     stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None, **request_options)
                 else:
                     final_request_options = {}
                     if explanation_view_active and getattr(self.llm, 'observes_native_requests', False):
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
-                            event, {'session_id': session_id, 'view_version': explanation_view_version, **data})
+                            event, {'session_id': session_id, 'view_version': explanation_view_version,
+                                    'program_source_count':len(current_calculations),
+                                    'calculation_context_version':'program-source-index-v1' if program_guidance else None, **data})
                     stream_source = self.llm.chat_stream_with_tools(messages, active or None, **final_request_options)
                 async with aclosing(stream_source) as stream:
                     async for token, msg in stream:
@@ -529,16 +545,22 @@ class Agent:
                         # evidence has arrived. Return to full-context delivery
                         # rather than discarding those successful reads. The
                         # normal quote/absence checks still apply to the answer.
-                        if original_texts(source_repair_protocol):
+                        field_reads=[span for record in original_records(source_repair_protocol)
+                                     for span in record.get('excerpts',[])
+                                     if span.get('kind') in ('SOURCE_FIELD','PEER_SOURCE_FIELD')
+                                     and span.get('text') and span.get('url') and span.get('location')]
+                        if original_texts(source_repair_protocol) or field_reads:
                             from .stock_source_quotes import complete_sources
                             self.audit.record('source_read_delivery_transition', {
                                 'session_id': session_id,
                                 'reason': 'SOURCE_CONTINUATION_NO_CALL_AFTER_READ',
-                                'complete_source_count': len(complete_sources(original_records(source_repair_protocol)))})
+                                'complete_source_count': len(complete_sources(original_records(source_repair_protocol))),
+                                'source_field_count':len(field_reads)})
                             source_repair_phase = None
                             messages.append({'role': 'system', 'content':
-                                '来源定位步骤已取得实际原文，现回到完整授权上下文回答原问题。'
+                                '来源定位步骤已取得实际原文或有地址/位置的结构化来源字段，现回到完整授权上下文回答原问题。'
                                 '上一定位步骤的文字只是草稿，不能替代原文。按已读原文给准确短引文和来源；'
+                                'SOURCE_FIELD/PEER_SOURCE_FIELD可用于数值和期间核对，不能充当逐字年报或公告引文。'
                                 '若next_cursor仍非空，尚未完整读到末尾，不声称全文已读或文件没有某条款。'
                                 '已核对条款可以交付，其他未核事项及影响分别说明。'})
                             round_number += 1
@@ -555,13 +577,11 @@ class Agent:
                     reply = accumulated.get('content') or ''
                     source_quote_originals = list(dict.fromkeys(source_quote_originals + original_texts(messages)))
                     source_read_records.extend(original_records(messages))
-                    from .stock_calculation_review import repair_scale_divisions
-                    current_ref_tokens = set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', user_request))
-                    if not current_ref_tokens and source_index:
-                        current_ref_tokens = {source_index[0]['source_reference']}
-                    program_records = [row for ref, rows in source_calculation_index.items()
-                                       if ref in current_ref_tokens for row in rows]
+                    from .stock_calculation_review import repair_scale_divisions,repair_scale_units
+                    program_records=current_calculations
                     calculated_reply, calculation_edits = repair_scale_divisions(reply, program_records)
+                    calculated_reply,unit_edits=repair_scale_units(calculated_reply,program_records)
+                    calculation_edits+=unit_edits
                     if calculation_edits:
                         yield AgentEvent('quality_repaired', data={'original_answer': reply,
                             'quality_edits': calculation_edits, 'quality_status': 'repaired_program_scale'})

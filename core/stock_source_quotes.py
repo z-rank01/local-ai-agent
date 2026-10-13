@@ -346,5 +346,36 @@ def isolate_quote_paragraphs(reply, issues):
         if lines and all(line.lstrip().startswith('|') for line in lines if line.strip()):
             bad_lines = {item['line'] for item in issues if item['paragraph'] == index}
             kept.append('\n'.join(line for number, line in enumerate(lines) if number not in bad_lines))
-    kept.append('部分引述或条款缺失判断未完成原文核对，暂不作为依据；其他内容保留，原问题的来源核验仍有缺口。')
-    return '\n\n'.join(kept)
+    cleaned=prune_empty_sections('\n\n'.join(kept))
+    return cleaned+'\n\n部分引述或条款缺失判断未完成原文核对，暂不作为依据；其他内容保留，原问题的来源核验仍有缺口。'
+
+
+def prune_empty_sections(text):
+    """Remove empty scaffolding after local isolation, preserving code fences."""
+    lines=text.splitlines();fenced=set();fence=None
+    for i,line in enumerate(lines):
+        marker=re.match(r'^\s*(`{3,}|~{3,})',line)
+        if fence is not None:
+            fenced.add(i)
+            if marker and marker[1][0]==fence[0] and len(marker[1])>=len(fence):fence=None
+        elif marker:
+            fence=marker[1];fenced.add(i)
+    remove=set();i=0
+    while i<len(lines):
+        if i in fenced or not lines[i].strip().startswith('|'):
+            i+=1;continue
+        start=i
+        while i<len(lines) and i not in fenced and lines[i].strip().startswith('|'):i+=1
+        rows=lines[start:i]
+        if len(rows)==2 and all(re.fullmatch(r':?-{3,}:?',c.strip()) for c in rows[1].strip().strip('|').split('|')):
+            remove.update(range(start,i))
+    headings=[(i,len(m[1])) for i,line in enumerate(lines) if i not in fenced
+              and (m:=re.match(r'^\s*(#{1,6})\s+',line))]
+    def substance(i):
+        line=lines[i].strip()
+        return i not in remove and bool(line) and (i in fenced or
+            not re.match(r'^#{1,6}\s|^(?:-{3,}|\*{3,}|_{3,})$',line))
+    for position,(i,depth) in enumerate(headings):
+        end=next((j for j,d in headings[position+1:] if d<=depth),len(lines))
+        if not any(substance(j) for j in range(i+1,end)):remove.add(i)
+    return '\n'.join(line for i,line in enumerate(lines) if i not in remove).strip()

@@ -372,9 +372,9 @@ class StockBridge:
                        and 1 <= item['requested_page'] <= item['page_count']
                        for item in answer_pages):
                     if 'program_calculations' in observation:
-                        from .stock_calculation_review import validate_calculations
+                        from .stock_calculation_review import validate_calculations,validated_annual_source
                         try:
-                            calculations = validate_calculations(observation['program_calculations'])
+                            calculations = [dict(row) for row in validate_calculations(observation['program_calculations'])]
                             body_text = ''.join(item['body'] for item in answer_pages)
                             from decimal import Decimal
                             for calc in calculations:
@@ -384,6 +384,12 @@ class StockBridge:
                                         or calc['annual_period'] not in body_text
                                         or format(Decimal(calc['percent']).quantize(Decimal('0.01')), 'f')+'%' not in body_text):
                                     raise ValueError('程序计算与正文或展示版本不一致')
+                                try:
+                                    validated_annual_source(calc)
+                                except ValueError:
+                                    calc.pop('annual_source',None)
+                                    observation['page_reading'] += '年度字段定位回执未通过核验，保留有效程序比例，来源定位仍待核。'
+                            observation['program_calculations']=calculations
                             observation['page_reading'] += (
                                 'program_calculations是同一正文、同一展示版本的程序规模参照，'
                                 '不是模型估计或当年收入预测；倍数与百分数按程序值解释，保留基数、单位和年度。')
