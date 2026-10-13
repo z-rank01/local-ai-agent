@@ -68,6 +68,54 @@ class SourceChoiceProviderTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SourceReadExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_parameter_step_without_call_is_not_published_as_completed_research(self):
+        rounds=[]
+        class Model:
+            cloud=False
+            supports_source_read_choice=False
+            async def chat_stream_with_tools(self,*args):
+                rounds.append(1)
+                text='原文：“无来源引文”。' if len(rounds)==1 else '本次补查未执行的原始回答'
+                yield text,None;yield '',{'role':'assistant','content':text}
+        agent=test_stock_source_quotes.SourceQuoteLoopTests.agent(self,Model(),object(),['stock_public_evidence_find','stock_public_evidence_read'])
+        events=[e async for e in agent.run(test_stock_source_quotes.SourceQuoteLoopTests.history(self))]
+        execution=[e for e in events if e.kind=='quality_rejected' and e.data.get('quality_status')=='rejected_source_execution']
+        self.assertEqual(execution[0].data['rejected_answer'],'本次补查未执行的原始回答')
+        self.assertEqual(events[-1].kind,'error')
+        self.assertEqual(len(rounds),2)
+        self.assertNotIn('本次补查未执行的原始回答',''.join(e.text for e in events if e.kind=='token'))
+
+    async def test_thinking_model_uses_focused_auto_call_without_turning_thinking_off(self):
+        contexts=[];names=[]
+        class Model:
+            cloud=False
+            supports_source_read_choice=False
+            observes_native_requests=True
+            async def chat_stream_with_tools(self,messages,tools,**kw):
+                contexts.append(messages)
+                assert 'selected_source_tool' not in kw
+                if len(contexts)==1:
+                    text='原文：“无法核验的引文”。'
+                    yield text,None;yield '',{'role':'assistant','content':text}
+                elif len(contexts)==2:
+                    assert 'request_observer' in kw
+                    assert not any('旧历史错误' in m.get('content','') for m in messages)
+                    yield '',{'role':'assistant','content':'','tool_calls':[{'id':'read','function':{
+                        'name':'stock_public_evidence_read','arguments':{'reference':'a'*64,'event_id':'b'*16}}}]}
+                else:
+                    text='原文：“资金收回中央”。'
+                    yield text,None;yield '',{'role':'assistant','content':text}
+        class Router:
+            async def dispatch(self,name,params,session):
+                names.append(name)
+                return {'kind':'public_evidence_read','excerpts':[{'kind':'ORIGINAL_TEXT','text':'资金收回中央。'}]}
+        agent=test_stock_source_quotes.SourceQuoteLoopTests.agent(self,Model(),Router(),['stock_public_evidence_find','stock_public_evidence_read'])
+        history=test_stock_source_quotes.SourceQuoteLoopTests.history(self);history.insert(1,{'role':'assistant','content':'旧历史错误'})
+        events=[e async for e in agent.run(history)]
+        self.assertEqual(names,['stock_public_evidence_read'])
+        self.assertIn('资金收回中央',events[-1].text)
+        self.assertTrue(any('旧历史错误' in m.get('content','') for m in contexts[-1]))
+
     async def test_failed_quote_requires_lookup_read_then_releases_choice(self):
         selected=[];dispatched=[]
         class Model:

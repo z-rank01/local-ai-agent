@@ -407,11 +407,16 @@ class Agent:
                     'names': [d['function']['name'] for d in active],
                     'source_quote_repair': quote_repair_active})
                 selected_source_tool = None
-                if source_repair_phase and getattr(self.llm, 'supports_source_read_choice', False):
+                source_parameter_step = False
+                if source_repair_phase:
                     candidate = 'stock_public_evidence_' + source_repair_phase
                     if any(d['function']['name'] == candidate for d in active):
-                        selected_source_tool = candidate
-                if selected_source_tool:
+                        source_parameter_step = True
+                        active = [d for d in active if d['function']['name'] in
+                                  ('stock_public_evidence_find','stock_public_evidence_read','context_evidence_read')]
+                        if getattr(self.llm, 'supports_source_read_choice', False):
+                            selected_source_tool = candidate
+                if source_parameter_step:
                     # Generate only the read parameters from the current task
                     # and actual source receipts. Old assistant guesses do not
                     # belong to this lookup step. The full authorised history
@@ -422,9 +427,12 @@ class Agent:
                         '检索用原文连续词语；没有命中可说明当前查询缺口。当前步骤工具由交付核验指定，参数仍由你根据语义选择。\n'
                         + source_index_guidance(source_index) + '\n' + source_repair_feedback},
                         {'role': 'user', 'content': user_request}] + source_repair_protocol
-                    stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None,
-                        selected_source_tool=selected_source_tool,
-                        request_observer=lambda event, data: self.audit.record(event, {'session_id': session_id, **data}))
+                    request_options = {}
+                    if selected_source_tool:
+                        request_options['selected_source_tool'] = selected_source_tool
+                    if selected_source_tool or getattr(self.llm,'observes_native_requests',False):
+                        request_options['request_observer'] = lambda event, data: self.audit.record(event, {'session_id': session_id, **data})
+                    stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None, **request_options)
                 else:
                     stream_source = self.llm.chat_stream_with_tools(messages, active or None)
                 async with aclosing(stream_source) as stream:
@@ -432,7 +440,7 @@ class Agent:
                         if msg is not None:
                             accumulated = msg
                         elif token:
-                            if selected_source_tool:
+                            if source_parameter_step:
                                 # Parameter planning is protocol, not user prose.
                                 # Its completed tool call is retained below.
                                 continue
@@ -464,8 +472,14 @@ class Agent:
                         tc['id'] = 'call_' + uuid.uuid4().hex
                     tc.setdefault('type', 'function')
                 messages.append(accumulated)
-                if selected_source_tool:
+                if source_parameter_step:
                     source_repair_protocol.append(accumulated)
+                    if not calls:
+                        yield AgentEvent('quality_rejected', data={'quality_status':'rejected_source_execution',
+                            'message':{'role':'system','content':'来源补查参数生成没有返回工具调用，原文核对未完成。'},
+                            'rejected_answer':accumulated.get('content',''),
+                            'quality_issues':[{'reason':'SOURCE_EXECUTION_NOT_STARTED'}]})
+                        raise RuntimeError('来源补查未返回工具调用，尚未完成原文核对；已取得结果保留，未自动重发或改思考设置。')
                 if quote_guard and not calls:
                     from .stock_source_quotes import (original_texts, original_records, complete_sources,
                         unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs)
@@ -546,15 +560,15 @@ class Agent:
                                                        stock_deadline=None if handoff_round else stock_deadline,
                                                        research_handoff=handoff_round)) as events:
                     async for event in events:
-                        if selected_source_tool and event.kind == 'message' and event.data.get('message', {}).get('role') == 'tool':
+                        if source_parameter_step and event.kind == 'message' and event.data.get('message', {}).get('role') == 'tool':
                             source_repair_protocol.append(event.data['message'])
-                        if selected_source_tool and event.kind == 'tool_end' and event.data.get('name') == selected_source_tool:
+                        if source_parameter_step and event.kind == 'tool_end':
                             result = event.data.get('result') or {}
                             result = result.get('model_observation', result) if isinstance(result, dict) else {}
                             # Only a successful actual lookup may require the
                             # paired read. Errors/misses do not become facts or
                             # trigger unchanged-parameter retries.
-                            source_repair_phase = ('read' if selected_source_tool == 'stock_public_evidence_find'
+                            source_repair_phase = ('read' if event.data.get('name') == 'stock_public_evidence_find'
                                 and event.data.get('status') == 'ok' and isinstance(result, dict)
                                 and result.get('items') else None)
                         if event.kind == 'stock_boundary':
@@ -583,6 +597,11 @@ class Agent:
                 round_number += 1
             yield AgentEvent('error', text='本轮调用已达到上限；已完成的工具结果保留，请继续追问。')
         except Exception as exc:
+            if hasattr(exc,'source_visible_response'):
+                yield AgentEvent('quality_rejected', data={'quality_status':'rejected_source_execution',
+                    'message':{'role':'system','content':'供应商未返回指定来源工具调用，原文核对未完成。'},
+                    'rejected_answer':exc.source_visible_response,
+                    'quality_issues':[{'reason':'SOURCE_SELECTOR_MISMATCH'}]})
             logger.error('Agent loop failed: %s', type(exc).__name__)
             yield AgentEvent('error', text=str(exc))
 

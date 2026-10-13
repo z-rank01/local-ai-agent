@@ -180,6 +180,7 @@ class CallBudget:
 
 class CompatibleClient:
     _supports_tools = True
+    observes_native_requests = True
     cloud = True
 
     def __init__(self, spec, budget):
@@ -275,7 +276,9 @@ class CompatibleClient:
             if calls:
                 accumulated['tool_calls'] = [calls[i] for i in sorted(calls)]
             if selected_source_tool and (not calls or any(call['function']['name'] != selected_source_tool for call in calls.values())):
-                raise RuntimeError('供应商未返回指定的来源工具调用；原结果保留，未自动重发或降级。')
+                error = RuntimeError('供应商未返回指定的来源工具调用；原结果保留，未自动重发或降级。')
+                error.source_visible_response = accumulated.get('content', '')
+                raise error
             if not accumulated['content'] and not calls:
                 raise RuntimeError('模型没有返回回答或工具调用，请重试本轮。')
             yield '', accumulated

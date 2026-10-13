@@ -968,7 +968,7 @@ class ChatSessionService:
                         # Keep the failed prose locally in existing protocol metadata;
                         # the next model view gets the typed correction, not a false fact.
                         save('protocol', metadata={**meta, 'message': event.data['message'],
-                            'quality_status': 'rejected_source_quote',
+                            'quality_status': event.data.get('quality_status','rejected_source_quote'),
                             'rejected_answer': event.data['rejected_answer'],
                             'quality_issues': event.data['quality_issues']})
                         text, reasoning = '', ''
