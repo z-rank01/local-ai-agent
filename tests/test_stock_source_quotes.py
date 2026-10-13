@@ -307,6 +307,8 @@ class SourceQuoteServiceTests(ServiceTests):
         self.assertFalse(repaired[0]['cloud_safe'])
         cloud=self.runtime.store.messages_as_dicts(conv.id,cloud=True)
         self.assertFalse(any(generated==m.get('content') for m in cloud))
+        local=self.runtime.store.messages_as_dicts(conv.id,cloud=False)
+        self.assertTrue(any('引文排版已按唯一授权原文' in m.get('content','') for m in local))
     async def install_review_history(self):
         conv=self.runtime.store.create_conversation()
         self.runtime.store.add_message(conv.id,role='protocol',metadata={'cloud_safe':True,'message':{
