@@ -38,6 +38,23 @@ class ProgramSourceTests(unittest.TestCase):
 
 class ProgramSourceLoopTests(unittest.IsolatedAsyncioTestCase):
     agent=quotes.SourceQuoteLoopTests.agent
+    async def test_current_question_is_last_in_delivery_without_mutating_saved_history(self):
+        seen=[]
+        current='只核对年度字段和披露日期，不分析中标项目。'
+        history=calculations.history()+[dict(role='user',content=current)]
+        snapshot=copy.deepcopy(history)
+        class Model:
+            cloud=False
+            async def chat_stream_with_tools(self,messages,tools):
+                seen.append(messages)
+                yield '已核对当前字段。',None;yield '',dict(role='assistant',content='已核对当前字段。')
+        events=[e async for e in self.agent(Model(),SimpleNamespace(),['stock_report_read']).run(history)]
+        self.assertEqual(events[-1].kind,'done')
+        self.assertEqual(seen[0][-1]['role'],'system')
+        self.assertEqual(json.loads(seen[0][-1]['content'].split('\n')[-1])['current_user_message'],current)
+        self.assertEqual(history,snapshot)
+        self.assertEqual(sum(m.get('content')==current for m in seen[0]),1)
+
     async def test_disabled_cloud_read_does_not_add_new_program_source_view(self):
         seen=[]
         class Model:
