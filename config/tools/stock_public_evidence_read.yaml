@@ -20,6 +20,9 @@ description: >
   公告 PDF 链接属于提供方附件时，不得自行称其来自证券交易所或监管机构。
   source_provenance 描述取数渠道，不等于已核实的原发布机构。
   此工具不发送私有账户或完整 F01，也不重新运行研究。
+  根据当前问题选择回复用途：仅核对一份来源的保存/实际读取范围时用source_scope并提供该来源URL，
+  成功后直接交付校验后的范围数据。原文条款解释、经营影响、趋势、比较或其他分析用analysis（默认），
+  继续依据完整资料分析。source_scope不是研究分析完成状态，不用于混合分析问题。
 parameters:
   type: object
   properties:
@@ -34,4 +37,11 @@ parameters:
     cursor:
       type: string
       description: "首次用同任务同事件查找项的 read_cursor；续读用本读取工具同 reference/event_id 的 next_cursor。不得传来源目录分页游标或自行编造"
+    reply_focus:
+      type: string
+      enum: [analysis, source_scope]
+      description: "模型按本轮问题选择：analysis继续原文/研究解释；source_scope仅呈现一份来源的保存及实际读取范围。默认analysis"
+    reply_source_url:
+      type: string
+      description: "仅source_scope使用：本次核对的已有公开来源URL，必须在实际读取页的source_coverage中；不会据此抓取新网页"
   required: [reference, event_id]

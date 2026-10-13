@@ -79,6 +79,58 @@ def merge_read_records(previous, current):
                  for row in previous+current}.values())
 
 
+def scope_request_error(params, question):
+    """Validate presentation selection; never rewrite a Broker reference."""
+    focus=params.get('reply_focus','analysis')
+    if focus not in ('analysis','source_scope'):
+        return 'reply_focus 只能是 analysis 或 source_scope。'
+    if focus!='source_scope':
+        return 'reply_source_url 仅用于 source_scope。' if 'reply_source_url' in params else None
+    refs=set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])',question))
+    if refs and params.get('reference') not in refs:
+        return '来源范围核对必须使用本轮指定任务引用；此步骤未执行，不自动替换引用。'
+    url=params.get('reply_source_url')
+    if not isinstance(url,str) or not url or re.search(r'[\s<>]',url):
+        return 'source_scope 须指定本次核对的 reply_source_url。'
+    parsed=urlparse(url)
+    if parsed.scheme!='https' or parsed.hostname not in HOSTS or parsed.username or parsed.password:
+        return 'reply_source_url 必须是现有授权范围内的公开来源地址。'
+    return None
+
+
+def scope_reply(observation, params, question, records):
+    """Render only actually received, same-task saved-source metadata.
+
+    The model selects this narrow reply purpose. Analysis remains the default.
+    Neither a selected URL nor a directory entry constitutes a read receipt.
+    """
+    if params.get('reply_focus')!='source_scope' or scope_request_error(params,question):return None
+    ref=params.get('reference');event=params.get('event_id');url=params.get('reply_source_url')
+    if (not isinstance(observation,dict) or observation.get('kind')!='public_evidence_read'
+            or observation.get('source_reference')!=ref or observation.get('event_id')!=event
+            or url not in {s['url'] for s in validated_source_coverage(observation)}):return None
+    rows=coverage_index(merge_read_records(records,[observation]),{ref})
+    row=next((s for s in rows if s['event_id']==event and s['url']==url),None)
+    if not row:return None
+    state={
+        'ALL_SAVED_EXCERPTS_READ':'该来源当前保存的原文已全部收到，内容指纹一致。',
+        'PARTIAL_SAVED_EXCERPTS_READ':'该来源当前保存的原文仅收到一部分。',
+        'SNAPSHOT_MISMATCH':'收到的片段与保存范围不一致，暂不能确认已读完。',
+    }[row['state']]
+    reply=(f'本次核对的是指定任务中的[这份来源](<{url}>)。\n\n'
+        '| 范围 | 原文段数 | 字符数 |\n| --- | ---: | ---: |\n'
+        f"| 当前保存 | {row['saved_excerpts']} | {row['saved_chars']} |\n"
+        f"| 实际收到（已去重） | {row['read_excerpts']} | {row['read_chars']} |\n\n{state}")
+    total=observation.get('total_excerpts')
+    if type(total) is int and total>=0:
+        reply+=f'\n\n整个事件材料目录共 {total} 条，其中还可能包含其他来源和分析字段；这不是该来源的原文段数。'
+    cursor=observation.get('next_cursor')
+    if isinstance(cursor,str):
+        reply+=('本次事件读取仍有后续页。' if cursor else '本次事件读取已到当前目录末尾。')
+    reply+='\n\n以上只核对当前保存快照及实际读取范围，不能证明网站或 PDF 已完整采集，也不代表研究已完成。'
+    return reply
+
+
 def coverage_guidance(records, question, source_index):
     refs=set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])',question))
     if not refs and source_index:refs={source_index[0]['source_reference']}

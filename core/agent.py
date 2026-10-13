@@ -24,7 +24,8 @@ from .prompt_builder import PromptBuilder
 
 
 STOCK_DELIVERY_GUIDANCE = (
-    '股票资料分析答复：直接回答用户问题、依据、反证和观察条件；状态或技术核对问题仍按原问法回答。'
+    '先按本轮问题选择回复职责。仅核对一份来源的保存或读取范围时，在现有原文读取工具选择source_scope及对应URL，交付校验后的范围数据；'
+    '经营、趋势、比较或原文含义问题选择analysis，直接回答用户问题、依据、反证和观察条件。混合问题保留analysis。'
     '界面已有报告卡，用户未明确要求时不展示任务引用、哈希、执行元信息表或重复流程清单。'
     '文件发布、政策表态和企业身份不是需求或收益已兑现的证明；二手数字注明报道来源与期间，'
     '旧年度资料只作历史风险线索，未核对适用关系不能当当期反证。'
@@ -710,11 +711,17 @@ class Agent:
                     stock_deadline = time.monotonic() + getattr(self, 'stock_window_seconds', 600)
                 stock_boundary = False
                 fresh_observation = False
+                verified_scope_reply = None
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
                                                        budgets=budgets, counts=counts,
                                                        stock_deadline=None if handoff_round else stock_deadline,
                                                        research_handoff=handoff_round)) as events:
                     async for event in events:
+                        if (len(calls) == 1 and event.kind == 'tool_end' and event.data.get('status') == 'ok'
+                                and event.data.get('name') == 'stock_public_evidence_read'):
+                            from .stock_source_coverage import scope_reply
+                            verified_scope_reply = scope_reply(model_projection(event.data.get('result')),
+                                event.data.get('params') or {}, current_user_question, source_read_records)
                         if source_parameter_step and event.kind == 'message' and event.data.get('message', {}).get('role') == 'tool':
                             source_repair_protocol.append(event.data['message'])
                         if source_parameter_step and event.kind == 'tool_end':
@@ -751,6 +758,17 @@ class Agent:
                                     observations.add(fingerprint)
                                     fresh_observation = True
                             yield event
+                if verified_scope_reply:
+                    # Pure read metadata is delivered from verified receipts;
+                    # do not ask the cloud to recreate a business analysis.
+                    message = {'role': 'assistant', 'content': verified_scope_reply}
+                    messages.append(message)
+                    self.audit.record('source_scope_reply', {'session_id': session_id,
+                        'version': 'source-scope-reply-v1', 'provider_call_added': False})
+                    yield AgentEvent('token', text=verified_scope_reply)
+                    yield AgentEvent('message', data={'message': message})
+                    yield AgentEvent('done', text=verified_scope_reply)
+                    return
                 research_continuing = quality_research and bool(calls) and all(
                     call['function']['name'] in research_tools for call in calls)
                 no_progress_rounds = 0 if fresh_observation else no_progress_rounds + 1

@@ -277,6 +277,13 @@ class StockBridge:
             # Direct dispatch outside a BFF turn (tests, tooling).
             self.set_turn(session_id, None)
             state = self._turns[session_id]
+        if tool == 'stock_public_evidence_read':
+            from .stock_source_coverage import scope_request_error
+            error = scope_request_error(params, state['query'])
+            if error:
+                return {'error': error}
+            if params.get('reply_focus') == 'source_scope' and not state.get('allow_report_body'):
+                return {'error': '来源范围核对须沿现有已授权云端读取开关进行；此步骤未执行。'}
         handoff = (tool == 'stock_theme_research_submit' and bool(params.get('research_question')) or
                    tool == 'stock_research_submit' and params.get('research_mode', 'reuse') in ('reuse', 'continue'))
         if state.get('boundary') and not (state['boundary'] == 'TIME_LIMIT' and handoff):
@@ -431,6 +438,9 @@ class StockBridge:
         elif tool in ('stock_public_evidence_find', 'stock_public_evidence_read') and isinstance(observation, dict) and observation.get('kind') in ('public_evidence_find', 'public_evidence_read'):
             observation = dict(observation)
             observation['source_reference'] = params['reference']
+            if tool == 'stock_public_evidence_read' and 'source_coverage' in observation:
+                from .stock_source_coverage import validated_source_coverage
+                observation['source_coverage'] = validated_source_coverage(observation)
             if tool == 'stock_public_evidence_read' and not state.get('allow_report_body'):
                 observation.pop('financial_fields', None)
             elif tool == 'stock_public_evidence_read' and 'financial_fields' in observation:
