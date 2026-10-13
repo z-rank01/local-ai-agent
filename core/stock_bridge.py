@@ -365,12 +365,21 @@ class StockBridge:
             if not state.get('allow_report_body'):
                 observation.pop('answer_pages', None)
                 observation.pop('program_calculations', None)
+                observation.pop('comparison_context', None)
             elif isinstance(answer_pages, list) and answer_pages:
                 if all(isinstance(item, dict) and item.get('kind') == 'local_report_page'
                        and isinstance(item.get('body'), str) and type(item.get('page_count')) is int
                        and item['page_count'] >= 1 and type(item.get('requested_page')) is int
                        and 1 <= item['requested_page'] <= item['page_count']
                        for item in answer_pages):
+                    if 'comparison_context' in observation:
+                        from .stock_company_context import validate_context
+                        try:
+                            validate_context(observation['comparison_context'], answer_pages)
+                            observation['page_reading'] += 'comparison_context与本版正文对应，包含冻结比较身份、人民币累计指标及原任务来源定位；未核字段不作结论，保留部分成果含义。'
+                        except (ValueError, TypeError, KeyError, AttributeError):
+                            observation.pop('comparison_context', None)
+                            observation['page_reading'] += '比较依据未通过绑定核验，正文保留，相关身份或指标来源仍待核。'
                     if 'program_calculations' in observation:
                         from .stock_calculation_review import validate_calculations,validated_annual_source
                         try:
@@ -410,9 +419,11 @@ class StockBridge:
                 else:
                     observation.pop('answer_pages', None)
                     observation.pop('program_calculations', None)
+                    observation.pop('comparison_context', None)
                     observation['page_reading'] += '新版正文投影未通过校验，仅能解释当前旧页，勿声称已读新版正文。'
             else:
                 observation.pop('program_calculations', None)
+                observation.pop('comparison_context', None)
         elif tool in ('stock_public_evidence_find', 'stock_public_evidence_read') and isinstance(observation, dict) and observation.get('kind') in ('public_evidence_find', 'public_evidence_read'):
             observation = dict(observation)
             observation['source_reference'] = params['reference']

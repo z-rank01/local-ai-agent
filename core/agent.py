@@ -268,6 +268,8 @@ class Agent:
         source_index = source_task_index(messages)
         from .stock_calculation_review import calculation_index
         source_calculation_index = calculation_index(messages)
+        from .stock_company_context import context_index, current_guidance
+        source_comparison_index = context_index(messages)
         self.pending_source_review = ''
         cloud = getattr(self.llm, "cloud", False)
         try:
@@ -437,6 +439,7 @@ class Agent:
                     messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
                 messages = index_prior_explanations(messages)
                 source_calculation_index.update(calculation_index(messages))
+                source_comparison_index.update(context_index(messages))
                 from .stock_calculation_review import current_program_records,program_source_guidance
                 current_calculations=current_program_records(source_calculation_index,user_request,source_index)
                 if program_source_message:
@@ -444,6 +447,10 @@ class Agent:
                               and not (m.get('role')=='system' and m.get('content')==program_source_message['content'])]
                 program_guidance=(program_source_guidance(current_calculations)
                                   if self.allow_tools and (not cloud or workspace_granted) else None)
+                comparison_guidance=(current_guidance(source_comparison_index,user_request,source_index)
+                                     if self.allow_tools and (not cloud or workspace_granted) else None)
+                if comparison_guidance:
+                    program_guidance='\n\n'.join(g for g in (program_guidance,comparison_guidance) if g)
                 if program_guidance:
                     program_source_message={'role':'system','content':program_guidance}
                     messages.append(program_source_message)
@@ -492,6 +499,7 @@ class Agent:
                     if selected_source_tool or getattr(self.llm,'observes_native_requests',False):
                         request_options['request_observer'] = lambda event, data: self.audit.record(event, {
                             'session_id': session_id,'program_source_count':len(current_calculations),
+                            'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
                             'calculation_context_version':'program-source-index-v1' if program_guidance else None, **data})
                     stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None, **request_options)
                 else:
@@ -500,6 +508,7 @@ class Agent:
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
                             event, {'session_id': session_id, 'view_version': explanation_view_version,
                                     'program_source_count':len(current_calculations),
+                                    'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
                                     'delivery_context_version':'current-user-delivery-v1' if quote_guard and current_user_question else None,
                                     'calculation_context_version':'program-source-index-v1' if program_guidance else None, **data})
                     final_messages=messages
