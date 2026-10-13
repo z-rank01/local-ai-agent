@@ -106,3 +106,5 @@ powershell Start-Process …（由聊天后端调用）
 | --- | --- |
 | 修改 skills/websearch 后 | 唯一入口 start-daily.ps1 -Build 同时构建搜索镜像；构建不改变搜索技能开关，启动仍由保存的开关决定。失败时停止启动，日志 data/logs/websearch-build.log |
 | 生效核验 | 搜索容器 OpenAPI 的 WebSearchRequest 应含 page、offset、page_hash；通过内部搜索接口实测游标，不能只检查源码 |
+
+只读研究验收的现有worker_start动作可带job_ids，仅配合research_only=true并在空闲时设置；执行范围保存在原股票状态meta，重启保持。普通不带模式的重复启动保留该范围；主动切换执行模式清除。暂停、退出及股票顶层启动仍沿唯一流程，不能另起验收执行器。

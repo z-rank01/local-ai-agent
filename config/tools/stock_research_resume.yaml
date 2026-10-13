@@ -5,16 +5,19 @@ tier: extended
 cloud: read
 short_description: "恢复一个中断的研究任务（条件严格）。"
 description: >
-  恢复本会话一个已中断的研究任务（按 stock_research_find 返回的 64 位任务引用）。
-  条件严格：仅接受中断/采集中的任务，且策略版本、标的与材料、数据快照必须一致，
+  恢复本会话一个已中断的个股研究，或用户明确要求在外部条件改善后恢复主题研究的唯一已知供应商拒绝窗口。
+  使用 stock_research_find 或 stock_theme_research_find 返回的本会话 64 位任务引用。
+  个股原恢复条件保持不变：仅接受中断/采集中的任务，且策略版本、标的与材料、数据快照必须一致，
   距原任务不超过 7 天，既有模型调用无失败记录；失败或结果不明的付费调用不会重发。
   缺少材料（NEEDS_MATERIALS）的研究不能恢复，只能 redo 重新研究。
+  主题恢复由服务端核验原冻结版本、原输入和确定失败回执，保留原失败并关联一个稳定恢复尝试；
+  只恢复该窗口，不代表已完成全文综合。成功、活跃或UNKNOWN调用不会重发；不得改引用绕过拒绝。
   被拒绝时把拒绝码如实告诉用户，不要重试相同参数。
 parameters:
   type: object
   properties:
     reference:
       type: string
-      description: "本会话 stock_research_find 返回的 64 位任务引用"
+      description: "本会话个股或主题查找返回的 64 位任务引用"
   required:
     - reference
