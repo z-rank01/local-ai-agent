@@ -132,6 +132,63 @@ def source_index_guidance(index):
             '曾经的模型回答不能证明条款。]\n' + json.dumps(index, ensure_ascii=False))
 
 
+def prior_explanation_view(messages, archive):
+    """Index prior prose for a receipt-bound task without removing evidence.
+
+    Task references locate existing receipts; they grant no permissions and do
+    not classify the user's intent. Tool envelopes, user instructions, source
+    text, other tasks and this turn's messages stay in the view unchanged.
+    """
+    last_user = max((i for i, row in enumerate(messages) if row.get('role') == 'user'), default=-1)
+    if last_user < 0 or archive is None:
+        return messages, []
+    known = {row['source_reference'] for row in source_task_index(messages)}
+    raw_tasks = {row.get('source_reference') for row in original_records(messages)
+                 if any(span.get('kind', 'ORIGINAL_TEXT') in ('ORIGINAL_TEXT', 'PEER_ORIGINAL_TEXT')
+                        for span in row.get('excerpts', []) if isinstance(span, dict))}
+    current = messages[last_user:]
+    requested = set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', current[0].get('content') or ''))
+    selected = (requested | {row['source_reference'] for row in source_task_index(current)}) & known & raw_tasks
+    if not selected:
+        return messages, []
+    remove, index = {}, []
+    starts = [i for i, row in enumerate(messages[:last_user]) if row.get('role') == 'user'] + [last_user]
+    for start, end in zip(starts, starts[1:]):
+        turn = messages[start:end]
+        question = turn[0].get('content') or ''
+        bound = set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', question)) & known
+        bound |= {row['source_reference'] for row in source_task_index(turn)}
+        if not (bound & selected):
+            continue
+        for offset, row in enumerate(turn, start):
+            if row.get('role') != 'assistant' or not row.get('content'):
+                continue
+            # Persist the full already-authorised visible message before
+            # replacing its prose. Never save or summarise hidden reasoning.
+            eid = archive({**row, 'record_kind': 'prior_model_explanation'})
+            if not isinstance(eid, str) or not re.fullmatch('[0-9a-f]{64}', eid):
+                raise ValueError('旧解释证据归档未返回有效标识')
+            remove[offset] = row
+            index.append({'evidence_id': eid, 'question': question,
+                          'kind': 'prior_model_explanation_not_source_fact'})
+    if not index:
+        return messages, []
+    guidance = {'role': 'system', 'content':
+        '[同一已保存任务的旧模型解释已完整归档，以下只作回读索引，不是来源事实或本次输出模板。'
+        '当前问题、原始来源与工具回执仍完整提供；不继承旧解释的未经核验数字、日期、公司名单或格式。'
+        '若本次问题要复核上次解释/决定，可用context_evidence_read按evidence_id回读全部正文；'
+        '索引不改变工具权限，不新增任务，内部编号不展示在用户正文。]\n' + json.dumps(index, ensure_ascii=False)}
+    view = []
+    for i, row in enumerate(messages):
+        if i == last_user:
+            view.append(guidance)
+        if i not in remove:
+            view.append(row)
+        elif row.get('tool_calls'):
+            view.append({**row, 'content': ''})
+    return view, index
+
+
 def complete_sources(records):
     """Coverage is receipt based; a last page or a search miss is insufficient."""
     groups = {}

@@ -288,6 +288,30 @@ class Agent:
                     messages = await self._inject_context_into_messages(messages, session_id)
                 except Exception:
                     logger.warning('Workspace prefetch skipped')
+            explanation_view_active = False
+            def index_prior_explanations(history):
+                nonlocal explanation_view_active
+                if not (self.allow_tools and (not cloud or workspace_granted) and stock_read_seen
+                        and getattr(self.context_mgr, 'archive', None) is not None
+                        and getattr(self.context_mgr, 'reader', None) is not None):
+                    return history
+                try:
+                    from .stock_source_quotes import prior_explanation_view
+                    view, prior_index = prior_explanation_view(history, self.context_mgr.archive)
+                    if prior_index:
+                        self.context_mgr.evidence_ids.update(row['evidence_id'] for row in prior_index)
+                        self.audit.record('task_explanation_view', {'session_id': session_id,
+                            'version': 'prior-explanation-index-v1', 'indexed_messages': len(prior_index),
+                            'before_chars': sum(len(row.get('content') or '') for row in history),
+                            'after_chars': sum(len(row.get('content') or '') for row in view)})
+                        explanation_view_active = True
+                        return view
+                except Exception:
+                    # No durable index means no replacement of the original
+                    # model view; a partial archive never deletes history.
+                    logger.warning('Prior stock explanation view skipped')
+                return history
+            messages = index_prior_explanations(messages)
             messages = await self.context_mgr.process(messages)
             # A cloud session gets the tools its grant covers: nothing without the
             # workspace grant, read-only tools with it, and write/execute tools only
@@ -400,6 +424,7 @@ class Agent:
                         source_index_message = {'role': 'system', 'content': source_index_guidance(source_index)}
                         messages.append(source_index_message)
                     messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
+                messages = index_prior_explanations(messages)
                 messages = await self.context_mgr.process(messages)
                 accumulated = None
                 quote_guard = stock_read_seen and (quality_research or getattr(self, 'stock_source_review_enabled', False))
@@ -442,7 +467,11 @@ class Agent:
                         request_options['request_observer'] = lambda event, data: self.audit.record(event, {'session_id': session_id, **data})
                     stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None, **request_options)
                 else:
-                    stream_source = self.llm.chat_stream_with_tools(messages, active or None)
+                    final_request_options = {}
+                    if explanation_view_active and getattr(self.llm, 'observes_native_requests', False):
+                        final_request_options['request_observer'] = lambda event, data: self.audit.record(
+                            event, {'session_id': session_id, 'view_version': 'prior-explanation-index-v1', **data})
+                    stream_source = self.llm.chat_stream_with_tools(messages, active or None, **final_request_options)
                 async with aclosing(stream_source) as stream:
                     async for token, msg in stream:
                         if msg is not None:
