@@ -185,6 +185,38 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['model_observation']['body'], page['body'])
         self.assertIn('已随本轮交给模型阅读', result['model_observation']['page_reading'])
 
+    async def test_answer_pages_keep_legacy_page_and_prefer_current_body(self):
+        current = {'kind': 'local_report_page', 'requested_page': 1, 'page_count': 1,
+                   'body': '已完成阶段：地方执行文件存在，需求兑现仍待核。'}
+        old = {'kind': 'local_report_page', 'requested_page': 1, 'page_count': 6,
+               'body': '旧过程页', 'answer_pages': [current]}
+        bridge = self.bridge(make_broker([], step_responses=[ok_step(old)]))
+        bridge.set_turn('answer-page', 'answer-request', '解释已保存报告', allow_report_body=True)
+        obs = (await bridge.call_tool('stock_report_read', {'reference': REF}, 'answer-page'))['model_observation']
+        self.assertEqual(obs['body'], '旧过程页')
+        self.assertEqual(obs['page_count'], 6)
+        self.assertEqual(obs['answer_pages'], [current])
+        self.assertIn('优先据此回答原问题', obs['page_reading'])
+        self.assertIn('程序归档成功不等于研究完成', obs['page_reading'])
+
+    async def test_answer_pages_do_not_cross_disabled_cloud_grant(self):
+        old = {'kind': 'local_report_page', 'requested_page': 1, 'page_count': 6,
+               'body': '旧过程页', 'answer_pages': [{'kind': 'local_report_page', 'body': '新增正文'}]}
+        bridge = self.bridge(make_broker([], step_responses=[ok_step(old)]))
+        bridge.set_turn('answer-local', 'answer-local-request', '读取报告', allow_report_body=False)
+        obs = (await bridge.call_tool('stock_report_read', {'reference': REF}, 'answer-local'))['model_observation']
+        self.assertNotIn('answer_pages', obs)
+
+    async def test_malformed_answer_pages_are_not_claimed_read(self):
+        old = {'kind': 'local_report_page', 'requested_page': 1, 'page_count': 6,
+               'body': '旧过程页', 'answer_pages': [{'kind': 'local_report_page', 'body': '新正文',
+                                                    'requested_page': 0, 'page_count': 1}]}
+        bridge = self.bridge(make_broker([], step_responses=[ok_step(old)]))
+        bridge.set_turn('answer-bad', 'answer-bad-request', '读取报告', allow_report_body=True)
+        obs = (await bridge.call_tool('stock_report_read', {'reference': REF}, 'answer-bad'))['model_observation']
+        self.assertNotIn('answer_pages', obs)
+        self.assertIn('未通过校验', obs['page_reading'])
+
     async def test_market_brief_page_one_keeps_source_scopes_distinct(self):
         bridge = self.bridge(make_broker([], step_responses=[ok_step({
             'kind': 'market_brief', 'target_date': '2026-09-24',

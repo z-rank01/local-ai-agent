@@ -356,6 +356,26 @@ class StockBridge:
                 '涉及公司公告的自查、声明或预计时写明来自公司公告，'
                 '不要表述为已独立证实；用户未要求时不要展示任务引用哈希或工具名。'
             ).format(page=page)
+            answer_pages = observation.get('answer_pages')
+            if not state.get('allow_report_body'):
+                observation.pop('answer_pages', None)
+            elif isinstance(answer_pages, list) and answer_pages:
+                if all(isinstance(item, dict) and item.get('kind') == 'local_report_page'
+                       and isinstance(item.get('body'), str) and type(item.get('page_count')) is int
+                       and item['page_count'] >= 1 and type(item.get('requested_page')) is int
+                       and 1 <= item['requested_page'] <= item['page_count']
+                       for item in answer_pages):
+                    observation['page_reading'] += (
+                        'answer_pages 是与新版阅读器正文一致的已保存阶段分析，优先据此回答原问题；'
+                        '其页数仅指正文，与旧 body 的整篇页数不同，同页分片按数组顺序拼接。'
+                        '后续补查未完成时保持部分成果含义；程序归档成功不等于研究完成。'
+                        '原 body 保留旧版过程页，不用初稿缺口覆盖后续已取得的依据。'
+                        '完整报告卡由界面自动提供，不在回答里模拟卡片、列哈希或执行状态表。'
+                        '来源链接要实际写出，指标名称、期间和单位按原文保留；风险强度和发布日期须有依据。'
+                    )
+                else:
+                    observation.pop('answer_pages', None)
+                    observation['page_reading'] += '新版正文投影未通过校验，仅能解释当前旧页，勿声称已读新版正文。'
         elif tool == 'stock_report_read' and isinstance(observation, dict) and observation.get('kind') == 'market_brief':
             page = params.get('page', 1)
             if page > 1:
