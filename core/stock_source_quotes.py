@@ -137,9 +137,15 @@ def complete_sources(records):
     groups = {}
     for record in records:
         total = record.get('total_excerpts')
-        if type(total) is not int or total <= 0 or not record.get('job_id') or not record.get('event_id'):
+        reference = record.get('source_reference')
+        task = ('reference', reference) if isinstance(reference, str) and re.fullmatch('[0-9a-f]{64}', reference) else (
+            ('legacy_job', record['job_id']) if record.get('job_id') else None)
+        if type(total) is not int or total <= 0 or not task or not record.get('event_id'):
             continue
-        key = (record['job_id'], record['event_id'], total, record.get('url'))
+        # Broker cloud receipts intentionally omit internal job IDs. Their
+        # authorised reference still binds every original span to one task;
+        # never merge spans from different references to claim full coverage.
+        key = (task, record['event_id'], total, record.get('url'))
         group = groups.setdefault(key, {'ids': set(), 'titles': set(), 'tail': False})
         group['titles'].add(record.get('title') or '')
         group['tail'] |= record.get('next_cursor') == ''

@@ -13,6 +13,17 @@ def source_message(text, kind='ORIGINAL_TEXT', **extra):
 
 
 class SourceQuoteTests(unittest.TestCase):
+    def test_cloud_reference_binds_complete_read_without_private_job_id(self):
+        def page(ref, ids, tail=False):
+            return source_message('',source_reference=ref,event_id='event',title='通知甲',url='https://example.org/a',
+                total_excerpts=2,next_cursor='' if tail else 'cursor',
+                excerpts=[{'excerpt_id':str(i),'kind':'ORIGINAL_TEXT','text':'通知原文'+str(i)} for i in ids])
+        self.assertFalse(complete_sources(original_records([page('a'*64,[0]),page('b'*64,[1],True)])))
+        self.assertFalse(complete_sources(original_records([page('a'*64,[1],True)])))
+        sources=complete_sources(original_records([page('a'*64,[0]),page('a'*64,[1],True)]))
+        self.assertEqual(sources,[{'title':'通知甲','url':'https://example.org/a'}])
+        self.assertFalse(unverified_absence_claims('通知甲未规定结转。',sources))
+
     def test_original_section_keeps_scope_across_nested_heading_and_blank_blocks(self):
         reply='## 二、准确原文与出处\n\n### 文件信息\n\n日期另列。\n\n### 文中相关条款定位\n\n关于资金的条款为：\n\n> "模型改写的资金条款"\n\n## 三、解释\n\n检索词：“未用完”。'
         self.assertEqual([x['quote'] for x in unverified_quotes(reply,[])],['模型改写的资金条款'])
