@@ -432,6 +432,10 @@ class Agent:
                         if msg is not None:
                             accumulated = msg
                         elif token:
+                            if selected_source_tool:
+                                # Parameter planning is protocol, not user prose.
+                                # Its completed tool call is retained below.
+                                continue
                             if quote_guard:
                                 if token.strip() == '<think>':
                                     reviewing_thinking = True

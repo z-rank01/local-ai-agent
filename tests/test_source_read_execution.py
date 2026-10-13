@@ -84,6 +84,7 @@ class SourceReadExecutionTests(unittest.IsolatedAsyncioTestCase):
                     assert any(m.get('role') == 'user' and '核对资金' in m.get('content','') for m in messages)
                     self_names=[d['function']['name'] for d in tools]
                     assert 'stock_research_submit' not in self_names
+                    yield '内部补查参数生成，不是报告正文',None
                     yield '',{'role':'assistant','content':'','tool_calls':[{'id':str(len(selected)),'function':{'name':name,'arguments':{'reference':'b'*64,**({'event_id':'c'*16} if name.endswith('read') else {'search':'未用完'})}}}]}
                 else:
                     text='原文：“未用完的中央额度收回”。'
@@ -103,3 +104,4 @@ class SourceReadExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(dispatched),2)
         self.assertEqual(events[-1].kind,'done')
         self.assertIn('未用完的中央额度收回',events[-1].text)
+        self.assertNotIn('内部补查参数生成',''.join(e.text for e in events if e.kind=='token'))
