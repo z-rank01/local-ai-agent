@@ -907,6 +907,7 @@ class ChatSessionService:
         thinking_open = False
         active_tools = {}
         stock_bridge = self._runtime.stock_bridge
+        agent.stock_source_review_enabled = stock_bridge is not None
         if stock_bridge is not None and not answer_only:
             agent.quality_first_research = True
             agent.stock_loop_enabled = True
@@ -963,6 +964,15 @@ class ChatSessionService:
                             text += token
                             if brief_comparison is None:
                                 yield emit('assistant.delta', block_id=block, data={'text': token, 'model': spec['id']})
+                    elif event.kind == 'quality_rejected':
+                        # Keep the failed prose locally in existing protocol metadata;
+                        # the next model view gets the typed correction, not a false fact.
+                        save('protocol', metadata={**meta, 'message': event.data['message'],
+                            'quality_status': 'rejected_source_quote',
+                            'rejected_answer': event.data['rejected_answer'],
+                            'quality_issues': event.data['quality_issues']})
+                        text, reasoning = '', ''
+                        block, thinking_block = uuid.uuid4().hex, uuid.uuid4().hex
                     elif event.kind == 'message':
                         message = event.data['message']
                         protocol = ({**message, 'content': ''}
@@ -1007,6 +1017,9 @@ class ChatSessionService:
                         yield emit('tool.completed', block_id=data['call_id'], message_id=saved.id,
                             data={**data, 'params': display_params, 'detail': data.get('result_preview',''), 'headline': event.text})
                     elif event.kind == 'error':
+                        if getattr(agent, 'pending_source_review', ''):
+                            text += agent.pending_source_review
+                            agent.pending_source_review = ''
                         partial = ('版本对比未完成；请查看已打开的本地附件并稍后重试。'
                                    if brief_comparison is not None else
                                    text + ('\n\n' if text else '') + '本轮未完成：' + event.text)
@@ -1053,6 +1066,9 @@ class ChatSessionService:
             yield emit('conversation.updated', data={'conversation':self._conversation_summary(latest).model_dump()})
             yield emit('session.completed')
         finally:
+            if getattr(agent, 'pending_source_review', ''):
+                text += agent.pending_source_review
+                agent.pending_source_review = ''
             if stock_bridge is not None and stock_bridge.has_open_turn(conversation.id):
                 # Interrupted path: harvest attachments to storage without streaming.
                 async for _ in self._finish_stock_turn(conversation.id, stock_pending_local, stock_tool_rows, None):

@@ -254,6 +254,9 @@ class Agent:
         # replace its protocol messages with a source index. It is turn-local.
         stock_read_seen = any(m.get('role') == 'tool' and m.get('tool_name') in stock_read_tools
                               for m in messages)
+        from .stock_source_quotes import original_texts
+        source_quote_originals = original_texts(messages)
+        self.pending_source_review = ''
         cloud = getattr(self.llm, "cloud", False)
         try:
             ws_sections = []
@@ -315,6 +318,8 @@ class Agent:
                 'stock_theme_research_submit', 'stock_market_brief', 'stock_track_read', 'stock_track_find'}
             research_continuing, no_progress_rounds, observations = False, 0, set()
             execution_retries = 0
+            quote_repairs = 0
+            quote_repair_active = False
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             round_number = 0
             stock_deadline = None
@@ -361,6 +366,9 @@ class Agent:
                         if stock_window_closed else
                         "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
                 stock_read_seen = stock_read_seen or any(counts.get(name, 0) for name in stock_read_tools)
+                if quote_repair_active:
+                    from .stock_source_quotes import READ_TOOLS
+                    active = [d for d in active if d['function']['name'] in READ_TOOLS]
                 if stock_read_seen:
                     # Transient control guidance belongs to this model view, not user history.
                     # Keep one fresh copy after evidence reads instead of accumulating it.
@@ -369,12 +377,39 @@ class Agent:
                     messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
                 messages = await self.context_mgr.process(messages)
                 accumulated = None
+                quote_guard = stock_read_seen and (quality_research or getattr(self, 'stock_source_review_enabled', False))
+                pending_tokens = []
+                reviewing_thinking = False
+                quote_buffering = False
+                review_visible_prefix = ''
+                self.audit.record('model_tools_offered', {'session_id': session_id,
+                    'names': [d['function']['name'] for d in active],
+                    'source_quote_repair': quote_repair_active})
                 async with aclosing(self.llm.chat_stream_with_tools(messages, active or None)) as stream:
                     async for token, msg in stream:
                         if msg is not None:
                             accumulated = msg
                         elif token:
-                            yield AgentEvent("token", text=token)
+                            if quote_guard:
+                                if token.strip() == '<think>':
+                                    reviewing_thinking = True
+                                    yield AgentEvent('token', text=token)
+                                elif token.strip() == '</think>':
+                                    reviewing_thinking = False
+                                    yield AgentEvent('token', text=token)
+                                elif reviewing_thinking:
+                                    yield AgentEvent('token', text=token)
+                                else:
+                                    from .stock_source_quotes import may_start_literal_quote
+                                    review_visible_prefix += token
+                                    quote_buffering = quote_buffering or may_start_literal_quote(review_visible_prefix)
+                                    if quote_buffering:
+                                        pending_tokens.append(token)
+                                        self.pending_source_review += token
+                                    else:
+                                        yield AgentEvent('token', text=token)
+                            else:
+                                yield AgentEvent("token", text=token)
                 if not accumulated:
                     raise RuntimeError("模型未返回完整消息，已取得的结果仍保留。")
                 calls = accumulated.get('tool_calls') or []
@@ -383,6 +418,31 @@ class Agent:
                         tc['id'] = 'call_' + uuid.uuid4().hex
                     tc.setdefault('type', 'function')
                 messages.append(accumulated)
+                if quote_guard and not calls:
+                    from .stock_source_quotes import (original_texts, unverified_quotes,
+                        quote_feedback, isolate_quote_paragraphs)
+                    reply = accumulated.get('content') or ''
+                    source_quote_originals = list(dict.fromkeys(source_quote_originals + original_texts(messages)))
+                    issues = unverified_quotes(reply, source_quote_originals)
+                    if issues:
+                        feedback = quote_feedback(issues)
+                        self.audit.record('source_quote_rejected', {'session_id': session_id,
+                            'count': len(issues), 'repair_attempt': quote_repairs})
+                        yield AgentEvent('quality_rejected', data={'message': {'role': 'system', 'content': feedback},
+                            'rejected_answer': reply, 'quality_issues': issues})
+                        self.pending_source_review = ''
+                        if quote_repairs < 2 and active and not stock_window_closed and not no_progress_closed:
+                            quote_repairs += 1
+                            quote_repair_active = True
+                            messages.append({'role': 'system', 'content': feedback})
+                            continue
+                        # A local defect must not discard independent useful results.
+                        accumulated = {**accumulated, 'content': isolate_quote_paragraphs(reply, issues)}
+                        messages[-1] = accumulated
+                        pending_tokens = [accumulated['content']]
+                for token in pending_tokens:
+                    yield AgentEvent('token', text=token)
+                self.pending_source_review = ''
                 yield AgentEvent('message', data={'message': accumulated})
                 if not calls:
                     reply = accumulated.get('content') or ''
