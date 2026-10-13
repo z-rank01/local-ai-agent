@@ -31,5 +31,5 @@ parameters:
       description: "stock_public_evidence_find 返回的事件编号"
     cursor:
       type: string
-      description: "上一次结果的 next_cursor；不要自行编造"
+      description: "首次用同任务同事件查找项的 read_cursor；续读用本读取工具同 reference/event_id 的 next_cursor。不得传来源目录分页游标或自行编造"
   required: [reference, event_id]

@@ -39,5 +39,5 @@ parameters:
       description: "可选：只找已核对映射到这一报告页的事件"
     cursor:
       type: string
-      description: "上一次结果的 next_cursor；不要自行编造"
+      description: "仅本查找工具在相同 reference、search、report_page 下返回的 next_cursor；首次或改变查询应省略。不得传读取工具的 next_cursor 或条目 read_cursor"
   required: [reference]
