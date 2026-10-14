@@ -47,10 +47,18 @@ def validated_source_coverage(observation):
 
 
 def coverage_index(records, refs):
-    groups={};latest={}
+    groups={};latest={};legacy={}
     for record in records:
         ref=record.get('source_reference');event=record.get('event_id')
         if ref not in refs or not isinstance(event,str) or not re.fullmatch('[0-9a-f]{16}',event):continue
+        if 'source_coverage' not in record:
+            for span in record.get('excerpts', []):
+                value=canonical_span(span,record.get('url'))
+                if not value:continue
+                group=legacy.setdefault((ref,event,value['url']),{'spans':{},'conflict':False})
+                old=group['spans'].get(value['excerpt_id'])
+                if old is not None and old!=value:group['conflict']=True
+                group['spans'][value['excerpt_id']]=value
         for scope in validated_source_coverage(record):
             key=(ref,event,scope['url'],scope['snapshot_hash'],scope['saved_excerpts'],scope['saved_chars'])
             latest[key[:3]]=key
@@ -63,13 +71,25 @@ def coverage_index(records, refs):
                 group['spans'][value['excerpt_id']]=value
     rows=[]
     for key in latest.values():
-        group=groups[key];seen=list(group['spans'].values());chars=sum(len(s['text']) for s in seen)
+        group=groups[key];old=legacy.get(key[:3]);legacy_bound=False
+        if old and not old['conflict'] and not group['conflict']:
+            candidate={**old['spans'],**group['spans']}
+            conflict=any(group['spans'].get(k,v)!=v for k,v in old['spans'].items())
+            values=list(candidate.values())
+            # No version is inferred for a legacy fragment. Only the entire
+            # received snapshot can match the current authorised fingerprint.
+            if (not conflict and len(values)==key[4] and sum(len(v['text']) for v in values)==key[5]
+                    and snapshot_hash(values)==key[3]):
+                group={**group,'spans':candidate};legacy_bound=True
+        seen=list(group['spans'].values());chars=sum(len(s['text']) for s in seen)
         complete=(not group['conflict'] and len(seen)==key[4] and chars==key[5] and snapshot_hash(seen)==key[3])
         mismatch=(group['conflict'] or len(seen)>key[4] or chars>key[5] or
                   (len(seen)==key[4] and not complete))
-        rows.append({'source_reference':key[0],'event_id':key[1],'url':key[2],'snapshot_hash':key[3],
+        row={'source_reference':key[0],'event_id':key[1],'url':key[2],'snapshot_hash':key[3],
             'saved_excerpts':key[4],'saved_chars':key[5],'read_excerpts':len(seen),'read_chars':chars,
-            'state':'SNAPSHOT_MISMATCH' if mismatch else 'ALL_SAVED_EXCERPTS_READ' if complete else 'PARTIAL_SAVED_EXCERPTS_READ'})
+            'state':'SNAPSHOT_MISMATCH' if mismatch else 'ALL_SAVED_EXCERPTS_READ' if complete else 'PARTIAL_SAVED_EXCERPTS_READ'}
+        if old:row['legacy_read_binding']='FULL_SNAPSHOT_MATCH' if legacy_bound else 'UNVERIFIED'
+        rows.append(row)
     return rows
 
 
@@ -114,13 +134,16 @@ def scope_reply(observation, params, question, records):
     if not row:return None
     state={
         'ALL_SAVED_EXCERPTS_READ':'该来源当前保存的原文已全部收到，内容指纹一致。',
-        'PARTIAL_SAVED_EXCERPTS_READ':'该来源当前保存的原文仅收到一部分。',
+        'PARTIAL_SAVED_EXCERPTS_READ':'本次快照下可核验的原文仅收到一部分。',
         'SNAPSHOT_MISMATCH':'收到的片段与保存范围不一致，暂不能确认已读完。',
     }[row['state']]
     reply=(f'本次核对的是指定任务中的[这份来源](<{url}>)。\n\n'
         '| 范围 | 原文段数 | 字符数 |\n| --- | ---: | ---: |\n'
         f"| 当前保存 | {row['saved_excerpts']} | {row['saved_chars']} |\n"
         f"| 实际收到（已去重） | {row['read_excerpts']} | {row['read_chars']} |\n\n{state}")
+    if row.get('legacy_read_binding')=='UNVERIFIED':
+        reply=reply.replace('实际收到（已去重）','当前快照已核验收到（已去重）')
+        reply+='另有旧读取回执尚未绑定本次完整快照；不能把上表当作全部历史读取量。'
     total=observation.get('total_excerpts')
     if type(total) is int and total>=0:
         reply+=f'\n\n整个事件材料目录共 {total} 条，其中还可能包含其他来源和分析字段；这不是该来源的原文段数。'

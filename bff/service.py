@@ -912,6 +912,7 @@ class ChatSessionService:
         active_tools = {}
         stock_bridge = self._runtime.stock_bridge
         agent.stock_source_review_enabled = stock_bridge is not None
+        agent.stock_reply_purpose_enabled = stock_bridge is not None and not answer_only
         if stock_bridge is not None and not answer_only:
             agent.quality_first_research = True
             agent.stock_loop_enabled = True
@@ -968,6 +969,11 @@ class ChatSessionService:
                             text += token
                             if brief_comparison is None:
                                 yield emit('assistant.delta', block_id=block, data={'text': token, 'model': spec['id']})
+                    elif event.kind == 'reply_purpose_protocol':
+                        save('protocol', metadata={**meta, 'cloud_safe': False,
+                            'reply_purpose_view_version': event.data['view_version'],
+                            'reply_purpose_tool_call_count': event.data['tool_call_count'],
+                            'message': event.data['message']})
                     elif event.kind == 'quality_repaired':
                         # Retain the generated prose and exact local edits for
                         # audit. This is not new evidence or a cloud message.

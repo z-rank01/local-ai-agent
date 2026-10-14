@@ -386,6 +386,8 @@ class Agent:
             program_source_message = None
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             from .stock_task_source_view import lookup_index
+            purpose_pending = bool(getattr(self, 'stock_reply_purpose_enabled', False)
+                and self.allow_tools and stock_read_seen and (not cloud or workspace_granted))
             round_number = 0
             stock_deadline = None
             public_research_deadline = None
@@ -493,6 +495,13 @@ class Agent:
                     'source_quote_repair': quote_repair_active})
                 selected_source_tool = None
                 source_parameter_step = False
+                purpose_step = False
+                purpose_view = None
+                if purpose_pending and not source_repair_phase and not stock_window_closed and not no_progress_closed:
+                    from .stock_reply_purpose import selection_view
+                    purpose_view = selection_view(messages, user_request, lookup_context, active)
+                    purpose_step = purpose_view is not None
+                    purpose_pending = False
                 if source_repair_phase:
                     candidate = 'stock_public_evidence_' + source_repair_phase
                     if any(d['function']['name'] == candidate for d in active):
@@ -501,7 +510,19 @@ class Agent:
                                   ('stock_public_evidence_find','stock_public_evidence_read','context_evidence_read')]
                         if getattr(self.llm, 'supports_source_read_choice', False):
                             selected_source_tool = candidate
-                if source_parameter_step:
+                if purpose_step:
+                    selected_messages, active = purpose_view
+                    request_options = {}
+                    if getattr(self.llm, 'observes_native_requests', False):
+                        request_options['request_observer'] = lambda event, data: self.audit.record(event, {
+                            'session_id': session_id, 'reply_purpose_phase': 'selection',
+                            'reply_purpose_view_version': 'current-question-purpose-v1',
+                            'source_lookup_phase': 'parameters',
+                            'source_lookup_index_version': lookup_context['version'],
+                            'source_lookup_selection': lookup_context['selection'],
+                            'source_lookup_reference_count': len(lookup_context['rows']), **data})
+                    stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None, **request_options)
+                elif source_parameter_step:
                     # Generate only the read parameters from the current task
                     # and actual source receipts. Old assistant guesses do not
                     # belong to this lookup step. The full authorised history
@@ -539,6 +560,7 @@ class Agent:
                             event, {'session_id': session_id, 'view_version': explanation_view_version if explanation_view_active else None,
                                     'prior_explanation_index_version':prior_explanation_index_version,
                                     'source_lookup_phase':'explanation',
+                                    'reply_purpose_phase':'explanation',
                                     'source_lookup_index_version':lookup_context['version'],
                                     'source_lookup_selection':lookup_context['selection'],
                                     'source_lookup_reference_count':len(lookup_context['rows']),
@@ -565,7 +587,7 @@ class Agent:
                         if msg is not None:
                             accumulated = msg
                         elif token:
-                            if source_parameter_step:
+                            if source_parameter_step or purpose_step:
                                 # Parameter planning is protocol, not user prose.
                                 # Its completed tool call is retained below.
                                 continue
@@ -592,6 +614,18 @@ class Agent:
                 if not accumulated:
                     raise RuntimeError("模型未返回完整消息，已取得的结果仍保留。")
                 calls = accumulated.get('tool_calls') or []
+                if purpose_step:
+                    from .stock_reply_purpose import analysis_decision
+                    yield AgentEvent('reply_purpose_protocol', data={'message': {
+                        'role': 'assistant', 'content': accumulated.get('content') or ''},
+                        'view_version': 'current-question-purpose-v1', 'tool_call_count': len(calls)})
+                    if not calls:
+                        if not analysis_decision(accumulated.get('content')):
+                            raise RuntimeError('回复用途选择未返回有效analysis声明或实际读取调用；本次未完成，不自动重发。')
+                        self.audit.record('reply_purpose_selected', {'session_id': session_id,
+                            'version': 'current-question-purpose-v1', 'mode': 'analysis', 'tool_call_count': 0})
+                        continue
+                    accumulated = {**accumulated, 'content': ''}
                 for tc in calls:
                     if not tc.get('id'):
                         tc['id'] = 'call_' + uuid.uuid4().hex
@@ -699,7 +733,9 @@ class Agent:
                 for token in pending_tokens:
                     yield AgentEvent('token', text=token)
                 self.pending_source_review = ''
-                yield AgentEvent('message', data={'message': accumulated})
+                public_message = ({k: v for k, v in accumulated.items() if k != 'reasoning_content'}
+                                  if purpose_step else accumulated)
+                yield AgentEvent('message', data={'message': public_message})
                 if not calls:
                     reply = accumulated.get('content') or ''
                     if not reply:
@@ -746,11 +782,16 @@ class Agent:
                 fresh_observation = False
                 verified_scope_reply = None
                 verified_calculation_reply = None
+                purpose_tool_failed = False
+                pure_purpose_requested = False
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
                                                        budgets=budgets, counts=counts,
                                                        stock_deadline=None if handoff_round else stock_deadline,
                                                        research_handoff=handoff_round)) as events:
                     async for event in events:
+                        if purpose_step and event.kind == 'tool_end':
+                            purpose_tool_failed |= event.data.get('status') != 'ok'
+                            pure_purpose_requested |= (event.data.get('params') or {}).get('reply_focus') in ('calculation','source_scope')
                         if (len(calls) == 1 and event.kind == 'tool_end' and event.data.get('status') == 'ok'
                                 and event.data.get('name') == 'stock_public_evidence_read'):
                             from .stock_source_coverage import scope_reply
@@ -817,6 +858,8 @@ class Agent:
                     yield AgentEvent('message',data={'message':message})
                     yield AgentEvent('done',text=verified_calculation_reply)
                     return
+                if purpose_step and (purpose_tool_failed or pure_purpose_requested):
+                    raise RuntimeError('所选回复用途的读取或同版回执核验未完成；已有结果保留，不自动改参数或生成替代结论。')
                 research_continuing = quality_research and bool(calls) and all(
                     call['function']['name'] in research_tools for call in calls)
                 no_progress_rounds = 0 if fresh_observation else no_progress_rounds + 1

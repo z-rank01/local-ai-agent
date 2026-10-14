@@ -17,6 +17,25 @@ def page(ids=(1,),all_ids=(1,2),ref=REF,event=EVENT):
 
 
 class SourceCoverageTests(unittest.TestCase):
+    def test_legacy_reads_bind_only_with_full_same_task_snapshot_fingerprint(self):
+        old=page((1,2));old.pop('source_coverage');new=page((1,))
+        original=copy.deepcopy([old,new]);row=coverage_index([old,new],{REF})[0]
+        self.assertEqual(row['state'],'ALL_SAVED_EXCERPTS_READ')
+        self.assertEqual(row['legacy_read_binding'],'FULL_SNAPSHOT_MATCH')
+        self.assertEqual(row['read_excerpts'],2);self.assertEqual([old,new],original)
+        for change in ('reference','event','text','incomplete','version','conflict'):
+            old=page((1,2));old.pop('source_coverage');new=page((1,));extra=[]
+            if change=='reference':old['source_reference']='c'*64
+            elif change=='event':old['event_id']='c'*16
+            elif change=='text':old['excerpts'][1]['text']='另一快照的反证'
+            elif change=='incomplete':old['excerpts']=old['excerpts'][:1]
+            elif change=='version':old['source_coverage']=page()['source_coverage'];old['source_coverage'][0]['snapshot_hash']='e'*64
+            else:
+                other=copy.deepcopy(old);other['excerpts'][1]['text']='冲突';extra=[other]
+            row=coverage_index([old]+extra+[new],{REF})[0]
+            self.assertEqual(row['read_excerpts'],1,change)
+            self.assertNotEqual(row['state'],'ALL_SAVED_EXCERPTS_READ',change)
+
     def test_file_coverage_separate_from_aggregate_eof_and_not_website_complete(self):
         rows=[page((1,)),page((2,))];before=copy.deepcopy(rows)
         result=coverage_index(rows,{REF})
