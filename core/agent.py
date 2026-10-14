@@ -344,7 +344,13 @@ class Agent:
                     logger.warning('Prior stock explanation view skipped')
                 return history
             messages = index_prior_explanations(messages)
-            messages = await self.context_mgr.process(messages)
+            from .stock_task_source_view import lookup_index
+            early_question = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
+            defer_purpose_context = (getattr(self, 'stock_reply_purpose_enabled', False)
+                and self.allow_tools and stock_read_seen and (not cloud or workspace_granted)
+                and lookup_index(source_index, early_question)['selection'] in ('explicit_known', 'single_report_receipt'))
+            if not defer_purpose_context:
+                messages = await self.context_mgr.process(messages)
             # A cloud session gets the tools its grant covers: nothing without the
             # workspace grant, read-only tools with it, and write/execute tools only
             # once that second grant is on.  Local models are unrestricted.
@@ -474,7 +480,8 @@ class Agent:
                               and not (m.get('role')=='system' and m.get('content')==program_source_message['content'])]
                 program_guidance=(program_source_guidance(current_calculations)
                                   if self.allow_tools and (not cloud or workspace_granted) else None)
-                comparison_guidance=(current_guidance(source_comparison_index,user_request,source_index,source_read_records)
+                comparison_guidance=(current_guidance(source_comparison_index,user_request,source_index,source_read_records,
+                                     visible_messages=messages, evidence_ids=getattr(self.context_mgr,'evidence_ids',None))
                                      if self.allow_tools and (not cloud or workspace_granted) else None)
                 from .stock_company_context import current_cashflow_scope_version
                 cashflow_scope_version = (current_cashflow_scope_version(source_comparison_index, user_request, source_index)
@@ -489,7 +496,17 @@ class Agent:
                 if program_guidance:
                     program_source_message={'role':'system','content':program_guidance}
                     messages.append(program_source_message)
-                messages = await self.context_mgr.process(messages)
+                purpose_step = False
+                purpose_view = None
+                if purpose_pending and not source_repair_phase and not stock_window_closed and not no_progress_closed:
+                    from .stock_reply_purpose import selection_view
+                    purpose_view = selection_view(messages, user_request, lookup_context, active)
+                    purpose_step = purpose_view is not None
+                    purpose_pending = False
+                # Pure purpose selection sends only its short view. Full
+                # history is processed when analysis actually resumes.
+                if not purpose_step:
+                    messages = await self.context_mgr.process(messages)
                 accumulated = None
                 quote_guard = stock_read_seen and (quality_research or getattr(self, 'stock_source_review_enabled', False))
                 pending_tokens = []
@@ -504,13 +521,6 @@ class Agent:
                     'source_quote_repair': quote_repair_active})
                 selected_source_tool = None
                 source_parameter_step = False
-                purpose_step = False
-                purpose_view = None
-                if purpose_pending and not source_repair_phase and not stock_window_closed and not no_progress_closed:
-                    from .stock_reply_purpose import selection_view
-                    purpose_view = selection_view(messages, user_request, lookup_context, active)
-                    purpose_step = purpose_view is not None
-                    purpose_pending = False
                 if source_repair_phase:
                     candidate = 'stock_public_evidence_' + source_repair_phase
                     if any(d['function']['name'] == candidate for d in active):
