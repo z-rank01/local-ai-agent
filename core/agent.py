@@ -686,7 +686,10 @@ class Agent:
                             'message':{'role':'system','content':'来源补查参数生成没有返回工具调用，原文核对未完成。'},
                             'rejected_answer':accumulated.get('content',''),
                             'quality_issues':[{'reason':'SOURCE_EXECUTION_NOT_STARTED'}]})
-                        raise RuntimeError('来源补查未返回工具调用，尚未完成原文核对；已取得结果保留，未自动重发或改思考设置。')
+                        from .stock_source_review import incomplete_delivery
+                        raise RuntimeError(incomplete_delivery(
+                            source_index, user_request, source_read_records,
+                            authorised=self.allow_tools and (not cloud or workspace_granted)))
                 if quote_guard and not calls:
                     from .stock_source_quotes import (original_texts, original_records, complete_sources,
                         unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs,

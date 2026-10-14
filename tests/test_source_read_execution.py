@@ -189,6 +189,7 @@ class SourceReadExecutionTests(unittest.IsolatedAsyncioTestCase):
         execution=[e for e in events if e.kind=='quality_rejected' and e.data.get('quality_status')=='rejected_source_execution']
         self.assertEqual(execution[0].data['rejected_answer'],'本次补查未执行的原始回答')
         self.assertEqual(events[-1].kind,'error')
+        self.assertIn('未将待核草稿作为研究结论交付', events[-1].text)
         self.assertEqual(len(rounds),2)
         self.assertNotIn('本次补查未执行的原始回答',''.join(e.text for e in events if e.kind=='token'))
 
