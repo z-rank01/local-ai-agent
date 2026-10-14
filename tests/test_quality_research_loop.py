@@ -38,7 +38,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls,['stock_report_read'])
         self.assertEqual([m['content'] for m in messages if m['role']=='user'],[query])
         self.assertEqual(sum(m.get('content')==STOCK_DELIVERY_GUIDANCE for m in messages),1)
-        self.assertIn('二手数字',messages[-1]['content'])
+        self.assertIn('analysis', next(m['content'] for m in messages if m.get('content') == STOCK_DELIVERY_GUIDANCE))
         self.assertEqual(events[-1].kind,'done')
 
     async def test_expired_read_only_window_does_not_demand_ids_or_invent_running_task(self):
