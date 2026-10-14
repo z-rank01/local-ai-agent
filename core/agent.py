@@ -301,6 +301,7 @@ class Agent:
                     return history
                 try:
                     from .stock_material_view import project_materials
+                    from .stock_report_context import MATERIAL_VIEW_VERSION
                     result = project_materials(history, self.context_mgr.archive)
                     binding = result.binding
                     view, prior_index = result.messages, result.priors
@@ -313,7 +314,7 @@ class Agent:
                             prior_explanation_index_version = result.prior_version
                         self.context_mgr.evidence_ids.update(row['evidence_id'] for row in prior_index)
                         self.audit.record('task_explanation_view', {'session_id': session_id,
-                            'version': 'reader-material-index-v2' if material_index else explanation_view_version,
+                            'version': MATERIAL_VIEW_VERSION if material_index else explanation_view_version,
                             'prior_explanation_index_version': prior_explanation_index_version,
                             'task_material_binding_version': binding['version'] if binding else None,
                             'task_material_binding_selection': binding['selection'] if binding else None,
@@ -325,7 +326,7 @@ class Agent:
                             'after_chars': sum(len(row.get('content') or '') for row in view)})
                         explanation_view_active = True
                         if material_index:
-                            explanation_view_version = 'reader-material-index-v2'
+                            explanation_view_version = MATERIAL_VIEW_VERSION
                         if other_source_index:
                             source_task_view_active = True
                         return view
@@ -515,6 +516,18 @@ class Agent:
                     'source_quote_repair': bool(source_review.attempts)})
                 selected_source_tool = None
                 source_parameter_step = False
+                source_request_metadata = {
+                    'session_id': session_id,
+                    'program_source_count': len(current_calculations),
+                    'source_lookup_index_version': lookup_context['version'],
+                    'source_lookup_selection': lookup_context['selection'],
+                    'source_lookup_reference_count': len(lookup_context['rows']),
+                    'prior_explanation_index_version': prior_explanation_index_version,
+                    'saved_source_coverage_version': 'saved-source-coverage-v1' if saved_coverage_guidance else None,
+                    'comparison_context_version': 'comparison-source-context-v1' if comparison_guidance else None,
+                    'cashflow_net_scope_version': cashflow_scope_version,
+                    'calculation_context_version': 'program-source-index-v1' if current_calculations else None,
+                }
                 if source_review.parameter_step:
                     candidate = 'stock_public_evidence_' + source_review.phase.value
                     if any(d['function']['name'] == candidate for d in active):
@@ -556,35 +569,19 @@ class Agent:
                         request_options['selected_source_tool'] = selected_source_tool
                     if selected_source_tool or getattr(self.llm,'observes_native_requests',False):
                         request_options['request_observer'] = lambda event, data: self.audit.record(event, {
-                            'session_id': session_id,'program_source_count':len(current_calculations),
-                            'source_lookup_phase':'parameters',
-                            'source_lookup_index_version':lookup_context['version'],
-                            'source_lookup_selection':lookup_context['selection'],
-                            'source_lookup_reference_count':len(lookup_context['rows']),
-                            'prior_explanation_index_version':prior_explanation_index_version,
-                            'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
-                            'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
-                            'cashflow_net_scope_version':cashflow_scope_version,
-                            'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
+                            **source_request_metadata, 'source_lookup_phase': 'parameters', **data})
                     stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None, **request_options)
                 else:
                     final_request_options = {}
                     if getattr(self.llm, 'observes_native_requests', False):
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
-                            event, {'session_id': session_id, 'view_version': explanation_view_version if explanation_view_active else None,
-                                    'prior_explanation_index_version':prior_explanation_index_version,
+                            event, {'view_version': explanation_view_version if explanation_view_active else None,
+                                    **source_request_metadata,
                                     'source_lookup_phase':'explanation',
                                     'reply_purpose_phase':'explanation',
-                                    'source_lookup_index_version':lookup_context['version'],
-                                    'source_lookup_selection':lookup_context['selection'],
-                                    'source_lookup_reference_count':len(lookup_context['rows']),
                                     'source_task_view_version':'current-task-source-index-v1' if source_task_view_active else None,
-                                    'program_source_count':len(current_calculations),
-                                    'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
-                                    'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
-                                    'cashflow_net_scope_version':cashflow_scope_version,
                                     'delivery_context_version':'current-user-delivery-v1' if quote_guard and current_user_question else None,
-                                    'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
+                                    **data})
                     final_messages=messages
                     if quote_guard and current_user_question:
                         # A turn-local echo after the tool material. Keep the

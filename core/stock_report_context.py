@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import re
 
+MATERIAL_VIEW_VERSION = "reader-material-index-v3"
+
 def _body_pages(value):
     pages = value.get('answer_pages')
     if not isinstance(pages, list) or not pages:
@@ -84,7 +86,7 @@ def report_material_view(messages, archive, *, compact_catalogues=False):
                     'field_count': len(directory['fields']), 'unbound_count': directory['unbound_count'],
                     'reading': '完整字段目录保存在本条成功报告的完整归档中，可用context_evidence_read回读；目录不是原值或已读证明。'}
             projected['comparison_context'] = context
-        projected.update(material_view_version='reader-material-index-v3' if needs_directory else 'reader-material-index-v2',
+        projected.update(material_view_version=MATERIAL_VIEW_VERSION if compact_catalogues else 'reader-material-index-v2',
                          legacy_material_evidence_id=eid,
                          material_reading=(
                              '旧整篇页面和模型阶段材料已完整归档，可用context_evidence_read回读；'

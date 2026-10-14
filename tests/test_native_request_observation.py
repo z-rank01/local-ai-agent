@@ -22,3 +22,37 @@ class NativeObservationTests(unittest.IsolatedAsyncioTestCase):
         native=[row for event,row in observed if event=='native_model_request']
         self.assertEqual(len(native),1);self.assertIsNone(native[0]['view_version'])
         self.assertTrue(native[0]['parameters']['enable_thinking']);self.assertNotIn('content',native[0])
+
+    async def test_report_projection_and_native_observer_share_version(self):
+        import copy
+        import hashlib
+        import json
+        from tests.test_stock_report_context import report
+        from core.stock_report_context import MATERIAL_VIEW_VERSION
+        observed, received, saved = [], [], {}
+        class Model:
+            cloud = False
+            observes_native_requests = True
+            async def chat_stream_with_tools(self, messages, tools, **kwargs):
+                received.extend(copy.deepcopy(messages))
+                kwargs['request_observer']('native_model_request', {'parameters': {'enable_thinking': True}})
+                yield '', {'role': 'assistant', 'content': '现有材料为部分成果。'}
+        agent = self.agent(Model(), SimpleNamespace(), [])
+        def archive(row):
+            eid = hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest()
+            saved[eid] = copy.deepcopy(row)
+            return eid
+        agent.context_mgr.archive = archive
+        agent.context_mgr.reader = lambda eid: saved[eid]
+        agent.context_mgr.evidence_ids = set()
+        agent.audit.record = lambda event, data: observed.append((event, data))
+        rows = report('a'*64, 'r', '旧阶段材料', '新版部分正文') + [{'role':'user','content':'解释 '+ 'a'*64}]
+        original = copy.deepcopy(rows)
+        events = [e async for e in agent.run(rows)]
+        self.assertEqual(events[-1].kind, 'done')
+        self.assertEqual(rows, original)
+        native = next(data for event, data in observed if event == 'native_model_request')
+        projected = next(json.loads(m['content'])['model_observation'] for m in received if m.get('tool_name') == 'stock_report_read')
+        self.assertEqual(native['view_version'], MATERIAL_VIEW_VERSION)
+        self.assertEqual(projected['material_view_version'], native['view_version'])
+        self.assertTrue(saved)
