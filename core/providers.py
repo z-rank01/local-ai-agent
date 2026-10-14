@@ -221,13 +221,15 @@ class CompatibleClient:
         receipt = NativeStreamReceipt(uuid.uuid4().hex)
         if request_observer:
             import hashlib
+            from .native_tool_schema import tool_schema_observation
             request_observer('native_model_request', {
                 'call_id': call_id, 'model': self.spec['id'], 'local_attempt_id': receipt.attempt_id,
                 'parameters': {key: value for key, value in payload.items() if key not in ('messages', 'tools')},
                 'tool_names': [item['function']['name'] for item in tools or []],
                 'message_count': len(clean),
                 'input_chars': len(json.dumps(clean,ensure_ascii=False)),
-                'input_hash': hashlib.sha256(json.dumps(clean,ensure_ascii=False,sort_keys=True).encode()).hexdigest()})
+                'input_hash': hashlib.sha256(json.dumps(clean,ensure_ascii=False,sort_keys=True).encode()).hexdigest(),
+                **tool_schema_observation(payload)})
         accumulated = {'role': 'assistant', 'content': '', 'reasoning_content': ''}
         calls, finished, thinking_open = {}, False, False
         try:
