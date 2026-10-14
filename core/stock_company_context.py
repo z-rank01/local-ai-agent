@@ -3,11 +3,46 @@ import json
 import re
 from copy import deepcopy
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from urllib.parse import urlparse
 
 FINANCIAL_METRICS=frozenset(('revenue','parent_profit','profit','ocf','cost','assets','liabilities',
     'parent_equity','share_capital','cash','short_debt','long_debt','bonds','rd'))
+
+CASHFLOW_SCOPE_VERSION = 'cashflow-net-scope-v1'
+CASHFLOW_SCOPE_READING = ('假设收支组合，仅演示经营活动现金流入减去流出的净额关系；'
+    '不是公司的实际现金流分项、客户收款或应收变化。'
+    '同一净额可对应不同流入和流出，净额本身不能唯一确定收款规模或回款质量。')
+
+
+def validated_cashflow_scope(subject, metric):
+    scope = metric.get('cashflow_net_scope')
+    if (metric.get('metric') != 'ocf' or metric.get('status') != 'SOURCE_BOUND'
+            or not isinstance(scope, dict) or scope.get('version') != CASHFLOW_SCOPE_VERSION
+            or scope.get('scenario_kind') != 'ARITHMETIC_HYPOTHESIS'
+            or scope.get('symbol') != subject['symbol']
+            or scope.get('report_period') != metric['report_period']
+            or scope.get('unit') != 'CNY' or scope.get('reading') != CASHFLOW_SCOPE_READING
+            or not isinstance(scope.get('examples'), list) or len(scope['examples']) != 2):
+        raise ValueError('净额反例绑定或角色无效')
+    def number(text):
+        if not isinstance(text, str) or len(text) > 120 or not re.fullmatch(r'-?\d+(?:\.\d+)?', text):
+            raise ValueError('净额反例数值无效')
+        return Decimal(text)
+    try:
+        with localcontext() as ctx:
+            ctx.prec = 160
+            net = number(scope['net_yuan'])
+            if net != Decimal(metric['value_yuan']):raise ValueError('净额原值不符')
+            examples = []
+            for entry, margin in zip(scope['examples'], (Decimal('100000000'), Decimal('200000000'))):
+                incoming, outgoing = number(entry['inflow_yuan']), number(entry['outflow_yuan'])
+                if (incoming < 0 or outgoing < 0 or incoming - outgoing != net
+                        or number(entry['net_yuan']) != net or min(incoming, outgoing) != margin):
+                    raise ValueError('净额反例恒等式无效')
+                examples.append({key:entry[key] for key in ('inflow_yuan','outflow_yuan','net_yuan')})
+        return {key:scope[key] for key in ('version','scenario_kind','symbol','report_period','unit','net_yuan','reading')} | {'examples': examples}
+    except (KeyError, TypeError, InvalidOperation):raise ValueError('净额反例字段无效') from None
 
 
 def validated_catalogue(subject):
@@ -69,7 +104,9 @@ def validate_context(context, pages):
         if not isinstance(metrics,list) or {m.get('metric') for m in metrics} != {'revenue','parent_profit','ocf'} or len(metrics)!=3:
             raise ValueError('比较口径无效')
         for row in metrics:
-            if row.get('status')=='MISSING':continue
+            if row.get('status')=='MISSING':
+                row.pop('cashflow_net_scope', None)
+                continue
             if (row.get('status')!='SOURCE_BOUND' or row.get('unit')!='CNY'
                     or row.get('kind')!=('SOURCE_FIELD' if i==0 else 'PEER_SOURCE_FIELD')
                     or not re.fullmatch(r'[12]\d{7}',str(row.get('report_period')))
@@ -86,6 +123,9 @@ def validate_context(context, pages):
                 number=Decimal(row['value_yuan'])
                 if not number.is_finite() or number!=Decimal(row['raw_value']):raise ValueError('比较字段数值不一致')
             except (InvalidOperation,KeyError,TypeError):raise ValueError('比较字段数值无效') from None
+            if 'cashflow_net_scope' in row:
+                try:row['cashflow_net_scope'] = validated_cashflow_scope(subject, row)
+                except ValueError:row.pop('cashflow_net_scope', None)
         if context['comparable_period']=='YES' and subject.get('report_period')!=context.get('common_period'):
             raise ValueError('共同期间不一致')
         try:
@@ -154,3 +194,12 @@ def current_guidance(index,question,source_index,read_records=None):
             '不能只凭经营现金流净额较高认定回款质量更好；还须核对营运资金、支付和收款构成。'
             '业务交集和客户关系需要业务原文；财务字段的绑定状态不能作为业务已证实的来源等级。'
             '回答使用公司名称、易懂指标与真实链接，不展示内部枚举、引用哈希或游标。')
+
+
+def current_cashflow_scope_version(index, question, source_index):
+    refs = set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', question))
+    if not refs and source_index:refs = {source_index[0]['source_reference']}
+    return CASHFLOW_SCOPE_VERSION if any(
+        metric.get('cashflow_net_scope', {}).get('version') == CASHFLOW_SCOPE_VERSION
+        for ref, context in index.items() if ref in refs and context
+        for subject in context['subjects'] for metric in subject['metrics']) else None

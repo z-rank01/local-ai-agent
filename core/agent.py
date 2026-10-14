@@ -476,6 +476,9 @@ class Agent:
                                   if self.allow_tools and (not cloud or workspace_granted) else None)
                 comparison_guidance=(current_guidance(source_comparison_index,user_request,source_index,source_read_records)
                                      if self.allow_tools and (not cloud or workspace_granted) else None)
+                from .stock_company_context import current_cashflow_scope_version
+                cashflow_scope_version = (current_cashflow_scope_version(source_comparison_index, user_request, source_index)
+                                          if comparison_guidance else None)
                 from .stock_source_coverage import coverage_guidance
                 saved_coverage_guidance=(coverage_guidance(source_read_records,user_request,source_index)
                                         if self.allow_tools and (not cloud or workspace_granted) else None)
@@ -557,6 +560,7 @@ class Agent:
                             'prior_explanation_index_version':prior_explanation_index_version,
                             'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
                             'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
+                            'cashflow_net_scope_version':cashflow_scope_version,
                             'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
                     stream_source = self.llm.chat_stream_with_tools(selected_messages, active or None, **request_options)
                 else:
@@ -574,6 +578,7 @@ class Agent:
                                     'program_source_count':len(current_calculations),
                                     'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
                                     'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
+                                    'cashflow_net_scope_version':cashflow_scope_version,
                                     'delivery_context_version':'current-user-delivery-v1' if quote_guard and current_user_question else None,
                                     'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
                     final_messages=messages
