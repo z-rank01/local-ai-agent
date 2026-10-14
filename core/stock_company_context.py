@@ -136,10 +136,12 @@ def validate_context(context, pages):
     return context
 
 
-def context_index(messages):
+def context_index(messages, *, receipts=None):
     from .stock_receipts import paired_receipts
     latest = {}
-    for receipt in paired_receipts(messages, {'stock_report_read'}, allow_legacy_reference=False):
+    for receipt in (paired_receipts(messages, {'stock_report_read'}, allow_legacy_reference=False) if receipts is None else receipts):
+        if receipt.tool_name != 'stock_report_read' or receipt.observation.get('source_reference') != receipt.reference:
+            continue
         obs, ref = receipt.observation, receipt.reference
         if obs['kind'] != 'local_report_page':
             continue

@@ -45,11 +45,13 @@ def validate_calculations(value):
     return value
 
 
-def calculation_index(messages):
+def calculation_index(messages, *, receipts=None):
     """Latest successful paired report only, never user/model-stage content."""
     from .stock_receipts import paired_receipts
     latest = {}
-    for receipt in paired_receipts(messages, {'stock_report_read'}, allow_legacy_reference=False):
+    for receipt in (paired_receipts(messages, {'stock_report_read'}, allow_legacy_reference=False) if receipts is None else receipts):
+        if receipt.tool_name != 'stock_report_read' or receipt.observation.get('source_reference') != receipt.reference:
+            continue
         value, ref = receipt.observation, receipt.reference
         if value['kind'] != 'local_report_page':
             continue

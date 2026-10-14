@@ -134,7 +134,7 @@ def original_texts(messages):
             ('ORIGINAL_TEXT', 'PEER_ORIGINAL_TEXT') and isinstance(excerpt.get('text'), str)]
 
 
-def source_task_index(messages):
+def source_task_index(messages, *, receipts=None):
     """Index authorised tool receipts, never parse user prose or stage hashes.
 
     Older receipts lack source_reference; link their successful response to its
@@ -142,7 +142,7 @@ def source_task_index(messages):
     """
     from .stock_receipts import paired_receipts
     rows = {}
-    for receipt in paired_receipts(messages):
+    for receipt in (paired_receipts(messages) if receipts is None else receipts):
         value, token = receipt.observation, receipt.reference
         row = rows.pop(token, {'source_reference': token, 'sources': {}})
         if receipt.tool_name == 'stock_report_read':

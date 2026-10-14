@@ -48,3 +48,14 @@ class ReceiptTests(unittest.TestCase):
     def test_non_assistant_call_is_not_authority(self):
         history = rows(); history[0]['role'] = 'user'
         self.assertEqual(list(paired_receipts(history)), [])
+
+    def test_incremental_index_matches_full_and_invalidates_projection(self):
+        from core.stock_evidence import EvidenceIndex
+        from core.stock_source_quotes import source_task_index
+        index = EvidenceIndex(); history = rows()
+        index.update(history[:1]); self.assertEqual(index.sources, [])
+        index.update(history); self.assertEqual(index.sources, source_task_index(history))
+        self.assertFalse(index.update(history + [{'role':'system','content':'说明'}]))
+        changed = copy.deepcopy(history)
+        changed[1]['content'] = json.dumps({'error':'failed'})
+        self.assertTrue(index.update(changed)); self.assertEqual(index.sources, [])

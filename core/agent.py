@@ -267,11 +267,14 @@ class Agent:
         from .stock_source_quotes import original_texts, original_records, source_task_index
         source_quote_originals = original_texts(messages)
         source_read_records = original_records(messages)
-        source_index = source_task_index(messages)
+        from .stock_evidence import EvidenceIndex
+        evidence_index = EvidenceIndex()
+        evidence_index.update(messages)
+        source_index = evidence_index.sources
         from .stock_calculation_review import calculation_index
-        source_calculation_index = calculation_index(messages)
+        source_calculation_index = dict(evidence_index.calculations)
         from .stock_company_context import context_index, current_guidance
-        source_comparison_index = context_index(messages)
+        source_comparison_index = dict(evidence_index.comparisons)
         self.pending_source_review = ''
         cloud = getattr(self.llm, "cloud", False)
         try:
@@ -325,7 +328,8 @@ class Agent:
                             'task_material_binding_selection': binding['selection'] if binding else None,
                             'task_material_binding_count': len(binding['references']) if binding else 0,
                             'indexed_messages': len(prior_index), 'indexed_report_materials': len(material_index),
-                            'indexed_other_task_source_receipts':len(other_source_index),
+                            'indexed_other_task_source_receipts':len(other_source_index)-result.duplicate_count,
+                            'indexed_duplicate_source_receipts':result.duplicate_count,
                             'before_chars': sum(len(row.get('content') or '') for row in history),
                             'after_chars': sum(len(row.get('content') or '') for row in view)})
                         explanation_view_active = True
@@ -454,7 +458,8 @@ class Agent:
                     from .stock_source_quotes import source_index_guidance
                     # Retain the pre-compression index and merge actual new
                     # receipts. No source material or old evidence is rewritten.
-                    new_index = source_task_index(messages)
+                    evidence_index.update(messages)
+                    new_index = evidence_index.sources
                     new_tokens = {row['source_reference'] for row in new_index}
                     source_index = new_index + [row for row in source_index if row['source_reference'] not in new_tokens]
                     lookup_context = lookup_index(source_index, user_request)
@@ -468,8 +473,9 @@ class Agent:
                 messages = index_prior_explanations(messages)
                 from .stock_source_coverage import merge_read_records
                 source_read_records=merge_read_records(source_read_records,original_records(messages))
-                source_calculation_index.update(calculation_index(messages))
-                source_comparison_index.update(context_index(messages))
+                evidence_index.update(messages)
+                source_calculation_index.update(evidence_index.calculations)
+                source_comparison_index.update(evidence_index.comparisons)
                 from .stock_calculation_review import current_program_records,program_source_guidance
                 current_calculations=current_program_records(source_calculation_index,user_request,source_index)
                 if program_source_message:

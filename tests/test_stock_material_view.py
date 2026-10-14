@@ -53,3 +53,26 @@ class MaterialViewTests(unittest.TestCase):
         self.assertEqual(state.phase, Phase.READ)
         state.received({'status': 'ok', 'name': 'stock_public_evidence_read', 'result': {'next_cursor': None}})
         self.assertEqual(state.phase, Phase.EXPLANATION); self.assertEqual(state.attempts, 1)
+
+    def test_duplicate_source_requires_exact_snapshot_and_preserves_current_turn(self):
+        from core.stock_material_view import duplicate_source_view
+        from tests.test_stock_receipts import rows
+        first = rows(); second = copy.deepcopy(first)
+        second[0]['tool_calls'][0]['id'] = 'read2'; second[1]['tool_call_id'] = 'read2'
+        history = first + second + [{'role':'user','content':'当前问题'}] + rows()
+        saved = {}
+        def archive(row):
+            eid = hashlib.sha256(json.dumps(row,sort_keys=True).encode()).hexdigest()
+            saved[eid] = copy.deepcopy(row); return eid
+        view,index = duplicate_source_view(history,archive)
+        self.assertEqual(len(index),1)
+        self.assertEqual(view[-2:],history[-2:])
+        self.assertEqual(view[3],history[3])
+        self.assertEqual(saved[index[0]['evidence_id']]['content'],first[1]['content'])
+        again,extra = duplicate_source_view(view,archive)
+        self.assertEqual(again,view); self.assertEqual(extra,[])
+        changed = copy.deepcopy(history)
+        obs = json.loads(changed[3]['content']); obs['model_observation']['next_cursor']='different'
+        changed[3]['content']=json.dumps(obs)
+        untouched,index = duplicate_source_view(changed,archive)
+        self.assertEqual(untouched,changed); self.assertEqual(index,[])

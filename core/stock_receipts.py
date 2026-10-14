@@ -26,15 +26,15 @@ class Receipt:
     observation: dict
 
 
-def paired_receipts(messages, tools=None, *, allow_legacy_reference=True):
+def paired_receipts(messages, tools=None, *, allow_legacy_reference=True, _calls=None, _offset=0):
     """Yield same-call, same-tool receipts; conflicting call IDs are unusable.
 
     This validates protocol provenance only. Consumers still validate sources,
     financial periods, versions and calculation fields independently.
     """
     allowed = set(KINDS) if tools is None else set(tools)
-    calls = {}
-    for position, message in enumerate(messages):
+    calls = {} if _calls is None else _calls
+    for position, message in enumerate(messages, _offset):
         if message.get('role') == 'assistant':
             for call in message.get('tool_calls') or []:
                 if not isinstance(call, dict):
