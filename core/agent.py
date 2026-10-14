@@ -624,8 +624,14 @@ class Agent:
                 if quote_guard and not calls:
                     from .stock_source_quotes import (original_texts, original_records, complete_sources,
                         unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs,
-                        repair_quote_format)
+                        repair_quote_format, _review_payload)
                     reply = accumulated.get('content') or ''
+                    declared_review = _review_payload(reply)
+                    if declared_review is not None:
+                        self.audit.record('source_review_role_applied', {'session_id': session_id,
+                            'version': 'declared-review-role-v1',
+                            'decision_count': len(declared_review['decisions']),
+                            'semantic_certification': False})
                     source_quote_originals = list(dict.fromkeys(source_quote_originals + original_texts(messages)))
                     source_read_records=merge_read_records(source_read_records,original_records(messages))
                     from .stock_calculation_review import repair_scale_divisions,repair_scale_units

@@ -8,6 +8,45 @@ from __future__ import annotations
 import json
 import re
 
+
+def _review_payload(reply):
+    """Recognise declared review data, not a research intent or a truth verdict."""
+    try:
+        payload = json.loads(reply)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict) or set(payload) != {'decisions'} or not isinstance(payload['decisions'], list):
+        return None
+    for row in payload['decisions']:
+        if (not isinstance(row, dict) or set(row) != {'claim_id', 'status', 'evidence_ids',
+                'missing_premises', 'reason', 'counterexample'}
+                or not all(isinstance(row[k], str) for k in ('claim_id', 'status', 'reason'))
+                or not all(isinstance(row[k], list) and all(isinstance(v, str) for v in row[k])
+                           for k in ('evidence_ids', 'missing_premises'))):
+            return None
+        alternative = row['counterexample']
+        if (not isinstance(alternative, dict) or set(alternative) != {'text', 'consistent_with_evidence', 'contradicts_claim'}
+                or not isinstance(alternative['text'], str)
+                or type(alternative['consistent_with_evidence']) is not bool
+                or type(alternative['contradicts_claim']) is not bool):
+            return None
+    return payload
+
+
+def _review_units(payload):
+    for index, row in enumerate(payload['decisions']):
+        yield ['decisions', index, 'reason'], row['reason'], 'reason'
+        yield ['decisions', index, 'counterexample', 'text'], row['counterexample']['text'], 'hypothesis'
+        for offset, text in enumerate(row['missing_premises']):
+            yield ['decisions', index, 'missing_premises', offset], text, 'premise'
+
+
+def _set_review_text(payload, path, text):
+    parent = payload
+    for key in path[:-1]:
+        parent = parent[key]
+    parent[path[-1]] = text
+
 _LABEL = re.compile(r'原文|原句|原话|(?:逐字|准确)(?:引文|引用)|条款(?:位置|原文|定位|为)|关键条款')
 _QUOTES = re.compile(r'“([^”\n]+)”|"([^"\n]+)"')
 _PARAPHRASE = re.compile(r'转述|概括|释义|意译|不是原文|非逐字')
@@ -241,6 +280,28 @@ def repair_quote_format(reply, originals):
     exact source spelling and let the ordinary literal checker reject all
     remaining differences. Multiple distinct source spellings are ambiguous.
     """
+    payload = _review_payload(reply)
+    if payload is not None:
+        edits = []
+        for issue in reversed(unverified_quotes(reply, originals)):
+            path = issue['json_path']
+            unit = next(text for p, text, _ in _review_units(payload) if p == path)
+            quote = issue['quote']; target = ''.join(quote.split())
+            candidates = set()
+            for source in originals:
+                positions = [i for i, char in enumerate(source) if not char.isspace()]
+                normalized = ''.join(source[i] for i in positions)
+                start = normalized.find(target) if target else -1
+                while start >= 0:
+                    candidates.add(source[positions[start]:positions[start + len(target) - 1] + 1])
+                    start = normalized.find(target, start + 1)
+            if len(candidates) != 1:
+                continue
+            exact = candidates.pop()
+            if exact != quote:
+                _set_review_text(payload, path, unit[:issue['quote_start']] + exact + unit[issue['quote_end']:])
+                edits.append({**issue, 'replacement': exact, 'reason': 'WHITESPACE_ONLY'})
+        return (json.dumps(payload, ensure_ascii=False, indent=2) if edits else reply), edits
     edits = []
     for issue in unverified_quotes(reply, originals):
         quote = issue['quote']
@@ -265,7 +326,12 @@ def repair_quote_format(reply, originals):
         paragraphs = re.split(r'\n\s*\n', reply)
         lines = paragraphs[issue['paragraph']].splitlines()
         line = lines[issue['line']]
-        changed = line.replace(quote, exact, 1)
+        if 'cell' in issue:
+            parts = _table_parts(line)
+            start, end, cell = parts[issue['cell']]
+            changed = line[:start] + cell.replace(quote, exact, 1) + line[end:]
+        else:
+            changed = line.replace(quote, exact, 1)
         if omitted:
             changed += '（引文节选，末尾省略）'
         if changed == line:
@@ -278,15 +344,105 @@ def repair_quote_format(reply, originals):
     return reply, edits
 
 
+_CLAIM_COLUMNS = {'待检陈述', '原答陈述', '被检查的陈述'}
+_PREMISE_COLUMNS = {'缺少的必要前提', '必要前提', '尚缺前提', '所需条件'}
+_LITERAL_COLUMNS = re.compile(r'^(?:原文(?:依据|摘录|内容|条款|证据|/程序支持)?|原句|原话|'
+                              r'(?:逐字|准确)(?:引文|引用)|依据引句)$')
+_INLINE_LITERAL = re.compile(r'(?:原文|原句|原话|准确引文|逐字引文|关键条款)'
+                             r'(?:(?:中|表述|写明|写道|载明|为|说)?\s*|'
+                             r'[^“”"：:，；。\n]*[：:]\s*)$')
+
+
+def _introduced_quotes(text):
+    quotes = list(_QUOTES.finditer(text))
+    postposed = set()
+    following = None
+    for quote in reversed(quotes):
+        gap = text[quote.end():following.start()].strip() if following is not None else ''
+        if (re.match(r'^\s*(?:的)?(?:原文|原句|原话)', text[quote.end():]) or
+                (following is not None and following.start() in postposed and
+                 (not gap or re.fullmatch(r'(?:、|,|，|和|与|及|以及)+', gap)))):
+            postposed.add(quote.start())
+        following = quote
+    previous = None
+    introduced = False
+    for quote in quotes:
+        gap = text[previous.end():quote.start()].strip() if previous is not None else ''
+        introduced = bool(_INLINE_LITERAL.search(text[:quote.start()]) or
+                          (introduced and re.fullmatch(r'(?:、|,|，|和|与|及|以及)+', gap)))
+        if introduced or quote.start() in postposed:
+            yield quote
+        previous = quote
+
+
+def _table_parts(line):
+    edges = [0] + [match.start() + 1 for match in re.finditer(r'(?<!\\)\|', line)] + [len(line) + 1]
+    return [(start, end - 1, line[start:end - 1]) for start, end in zip(edges, edges[1:])
+            if line[start:end - 1].strip()]
+
+
+def _table_roles(lines):
+    """A Markdown header declares output cell roles, never user intent."""
+    roles = {}; headers = None; previous = None
+    for index, line in enumerate(lines):
+        if not line.lstrip().startswith('|'):
+            headers = previous = None
+            continue
+        cells = [part[2] for part in _table_parts(line)]
+        if cells and all(re.fullmatch(r'\s*:?-{3,}:?\s*', cell) for cell in cells):
+            if previous and len(previous) == len(cells):
+                headers = [re.sub(r'[*_`]', '', cell).strip() for cell in previous]
+            continue
+        if headers and len(headers) == len(cells):
+            roles[index] = headers
+        previous = cells
+    return roles
+
+
 def unverified_quotes(reply, originals):
     """Return affected paragraphs; exact characters/spaces are intentional."""
+    payload = _review_payload(reply)
+    if payload is not None:
+        issues = []
+        for path, text, _ in _review_units(payload):
+            # JSON keys, checked claim IDs and compared terms are not literal
+            # source quotations. Explicit source introductions still are.
+            for quote in _introduced_quotes(text):
+                literal = quote[1] if quote[1] is not None else quote[2]
+                if not any(literal in original for original in originals):
+                    group = 1 if quote[1] is not None else 2
+                    issues.append({'paragraph': 0, 'line': 0, 'json_path': path, 'quote': literal,
+                                   'quote_start': quote.start(group), 'quote_end': quote.end(group)})
+        return issues
     issues = []
     previous_intro = False
     section_depth = None
     for index, paragraph in enumerate(re.split(r'\n\s*\n', reply)):
         labelled = previous_intro
         previous_intro = False
-        for line_index, line in enumerate(paragraph.splitlines()):
+        lines = paragraph.splitlines()
+        roles = _table_roles(lines)
+        for line_index, line in enumerate(lines):
+            if line_index in roles:
+                headers = roles[line_index]
+                parts = _table_parts(line)
+                row_label = bool(parts and _LABEL.search(parts[0][2])
+                                 and not _QUOTES.search(parts[0][2])
+                                 and not _PARAPHRASE.search(parts[0][2]))
+                for cell_index, (_, _, cell) in enumerate(parts):
+                    header = headers[cell_index]
+                    if header in _CLAIM_COLUMNS or _PARAPHRASE.search(cell) or _SEARCH_LABEL.search(cell):
+                        continue
+                    literal = bool(_LITERAL_COLUMNS.fullmatch(header) or row_label)
+                    introduced = {quote.start() for quote in _introduced_quotes(cell)}
+                    for quote in _QUOTES.finditer(cell):
+                        text = quote[1] if quote[1] is not None else quote[2]
+                        if (literal or quote.start() in introduced) and not any(
+                                text in original for original in originals):
+                            issues.append({'paragraph': index, 'line': line_index,
+                                           'cell': cell_index, 'quote': text})
+                labelled = False
+                continue
             heading = re.match(r'^\s*(#{1,6})\s+', line)
             match = _LABEL.search(line)
             if heading:
@@ -322,7 +478,7 @@ def unverified_quotes(reply, originals):
                 if not any(text in original for original in originals):
                     issues.append({'paragraph': index, 'line': line_index, 'quote': text})
         last_line = paragraph.splitlines()[-1] if paragraph.splitlines() else ''
-        previous_intro = bool(_LABEL.search(last_line) and not _PARAPHRASE.search(last_line)
+        previous_intro = bool(not last_line.lstrip().startswith('|') and _LABEL.search(last_line) and not _PARAPHRASE.search(last_line)
                               and not _QUOTES.search(last_line))
     return issues
 
@@ -333,10 +489,27 @@ def unverified_absence_claims(reply, sources):
     This checks the delivery's evidence coverage, not the truth of every claim.
     It never selects a research direction from the user's message.
     """
+    payload = _review_payload(reply)
+    if payload is not None:
+        issues = []
+        for path, text, role in _review_units(payload):
+            # A missing premise list describes the argument's requirements;
+            # explicit assertions about a document still need attribution.
+            for clause in re.split(r'[。；，]', text):
+                if (not _ABSENCE.search(clause) or _ABSENCE_QUALIFIER.search(clause)):
+                    continue
+                if not any((source.get('title') and source['title'] in clause) or
+                           (source.get('url') and source['url'] in clause) for source in sources):
+                    issues.append({'paragraph': 0, 'line': 0, 'json_path': path, 'quote': text,
+                                   'reason': 'SOURCE_ABSENCE_WITHOUT_COMPLETE_ATTRIBUTED_READ'})
+                    break
+        return issues
     issues = []
     fence = None
     for index, paragraph in enumerate(re.split(r'\n\s*\n', reply)):
-        for line_index, line in enumerate(paragraph.splitlines()):
+        lines = paragraph.splitlines()
+        roles = _table_roles(lines)
+        for line_index, line in enumerate(lines):
             marker = re.match(r'^\s*(`{3,}|~{3,})', line)
             if fence is not None:
                 if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence):
@@ -353,11 +526,15 @@ def unverified_absence_claims(reply, sources):
             bad = False
             for sentence in sentences:
                 scoped = False
-                clauses = re.split(r'(?<!\\)\|', sentence) if table else sentence.split('，')
-                for clause in clauses:
+                clauses = [part[2] for part in _table_parts(sentence)] if table else sentence.split('，')
+                for cell_index, clause in enumerate(clauses):
+                    header = roles.get(line_index, [])[cell_index] if line_index in roles else ''
+                    if header in _CLAIM_COLUMNS:
+                        continue
                     if not table and _READ_SCOPE.fullmatch(clause):
                         scoped = True
-                    if scoped or not (_ABSENCE.search(clause) or _brief_absence(clause)) or _ABSENCE_QUALIFIER.search(clause):
+                    brief = header not in _PREMISE_COLUMNS and _brief_absence(clause)
+                    if scoped or not (_ABSENCE.search(clause) or brief) or _ABSENCE_QUALIFIER.search(clause):
                         continue
                     attribution = line if table else clause
                     if not any((source.get('title') and source['title'] in attribution) or
@@ -385,6 +562,12 @@ def quote_feedback(issues):
 
 
 def isolate_quote_paragraphs(reply, issues):
+    payload = _review_payload(reply)
+    if payload is not None and issues:
+        # Keep declarations inspectable without certifying their conclusions.
+        # The strict stock-side declaration parser rejects this marker.
+        payload['source_check'] = 'UNVERIFIED'
+        return json.dumps(payload, ensure_ascii=False, indent=2)
     blocked = {item['paragraph'] for item in issues}
     paragraphs = re.split(r'\n\s*\n', reply)
     kept = []
