@@ -284,6 +284,12 @@ class StockBridge:
                 return {'error': error}
             if params.get('reply_focus') == 'source_scope' and not state.get('allow_report_body'):
                 return {'error': '来源范围核对须沿现有已授权云端读取开关进行；此步骤未执行。'}
+        if tool == 'stock_report_read':
+            from .stock_arithmetic_purpose import request_error
+            error=request_error(params,state['query'])
+            if error:return {'error':error}
+            if params.get('reply_focus')=='calculation' and not state.get('allow_report_body'):
+                return {'error':'纯计算读取须沿现有已授权云端读取开关进行；此步骤未执行。'}
         handoff = (tool == 'stock_theme_research_submit' and bool(params.get('research_question')) or
                    tool == 'stock_research_submit' and params.get('research_mode', 'reuse') in ('reuse', 'continue'))
         if state.get('boundary') and not (state['boundary'] == 'TIME_LIMIT' and handoff):
@@ -409,6 +415,12 @@ class StockBridge:
                                 except ValueError:
                                     calc.pop('annual_source',None)
                                     observation['page_reading'] += '年度字段定位回执未通过核验，保留有效程序比例，来源定位仍待核。'
+                                if 'service_mean' in calc:
+                                    from .stock_arithmetic_purpose import validated_service_mean
+                                    try:validated_service_mean(calc,body_text)
+                                    except (ValueError,TypeError,KeyError,ArithmeticError):
+                                        calc.pop('service_mean',None)
+                                        observation['page_reading'] += '可选期限平均值未通过校验，原有效规模比例保留。'
                             observation['program_calculations']=calculations
                             observation['page_reading'] += (
                                 'program_calculations是同一正文、同一展示版本的程序规模参照，'

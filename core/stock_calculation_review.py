@@ -89,6 +89,12 @@ def calculation_index(messages):
                     validated_annual_source(row)
                 except ValueError:
                     row.pop('annual_source',None)
+                if 'service_mean' in row:
+                    from .stock_arithmetic_purpose import validated_service_mean
+                    try:
+                        validated_service_mean(row, ''.join(page['body'] for page in pages))
+                    except (ValueError, TypeError, KeyError, ArithmeticError):
+                        row.pop('service_mean', None)
                 safe.append(row)
             latest[ref] = safe
         except (TypeError, ValueError, AttributeError):

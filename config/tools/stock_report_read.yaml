@@ -30,9 +30,16 @@ description: >
   保持“后续补查未完成”的含义，程序归档成功不等于研究完成；不要将旧过程页的初稿缺口覆盖后续已取得的依据。
   执行文件发布、二手数字报道和公司身份核验不能直接证明需求或收益已兑现。初稿缺口与后续补查按阶段区分，模型阶段输出不当作来源原文。
   仅在页与事件的对应关系已核对时才能断言页内事件；附件仍作为本地正文展示。
+  纯公告规模数值与算术口径核对可选择 reply_focus=calculation：有完整同版程序金额、年度营收及公告期限时直接显示经过核验的计算。
+  平均数不要求均匀分配，也不证明各年实际收入；这项用途只解释计算。经营影响、趋势、比较或混合问题继续 analysis，保留模型分析和补查。
 parameters:
   type: object
   properties:
+    reply_focus:
+      type: string
+      enum: [analysis, calculation]
+      default: analysis
+      description: "由模型按语义选择：纯已有规模算术核对用calculation，研究分析及混合问题用analysis；仅聊天展示使用，不发股票Broker。"
     reference:
       type: string
       description: "本会话股票任务查找工具返回的 64 位任务引用"

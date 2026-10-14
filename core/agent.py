@@ -25,6 +25,7 @@ from .prompt_builder import PromptBuilder
 
 STOCK_DELIVERY_GUIDANCE = (
     '先按本轮问题选择回复职责。仅核对一份来源的保存或读取范围时，在现有原文读取工具选择source_scope及对应URL，交付校验后的范围数据；'
+    '只需已有公告规模计算及其算术口径时，在报告读取工具选择calculation，直接交付同版程序数值；'
     '经营、趋势、比较或原文含义问题选择analysis，直接回答用户问题、依据、反证和观察条件。混合问题保留analysis。'
     '界面已有报告卡，用户未明确要求时不展示任务引用、哈希、执行元信息表或重复流程清单。'
     '文件发布、政策表态和企业身份不是需求或收益已兑现的证明；二手数字注明报道来源与期间，'
@@ -744,6 +745,7 @@ class Agent:
                 stock_boundary = False
                 fresh_observation = False
                 verified_scope_reply = None
+                verified_calculation_reply = None
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
                                                        budgets=budgets, counts=counts,
                                                        stock_deadline=None if handoff_round else stock_deadline,
@@ -754,6 +756,11 @@ class Agent:
                             from .stock_source_coverage import scope_reply
                             verified_scope_reply = scope_reply(model_projection(event.data.get('result')),
                                 event.data.get('params') or {}, current_user_question, source_read_records)
+                        if (len(calls)==1 and event.kind=='tool_end' and event.data.get('status')=='ok'
+                                and event.data.get('name')=='stock_report_read'):
+                            from .stock_arithmetic_purpose import calculation_reply
+                            verified_calculation_reply=calculation_reply(model_projection(event.data.get('result')),
+                                event.data.get('params') or {},current_user_question)
                         if source_parameter_step and event.kind == 'message' and event.data.get('message', {}).get('role') == 'tool':
                             source_repair_protocol.append(event.data['message'])
                         if source_parameter_step and event.kind == 'tool_end':
@@ -800,6 +807,15 @@ class Agent:
                     yield AgentEvent('token', text=verified_scope_reply)
                     yield AgentEvent('message', data={'message': message})
                     yield AgentEvent('done', text=verified_scope_reply)
+                    return
+                if verified_calculation_reply:
+                    message={'role':'assistant','content':verified_calculation_reply}
+                    messages.append(message)
+                    self.audit.record('program_calculation_reply',{'session_id':session_id,
+                        'version':'program-arithmetic-reply-v1','provider_call_added':False})
+                    yield AgentEvent('token',text=verified_calculation_reply)
+                    yield AgentEvent('message',data={'message':message})
+                    yield AgentEvent('done',text=verified_calculation_reply)
                     return
                 research_continuing = quality_research and bool(calls) and all(
                     call['function']['name'] in research_tools for call in calls)
