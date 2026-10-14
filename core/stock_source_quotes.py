@@ -151,22 +151,32 @@ def source_task_index(messages):
                     args = fn.get('arguments', {})
                     args = json.loads(args) if isinstance(args, str) else args
                     token = args.get('reference', '')
-                    if isinstance(token, str) and re.fullmatch('[0-9a-f]{64}', token):
-                        calls[call.get('id')] = token
+                    if (isinstance(token, str) and re.fullmatch('[0-9a-f]{64}', token)
+                            and isinstance(call.get('id'), str) and call['id']):
+                        calls[call['id']] = (token, fn['name'])
                 except (TypeError, ValueError, AttributeError):
                     continue
         if message.get('role') != 'tool' or message.get('tool_name') not in ('stock_report_read', 'stock_public_evidence_find', 'stock_public_evidence_read'):
             continue
         try:
             value = json.loads(message.get('content') or '{}')
-            if not isinstance(value, dict) or value.get('error'):
+            if (not isinstance(value, dict) or value.get('error')
+                    or value.get('status') in ('FAILED', 'RULE_BLOCKED', 'ERROR', 'failed')):
                 continue
             value = value.get('model_observation', value)
             if not isinstance(value, dict) or value.get('kind') not in ('market_brief_page', 'local_report_page', 'public_evidence_find', 'public_evidence_read'):
                 continue
-            token = calls.get(message.get('tool_call_id'))
-            if not token:
+            pair = calls.get(message.get('tool_call_id'))
+            if not pair or pair[1] != message.get('tool_name'):
                 continue
+            token = pair[0]
+            # A report may enable implicit singleton material binding. Require
+            # its own paired successful receipt, including legacy no-ref rows.
+            if value['kind'] in ('market_brief_page', 'local_report_page'):
+                if (message.get('tool_name') != 'stock_report_read' or value.get('error')
+                        or value.get('status') in ('FAILED', 'RULE_BLOCKED', 'ERROR', 'failed')
+                        or value.get('source_reference', token) != token):
+                    continue
             row = rows.pop(token, {'source_reference': token, 'sources': {}})
             if value['kind'] in ('market_brief_page', 'local_report_page'):
                 row['report_read'] = True
@@ -209,9 +219,9 @@ def prior_explanation_view(messages, archive):
     raw_tasks = {row.get('source_reference') for row in original_records(messages)
                  if any(span.get('kind', 'ORIGINAL_TEXT') in ('ORIGINAL_TEXT', 'PEER_ORIGINAL_TEXT')
                         for span in row.get('excerpts', []) if isinstance(span, dict))}
-    current = messages[last_user:]
-    requested = set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', current[0].get('content') or ''))
-    selected = (requested | {row['source_reference'] for row in source_task_index(current)}) & known & raw_tasks
+    from .stock_task_binding import history_binding
+    binding = history_binding(messages, last_user)
+    selected = binding['references'] & known & raw_tasks if binding['selection'] != 'all_known' else set()
     if not selected:
         return messages, []
     remove, index = {}, []

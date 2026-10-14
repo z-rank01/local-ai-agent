@@ -11,7 +11,7 @@ READ_TOOLS = {'stock_report_read', 'stock_public_evidence_find',
 
 
 def selection_view(history, question, lookup, definitions):
-    if lookup['selection'] != 'explicit_known' or not lookup['rows']:
+    if lookup['selection'] not in ('explicit_known', 'single_report_receipt') or not lookup['rows']:
         return None
     tools = [d for d in definitions if d['function']['name'] in READ_TOOLS]
     if not any(d['function']['name'] == 'stock_report_read' for d in tools):

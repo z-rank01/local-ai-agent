@@ -309,6 +309,9 @@ class Agent:
                     from .stock_source_quotes import prior_explanation_view, PRIOR_EXPLANATION_VIEW_VERSION
                     from .stock_report_context import report_material_view
                     from .stock_task_source_view import current_task_source_view
+                    from .stock_task_binding import history_binding
+                    last_user = max((i for i, row in enumerate(history) if row.get('role') == 'user'), default=-1)
+                    binding = history_binding(history, last_user) if last_user >= 0 else None
                     view, prior_index = prior_explanation_view(history, self.context_mgr.archive)
                     prior_count = len(prior_index)
                     view, material_index = report_material_view(view, self.context_mgr.archive)
@@ -322,6 +325,9 @@ class Agent:
                         self.audit.record('task_explanation_view', {'session_id': session_id,
                             'version': 'reader-material-index-v2' if material_index else explanation_view_version,
                             'prior_explanation_index_version': prior_explanation_index_version,
+                            'task_material_binding_version': binding['version'] if binding else None,
+                            'task_material_binding_selection': binding['selection'] if binding else None,
+                            'task_material_binding_count': len(binding['references']) if binding else 0,
                             'indexed_messages': len(prior_index), 'indexed_report_materials': len(material_index),
                             'indexed_other_task_source_receipts':len(other_source_index),
                             'before_chars': sum(len(row.get('content') or '') for row in history),

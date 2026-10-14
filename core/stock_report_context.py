@@ -9,9 +9,6 @@ from __future__ import annotations
 import json
 import re
 
-from .stock_source_quotes import source_task_index
-
-
 def _body_pages(value):
     pages = value.get('answer_pages')
     if not isinstance(pages, list) or not pages:
@@ -33,9 +30,9 @@ def report_material_view(messages, archive):
     last_user = max((i for i, row in enumerate(messages) if row.get('role') == 'user'), default=-1)
     if archive is None or last_user < 0:
         return messages, []
-    known = {row['source_reference'] for row in source_task_index(messages)}
-    requested = set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', messages[last_user].get('content') or ''))
-    selected = (requested | {row['source_reference'] for row in source_task_index(messages[last_user:])}) & known
+    from .stock_task_binding import history_binding
+    binding = history_binding(messages, last_user)
+    selected = binding['references'] if binding['selection'] != 'all_known' else set()
     if not selected:
         return messages, []
     calls, reports, latest = {}, [], {}

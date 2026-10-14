@@ -20,8 +20,15 @@ def lookup_index(index, question):
     This narrows an index, not Broker permission or model tool arguments.
     The full receipts and other-task evidence pointers remain recoverable.
     """
+    from .stock_task_binding import reference_binding
+    binding = reference_binding(index, question)
     requested=set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])',question or ''))
-    if not requested:return {'rows':index,'selection':'all_known','note':'','version':None}
+    if not requested:
+        note = ('\n此会话只有一个成功配套报告的任务定位，作为本问题材料指针；'
+                '不代表已经判断问题用途，不改变原问题、权限或工具参数。'
+                '若当前问题涉及其他材料，需保留定位缺口，不用此报告替代。'
+                if binding['selection'] == 'single_report_receipt' else '')
+        return {'rows':index,'selection':binding['selection'],'note':note,'version':binding['version']}
     selected=[row for row in index if row.get('source_reference') in requested]
     known={row.get('source_reference') for row in selected}
     note=('\n本步骤定位索引仅列当前问题明确指定的任务；其他任务完整证据仍可沿已有evidence_id回读。'
