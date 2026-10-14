@@ -140,55 +140,20 @@ def source_task_index(messages):
     Older receipts lack source_reference; link their successful response to its
     own tool call. This changes only the current model view, not stored history.
     """
-    calls, rows = {}, {}
-    for order, message in enumerate(messages):
-        if message.get('role') == 'assistant':
-            for call in message.get('tool_calls', []) or []:
-                fn = call.get('function', {})
-                if fn.get('name') not in ('stock_report_read', 'stock_public_evidence_find', 'stock_public_evidence_read'):
-                    continue
-                try:
-                    args = fn.get('arguments', {})
-                    args = json.loads(args) if isinstance(args, str) else args
-                    token = args.get('reference', '')
-                    if (isinstance(token, str) and re.fullmatch('[0-9a-f]{64}', token)
-                            and isinstance(call.get('id'), str) and call['id']):
-                        calls[call['id']] = (token, fn['name'])
-                except (TypeError, ValueError, AttributeError):
-                    continue
-        if message.get('role') != 'tool' or message.get('tool_name') not in ('stock_report_read', 'stock_public_evidence_find', 'stock_public_evidence_read'):
-            continue
-        try:
-            value = json.loads(message.get('content') or '{}')
-            if (not isinstance(value, dict) or value.get('error')
-                    or value.get('status') in ('FAILED', 'RULE_BLOCKED', 'ERROR', 'failed')):
-                continue
-            value = value.get('model_observation', value)
-            if not isinstance(value, dict) or value.get('kind') not in ('market_brief_page', 'local_report_page', 'public_evidence_find', 'public_evidence_read'):
-                continue
-            pair = calls.get(message.get('tool_call_id'))
-            if not pair or pair[1] != message.get('tool_name'):
-                continue
-            token = pair[0]
-            # A report may enable implicit singleton material binding. Require
-            # its own paired successful receipt, including legacy no-ref rows.
-            if value['kind'] in ('market_brief_page', 'local_report_page'):
-                if (message.get('tool_name') != 'stock_report_read' or value.get('error')
-                        or value.get('status') in ('FAILED', 'RULE_BLOCKED', 'ERROR', 'failed')
-                        or value.get('source_reference', token) != token):
-                    continue
-            row = rows.pop(token, {'source_reference': token, 'sources': {}})
-            if value['kind'] in ('market_brief_page', 'local_report_page'):
-                row['report_read'] = True
-                row['_report_order'] = order
-            items = value.get('items', []) if value['kind'] == 'public_evidence_find' else [value] if value['kind'] == 'public_evidence_read' else []
-            for item in items:
-                event_id = item.get('event_id') if isinstance(item, dict) else None
-                if isinstance(event_id, str) and re.fullmatch('[0-9a-f]{16}', event_id):
-                    row['sources'][event_id] = {key: item[key] for key in ('event_id', 'title', 'read_cursor', 'next_cursor', 'url') if key in item}
-            rows[token] = row
-        except (TypeError, ValueError):
-            continue
+    from .stock_receipts import paired_receipts
+    rows = {}
+    for receipt in paired_receipts(messages):
+        value, token = receipt.observation, receipt.reference
+        row = rows.pop(token, {'source_reference': token, 'sources': {}})
+        if receipt.tool_name == 'stock_report_read':
+            row['report_read'] = True
+            row['_report_order'] = receipt.position
+        items = value.get('items', []) if value['kind'] == 'public_evidence_find' else [value] if value['kind'] == 'public_evidence_read' else []
+        for item in items:
+            event_id = item.get('event_id') if isinstance(item, dict) else None
+            if isinstance(event_id, str) and re.fullmatch('[0-9a-f]{16}', event_id):
+                row['sources'][event_id] = {key: item[key] for key in ('event_id', 'title', 'read_cursor', 'next_cursor', 'url') if key in item}
+        rows[token] = row
     ordered = sorted(rows.values(), key=lambda row: row.get('_report_order', -1), reverse=True)
     return [{**{key: value for key, value in row.items() if key != '_report_order'},
              'sources': list(row['sources'].values())} for row in ordered]

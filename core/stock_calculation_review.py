@@ -47,33 +47,13 @@ def validate_calculations(value):
 
 def calculation_index(messages):
     """Latest successful paired report only, never user/model-stage content."""
-    calls, latest = {}, {}
-    for row in messages:
-        if row.get('role') == 'assistant':
-            for call in row.get('tool_calls') or []:
-                fn = call.get('function', {})
-                if fn.get('name') != 'stock_report_read':
-                    continue
-                try:
-                    args = fn.get('arguments', {})
-                    args = json.loads(args) if isinstance(args, str) else args
-                    ref = args.get('reference', '')
-                    if isinstance(ref, str) and re.fullmatch('[0-9a-f]{64}', ref):
-                        calls[call.get('id')] = ref
-                except (TypeError, ValueError, AttributeError):
-                    continue
-        if row.get('role') != 'tool' or row.get('tool_name') != 'stock_report_read':
-            continue
-        ref = calls.get(row.get('tool_call_id'))
-        if not ref:
+    from .stock_receipts import paired_receipts
+    latest = {}
+    for receipt in paired_receipts(messages, {'stock_report_read'}, allow_legacy_reference=False):
+        value, ref = receipt.observation, receipt.reference
+        if value['kind'] != 'local_report_page':
             continue
         try:
-            value = json.loads(row.get('content') or '{}')
-            if value.get('error') or value.get('status') in ('RULE_BLOCKED', 'FAILED', 'ERROR'):
-                continue
-            value = value.get('model_observation', value)
-            if value.get('kind') != 'local_report_page' or value.get('source_reference') != ref:
-                continue
             # New versions without a valid computation do not inherit one.
             latest[ref] = []
             rows = validate_calculations(value.get('program_calculations', []))
@@ -90,7 +70,7 @@ def calculation_index(messages):
                 except ValueError:
                     row.pop('annual_source',None)
                 if 'service_mean' in row:
-                    from .stock_arithmetic_purpose import validated_service_mean
+                    from .stock_calculation_contract import validated_service_mean
                     try:
                         validated_service_mean(row, ''.join(page['body'] for page in pages))
                     except (ValueError, TypeError, KeyError, ArithmeticError):

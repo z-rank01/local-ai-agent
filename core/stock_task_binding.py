@@ -8,9 +8,13 @@ import re
 VERSION = 'single-report-receipt-binding-v1'
 
 
+def explicit_references(question):
+    return set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', question or ''))
+
+
 def reference_binding(index, question, current=()):
     known = {row['source_reference'] for row in index}
-    requested = set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', question or ''))
+    requested = explicit_references(question)
     if requested:
         return {'references': (requested | set(current)) & known,
                 'selection': 'explicit_partial' if requested - known else 'explicit_known',

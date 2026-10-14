@@ -137,28 +137,19 @@ def validate_context(context, pages):
 
 
 def context_index(messages):
-    calls,latest={},{}
-    for message in messages:
-        for call in message.get('tool_calls') or []:
-            fn=call.get('function') or {}
-            if fn.get('name')=='stock_report_read':
-                try:
-                    args=fn.get('arguments',{})
-                    args=json.loads(args) if isinstance(args,str) else args
-                    calls[call['id']]=args['reference']
-                except (ValueError,KeyError,TypeError):pass
-        if message.get('role')!='tool' or message.get('tool_name')!='stock_report_read':continue
-        ref=calls.get(message.get('tool_call_id'))
-        if not ref:continue
+    from .stock_receipts import paired_receipts
+    latest = {}
+    for receipt in paired_receipts(messages, {'stock_report_read'}, allow_legacy_reference=False):
+        obs, ref = receipt.observation, receipt.reference
+        if obs['kind'] != 'local_report_page':
+            continue
+        latest[ref] = None
         try:
-            envelope=json.loads(message.get('content') or '{}')
-            if envelope.get('error') or envelope.get('status') in ('FAILED','ERROR','RULE_BLOCKED'):continue
-            obs=envelope.get('model_observation',envelope)
-            if obs.get('kind')!='local_report_page' or obs.get('source_reference')!=ref:continue
-            latest[ref]=None
             if obs.get('comparison_context'):
-                latest[ref]=validate_context(obs['comparison_context'],obs.get('answer_pages'))
-        except (ValueError,TypeError,AttributeError,KeyError):continue
+                latest[ref] = validate_context(obs['comparison_context'], obs.get('answer_pages'))
+        except (ValueError, TypeError, AttributeError, KeyError):
+            continue
+
     return latest
 
 

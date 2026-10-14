@@ -306,21 +306,17 @@ class Agent:
                         and getattr(self.context_mgr, 'reader', None) is not None):
                     return history
                 try:
-                    from .stock_source_quotes import prior_explanation_view, PRIOR_EXPLANATION_VIEW_VERSION
-                    from .stock_report_context import report_material_view
-                    from .stock_task_source_view import current_task_source_view
-                    from .stock_task_binding import history_binding
-                    last_user = max((i for i, row in enumerate(history) if row.get('role') == 'user'), default=-1)
-                    binding = history_binding(history, last_user) if last_user >= 0 else None
-                    view, prior_index = prior_explanation_view(history, self.context_mgr.archive)
+                    from .stock_material_view import project_materials
+                    result = project_materials(history, self.context_mgr.archive)
+                    binding = result.binding
+                    view, prior_index = result.messages, result.priors
+                    material_index, other_source_index = result.reports, result.other_sources
                     prior_count = len(prior_index)
-                    view, material_index = report_material_view(view, self.context_mgr.archive)
-                    view, other_source_index = current_task_source_view(view, self.context_mgr.archive)
                     prior_index += material_index
                     prior_index += other_source_index
                     if prior_index:
                         if prior_count:
-                            prior_explanation_index_version = PRIOR_EXPLANATION_VIEW_VERSION
+                            prior_explanation_index_version = result.prior_version
                         self.context_mgr.evidence_ids.update(row['evidence_id'] for row in prior_index)
                         self.audit.record('task_explanation_view', {'session_id': session_id,
                             'version': 'reader-material-index-v2' if material_index else explanation_view_version,
@@ -338,7 +334,10 @@ class Agent:
                         if other_source_index:
                             source_task_view_active = True
                         return view
-                except Exception:
+                except Exception as exc:
+                    self.audit.record('task_material_view_fallback', {
+                        'session_id': session_id, 'reason': 'MATERIAL_PROJECTION_FAILED',
+                        'error_type': type(exc).__name__})
                     # No durable index means no replacement of the original
                     # model view; a partial archive never deletes history.
                     logger.warning('Prior stock explanation view skipped')
@@ -389,10 +388,8 @@ class Agent:
                 'stock_theme_research_submit', 'stock_market_brief', 'stock_track_read', 'stock_track_find'}
             research_continuing, no_progress_rounds, observations = False, 0, set()
             execution_retries = 0
-            quote_repairs = 0
-            quote_repair_active = False
-            source_repair_phase = None
-            source_repair_feedback = ''
+            from .stock_source_review import SourceReview
+            source_review = SourceReview()
             source_repair_protocol = []
             source_index_message = None
             program_source_message = None
@@ -446,7 +443,7 @@ class Agent:
                         "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
                 stock_read_seen = stock_read_seen or any(counts.get(name, 0) for name in stock_read_tools)
                 lookup_context = lookup_index(source_index, user_request)
-                if quote_repair_active:
+                if source_review.attempts:
                     from .stock_source_quotes import READ_TOOLS
                     active = [d for d in active if d['function']['name'] in READ_TOOLS]
                 if stock_read_seen:
@@ -498,7 +495,7 @@ class Agent:
                     messages.append(program_source_message)
                 purpose_step = False
                 purpose_view = None
-                if purpose_pending and not source_repair_phase and not stock_window_closed and not no_progress_closed:
+                if purpose_pending and not source_review.parameter_step and not stock_window_closed and not no_progress_closed:
                     from .stock_reply_purpose import selection_view
                     purpose_view = selection_view(messages, user_request, lookup_context, active)
                     purpose_step = purpose_view is not None
@@ -518,11 +515,11 @@ class Agent:
                 review_visible_prefix = ''
                 self.audit.record('model_tools_offered', {'session_id': session_id,
                     'names': [d['function']['name'] for d in active],
-                    'source_quote_repair': quote_repair_active})
+                    'source_quote_repair': bool(source_review.attempts)})
                 selected_source_tool = None
                 source_parameter_step = False
-                if source_repair_phase:
-                    candidate = 'stock_public_evidence_' + source_repair_phase
+                if source_review.parameter_step:
+                    candidate = 'stock_public_evidence_' + source_review.phase.value
                     if any(d['function']['name'] == candidate for d in active):
                         source_parameter_step = True
                         active = [d for d in active if d['function']['name'] in
@@ -555,7 +552,7 @@ class Agent:
                         '不重发相同未命中查询，不把无命中当作原文不存在。参数仍由你根据语义选择。\n'
                         '当前来源读取回执next_cursor非空时沿原任务与事件续读，取得后文条件；不要重复旧游标或拿其他来源代替。\n'
                         + '当前优先工具：' + candidate + '。\n' + source_index_guidance(lookup_context['rows'])+lookup_context['note']
-                        + '\n'+(program_guidance or '')+'\n' + source_repair_feedback},
+                        + '\n'+(program_guidance or '')+'\n' + source_review.feedback},
                         {'role': 'user', 'content': user_request}] + source_repair_protocol
                     request_options = {}
                     if selected_source_tool:
@@ -670,7 +667,7 @@ class Agent:
                                 'reason': 'SOURCE_CONTINUATION_NO_CALL_AFTER_READ',
                                 'complete_source_count': len(complete_sources(original_records(source_repair_protocol))),
                                 'source_field_count':len(field_reads)})
-                            source_repair_phase = None
+                            source_review.explain()
                             messages.append({'role': 'system', 'content':
                                 '来源定位步骤已取得实际原文或有地址/位置的结构化来源字段，现回到完整授权上下文回答原问题。'
                                 '上一定位步骤的文字只是草稿，不能替代原文。按已读原文给准确短引文和来源；'
@@ -735,15 +732,12 @@ class Agent:
                     if issues:
                         feedback = quote_feedback(issues)
                         self.audit.record('source_quote_rejected', {'session_id': session_id,
-                            'count': len(issues), 'repair_attempt': quote_repairs})
+                            'count': len(issues), 'repair_attempt': source_review.attempts})
                         yield AgentEvent('quality_rejected', data={'message': {'role': 'system', 'content': feedback},
                             'rejected_answer': reply, 'quality_issues': issues})
                         self.pending_source_review = ''
-                        if quote_repairs < 2 and active and not stock_window_closed and not no_progress_closed:
-                            quote_repairs += 1
-                            quote_repair_active = True
-                            source_repair_phase = 'find'
-                            source_repair_feedback = feedback
+                        if source_review.attempts < 2 and active and not stock_window_closed and not no_progress_closed:
+                            source_review.begin(feedback)
                             source_repair_protocol = []
                             messages.append({'role': 'system', 'content': feedback})
                             continue
@@ -826,24 +820,7 @@ class Agent:
                         if source_parameter_step and event.kind == 'message' and event.data.get('message', {}).get('role') == 'tool':
                             source_repair_protocol.append(event.data['message'])
                         if source_parameter_step and event.kind == 'tool_end':
-                            result = event.data.get('result') or {}
-                            result = result.get('model_observation', result) if isinstance(result, dict) else {}
-                            # A search miss keeps the parameter step focused so
-                            # the model can simplify its query or list sources.
-                            # Never rewrite its query or select an event for it.
-                            source_repair_phase = None
-                            if event.data.get('status') == 'ok' and isinstance(result, dict):
-                                if event.data.get('name') == 'stock_public_evidence_find':
-                                    if result.get('items'):
-                                        source_repair_phase = 'read'
-                                    elif result.get('kind') == 'public_evidence_find':
-                                        source_repair_phase = 'find'
-                                        source_repair_feedback = (
-                                            '本次查询未命中。原文是否存在尚不能确定；'
-                                            '下一步选择更短词语，或省略search列出本任务来源目录。'
-                                            '不要重复相同查询，不要生成事实结论。')
-                                elif event.data.get('name') == 'stock_public_evidence_read' and result.get('next_cursor'):
-                                    source_repair_phase = 'read'
+                            source_review.received(event.data)
                         if event.kind == 'stock_boundary':
                             stock_boundary = True
                         else:

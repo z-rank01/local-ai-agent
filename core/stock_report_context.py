@@ -20,7 +20,7 @@ def _body_pages(value):
                and 1 <= p['requested_page'] <= p['page_count'] for p in pages)
 
 
-def report_material_view(messages, archive):
+def report_material_view(messages, archive, *, compact_catalogues=False):
     """Prefer the current reader body; index whole legacy and prior bodies.
 
     Select only a task bound to actual paired successful tool receipts. No
@@ -35,37 +35,13 @@ def report_material_view(messages, archive):
     selected = binding['references'] if binding['selection'] != 'all_known' else set()
     if not selected:
         return messages, []
-    calls, reports, latest = {}, [], {}
-    for position, row in enumerate(messages):
-        if row.get('role') == 'assistant':
-            for call in row.get('tool_calls') or []:
-                fn = call.get('function', {})
-                if fn.get('name') != 'stock_report_read':
-                    continue
-                try:
-                    args = fn.get('arguments', {})
-                    args = json.loads(args) if isinstance(args, str) else args
-                    if isinstance(args, dict) and args.get('reference') in selected:
-                        calls[call.get('id')] = args['reference']
-                except (TypeError, ValueError):
-                    continue
-        if row.get('role') != 'tool' or row.get('tool_name') != 'stock_report_read':
+    from .stock_receipts import paired_receipts
+    reports, latest = [], {}
+    for receipt in paired_receipts(messages, {'stock_report_read'}):
+        position, reference, value = receipt.position, receipt.reference, receipt.observation
+        if reference not in selected or value['kind'] != 'local_report_page':
             continue
-        reference = calls.get(row.get('tool_call_id'))
-        if not reference:
-            continue
-        try:
-            envelope = json.loads(row.get('content') or '{}')
-        except (TypeError, ValueError):
-            continue
-        if (not isinstance(envelope, dict) or envelope.get('error')
-                or envelope.get('status') in ('FAILED', 'RULE_BLOCKED', 'ERROR', 'failed')):
-            continue
-        value = envelope.get('model_observation', envelope)
-        if (not isinstance(value, dict) or value.get('error') or value.get('status') in ('FAILED', 'RULE_BLOCKED', 'ERROR', 'failed')
-                or value.get('kind') != 'local_report_page'
-                or value.get('source_reference', reference) != reference):
-            continue
+        envelope = json.loads(receipt.message['content'])
         reports.append((position, reference, envelope, value))
         if _body_pages(value):
             latest[reference] = position
@@ -73,9 +49,12 @@ def report_material_view(messages, archive):
     for position, reference, envelope, value in reports:
         if reference not in latest:
             continue
-        already_indexed = value.get('material_view_version') in ('reader-material-index-v1','reader-material-index-v2')
+        already_indexed = value.get('material_view_version') in ('reader-material-index-v1','reader-material-index-v2','reader-material-index-v3')
         prior_comparison = position != latest[reference] and isinstance(value.get('comparison_context'),dict)
-        if already_indexed and (position == latest[reference] or not _body_pages(value) and not prior_comparison):
+        has_directory = any(s.get('field_catalogue') is not None for s in
+                            (value.get('comparison_context') or {}).get('subjects', []))
+        needs_directory = compact_catalogues and position == latest[reference] and has_directory
+        if already_indexed and not needs_directory and (position == latest[reference] or not _body_pages(value) and not prior_comparison):
             continue
         if not isinstance(value.get('body'), str) and not _body_pages(value) and not prior_comparison:
             continue
@@ -88,7 +67,24 @@ def report_material_view(messages, archive):
         if position != latest[reference]:
             projected.pop('answer_pages', None)
             projected.pop('comparison_context', None)
-        projected.update(material_view_version='reader-material-index-v2',
+        if needs_directory:
+            from copy import deepcopy
+            from .stock_company_context import validated_catalogue
+            context = deepcopy(projected['comparison_context'])
+            for subject in context.get('subjects', []):
+                try:
+                    directory = validated_catalogue(subject)
+                except (ValueError, TypeError, KeyError):
+                    continue
+                if directory is None:
+                    continue
+                subject.pop('field_catalogue', None)
+                subject['field_catalogue_index'] = {
+                    'version': 'archived-catalogue-index-v1', 'evidence_id': eid,
+                    'field_count': len(directory['fields']), 'unbound_count': directory['unbound_count'],
+                    'reading': '完整字段目录保存在本条成功报告的完整归档中，可用context_evidence_read回读；目录不是原值或已读证明。'}
+            projected['comparison_context'] = context
+        projected.update(material_view_version='reader-material-index-v3' if needs_directory else 'reader-material-index-v2',
                          legacy_material_evidence_id=eid,
                          material_reading=(
                              '旧整篇页面和模型阶段材料已完整归档，可用context_evidence_read回读；'
@@ -96,7 +92,7 @@ def report_material_view(messages, archive):
                              '仍是已保存模型分析，保持其中部分成果与未完成项含义。'
                              '逐字引文、印发日期和资金适用范围须以实际公开来源读取回执为依据；'
                              '网页发布日期不自动等于文件印发日期，规定应收回不证明已实际收回。'
-                             '旧报告的完整比较字段目录也在同一归档中，当前最新目录保持完整；'
+                             '旧报告的完整比较字段目录也在同一归档中，当前最新目录保存在完整归档中；'
                              '若比较历史版本或查原阶段推断，请回读相应证据；不向用户展示内部索引。'))
         if 'model_observation' in envelope:
             projected = {**envelope, 'model_observation': projected}
