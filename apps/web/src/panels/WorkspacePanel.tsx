@@ -1,3 +1,5 @@
+import {ReportCard} from '../app/ReportCard';
+import {isWorkspaceHtml} from '../lib/htmlBrief';
 // 每个文件请求显式携带工作区身份，目录根保持稳定映射。
 import {Fragment, useCallback, useEffect, useRef, useState} from 'react';
 import type {DragEvent as ReactDragEvent, ReactNode} from 'react';
@@ -80,6 +82,7 @@ function iconName(entry: WorkspaceEntry): string {
 
 export type WorkspacePanelProps = {
   workspaceId: string; roots: Workspace['roots']; primaryPath?: string; busy: boolean; onBusyChange?: (busy: boolean) => void;
+  onReadBrief?: (path: string) => void;
   attachedPaths: string[];
   onAttach: (path: string) => void;
   onDetach: (path: string) => void;
@@ -555,8 +558,13 @@ export function WorkspacePanel(props: WorkspacePanelProps): JSX.Element {
             <dd title={dirPath}>{dirPath === rootPath ? rootName : dirLabelFor(dirPath)}</dd>
           </div>
         </dl>
+          {props.onReadBrief && isWorkspaceHtml(preview.path) ? <ReportCard
+            info={{title: preview.name, content: '', meta: ['工作区 HTML · 独立文件']}}
+            onRead={() => props.onReadBrief?.(preview.path)} /> : null}
         <div className="ws-preview-body">
-          {isImage ? (
+          {props.onReadBrief && isWorkspaceHtml(preview.path) ? (
+            <p className="panel-hint">在阅读器查看正文与图表；下载保留原始 HTML。</p>
+          ) : isImage ? (
             <img src={rawUrl} alt={preview.name} />
           ) : preview.is_binary ? (
             <p className="panel-hint">

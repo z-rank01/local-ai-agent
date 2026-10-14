@@ -6,6 +6,7 @@ import {checkedReportPage, type ReportPage, type ReportSection} from '../lib/rep
 import {useLayerFocus} from '../ui/useLayerFocus';
 import {Icon} from '../ui/Icon';
 import {Markdown} from '../ui/Markdown';
+import {HtmlBriefReader} from './HtmlBriefReader';
 import {ReportDocument} from '../ui/ReportDocument';
 
 export type ReaderProps = {report: ReadingReport | null; conversationId?: string; onClose: () => void;
@@ -107,5 +108,6 @@ function ReaderLayer({report, conversationId, onClose, zoomed, onToggleZoom, onP
 }
 export function Reader(props: ReaderProps): JSX.Element | null {
   if (!props.report) return null;
+  if (props.report.htmlBrief) return <HtmlBriefReader brief={props.report.htmlBrief} onClose={props.onClose} />;
   return <ReaderLayer key={props.report.sourceMessageId ?? props.report.title} {...props} report={props.report} />;
 }

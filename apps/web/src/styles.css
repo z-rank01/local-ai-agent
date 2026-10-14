@@ -1525,3 +1525,6 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Inert authored HTML keeps its own publication typography inside the existing reader. */
+.brief-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--surface); }

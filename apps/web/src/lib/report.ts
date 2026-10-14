@@ -3,6 +3,7 @@ import {formatTime} from './format';
 import type {ReportPage, ReportSection} from './reportDocument';
 
 export type ReadingReport = {
+  htmlBrief?: import('./htmlBrief').HtmlBrief;
   title: string;
   content: string;
   sourceMessageId?: string;

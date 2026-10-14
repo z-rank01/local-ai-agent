@@ -1,6 +1,9 @@
+import {BriefReaderContext} from '../lib/briefReader';
+import {prepareHtmlBrief} from '../lib/htmlBrief';
 import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {
   DEFAULT_BASE_URL,
+  fetchWorkspacePreview,
   ensureBrowserSession,
   ApiError,
   fetchWorkspaces,
@@ -1005,6 +1008,20 @@ export default function App(): JSX.Element {
     setReadingReport(report.sourceMessageId ? reportReadingPositionsRef.current.get(report.sourceMessageId) ?? report : report);
   }, []);
 
+  const briefSequence = useRef(0);
+  useEffect(() => { ++briefSequence.current; }, [workspaceId, conversationId]);
+  const openWorkspaceBrief = useCallback(async (path: string) => {
+    const sequence = ++briefSequence.current;
+    try {
+      const file = await fetchWorkspacePreview(path, 1_000_000, workspaceId);
+      if (sequence !== briefSequence.current) return;
+      const brief = prepareHtmlBrief(file, workspaceId);
+      openConversationReport({title: brief.title, content: '', htmlBrief: brief});
+    } catch (cause) {
+      if (sequence === briefSequence.current) notify(cause instanceof Error ? cause.message : '简报读取失败', 'error');
+    }
+  }, [workspaceId, openConversationReport]);
+
   const rememberReportPage = useCallback((report: ReadingReport) => {
     if (report.sourceMessageId) reportReadingPositionsRef.current.set(report.sourceMessageId, report);
   }, []);
@@ -1234,6 +1251,7 @@ export default function App(): JSX.Element {
 
   return (
     <WorkspaceContext.Provider value={workspaceId}>
+    <BriefReaderContext.Provider value={openWorkspaceBrief}>
     <ToolNamesContext.Provider value={Object.fromEntries((status?.tool_catalog ?? []).map(tool => [tool.name, tool.display_name]))}>
       <IconSprite />
       <TopBar
@@ -1336,6 +1354,7 @@ export default function App(): JSX.Element {
           onAttach: attachWorkspacePath,
           onDetach: detachWorkspacePath,
           onError: handlePanelError,
+          onReadBrief: openWorkspaceBrief,
         }}
         skills={{
           conversation: activeConversation,
@@ -1384,6 +1403,7 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
     </ToolNamesContext.Provider>
+    </BriefReaderContext.Provider>
     </WorkspaceContext.Provider>
   );
 }

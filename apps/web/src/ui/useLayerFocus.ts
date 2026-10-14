@@ -1,6 +1,6 @@
 import {useEffect, useRef} from 'react';
 
-const selector = 'button:not([disabled]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex="0"]';
+const selector = 'button:not([disabled]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),iframe,[tabindex="0"]';
 
 export function useLayerFocus(open: boolean, modal: boolean) {
   const ref = useRef<HTMLElement>(null);

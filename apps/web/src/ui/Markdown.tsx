@@ -1,9 +1,11 @@
+import {BriefReaderContext} from '../lib/briefReader';
+import {isWorkspaceHtml} from '../lib/htmlBrief';
 import {useWorkspaceId} from '../lib/workspace';
 import {workspaceRawUrl} from '../api';
 import {copyText} from '../lib/format';
 import {Icon} from './Icon';
 import {splitReportDisclosures} from '../lib/reportDisclosure';
-import React, {useState} from 'react';
+import React, {useState, useContext} from 'react';
 import ReactMarkdown from 'react-markdown';
 import type {Components} from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -94,6 +96,10 @@ function messageHref(href: string | undefined, workspaceId: string): string | un
 
 function Anchor({node, href, children, ...rest}: AnchorProps): JSX.Element {
   const workspaceId = useWorkspaceId();
+  const readBrief = useContext(BriefReaderContext);
+  if (href && readBrief && isWorkspaceHtml(href)) {
+    return <button type="button" className="report-source-link" onClick={() => readBrief(href)}>阅读简报：{children}</button>;
+  }
   return (
     <a {...rest} href={messageHref(href, workspaceId)} target="_blank" rel="noreferrer">
       {children}
