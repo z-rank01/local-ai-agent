@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+from hashlib import sha256
 
 
 def _review_payload(reply):
@@ -191,6 +192,9 @@ def source_index_guidance(index):
             '曾经的模型回答不能证明条款。]\n' + json.dumps(index, ensure_ascii=False))
 
 
+PRIOR_EXPLANATION_VIEW_VERSION = 'prior-explanation-index-v2'
+
+
 def prior_explanation_view(messages, archive):
     """Index prior prose for a receipt-bound task without removing evidence.
 
@@ -228,12 +232,17 @@ def prior_explanation_view(messages, archive):
             if not isinstance(eid, str) or not re.fullmatch('[0-9a-f]{64}', eid):
                 raise ValueError('旧解释证据归档未返回有效标识')
             remove[offset] = row
-            index.append({'evidence_id': eid, 'question': question,
+            # The original user question stays in the view. Copying its full
+            # body per archived assistant duplicated review drafts/controls
+            # and sources as index text; a fingerprint locates it losslessly.
+            index.append({'evidence_id': eid, 'question_sha256': sha256(question.encode('utf-8')).hexdigest(),
+                          'view_version': PRIOR_EXPLANATION_VIEW_VERSION,
                           'kind': 'prior_model_explanation_not_source_fact'})
     if not index:
         return messages, []
     guidance = {'role': 'system', 'content':
         '[同一已保存任务的旧模型解释已完整归档，以下只作回读索引，不是来源事实或本次输出模板。'
+        '原用户问题逐字保留在原用户消息，索引只登记其指纹，不重复问题正文。'
         '当前问题、原始来源与工具回执仍完整提供；不继承旧解释的未经核验数字、日期、公司名单或格式。'
         '若本次问题要复核上次解释/决定，可用context_evidence_read按evidence_id回读全部正文；'
         '索引不改变工具权限，不新增任务，内部编号不展示在用户正文。]\n' + json.dumps(index, ensure_ascii=False)}

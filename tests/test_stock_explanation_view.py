@@ -83,6 +83,24 @@ class PriorExplanationViewTests(unittest.TestCase):
         self.assertIn('末尾旧决定',manager.read_evidence(index[1]['evidence_id'])['content'])
         with self.assertRaises(ValueError):manager.read_evidence('not-registered')
 
+    def test_long_old_question_is_kept_once_not_copied_per_archived_answer(self):
+        history=source_turn('a'*64,'甲')
+        question='历史待检：未签合同所以合同效力未定。正确对照与原文各有归属。\n' * 100 + 'a'*64
+        history[0]['content']=question
+        messages=history+[{'role':'user','content':'核对当前公告 '+('a'*64)}]
+        original=json.dumps(messages,ensure_ascii=False)
+        view,index=prior_explanation_view(messages,self.archive)
+        self.assertEqual(json.dumps(messages,ensure_ascii=False),original)
+        self.assertIn(messages[0],view)
+        self.assertEqual(sum(m.get('content','').count(question) for m in view),1)
+        self.assertEqual(len(index),2)
+        for row in index:
+            self.assertNotIn('question',row)
+            self.assertEqual(row['question_sha256'],hashlib.sha256(question.encode()).hexdigest())
+            self.assertEqual(row['view_version'],'prior-explanation-index-v2')
+        self.assertEqual(self.saved[index[0]['evidence_id']]['content'],messages[1]['content'])
+        self.assertEqual(self.saved[index[1]['evidence_id']]['content'],messages[3]['content'])
+
 
 class PriorExplanationAgentTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_cloud_read_grant_or_answer_only_keeps_full_prior_prose(self):
@@ -134,5 +152,6 @@ class PriorExplanationAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any('每年目录独立审核' in row.get('content','') for row in seen))
         self.assertTrue(any('末尾反证：用途仍受限制' in row.get('content','') for row in seen))
         self.assertTrue(any(event=='task_explanation_view' for event,data in audit))
+        self.assertTrue(any(event=='task_explanation_view' and data.get('prior_explanation_index_version')=='prior-explanation-index-v2' for event,data in audit))
         self.assertEqual(len(saved),2)
 

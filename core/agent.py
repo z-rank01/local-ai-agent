@@ -295,27 +295,32 @@ class Agent:
                 except Exception:
                     logger.warning('Workspace prefetch skipped')
             explanation_view_active = False
-            explanation_view_version = 'prior-explanation-index-v1'
+            explanation_view_version = 'prior-explanation-index-v2'
+            prior_explanation_index_version = None
             source_task_view_active = False
             def index_prior_explanations(history):
-                nonlocal explanation_view_active, explanation_view_version, source_task_view_active
+                nonlocal explanation_view_active, explanation_view_version, source_task_view_active, prior_explanation_index_version
                 if not (self.allow_tools and (not cloud or workspace_granted) and stock_read_seen
                         and getattr(self.context_mgr, 'archive', None) is not None
                         and getattr(self.context_mgr, 'reader', None) is not None):
                     return history
                 try:
-                    from .stock_source_quotes import prior_explanation_view
+                    from .stock_source_quotes import prior_explanation_view, PRIOR_EXPLANATION_VIEW_VERSION
                     from .stock_report_context import report_material_view
                     from .stock_task_source_view import current_task_source_view
                     view, prior_index = prior_explanation_view(history, self.context_mgr.archive)
+                    prior_count = len(prior_index)
                     view, material_index = report_material_view(view, self.context_mgr.archive)
                     view, other_source_index = current_task_source_view(view, self.context_mgr.archive)
                     prior_index += material_index
                     prior_index += other_source_index
                     if prior_index:
+                        if prior_count:
+                            prior_explanation_index_version = PRIOR_EXPLANATION_VIEW_VERSION
                         self.context_mgr.evidence_ids.update(row['evidence_id'] for row in prior_index)
                         self.audit.record('task_explanation_view', {'session_id': session_id,
                             'version': 'reader-material-index-v2' if material_index else explanation_view_version,
+                            'prior_explanation_index_version': prior_explanation_index_version,
                             'indexed_messages': len(prior_index), 'indexed_report_materials': len(material_index),
                             'indexed_other_task_source_receipts':len(other_source_index),
                             'before_chars': sum(len(row.get('content') or '') for row in history),
@@ -521,6 +526,7 @@ class Agent:
                             'source_lookup_index_version':lookup_context['version'],
                             'source_lookup_selection':lookup_context['selection'],
                             'source_lookup_reference_count':len(lookup_context['rows']),
+                            'prior_explanation_index_version':prior_explanation_index_version,
                             'saved_source_coverage_version':'saved-source-coverage-v1' if saved_coverage_guidance else None,
                             'comparison_context_version':'comparison-source-context-v1' if comparison_guidance else None,
                             'calculation_context_version':'program-source-index-v1' if current_calculations else None, **data})
@@ -530,6 +536,7 @@ class Agent:
                     if getattr(self.llm, 'observes_native_requests', False):
                         final_request_options['request_observer'] = lambda event, data: self.audit.record(
                             event, {'session_id': session_id, 'view_version': explanation_view_version if explanation_view_active else None,
+                                    'prior_explanation_index_version':prior_explanation_index_version,
                                     'source_lookup_phase':'explanation',
                                     'source_lookup_index_version':lookup_context['version'],
                                     'source_lookup_selection':lookup_context['selection'],
