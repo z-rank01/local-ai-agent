@@ -13,6 +13,7 @@ launcher can fall back to the browser.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 ALLOWED_HOSTS = {'127.0.0.1', 'localhost'}
@@ -49,7 +50,11 @@ def main(argv: list[str]) -> int:
         return 3
     try:
         webview.create_window('Local AI Agent', url, width=1440, height=900, min_size=(960, 600))
-        webview.start()
+        # WebView's implicit private cache can fall back to the current
+        # directory when the OS temp root is unavailable. Keep browser data
+        # under the existing ignored private runtime directory instead.
+        storage = Path(__file__).resolve().parents[1] / 'data' / 'private' / 'desktop-webview'
+        webview.start(storage_path=str(storage), private_mode=True)
     except Exception as exc:
         print(f'desktop window could not start: {exc}', file=sys.stderr)
         return 4

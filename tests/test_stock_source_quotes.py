@@ -13,6 +13,14 @@ def source_message(text, kind='ORIGINAL_TEXT', **extra):
 
 
 class SourceQuoteTests(unittest.TestCase):
+    def test_discussion_terms_do_not_become_quotes_from_later_source_mention(self):
+        for text in ('双方具体的"水处理相关收入"金额及占主营收入比例需定期报告披露的主营构成原文。',
+                     '不能仅凭"环保/水务行业名称"认定业务可比，必须以实际收入构成原文为准。'):
+            self.assertEqual(unverified_quotes(text, []), [])
+        text = '讨论“回款质量”需核对原文。原文写明：“资金已全部收回”。'
+        self.assertEqual([x['quote'] for x in unverified_quotes(text, [])], ['资金已全部收回'])
+        self.assertTrue(unverified_quotes('“资金已全部收回”的原文尚待核对。', []))
+
     def test_inability_to_infer_is_not_a_source_absence_claim(self):
         for reply in ('仅凭该文件无法确认2026需求已兑现。', '这份通知无从证明实际销量。'):
             self.assertFalse(unverified_absence_claims(reply,[]))

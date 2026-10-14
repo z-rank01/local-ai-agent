@@ -436,16 +436,20 @@ def unverified_quotes(reply, originals):
                 if match and not _PARAPHRASE.search(line):
                     section_depth = depth
                 labelled = section_depth is not None
-            if match:
-                labelled = not bool(_PARAPHRASE.search(line))
+            introduced = {quote.start() for quote in _introduced_quotes(line)}
+            if match and not heading and not _QUOTES.search(line):
+                # A standalone introduction may label the following block.
+                # Merely mentioning a need to consult originals does not.
+                labelled = bool(re.search(r'[：:]\s*$', line.rstrip('*_` '))) and not bool(_PARAPHRASE.search(line))
             elif heading:
                 labelled = section_depth is not None
             elif line.lstrip().startswith('|'):
                 labelled = False
-            if not (labelled or section_depth is not None) or _PARAPHRASE.search(line) or _SEARCH_LABEL.search(line):
+            if not (labelled or section_depth is not None or introduced) or _PARAPHRASE.search(line) or _SEARCH_LABEL.search(line):
                 continue
             quotes = [quote[1] if quote[1] is not None else quote[2]
-                      for quote in _QUOTES.finditer(line)]
+                      for quote in _QUOTES.finditer(line)
+                      if labelled or section_depth is not None or quote.start() in introduced]
             if line.lstrip().startswith('>') and not quotes:
                 text = re.sub(r'^\s*>\s?', '', line)
                 # A Markdown label introduces the following quote; it is not
@@ -462,7 +466,7 @@ def unverified_quotes(reply, originals):
                 if not any(text in original for original in originals):
                     issues.append({'paragraph': index, 'line': line_index, 'quote': text})
         last_line = paragraph.splitlines()[-1] if paragraph.splitlines() else ''
-        previous_intro = bool(not last_line.lstrip().startswith('|') and _LABEL.search(last_line) and not _PARAPHRASE.search(last_line)
+        previous_intro = bool(not last_line.lstrip().startswith('|') and _LABEL.search(last_line) and re.search(r'[：:]\s*$', last_line.rstrip('*_` ')) and not _PARAPHRASE.search(last_line)
                               and not _QUOTES.search(last_line))
     return issues
 

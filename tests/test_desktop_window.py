@@ -1,4 +1,6 @@
 import unittest
+from unittest.mock import Mock, patch
+from pathlib import Path
 
 from scripts.desktop_window import main, validate_url
 
@@ -29,6 +31,14 @@ class ValidateUrlTest(unittest.TestCase):
 
 
 class MainTest(unittest.TestCase):
+    def test_browser_cache_uses_private_runtime_not_current_directory(self):
+        webview = Mock()
+        with patch.dict('sys.modules', {'webview': webview}):
+            self.assertEqual(main(['http://127.0.0.1:9510/']), 0)
+        options = webview.start.call_args.kwargs
+        self.assertTrue(options['private_mode'])
+        self.assertEqual(Path(options['storage_path']), Path(__file__).resolve().parents[1] / 'data/private/desktop-webview')
+
     def test_usage_error_without_args(self):
         self.assertEqual(main([]), 2)
 
