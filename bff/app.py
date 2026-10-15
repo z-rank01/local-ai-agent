@@ -24,6 +24,7 @@ from .schemas import (
     ChatRequest,
     ConversationSummary,
     CreateConversationRequest,
+    BriefDeliveryRequest,
     EditMessageRequest,
     MessageRecord,
     ModelInfo,
@@ -326,6 +327,12 @@ async def read_report_page(conversation_id: str, request: ReportPageRequest):
     return await get_chat_service().read_report_page(
         conversation_id, request.message_id, request.page, request.request_id,
         section=request.section, revision=request.revision)
+
+
+@app.post('/api/conversations/{conversation_id}/brief-delivery', response_model=MessageRecord)
+async def deliver_brief(conversation_id: str, payload: BriefDeliveryRequest, request: Request):
+    require_local_control(request)
+    return get_chat_service().deliver_workspace_brief(conversation_id, payload.path)
 
 @app.delete("/api/conversations/{conversation_id}/messages/{message_id}", status_code=204)
 async def delete_message(conversation_id: str, message_id: str) -> Response:

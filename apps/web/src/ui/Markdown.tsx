@@ -98,7 +98,9 @@ function Anchor({node, href, children, ...rest}: AnchorProps): JSX.Element {
   const workspaceId = useWorkspaceId();
   const readBrief = useContext(BriefReaderContext);
   if (href && readBrief && isWorkspaceHtml(href)) {
-    return <button type="button" className="report-source-link" onClick={() => readBrief(href)}>阅读简报：{children}</button>;
+    let path = href;
+    try { path = decodeURIComponent(href); } catch { path = ''; }
+    if (isWorkspaceHtml(path)) return <button type="button" className="report-source-link" onClick={() => readBrief(path)}>阅读简报：{children}</button>;
   }
   return (
     <a {...rest} href={messageHref(href, workspaceId)} target="_blank" rel="noreferrer">

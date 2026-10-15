@@ -83,6 +83,7 @@ function iconName(entry: WorkspaceEntry): string {
 export type WorkspacePanelProps = {
   workspaceId: string; roots: Workspace['roots']; primaryPath?: string; busy: boolean; onBusyChange?: (busy: boolean) => void;
   onReadBrief?: (path: string) => void;
+  onDeliverBrief?: (path: string) => Promise<void>;
   attachedPaths: string[];
   onAttach: (path: string) => void;
   onDetach: (path: string) => void;
@@ -102,6 +103,7 @@ export function WorkspacePanel(props: WorkspacePanelProps): JSX.Element {
   const [selectedTrashOperationId, setSelectedTrashOperationId] = useState('');
   const [loadingTree, setLoadingTree] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [delivering, setDelivering] = useState(false);
   const [loadingTrash, setLoadingTrash] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [deletingPath, setDeletingPath] = useState('');
@@ -578,6 +580,13 @@ export function WorkspacePanel(props: WorkspacePanelProps): JSX.Element {
           <p className="panel-hint">预览已截断，仅显示前 {formatBytes(preview.max_bytes)}。</p>
         ) : null}
         <div className="ws-preview-acts">
+          {props.onDeliverBrief && isWorkspaceHtml(preview.path) ? <button type="button" className="reader-btn"
+            disabled={busy || delivering} onClick={async () => {
+              setDelivering(true);
+              try { await props.onDeliverBrief?.(preview.path); }
+              catch (error) { onError(describeError(error)); }
+              finally { setDelivering(false); }
+            }}>{delivering ? '正在交付…' : '发送到当前对话'}</button> : null}
           <button
             type="button"
             className="btn btn-secondary btn-sm"

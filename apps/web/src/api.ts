@@ -60,6 +60,12 @@ async function requestJson<T>(path: string, init?: RequestInit, baseUrl = DEFAUL
 }
 export function fetchWorkspaces(): Promise<Workspace[]> { return requestJson('/api/workspaces'); }
 
+export function deliverWorkspaceBrief(conversationId: string, path: string): Promise<MessageRecord> {
+  return requestJson(`/api/conversations/${encodeURIComponent(conversationId)}/brief-delivery`, {
+    method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({path}),
+  });
+}
+
 export function fetchReportPage(conversationId: string, messageId: string, page: number,
   section?: import('./lib/reportDocument').ReportSection, revision?: string):
   Promise<import('./lib/reportDocument').ReportPage> {

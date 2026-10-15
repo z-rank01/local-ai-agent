@@ -13,6 +13,7 @@ import json
 import mimetypes
 import re
 import uuid
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncGenerator, AsyncIterable
@@ -233,6 +234,39 @@ class ChatSessionService:
             self._message_record(message, version_count=version_counts.get(message.response_to_message_id, 1))
             for message in self._store.get_messages(conversation_id) if message.role != "protocol"
         ]
+
+    def deliver_workspace_brief(self, conversation_id: str, path: str) -> MessageRecord:
+        """Publish an existing local file link, without a model turn or research mutation."""
+        conversation = self._require_conversation(conversation_id)
+        if conversation_id in self._active_conversations:
+            raise HTTPException(409, '本会话仍在运行，请完成后再交付简报')
+        scoped = self.for_workspace(conversation.workspace_id)
+        lease = self.workspaces.acquire(scoped._snapshot, conversation_id)
+        try:
+            if (not re.fullmatch(r'/(?:workspace|roots/[^/]+)/.+\.html?', path, re.I)
+                    or any(part in {'.', '..'} for part in path.split('/'))
+                    or any(char in path for char in ('\\', '?', '#'))):
+                raise HTTPException(422, '请选择当前工作区内的 HTML 简报')
+            file = scoped.preview_workspace_file(path, max_bytes=1_000_000)
+            if file.is_binary or file.truncated or not file.content:
+                raise HTTPException(422, 'HTML 文件为空、不是文本或超出阅读大小限制')
+            digest = hashlib.sha256(file.content.encode('utf-8')).hexdigest()
+            # Repeated clicks on the same saved version return the existing message.
+            for row in self._store.get_messages(conversation_id):
+                delivery = json.loads(row.metadata or '{}').get('brief_delivery', {})
+                if delivery.get('path') == file.path and delivery.get('sha256') == digest:
+                    return self._message_record(row)
+            link = quote(file.path, safe='/')
+            message = self._store.add_message(conversation_id, role='assistant',
+                content='已保存的 HTML 简报已交付到本对话。\n\n'
+                        '这是文件交付，不是一次新的模型生成；资料时点、版本与编制属性请见简报页首。\n\n'
+                        f'[阅读简报](<{link}>)',
+                metadata={'model': '文件交付（非模型生成）', 'status': 'ok',
+                          'brief_delivery': {'path': file.path, 'sha256': digest,
+                                             'workspace_id': conversation.workspace_id}})
+            return self._message_record(message)
+        finally:
+            self.workspaces.active.pop(lease, None)
 
     async def read_report_page(self, conversation_id: str, message_id: str,
                                page: int, request_id: str, *, section: str | None = None,

@@ -4,6 +4,7 @@ import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from
 import {
   DEFAULT_BASE_URL,
   fetchWorkspacePreview,
+  deliverWorkspaceBrief,
   ensureBrowserSession,
   ApiError,
   fetchWorkspaces,
@@ -1026,6 +1027,19 @@ export default function App(): JSX.Element {
     if (report.sourceMessageId) reportReadingPositionsRef.current.set(report.sourceMessageId, report);
   }, []);
 
+  const deliverBrief = useCallback(async (path: string) => {
+    if (!conversationId) throw new Error('请先打开接收简报的对话');
+    const target = conversationId;
+    const message = await deliverWorkspaceBrief(target, path);
+    if (activeConversationIdRef.current === target) {
+      setBlocks(current => current.some(block => block.messageId === message.id)
+        ? current : [...current, ...buildBlocksFromMessages([message])]);
+      setSheetOpen(false);
+      notify('简报已交付，可直接在本对话阅读', 'ok');
+    }
+    await refreshConversations();
+  }, [conversationId, refreshConversations]);
+
   const handleZoomDoc = () => {
     if (!sheetDoc) {
       return;
@@ -1355,6 +1369,7 @@ export default function App(): JSX.Element {
           onDetach: detachWorkspacePath,
           onError: handlePanelError,
           onReadBrief: openWorkspaceBrief,
+          onDeliverBrief: conversationId ? deliverBrief : undefined,
         }}
         skills={{
           conversation: activeConversation,

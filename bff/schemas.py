@@ -133,6 +133,11 @@ class CreateConversationRequest(BaseModel):
     model: str | None = None
 
 
+class BriefDeliveryRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    path: str = Field(min_length=1, max_length=2048)
+
+
 class UpdateConversationRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
 
