@@ -1,4 +1,6 @@
 import unittest
+import json
+from hashlib import sha256
 from core.brief_document import render_document
 
 
@@ -22,3 +24,23 @@ class BriefDocumentTests(unittest.TestCase):
 
     def test_empty_rejected(self):
         with self.assertRaises(ValueError): self.render('')
+
+    def test_layout_metadata_and_program_charts(self):
+        calc = dict(kind='EVENT_SCALE', version='event-scale-calculation-v1', symbol='688178',
+                    annual_period='20251231', reader_revision='a'*64, amount_yuan='300',
+                    annual_revenue_yuan='1000', ratio='0.3', percent='30',
+                    service_mean=dict(service_years='3', mean_amount_yuan='100'))
+        packet = {'tasks': [{'program_calculations': [calc]}]}
+        digest = sha256(json.dumps(packet, ensure_ascii=False, sort_keys=True, allow_nan=False).encode()).hexdigest()
+        args = dict(title='测试', generated_at='2026-10-15T18:03:33+08:00', model='试点',
+                    material_sha256=digest, material={'packet':packet}, edition='v2')
+        html = render_document('## 结论：等待验证\n\n原结论。\n\n## 来源与精确数值\n\n原来源。', **args)
+        self.assertEqual(html.count('<svg '), 2)
+        self.assertIn('class="verdict"', html)
+        self.assertIn('id="references"', html)
+        self.assertIn('<details>', html)
+        self.assertIn('name="brief-edition" content="v2"', html)
+        self.assertIn('2026-10-15 18:03', html)
+        self.assertIn('原来源。', html)
+        args['material_sha256'] = '0'*64
+        with self.assertRaises(ValueError): render_document('正文', **args)
