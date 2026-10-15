@@ -236,6 +236,28 @@ class ChatSessionService:
             for message in self._store.get_messages(conversation_id) if message.role != "protocol"
         ]
 
+    def prepare_brief_material(self, conversation_id: str, references: list[str]) -> dict:
+        """Local preparation for the writing pipeline, not a model/tool endpoint.
+
+        Scope is derived from the stored conversation, never the active UI's
+        workspace. Only cloud-safe protocol can supply evidence.
+        """
+        from core.brief_material import prepare_material
+        conversation = self._require_conversation(conversation_id)
+        if conversation_id in self._active_conversations:
+            raise HTTPException(409, '本会话仍在运行，请完成后再准备简报材料')
+        snapshot = self.workspaces.snapshot(conversation.workspace_id)
+        self.workspaces.assert_idle(snapshot)
+        try:
+            result = prepare_material(
+                self._store.messages_as_dicts(conversation_id, cloud=True), references,
+                cloud_allowed=snapshot.record['cloud_read'])
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return {'conversation_id': conversation_id, 'workspace_id': conversation.workspace_id, **result}
+
     def deliver_workspace_brief(self, conversation_id: str, path: str) -> MessageRecord:
         """Publish an existing local file link, without a model turn or research mutation."""
         conversation = self._require_conversation(conversation_id)
