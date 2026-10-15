@@ -1528,3 +1528,15 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 
 /* Inert authored HTML keeps its own publication typography inside the existing reader. */
 .brief-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--surface); }
+
+/* Keep the modal mounted through its closing animation so focus returns afterward. */
+.brief-reader { animation: brief-reader-in var(--motion-base) var(--ease-standard) both; }
+.brief-reader.closing { animation: brief-reader-out var(--motion-fast) var(--ease-standard) both; }
+@keyframes brief-reader-in {
+  from { opacity: 0; transform: translateY(var(--space-4)); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes brief-reader-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(var(--space-2)); }
+}

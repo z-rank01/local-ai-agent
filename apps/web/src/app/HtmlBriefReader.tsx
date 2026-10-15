@@ -1,4 +1,4 @@
-import {useEffect, useRef} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import type {HtmlBrief} from '../lib/htmlBrief';
 import {workspaceRawUrl} from '../api';
 import {useLayerFocus} from '../ui/useLayerFocus';
@@ -6,11 +6,13 @@ import {useLayerFocus} from '../ui/useLayerFocus';
 export function HtmlBriefReader({brief, onClose}: {brief: HtmlBrief; onClose: () => void}): JSX.Element {
   const layer = useLayerFocus(true, true);
   const frame = useRef<HTMLIFrameElement>(null);
+  const [closing, setClosing] = useState(false);
+  const requestClose = useCallback(() => setClosing(true), []);
   useEffect(() => {
     const iframe = frame.current;
     let document: Document | null = null;
     const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') requestClose();
       if (event.key === 'Tab') {
         const controls = [...(document?.querySelectorAll<HTMLElement>('a[href],summary') ?? [])].filter(node => node.getClientRects().length);
         const first = controls[0], last = controls[controls.length - 1];
@@ -47,12 +49,15 @@ export function HtmlBriefReader({brief, onClose}: {brief: HtmlBrief; onClose: ()
     };
     iframe?.addEventListener('load', loaded);
     return () => { iframe?.removeEventListener('load', loaded); document?.removeEventListener('keydown', key); document?.removeEventListener('click', source); };
-  }, [onClose, layer]);
-  return <section className="reader open" ref={layer} role="dialog" aria-modal="true" aria-label="简报阅读">
+  }, [requestClose, layer]);
+  return <section className={`reader open brief-reader${closing ? ' closing' : ''}`} ref={layer}
+    onAnimationEnd={event => { if (closing && event.target === event.currentTarget) onClose(); }}
+    onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); requestClose(); } }}
+    role="dialog" aria-modal="true" aria-label="简报阅读">
     <div className="reader-head">
       <div className="reader-head-main"><div className="reader-eyebrow">工作区简报 · 独立于原任务报告</div><div className="reader-title">{brief.title}</div></div>
       <a className="reader-btn" href={workspaceRawUrl(brief.path, brief.workspaceId)} download>下载 HTML</a>
-      <button className="reader-btn" onClick={onClose}>关闭</button>
+      <button className="reader-btn" onClick={requestClose}>关闭</button>
     </div>
     <div className="reader-pages">{brief.meta.length ? brief.meta.join(' · ') : '文件未声明资料时点、版本或生成属性，请核对正文。'}</div>
     <iframe ref={frame} className="brief-frame" title={brief.title} srcDoc={brief.html}
