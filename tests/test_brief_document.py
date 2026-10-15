@@ -25,6 +25,19 @@ class BriefDocumentTests(unittest.TestCase):
     def test_empty_rejected(self):
         with self.assertRaises(ValueError): self.render('')
 
+    def test_explicit_scope_and_material_provenance_are_display_only(self):
+        html = render_document('正文保持。', title='测试', generated_at='2026-10-15',
+            model='试点', material_sha256='a'*64, scope_label='综合选股参考',
+            as_of='2026-10-15', authorship='模型生成 · 人工校订',
+            material_note='人工补查 <script>不执行</script>；未完成自动研究。')
+        self.assertIn('name="brief-scope" content="综合选股参考"', html)
+        self.assertIn('资料时点：2026-10-15', html)
+        self.assertIn('&lt;script&gt;', html)
+        self.assertNotIn('<script>', html)
+        self.assertNotIn('未进行新资料采集', html)
+        self.assertIn('正文保持。', html)
+        self.assertIn('name="brief-authorship" content="模型生成 · 人工校订"', html)
+
     def test_layout_metadata_and_program_charts(self):
         calc = dict(kind='EVENT_SCALE', version='event-scale-calculation-v1', symbol='688178',
                     annual_period='20251231', reader_revision='a'*64, amount_yuan='300',
