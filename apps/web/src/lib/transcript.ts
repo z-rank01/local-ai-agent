@@ -67,6 +67,11 @@ export function buildTranscriptViewItems(blocks: TranscriptBlock[]): TranscriptV
   const items: TranscriptViewItem[] = [];
   let group: AssistantTranscriptGroup | null = null;
   for (const block of blocks) {
+    if (block.fileDelivery) {
+      group = null;
+      items.push({id: `assistant-group-${block.id}`, kind: 'assistant-group', blocks: [block]});
+      continue;
+    }
     if (isAssistantSideBlock(block)) {
       if (!group) {
         group = {id: `assistant-group-${block.id}`, kind: 'assistant-group', blocks: []};
@@ -152,7 +157,7 @@ export function buildAssistantTimeline(
       badges.push('失败节点');
     }
     if (hasLocalResult) {
-      badges.push(block.label === 'stock_report_read' ? '本地报告' : '本地结果');
+      badges.push(block.label === 'stock_report_read' ? '研究材料' : '本地结果');
     }
     return {
       id: block.id,
@@ -160,7 +165,7 @@ export function buildAssistantTimeline(
       kind: 'tool',
       title: `调用 ${block.label}`,
       subtitle: hasLocalResult && block.label === 'stock_report_read'
-        ? '已生成本地报告'
+        ? '内部研究材料已保存'
         : block.summary || (block.toolResult != null ? '结构化结果已保存' : block.text ? '已返回结果' : '等待结果'),
       status: block.status ?? groupStatus,
       elapsed: block.elapsed,
@@ -191,6 +196,7 @@ export function buildBlocksFromMessages(messages: MessageRecord[]): TranscriptBl
         id: message.id,
         kind: 'assistant',
         label: message.model || '助手',
+        fileDelivery: message.file_delivery,
         text: message.content,
         messageId: message.id,
         createdAt: message.created_at,

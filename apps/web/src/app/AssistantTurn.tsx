@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {formatTime} from '../lib/format';
-import {buildReportCardInfo, isLocalReportBlock, type ReadingReport} from '../lib/report';
+import {isLocalReportBlock, type ReadingReport} from '../lib/report';
 import {
   assistantGroupStatus,
   buildAssistantTimeline,
@@ -10,7 +10,6 @@ import {
 import {statusLabel} from '../statusLabels';
 import {Icon} from '../ui/Icon';
 import {Markdown} from '../ui/Markdown';
-import {ReportCard} from './ReportCard';
 import {statusTone, ToolTrace} from './ToolTrace';
 
 export type AssistantTurnProps = {
@@ -45,7 +44,6 @@ export function AssistantTurn({
   onDelete,
   onRegenerate,
   onSwitchVersion,
-  onReadReport,
   onOpenConversation,
 }: AssistantTurnProps): JSX.Element {
   const [traceOpen, setTraceOpen] = useState(true);
@@ -57,6 +55,7 @@ export function AssistantTurn({
   const answerBlock = [...ordered].reverse().find((block) => block.kind === 'assistant') ?? null;
   const answerText = ordered.filter((block) => block.kind === 'assistant').map((block) => block.text).join('\n\n');
   const answerMessageId = answerBlock?.messageId ?? null;
+  const fileDelivery = Boolean(answerBlock?.fileDelivery);
   const versionNumber = answerBlock?.versionNumber ?? 1;
   const versionCount = answerBlock?.versionCount ?? 1;
   const canSwitchVersion = Boolean(answerMessageId) && versionCount > 1;
@@ -67,7 +66,7 @@ export function AssistantTurn({
   return (
     <article className="msg msg-ai" data-turn={item.id}>
       <header className="msg-head">
-        <span className="msg-who">助手</span>
+        <span className="msg-who">{fileDelivery ? '简报交付' : '助手'}</span>
         {status ? <span className="msg-status" data-tone={statusTone(status)}>{statusLabel(status)}</span> : null}
         {modelLabel ? <span className="meta">{modelLabel}</span> : null}
         {createdAt ? <span className="meta">· {formatTime(createdAt)}</span> : null}
@@ -84,14 +83,7 @@ export function AssistantTurn({
       ) : null}
       {ordered.map((block) => {
         if (isLocalReportBlock(block)) {
-          const info = buildReportCardInfo(block);
-          return (
-            <ReportCard
-              key={block.id}
-              info={info}
-              onRead={() => onReadReport(info)}
-            />
-          );
+          return null;
         }
         if (showTrace && block.kind !== 'assistant') {
           return null;
@@ -134,13 +126,13 @@ export function AssistantTurn({
           onClick={() => onCopy(answerText)}
           title="复制回答"
         ><Icon name="i-copy" className="ico-sm" />复制</button>
-        <button
+        {!fileDelivery ? <button
           type="button"
           className="msg-act"
           disabled={busy}
           onClick={() => onRegenerate(answerBlock?.responseToMessageId)}
           title="重新生成"
-        ><Icon name="i-refresh" className="ico-sm" />重新生成</button>
+        ><Icon name="i-refresh" className="ico-sm" />重新生成</button> : null}
         {answerMessageId ? (
           <button
             type="button"

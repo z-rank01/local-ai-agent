@@ -34,6 +34,7 @@ class BriefDeliveryTests(unittest.TestCase):
         again = self.service.deliver_workspace_brief(self.conv.id, '/workspace/report.html')
         self.assertEqual(first.id, again.id)
         self.assertIn('非模型生成', first.model)
+        self.assertTrue(first.file_delivery)
         self.assertIn('[阅读简报](</workspace/report.html>)', first.content)
         self.assertEqual(self.service.get_messages(self.conv.id)[0].id, first.id)
         self.assertFalse(self.service.workspaces.active)
@@ -72,3 +73,28 @@ class BriefDeliveryTests(unittest.TestCase):
             self.assertEqual(client.post(url, json={**body, 'workspace_id': 'other'}, headers=headers).status_code, 422)
             self.assertEqual(client.post(url, json=body, headers=headers).status_code, 200)
             client.close()
+
+    def test_research_archive_uses_conversation_workspace_not_active_scope(self):
+        record = {**self.service.workspaces.get(), 'id': 'aabbccddeeff', 'name': '另一工作区'}
+        self.service.workspaces.save(record)
+        snapshot = self.service.workspaces.snapshot(record['id'])
+        snapshot.managed.mkdir(parents=True)
+        conversation = self.store.create_conversation(workspace_id=record['id'])
+        row = self.store.add_message(conversation.id, role='tool', tool_name='stock_report_read',
+                                     tool_result={'local_result': '第1页原研究材料'})
+        before = vars(self.store.get_message(row.id)).copy()
+        path = self.service.archive_research_material(conversation.id, row.id, '第1页原研究材料')
+        self.assertEqual(snapshot.resolve(path).read_text(encoding='utf-8'), '第1页原研究材料')
+        self.assertFalse((self.root / 'reports').exists())
+        self.assertEqual(self.service.archive_research_material(conversation.id, row.id, '第1页原研究材料'), path)
+        self.assertEqual(vars(self.store.get_message(row.id)), before)
+        with self.assertRaises(HTTPException):
+            self.service.archive_research_material(self.conv.id, row.id, 'other')
+
+    def test_archive_io_failure_keeps_original_database_material(self):
+        row = self.store.add_message(self.conv.id, role='tool', tool_name='stock_report_read',
+                                     tool_result={'local_result': '原资料'})
+        with patch('pathlib.Path.open', side_effect=PermissionError('denied')):
+            with self.assertRaises(PermissionError):
+                self.service.archive_research_material(self.conv.id, row.id, '原资料')
+        self.assertIn('原资料', self.store.get_message(row.id).tool_result)

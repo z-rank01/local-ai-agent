@@ -19,6 +19,21 @@ function load(name) {
 }
 const {assistantGroupStatus, buildAssistantTimeline, buildBlocksFromMessages} = load('transcript');
 
+test('file delivery is a standalone group, not part of a failed research turn', () => {
+  const blocks = buildBlocksFromMessages([
+    {id:'old-tool',role:'tool',tool_name:'stock_report_read',content:'[ok]',tool_result:{local_result:'internal'}},
+    {id:'failed',role:'assistant',status:'error',content:'旧超时'},
+    {id:'file',role:'assistant',file_delivery:true,content:'阅读简报',model:'文件交付'},
+    {id:'later',role:'assistant',content:'后续回答'},
+  ]);
+  const groups = load('transcript').buildTranscriptViewItems(blocks);
+  assert.equal(groups.length, 3);
+  assert.equal(groups[1].blocks.length, 1);
+  assert.equal(groups[1].blocks[0].id, 'file');
+  assert.notEqual(assistantGroupStatus(groups[1].blocks), 'error');
+  assert.equal(groups[0].blocks.length, 2);
+});
+
 test('stored recovered tool failure remains visible without marking final answer failed', () => {
   const blocks = buildBlocksFromMessages([
     {id: '1', role: 'tool', tool_name: 'stock_report_read', content: '[error] invalid page'},

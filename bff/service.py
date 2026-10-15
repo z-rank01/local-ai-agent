@@ -14,6 +14,7 @@ import mimetypes
 import re
 import uuid
 import hashlib
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncGenerator, AsyncIterable
@@ -1159,8 +1160,37 @@ class ChatSessionService:
             if not message_id:
                 continue
             self._store.update_message_tool_result(conversation_id, message_id, text)
+            message = self._store.get_message(message_id)
+            if message and message.tool_name == 'stock_report_read':
+                try:
+                    self.archive_research_material(conversation_id, message_id, text)
+                except (OSError, HTTPException) as exc:
+                    # The DB attachment remains authoritative even if the workspace is unavailable.
+                    logging.getLogger(__name__).warning('Research material file not saved: %s', type(exc).__name__)
             if emit is not None:
                 yield emit('tool.local_result', block_id=call_id, message_id=message_id, data={'local_result': text})
+
+    def archive_research_material(self, conversation_id: str, message_id: str, text: str) -> str:
+        """Save only the received material, never fetch missing pages or change history."""
+        conversation = self._require_conversation(conversation_id)
+        message = self._store.get_message(message_id)
+        if not message or message.conversation_id != conversation_id or message.tool_name != 'stock_report_read':
+            raise HTTPException(404, '研究材料不属于本会话')
+        if not re.fullmatch(r'[a-f0-9]+', conversation_id) or not re.fullmatch(r'[a-f0-9]+', message_id):
+            raise HTTPException(422, '无效材料定位')
+        payload = text.encode('utf-8')
+        digest = hashlib.sha256(payload).hexdigest()
+        virtual = f'/workspace/reports/_research/{conversation_id}/{message_id}-{digest}.md'
+        snapshot = self.workspaces.snapshot(conversation.workspace_id)
+        target = snapshot.resolve(virtual)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with target.open('xb') as handle:
+                handle.write(payload)
+        except FileExistsError:
+            if target.read_bytes() != payload:
+                raise OSError('Research material archive conflict')
+        return virtual
 
     def _ensure_conversation(self, conversation_id: str | None, title: str | None) -> Conversation:
         if conversation_id:
@@ -1270,6 +1300,7 @@ class ChatSessionService:
             except json.JSONDecodeError:
                 tool_result = message.tool_result
         return MessageRecord(
+            file_delivery=bool(json.loads(message.metadata or '{}').get('brief_delivery')),
             id=message.id,
             conversation_id=message.conversation_id,
             role=message.role,

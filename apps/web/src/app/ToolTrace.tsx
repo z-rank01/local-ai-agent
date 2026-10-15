@@ -188,8 +188,8 @@ function StepDetail({
   if (isLocalReportBlock(block)) {
     return (
       <div className="step-detail-card">
-        <DetailSection title="本地报告">
-          <div className="detail-pre">已生成本地报告，可在下方报告卡阅读全文。</div>
+        <DetailSection title="内部研究材料">
+          <div className="detail-pre">材料保留在原研究记录中，供后续分析与核对；此处不作为用户简报展示。</div>
         </DetailSection>
       </div>
     );

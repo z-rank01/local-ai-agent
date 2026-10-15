@@ -32,6 +32,7 @@ export type ConversationSummary = {
 };
 
 export type MessageRecord = {
+  file_delivery?: boolean;
   model?: string;
   status?: string;
   params?: Record<string, unknown>;
@@ -167,6 +168,7 @@ export type UIStreamEvent = {
 export type TranscriptKind = 'user' | 'assistant' | 'reasoning' | 'tool' | 'meta' | 'error';
 
 export type TranscriptBlock = {
+  fileDelivery?: boolean;
   id: string;
   kind: TranscriptKind;
   label: string;

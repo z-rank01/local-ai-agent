@@ -100,7 +100,7 @@ function Anchor({node, href, children, ...rest}: AnchorProps): JSX.Element {
   if (href && readBrief && isWorkspaceHtml(href)) {
     let path = href;
     try { path = decodeURIComponent(href); } catch { path = ''; }
-    if (isWorkspaceHtml(path)) return <button type="button" className="report-source-link" onClick={() => readBrief(path)}>阅读简报：{children}</button>;
+    if (isWorkspaceHtml(path)) return <button type="button" className="report-source-link" onClick={() => readBrief(path)}>阅读简报</button>;
   }
   return (
     <a {...rest} href={messageHref(href, workspaceId)} target="_blank" rel="noreferrer">

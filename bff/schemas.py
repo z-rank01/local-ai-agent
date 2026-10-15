@@ -33,6 +33,7 @@ class ReportPageRequest(BaseModel):
 
 
 class MessageRecord(BaseModel):
+    file_delivery: bool = False
     id: str
     conversation_id: str
     role: str
