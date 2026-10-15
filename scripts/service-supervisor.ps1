@@ -2,6 +2,21 @@
 # Docker CLI calls originate from the same process that successfully ran compose
 # during startup; Docker Desktop denies calls from the BFF's process tree here.
 
+function Assert-DailyStartupPorts([int[]]$Ports = @(9510, 9511)) {
+    foreach ($port in $Ports) {
+        # Existing listeners are checked for application identity by the normal
+        # startup path; a second launch must not reject the running stack.
+        if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) { continue }
+        $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+        try { $probe.Start() }
+        catch {
+            $cause = $_.Exception.GetBaseException()
+            throw "Cannot bind required loopback port $port ($($cause.Message)). Check Windows TCP exclusions: netsh interface ipv4 show excludedportrange protocol=tcp. No services were started; resolve the port restriction and retry the same launcher."
+        }
+        finally { $probe.Stop() }
+    }
+}
+
 function Assert-DailyAcceptanceState([string]$ProjectRoot, [string]$ExpectedState) {
     if (-not $ExpectedState) { return }
     $settingsPath = Join-Path $ProjectRoot 'data/private/daily-services.json'

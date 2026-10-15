@@ -12,6 +12,7 @@ function Write-Warn2([string]$Message) { Write-Host "      [!!] $Message" -Foreg
 
 $dailyRoot = Split-Path -Parent $PSScriptRoot
 Assert-DailyAcceptanceState $dailyRoot $AcceptanceState
+Assert-DailyStartupPorts
 $dailyPython = Join-Path $dailyRoot '.conda/python.exe'
 if (-not (Test-Path -LiteralPath $dailyPython)) {
     throw 'Missing .conda\python.exe. Create it first: python -m venv .conda; .\.conda\python.exe -m pip install -e .'
@@ -229,12 +230,15 @@ try {
             throw 'Port 9510 belongs to a non-daily backend. Stop it before starting daily mode.'
         }
         Write-Step 'starting chat service...'
-        Start-Process -FilePath $dailyPython -ArgumentList @('scripts/run_daily.py') -WorkingDirectory $dailyRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $dailyLogs 'daily-bff.log') -RedirectStandardError (Join-Path $dailyLogs 'daily-bff.err.log')
+        $dailyBackendProcess = Start-Process -FilePath $dailyPython -ArgumentList @('scripts/run_daily.py') -WorkingDirectory $dailyRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $dailyLogs 'daily-bff.log') -RedirectStandardError (Join-Path $dailyLogs 'daily-bff.err.log')
         $dailyReady = $false
         for ($dailyAttempt = 0; $dailyAttempt -lt 60; $dailyAttempt++) {
             if ($dailyController) { Invoke-DailyServiceSupervisorRequest $dailyController }
             try { $dailyStatus = Invoke-RestMethod 'http://127.0.0.1:9510/api/status' -Headers @{ 'X-Harness-Session' = $dailyWebToken } -TimeoutSec 2; $dailyReady = [bool]$dailyStatus.daily_services } catch {}
             if ($dailyReady) { break }
+            if ($dailyBackendProcess.HasExited) {
+                throw "Chat service exited during startup (exit code $($dailyBackendProcess.ExitCode)). Check data/logs/daily-bff.err.log."
+            }
             Start-Sleep -Seconds 1
         }
         if (-not $dailyReady) { throw 'Chat service is not ready. Check data/logs/daily-bff.err.log.' }

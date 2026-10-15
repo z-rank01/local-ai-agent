@@ -2,6 +2,7 @@
 import json
 import os
 import subprocess
+import socket
 import tempfile
 import unittest
 from pathlib import Path
@@ -52,3 +53,18 @@ class AcceptanceLaunchGuardTests(unittest.TestCase):
         source=(Path(__file__).resolve().parents[1]/'scripts/start-daily.ps1').read_text(encoding='utf-8')
         self.assertLess(source.index('Assert-DailyAcceptanceState'),source.index('New-Item'))
         self.assertEqual(source.count('Assert-DailyAcceptanceState'),2)
+        self.assertLess(source.index('Assert-DailyStartupPorts'),source.index('New-Item'))
+
+    def test_port_guard_accepts_free_and_existing_listener(self):
+        helper=Path(__file__).resolve().parents[1]/'scripts/service-supervisor.ps1'
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1',0))
+            port=listener.getsockname()[1]
+            listener.listen()
+            # Existing listeners retain the original startup identity checks.
+            result=subprocess.run(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-Command',
+                "$ErrorActionPreference='Stop'; . '"+str(helper).replace("'","''")+
+                f"'; Assert-DailyStartupPorts -Ports @(0,{port}); 'PORTS_PASSED'"],
+                capture_output=True,text=True,timeout=20)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn('PORTS_PASSED',result.stdout)
