@@ -4,6 +4,7 @@ import {useWorkspaceId} from '../lib/workspace';
 import {workspaceRawUrl} from '../api';
 import {copyText} from '../lib/format';
 import {Icon} from './Icon';
+import {ArtifactCard} from './ArtifactCard';
 import {splitReportDisclosures} from '../lib/reportDisclosure';
 import React, {useState, useContext} from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -117,11 +118,32 @@ function Table({node, children, ...rest}: TableProps): JSX.Element {
   );
 }
 
+// Promote only a standalone HTML link; inline references retain their sentence layout.
+const Paragraph: NonNullable<Components['p']> = ({node, children, ...rest}) => {
+  const readBrief = useContext(BriefReaderContext);
+  const link = node?.children.length === 1 ? node.children[0] : undefined;
+  if (readBrief && link?.type === 'element' && link.tagName === 'a') {
+    const href = link.properties.href;
+    let path = '';
+    if (typeof href === 'string') {
+      try { path = decodeURIComponent(href); } catch { /* Keep the ordinary link on malformed encoding. */ }
+    }
+    if (isWorkspaceHtml(path)) {
+      const label = textOf(children).trim();
+      return <ArtifactCard title={label && label !== '阅读简报' ? label : 'HTML 简报'}
+        badge="工作区文件" meta={[path.split('/').pop() || 'HTML']}
+        actionLabel="阅读简报" onOpen={() => readBrief(path)} />;
+    }
+  }
+  return <p {...rest}>{children}</p>;
+};
+
 const components: Components = {
   pre: CodeBlock,
   code: InlineCode,
   a: Anchor,
   table: Table,
+  p: Paragraph,
 };
 
 export function Markdown({content, className, compactHeadings = false, onSourceReference}: {
