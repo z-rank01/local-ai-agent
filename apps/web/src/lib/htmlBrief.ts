@@ -39,7 +39,9 @@ export function prepareHtmlBrief(file: WorkspaceFilePreview, workspaceId: string
   const doc = document.implementation.createHTMLDocument(title);
   doc.documentElement.lang = 'zh-CN';
   const references = root.querySelector('section.references');
-  if (references) {
+  // Preserve a document's own disclosure and its open state; avoid two nested
+  // toggles that make the reference link appear to open an empty section.
+  if (references && !references.querySelector('details')) {
     const details = doc.createElement('details');
     const summary = doc.createElement('summary'); summary.textContent = '展开论证与参考';
     details.append(summary);

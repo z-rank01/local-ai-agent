@@ -51,9 +51,18 @@ class BriefDocumentTests(unittest.TestCase):
         self.assertEqual(html.count('<svg '), 2)
         self.assertIn('class="verdict"', html)
         self.assertIn('id="references"', html)
-        self.assertIn('<details>', html)
+        self.assertIn('<details open>', html)
         self.assertIn('name="brief-edition" content="v2"', html)
         self.assertIn('2026-10-15 18:03', html)
         self.assertIn('原来源。', html)
         args['material_sha256'] = '0'*64
         with self.assertRaises(ValueError): render_document('正文', **args)
+
+    def test_stance_requires_explicit_metadata(self):
+        args = dict(title='测试', generated_at='2026-10-17', model='试点', material_sha256='a'*64)
+        plain = render_document('结论：等待验证。', **args)
+        self.assertNotIn('<span class="badge stance-badge">', plain)
+        shown = render_document('原正文。', stance='等待验证', **args)
+        self.assertIn('<span class="badge stance-badge">等待验证</span>', shown)
+        with self.assertRaises(ValueError):
+            render_document('正文', stance='<script>', **args)

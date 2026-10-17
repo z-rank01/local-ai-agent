@@ -50,7 +50,7 @@ def _scale_charts(material, digest):
 def render_document(markdown, *, title, generated_at, model, material_sha256,
                     edition='v1', material=None, as_of='已有保存资料，未更新至生成日',
                     scope_label='研究简报', material_note=None,
-                    authorship='模型生成 · 程序排版'):
+                    authorship='模型生成 · 程序排版', stance=None):
     """Render received prose as-is with explicit saved-material provenance.
 
     No remote images, executable HTML or scripts. This function neither approves
@@ -58,6 +58,11 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
     """
     if not isinstance(markdown, str) or not markdown.strip():
         raise ValueError('简报正文为空')
+    # Explicit reviewed metadata, never inferred from model prose.
+    if stance not in (None, '继续研究', '等待验证', '暂不关注'):
+        raise ValueError('未知研究立场')
+    stance_class = {'继续研究': 'stance-positive', '暂不关注': 'stance-negative'}.get(stance, 'stance-neutral')
+    stance_badge = f'<span class="badge stance-badge">{stance}</span>' if stance else ''
     md = MarkdownIt('commonmark', {'html': False}).enable('table')
     md.validateLink = lambda url: (url.startswith('#') or
         (urlsplit(url).scheme == 'https' and bool(urlsplit(url).hostname)
@@ -75,7 +80,7 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
     refs = ''
     if reference:
         refs = ('<section class="references" id="references"><h2>论证与参考</h2>'
-                '<details><summary>展开来源与精确数值</summary>'+body[reference.end():]+'</details></section>')
+                '<details open><summary>来源与精确数值（可收起）</summary>'+body[reference.end():]+'</details></section>')
         body = body[:reference.start()]
     else:
         refs = '<section class="references" id="references"><h2>论证与参考</h2><p>来源请核对正文引用；未新增来源声明。</p></section>'
@@ -95,9 +100,9 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
 <meta name="brief-research-status" content="已有资料写作试点；原研究状态不变">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>{escape(title)}</title><style>{css}</style></head>
-<body class="stance-neutral"><main class="sheet"><header>
+<body class="{stance_class}"><main class="sheet"><header>
 <div class="eyebrow">RESEARCH BRIEF / 已保存资料写作</div><h1>{escape(title)}</h1>
-<div class="meta"><span class="badge">{escape(edition)}</span><span>{escape(model)} · {escape(authorship)}</span><span>生成时间：{display_time}</span></div>
+<div class="meta">{stance_badge}<span class="badge">{escape(edition)}</span><span>{escape(model)} · {escape(authorship)}</span><span>生成时间：{display_time}</span></div>
 <p class="unit">报告范围：{escape(scope_label)} · 资料时点：{escape(as_of)}</p>
 <p class="unit">{escape(material_note)}</p>
 <nav class="reading"><a href="#references">论证与参考</a></nav>
