@@ -257,7 +257,6 @@ def _stack_shutdown_targets() -> dict[str, list[int]]:
 def schedule_stack_shutdown(targets: dict[str, list[int]]) -> None:
     async def terminate() -> None:
         await asyncio.sleep(0.5)
-        await _stop_tool_containers()
         for name in ('web', 'stock-bridge'):
             for pid in targets.get(name, []):
                 try:
@@ -274,19 +273,41 @@ async def shutdown_stack(request: Request) -> dict:
         raise HTTPException(403, detail='仅允许本机 Web 停止服务')
     return await _request_stack_shutdown()
 async def _request_stack_shutdown() -> dict:
-    """Graceful full exit: stock backend, web leftovers, tool containers, then us."""
+    task = getattr(app.state, 'shutdown_task', None)
+    if task is None or task.done():
+        task = asyncio.create_task(_drain_stack(), name='stack-shutdown')
+        app.state.shutdown_task = task
+    # Losing the requesting page must not cancel the actual shutdown operation.
+    return await asyncio.shield(task)
+
+async def _drain_stack() -> dict:
+    app.state.shutdown_error = ''
+    try:
+        return await _finish_stack_shutdown()
+    except (ValueError, RuntimeError, httpx.HTTPError, HTTPException) as exc:
+        message = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+        app.state.shutdown_error = message
+        state = getattr(app.state, 'auto_exit', None)
+        if state:
+            state.exit_error = message
+        raise HTTPException(409, message) from exc
+
+async def _finish_stack_shutdown() -> dict:
+    """Confirm run cleanup, stock checkpoint persistence and containers before scheduling our exit."""
+    await get_chat_service().runs.close()
     targets = _stack_shutdown_targets()
     from core.stock_service import stock_service
     service_status = await stock_service.status()
     if service_status['online']:
         try:
-            await stock_service.request('/api/control/action', {'action': 'shutdown'})
+            await stock_service.request('/api/control/action', {'action': 'shutdown'}, timeout=40)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
     elif targets.get('stock-bridge'):
         raise HTTPException(409, '股票后台未接入安全关闭接口，请先在股票服务中暂停并关闭后再退出')
     # The backend shuts itself down after draining; never kill an arbitrary port owner.
     targets.pop('stock-bridge', None)
+    await _stop_tool_containers()
     schedule_stack_shutdown(targets)
     return {'stopping': {name: pids for name, pids in targets.items() if pids}}
 @app.get("/api/models", response_model=list[ModelInfo])
@@ -566,7 +587,8 @@ async def list_runs(workspace_id: str | None = None):
                 rows.extend(await stock_service.request('/api/control/runs'))
         except (ValueError, httpx.HTTPError, OSError) as exc:
             stock['message'] = str(exc) if isinstance(exc, ValueError) else '股票任务列表暂时不可读'
-    return {'runs': rows, 'stock_service': {k:stock.get(k) for k in ('online','worker','message')}}
+    return {'runs': rows, 'stock_service': {k:stock.get(k) for k in ('online','worker','message')},
+            'shutdown_error':getattr(app.state,'shutdown_error','')}
 
 @app.get('/api/runs/{run_id}')
 async def get_run(run_id: str):
@@ -741,19 +763,14 @@ async def package_job_cancel(job_id: str, request: Request, workspace_id: str = 
     response.raise_for_status()
     return response.json()
 async def _stop_tool_containers() -> None:
-    """Best-effort stop of all project tool containers; never blocks the exit."""
-    import logging
-    log = logging.getLogger(__name__)
-    try:
-        from core.service_supervisor import run_operation
-        await run_operation('stack_shutdown', timeout=100)
-    except Exception:
-        log.exception('Failed to stop tool containers; continuing shutdown')
+    """Only the unique launcher executes Docker; failure leaves BFF alive for diagnosis."""
+    from core.service_supervisor import run_operation
+    await run_operation('stack_shutdown', timeout=100)
 @app.post('/api/heartbeat')
 async def heartbeat(request: Request) -> dict:
     if not _is_loopback_host(request.client.host if request.client else None):
         raise HTTPException(403, '仅允许本机页面心跳')
-    app.state.auto_exit.observe_heartbeat(time.monotonic())
+    # Compatibility probe only. A script ping or run observer is not an open page.
     return {'ok': True, 'auto_exit': app.state.auto_exit.enabled}
 
 @app.get('/api/keepalive')
@@ -766,15 +783,16 @@ async def keepalive(request: Request):
     state = app.state.auto_exit
 
     async def event_stream():
+        identity = object()
+        state.page_opened(identity, time.monotonic())
         try:
             while True:
                 if await request.is_disconnected():
                     break
                 yield ': ping\n\n'
-                state.observe_heartbeat(time.monotonic())
                 await asyncio.sleep(5)
         finally:
-            pass  # The request scope ends on disconnect; nothing to clean up.
+            state.page_closed(identity, time.monotonic())
 
     return StreamingResponse(event_stream(), media_type='text/event-stream',
                                headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
@@ -787,17 +805,7 @@ async def _auto_exit_watcher() -> None:
         if not state.enabled:
             continue
         try:
-            from core.stock_service import stock_service
-            stock = await stock_service.status()
-        except Exception:
-            stock = {'online': False}
-        try:
-            if not state.should_exit(
-                time.monotonic(),
-                active_conversations=len(get_chat_service()._active_conversations),
-                stock_online=bool(stock.get('online')),
-                stock_busy=bool((stock.get('worker') or {}).get('busy')),
-            ):
+            if not state.should_exit(time.monotonic()):
                 continue
             log.info('Page closed: no heartbeat for %.0fs; shutting the stack down', state.timeout_seconds)
             await _request_stack_shutdown()

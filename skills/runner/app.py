@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from contextlib import aclosing
 import json
-from stream_exec import stream_shell, stream_python
+from stream_exec import stream_shell, stream_python, stop_execution
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -44,6 +44,18 @@ _PYTHON_TIMEOUT = int(os.environ.get("PYTHON_EXEC_TIMEOUT", "30"))
 _SHELL_TIMEOUT = int(os.environ.get("SHELL_EXEC_TIMEOUT", "15"))
 
 app = FastAPI(title="Skill: Runner")
+
+def execution_identity(request: Request):
+    value=request.headers.get('X-Execution-ID')
+    if value is not None and not _re.fullmatch('[0-9a-f]{32}',value):
+        raise HTTPException(422,'Invalid execution identity')
+    return value
+
+@app.post('/executions/{execution_id}/stop')
+async def stop_execution_endpoint(execution_id: str):
+    if not _re.fullmatch('[0-9a-f]{32}',execution_id):
+        raise HTTPException(422,'Invalid execution identity')
+    return await stop_execution(execution_id)
 
 
 @app.on_event("startup")
@@ -159,9 +171,9 @@ async def shell_exec(req: ShellExecRequest):
 
 
 @app.post('/tool/shell_exec/stream')
-async def shell_exec_stream(req: ShellExecRequest):
+async def shell_exec_stream(req: ShellExecRequest, request: Request):
     async def events():
-        async with aclosing(stream_shell(req.command, timeout=min(req.timeout, _SHELL_TIMEOUT), cwd=req.cwd)) as stream:
+        async with aclosing(stream_shell(req.command, timeout=min(req.timeout, _SHELL_TIMEOUT), cwd=req.cwd, execution_id=execution_identity(request))) as stream:
             async for item in stream:
                 yield json.dumps(item, ensure_ascii=False) + '\n'
     return StreamingResponse(events(), media_type='application/x-ndjson')
@@ -302,15 +314,15 @@ async def skill_update_endpoint(req: SkillUpdateRequest):
 
 
 @app.post('/tool/code_exec/stream')
-async def code_exec_stream(req: CodeExecRequest):
+async def code_exec_stream(req: CodeExecRequest, request: Request):
     async def events():
-        async with aclosing(stream_python(req.code, min(req.timeout, _PYTHON_TIMEOUT), cwd=req.cwd)) as stream:
+        async with aclosing(stream_python(req.code, min(req.timeout, _PYTHON_TIMEOUT), cwd=req.cwd, execution_id=execution_identity(request))) as stream:
             async for item in stream:
                 yield json.dumps(item, ensure_ascii=False) + '\n'
     return StreamingResponse(events(), media_type='application/x-ndjson')
 
 @app.post('/tool/skill_run/stream')
-async def skill_run_stream(req: SkillRunRequest):
+async def skill_run_stream(req: SkillRunRequest, request: Request):
     from skill_registry import _SKILLS_DIR, _WRAPPER_TEMPLATE, _load_skill_config, _save_skill_config, _now_iso
     if not _re.fullmatch(r'[\w-]+', req.skill_name):
         raise HTTPException(422, 'Invalid skill name')
@@ -322,7 +334,7 @@ async def skill_run_stream(req: SkillRunRequest):
         raise HTTPException(409, '技能依赖未安装，请先安装依赖或重新注册')
     async def events():
         async with aclosing(stream_python(_WRAPPER_TEMPLATE.format(skill_path=str(path)),
-            min(req.timeout, _PYTHON_TIMEOUT), [json.dumps(req.params)])) as stream:
+            min(req.timeout, _PYTHON_TIMEOUT), [json.dumps(req.params)], execution_id=execution_identity(request))) as stream:
             async for item in stream:
                 if item.get('event') == 'result':
                     result = item['result']

@@ -46,7 +46,7 @@ class RunStore:
         if workspace_id:
             sql += ' WHERE workspace_id=?'
             args.append(workspace_id)
-        sql += ' ORDER BY updated_at DESC LIMIT ?'
+        sql += " ORDER BY CASE WHEN status IN ('RUNNING','PAUSING','PAUSED','STOPPING') THEN 0 ELSE 1 END, updated_at DESC LIMIT ?"
         args.append(limit)
         with self.store._connect() as db:
             return [self.decode(row) for row in db.execute(sql, args)]

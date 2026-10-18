@@ -1,5 +1,6 @@
 """Bounded, cancellable Linux process groups with incremental output."""
 import asyncio
+import anyio
 import codecs
 import os
 import signal
@@ -8,13 +9,48 @@ from pathlib import Path
 
 from sandbox import _SAFE_ENV, validate_workspace_cwd
 
+_executions = {}
+_stopped = set()
 
-async def stream_shell(command, timeout=60, cwd=None, argv=None):
+
+async def stop_execution(execution_id):
+    """Acknowledgement follows process-group exit, not just closing an HTTP observer."""
+    _stopped.add(execution_id)
+    state = _executions.get(execution_id)
+    if state:
+        await state['ready'].wait()
+        proc = state['proc']
+        if proc is not None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        await state['done'].wait()
+    return {'execution_id': execution_id, 'confirmed': True}
+
+
+async def stream_shell(command, timeout=60, cwd=None, argv=None, execution_id=None):
     workdir = validate_workspace_cwd(cwd)
     start = time.monotonic()
-    proc = await asyncio.create_subprocess_exec(*(argv or ['/bin/sh', '-c', command]), cwd=str(workdir),
-        env=_SAFE_ENV, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        start_new_session=True)
+    if execution_id in _stopped:
+        raise RuntimeError('执行已停止，禁止迟到启动')
+    state = {'proc':None,'ready':asyncio.Event(),'done':asyncio.Event()}
+    if execution_id:
+        if execution_id in _executions:
+            raise RuntimeError('执行标识已在使用')
+        _executions[execution_id] = state
+    try:
+        proc = await asyncio.create_subprocess_exec(*(argv or ['/bin/sh', '-c', command]), cwd=str(workdir),
+            env=_SAFE_ENV, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            start_new_session=True)
+        state['proc'] = proc
+    except BaseException:
+        if execution_id:
+            _executions.pop(execution_id, None)
+        state['done'].set()
+        raise
+    finally:
+        state['ready'].set()
     queue = asyncio.Queue(maxsize=64)
     cap = 51200
     output = {'stdout':'', 'stderr':''}
@@ -62,26 +98,31 @@ async def stream_shell(command, timeout=60, cwd=None, argv=None):
                     pass
             await asyncio.gather(drain(proc.stdout), drain(proc.stderr))
         await proc.wait()
-        yield {'event':'result', 'result':{**output, 'exit_code':proc.returncode,
-            'timed_out':timed_out, 'truncated':truncated, 'cwd':str(workdir), 'shell':'/bin/sh',
-            'error':'命令超时，进程组已停止' if timed_out else None}}
+
     finally:
-        # Also reap descendants whose parent exited while leaving inherited pipes open.
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        for task in readers:
-            task.cancel()
-        await asyncio.gather(*readers, return_exceptions=True)
-        async def discard(pipe):
-            while await pipe.read(8192):
+        with anyio.CancelScope(shield=True):
+            # Also reap descendants whose parent exited while leaving inherited pipes open.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
                 pass
-        await asyncio.gather(discard(proc.stdout), discard(proc.stderr))
-        await proc.wait()
+            for task in readers:
+                task.cancel()
+            await asyncio.gather(*readers, return_exceptions=True)
+            async def discard(pipe):
+                while await pipe.read(8192):
+                    pass
+            await asyncio.gather(discard(proc.stdout), discard(proc.stderr))
+            await proc.wait()
+            state['done'].set()
+            if execution_id:
+                _executions.pop(execution_id, None)
+    yield {'event':'result', 'result':{**output, 'exit_code':proc.returncode,
+        'timed_out':timed_out, 'truncated':truncated, 'cwd':str(workdir), 'shell':'/bin/sh',
+        'error':'命令超时，进程组已停止' if timed_out else None}}
 
 
-async def stream_python(code, timeout=30, args=None, cwd=None):
+async def stream_python(code, timeout=30, args=None, cwd=None, execution_id=None):
     import tempfile
     import sys
     from contextlib import aclosing
@@ -89,7 +130,7 @@ async def stream_python(code, timeout=30, args=None, cwd=None):
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as file:
             file.write(code)
-        async with aclosing(stream_shell('', timeout=timeout, cwd=cwd, argv=[sys.executable, '-u', name, *(args or [])])) as stream:
+        async with aclosing(stream_shell('', timeout=timeout, cwd=cwd, argv=[sys.executable, '-u', name, *(args or [])], execution_id=execution_id)) as stream:
             async for item in stream:
                 if item.get('event') == 'result':
                     item['result']['runtime'] = 'python'

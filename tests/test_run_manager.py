@@ -6,6 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 import httpx
+from fastapi import HTTPException
 
 from bff.schemas import UIStreamEvent
 from core.conversation_store import ConversationStore
@@ -71,6 +72,31 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.manager.store.get(run)['status'], 'STOPPED')
         self.assertEqual(self.calls, 0)
         self.assertNotIn(run, self.manager.live)
+
+    async def test_unconfirmed_process_cleanup_keeps_run_owned_until_explicit_retry(self):
+        parked=asyncio.Event(); ready=False
+        async def confirm():
+            if not ready: raise RuntimeError('not stopped')
+        async def producer():
+            yield UIStreamEvent(event='session.started')
+            try:
+                await self.release.wait()
+            except asyncio.CancelledError:
+                parked.set()
+                await self.manager.live[run].wait_for_cleanup(confirm)
+                raise
+        run=self.start(producer)
+        await asyncio.sleep(0)
+        first=asyncio.create_task(self.manager.action(run,'stop'))
+        await parked.wait(); await asyncio.sleep(0)
+        self.assertIn(run,self.manager.live)
+        self.assertEqual(self.manager.store.get(run)['status'],'STOPPING')
+        with self.assertRaises(HTTPException): await self.manager.action(run,'pause')
+        with self.assertRaises(HTTPException): await self.manager.action(run,'resume')
+        with self.assertRaises(HTTPException): await self.manager.action(run,'stop')
+        ready=True
+        await self.manager.action(run,'stop'); await first
+        self.assertEqual(self.manager.store.get(run)['status'],'STOPPED')
 
     async def test_pause_waits_boundary_and_resume_keeps_same_execution(self):
         async def producer():

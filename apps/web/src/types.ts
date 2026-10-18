@@ -172,8 +172,10 @@ export type RunSummary = {
   created_at: string; updated_at: string; last_seq: number; error?: string | null;
   resumable: boolean; resume_blocker: string; checkpoint_available: boolean;
   business_status?: string; report_available?: boolean; actions?: string[];
+  research_status?: string; publication_status?: string;
+  artifacts?: {path:string;title:string;sha256:string}[];
 };
-export type RunList = {runs: RunSummary[]; stock_service: {online: boolean; message?: string;
+export type RunList = {runs: RunSummary[]; shutdown_error?: string; stock_service: {online: boolean; message?: string;
   worker?: {enabled: boolean; busy: boolean; research_only: boolean}}};
 
 export type TranscriptKind = 'user' | 'assistant' | 'reasoning' | 'tool' | 'meta' | 'error';

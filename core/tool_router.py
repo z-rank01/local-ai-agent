@@ -6,6 +6,7 @@ import json
 import os
 import asyncio
 import time
+import uuid
 from contextlib import suppress, aclosing
 import logging
 from typing import Any
@@ -193,13 +194,35 @@ class ToolRouter:
         backend = self._registry.get_backend(tool)
         if hasattr(self, 'workspace_validate'):
             await self.workspace_validate()
-        async with self._client.stream('POST', self._backend_urls[backend] + f'/tool/{tool}/stream', json=params, headers=self._headers(backend)) as response:
-            if response.status_code == 404:
-                raise RuntimeError('工具服务版本过旧，缺少流式执行接口。请更新 skill-runner 服务；修改代码或安装 Python 包不能解决该问题。')
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if line.strip():
-                    yield json.loads(line)
+        execution_id=uuid.uuid4().hex
+        completed=False
+        try:
+            async with self._client.stream('POST', self._backend_urls[backend] + f'/tool/{tool}/stream', json=params,
+                    headers={**self._headers(backend),'X-Execution-ID':execution_id}) as response:
+                if response.status_code == 404:
+                    raise RuntimeError('工具服务版本过旧，缺少流式执行接口。请沿唯一入口重建工具镜像。')
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        event=json.loads(line)
+                        completed=completed or event.get('event')=='result'
+                        yield event
+        finally:
+            if not completed:
+                async def confirm():
+                    response=await self._client.post(self._backend_urls[backend]+f'/executions/{execution_id}/stop',
+                        headers=self._headers(backend),timeout=30)
+                    response.raise_for_status()
+                    if response.json().get('confirmed') is not True:
+                        raise RuntimeError('工具进程组尚未确认停止；不能确认执行已结束')
+                try:
+                    await confirm()
+                except (httpx.HTTPError, RuntimeError):
+                    from .run_manager import current_run
+                    control=current_run.get()
+                    if control is None or not control.stop_requested:
+                        raise
+                    await control.wait_for_cleanup(confirm)
 
     def _dispatch_local(self, tool: str, params: dict[str, Any]) -> Any:
         if self._store is None:

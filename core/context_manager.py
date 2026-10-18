@@ -219,6 +219,9 @@ class ContextManager:
             summaries = []
             for start in range(0, len(conversation), chunk_chars):
                 chunk = conversation[start:start + chunk_chars]
+                from .run_manager import current_run
+                if control := current_run.get():
+                    await control.boundary(messages)
                 part = await self._summarize_chunk(chunk, target_chars=part_target)
                 if not part:
                     self._compact_failure = '历史摘要返回空结果'
@@ -235,6 +238,9 @@ class ContextManager:
                 reduced = []
                 reduce_count = max(1, (len(summary) + chunk_chars - 1) // chunk_chars)
                 for start in range(0, len(summary), chunk_chars):
+                    from .run_manager import current_run
+                    if control := current_run.get():
+                        await control.boundary(messages)
                     part = await self._summarize_chunk(summary[start:start + chunk_chars],
                         target_chars=max(256, summary_target // reduce_count))
                     if not part:

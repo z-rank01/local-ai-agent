@@ -45,6 +45,7 @@ export function RunsPanel({data,error,onOpen,onControl}:{data:RunList;error:stri
     <p className="run-note">股票服务：{stock.online?'在线':'离线'} · 领取任务：{stock.worker?.enabled?'开启':'暂停'} · 实际执行：{stock.worker?.busy?'有任务':'空闲'}</p>
     {stock.message&&<p className="run-error">{stock.message}</p>}
     {error&&<p className="run-error" role="alert">任务状态暂不可确认：{error}</p>}
+    {data.shutdown_error&&<p className="run-error" role="alert">整栈退出未完成：{data.shutdown_error}。服务保留，请处理后重试退出。</p>}
     {[['当前任务',live],['近期结束',recent]] .map(([title,rows])=><div key={String(title)}>
       <h3>{String(title)}</h3>
       {(rows as RunSummary[]).length===0&&<p className="run-note">暂无记录</p>}
@@ -54,6 +55,7 @@ export function RunsPanel({data,error,onOpen,onControl}:{data:RunList;error:stri
         <p className="run-note">{run.source==='stock'?'股票专业任务':run.workspace_id} · {run.model||'模型待确定'}</p>
         <p className="run-note">耗时 {elapsed(run)} · 开始 {time(run.created_at)} · 最近活动 {time(run.updated_at)}</p>
         {run.business_status&&<p className="run-note">研究状态：{run.business_status}</p>}
+        {run.publication_status&&<p className="run-note">HTML：{run.publication_status==='PUBLISHED'?'已发布，可进入会话阅读':'尚未发布'}；执行结束不代表研究完整。</p>}
         {run.conversation_id&&<button className="btn btn-quiet btn-sm" onClick={()=>onOpen(run.conversation_id!)}>进入会话</button>}
         <RunControls run={run} onControl={onControl}/>
       </article>)}

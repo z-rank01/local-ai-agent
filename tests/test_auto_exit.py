@@ -24,16 +24,16 @@ class AutoExitStateTests(unittest.TestCase):
         self.assertTrue(state.should_exit(115.5, active_conversations=0,
                                           stock_online=False, stock_busy=False))
 
-    def test_active_conversation_defers_exit(self):
+    def test_active_conversation_does_not_prevent_drain(self):
         state = AutoExitState(enabled=True, timeout_seconds=15)
         state.observe_heartbeat(100.0)
-        self.assertFalse(state.should_exit(120.0, active_conversations=1,
+        self.assertTrue(state.should_exit(120.0, active_conversations=1,
                                            stock_online=False, stock_busy=False))
 
-    def test_busy_stock_defers_exit(self):
+    def test_busy_stock_does_not_prevent_drain(self):
         state = AutoExitState(enabled=True, timeout_seconds=15)
         state.observe_heartbeat(100.0)
-        self.assertFalse(state.should_exit(120.0, active_conversations=0,
+        self.assertTrue(state.should_exit(120.0, active_conversations=0,
                                            stock_online=True, stock_busy=True))
 
     def test_idle_online_stock_does_not_block_exit(self):
@@ -63,6 +63,26 @@ class AutoExitStateTests(unittest.TestCase):
         state.observe_heartbeat(140.0)
         self.assertFalse(state.should_exit(145.0, active_conversations=0,
                                            stock_online=False, stock_busy=False))
+
+    def test_multiple_pages_refresh_and_grace_from_last_disconnect(self):
+        state=AutoExitState()
+        state.page_opened('A',100); state.page_opened('B',101)
+        state.page_closed('A',102)
+        self.assertFalse(state.should_exit(1000))
+        state.page_closed('B',1001)
+        self.assertFalse(state.should_exit(1015))
+        state.page_opened('B-reconnected',1015)
+        self.assertFalse(state.should_exit(2000))
+        state.page_closed('B-reconnected',2001)
+        self.assertTrue(state.should_exit(2016))
+
+    def test_failed_drain_requires_page_reopen_or_explicit_retry(self):
+        state=AutoExitState()
+        state.page_opened('A',100); state.page_closed('A',101)
+        state.exit_error='cleanup failed'
+        self.assertFalse(state.should_exit(1000))
+        state.page_opened('B',1001); state.page_closed('B',1002)
+        self.assertTrue(state.should_exit(1017))
 
 
 if __name__ == '__main__':

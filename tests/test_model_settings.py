@@ -252,7 +252,9 @@ class ShutdownStackTests(unittest.IsolatedAsyncioTestCase):
         from bff import app as bff_app
         from core.stock_service import stock_service
         from unittest.mock import AsyncMock
-        with patch.object(bff_app, '_stack_shutdown_targets', return_value={'bff': [1], 'web': [2], 'stock-bridge': [3]}), \
+        with patch.object(bff_app,'get_chat_service',return_value=SimpleNamespace(runs=SimpleNamespace(close=AsyncMock()))), \
+             patch.object(bff_app,'_stop_tool_containers',AsyncMock()), \
+patch.object(bff_app, '_stack_shutdown_targets', return_value={'bff': [1], 'web': [2], 'stock-bridge': [3]}), \
              patch.object(bff_app, 'schedule_stack_shutdown') as schedule, \
              patch.object(stock_service, 'status', AsyncMock(return_value={'online': True})), \
              patch.object(stock_service, 'request', AsyncMock(return_value={'status': 'shutting_down'})) as stop:
@@ -264,4 +266,4 @@ class ShutdownStackTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(ok.status_code, 200)
                 self.assertEqual(ok.json()['stopping'], {'bff': [1], 'web': [2]})
                 schedule.assert_called_once_with({'bff': [1], 'web': [2]})
-                stop.assert_awaited_once_with('/api/control/action', {'action': 'shutdown'})
+                stop.assert_awaited_once_with('/api/control/action', {'action': 'shutdown'},timeout=40)

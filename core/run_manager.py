@@ -5,6 +5,7 @@ from contextvars import ContextVar
 import json
 import logging
 import uuid
+import httpx
 
 from fastapi import HTTPException
 
@@ -18,6 +19,9 @@ class RunControl:
     def __init__(self, manager, run_id):
         self.manager, self.id = manager, run_id
         self.pause_requested = False
+        self.stop_requested = False
+        self.cleanup_check = None
+        self.cleanup_ready = asyncio.Event()
         self.gate = asyncio.Event()
         self.gate.set()
         self.task = None
@@ -28,6 +32,8 @@ class RunControl:
         self.blocker = ''
 
     async def boundary(self, checkpoint=None):
+        if self.stop_requested:
+            raise asyncio.CancelledError()
         if self.checkpoint_factory is not None and checkpoint is not None:
             checkpoint = self.checkpoint_factory(checkpoint)
             checkpoint.update(safe=not bool(self.blocker), blocker=self.blocker)
@@ -54,6 +60,12 @@ class RunControl:
         for queue in tuple(self.subscribers):
             queue.put_nowait(event)
 
+    async def wait_for_cleanup(self, confirm):
+        self.cleanup_check = confirm
+        self.blocker = '工具进程停止未获确认；执行锁保留，请检查工具服务后重试停止'
+        self.manager.state(self.id, 'STOPPING', error=self.blocker)
+        await self.cleanup_ready.wait()
+
 
 class RunManager:
     def __init__(self, conversation_store):
@@ -69,11 +81,16 @@ class RunManager:
         checkpoint = row['checkpoint']
         payload = row['payload']
         safe = bool(checkpoint.get('safe')) and row['status'] != 'SUCCEEDED' and not checkpoint.get('continued_by')
+        research = checkpoint.get('research') or {}
+        published = checkpoint.get('published')
         return {k: v for k, v in row.items() if k not in ('payload', 'checkpoint')} | {
             'title': payload.get('title') or payload.get('message', '')[:80] or row['kind'],
             'checkpoint_available': bool(checkpoint),
             'resumable': safe,
             'resume_blocker': checkpoint.get('blocker') or ('' if checkpoint.get('safe') else '尚无安全检查点'),
+            'research_status': (research.get('record') or {}).get('status'),
+            'publication_status': 'PUBLISHED' if published else ('NOT_PUBLISHED' if research else None),
+            'artifacts': [published] if published else [],
         }
 
     def state(self, run_id, status, **extra):
@@ -84,7 +101,9 @@ class RunManager:
         event = dict(event)
         event['run_id'] = run_id
         # Reasoning stays in the existing live channel, never in the new journal.
-        ephemeral = event['event'].startswith('reasoning.')
+        # Reconnect uses durable step events and original completed messages.
+        # Token/output chunks are live-only, avoiding a second transcript and a DB write per token.
+        ephemeral = event['event'].startswith('reasoning.') or event['event'] in ('assistant.delta','tool.progress')
         if not ephemeral:
             durable = {**event, 'data': dict(event.get('data') or {})}
             if event.get('message_id') and event['event'] in ('tool.completed', 'assistant.completed'):
@@ -151,6 +170,12 @@ class RunManager:
                         failed = True
                     if value['event'] == 'tool.started':
                         self.store.update(control.id, phase=value['data'].get('summary') or value['data'].get('name', '工具执行'))
+                    if value['event'] == 'tool.completed' and value['data'].get('name') == 'brief_publish':
+                        result = value['data'].get('result') or {}
+                        if value['data'].get('status') == 'ok' and isinstance(result,dict) and result.get('status') == 'PUBLISHED':
+                            checkpoint = self.store.get(control.id)['checkpoint']
+                            checkpoint['published'] = {key:result[key] for key in ('path','title','sha256')}
+                            self.store.update(control.id, checkpoint=checkpoint)
                     self.publish(control.id, value)
             self.state(control.id, 'FAILED' if failed else 'SUCCEEDED')
         except asyncio.CancelledError:
@@ -202,11 +227,15 @@ class RunManager:
             if action == 'stop' and row['status'] in TERMINAL:
                 return self.public(row)
             raise HTTPException(409, '运行已结束；请核对检查点后选择继续')
+        if control.stop_requested and action != 'stop':
+            raise HTTPException(409, '运行正在停止，不能再次暂停或继续')
         if action == 'pause':
             control.pause_requested = True
             if row['status'] != 'PAUSED':
                 self.state(run_id, 'PAUSING')
         elif action == 'resume':
+            if row['status'] == 'RUNNING' and not control.pause_requested:
+                return self.public(row)
             if row['status'] not in ('PAUSED', 'PAUSING'):
                 raise HTTPException(409, '当前运行没有暂停')
             if control.validate:
@@ -215,22 +244,42 @@ class RunManager:
             self.state(run_id, 'RUNNING')
             control.gate.set()
         elif action == 'stop':
-            self.state(run_id, 'STOPPING')
-            control.task.cancel()
-            result = (await asyncio.gather(control.task, return_exceptions=True))[0]
-            if isinstance(result, BaseException) and not isinstance(result,asyncio.CancelledError):
-                raise RuntimeError('运行收尾失败，不能确认已停止') from result
+            self.request_stop(control)
+            if control.cleanup_check:
+                try:
+                    await control.cleanup_check()
+                except (httpx.HTTPError, RuntimeError):
+                    raise HTTPException(409, control.blocker) from None
+                control.cleanup_check = None
+                control.cleanup_ready.set()
+            await asyncio.wait({control.task}, timeout=30)
         else:
             raise HTTPException(422, '未知运行操作')
         return self.public(self.store.get(run_id))
 
+    def request_stop(self, control):
+        if not control.stop_requested:
+            control.stop_requested = True
+            self.state(control.id, 'STOPPING')
+            control.task.cancel()
+
     async def close(self):
         self.accepting = False
         tasks = [control.task for control in tuple(self.live.values())]
-        for task in tasks:
-            task.cancel()
+        for control in tuple(self.live.values()):
+            self.request_stop(control)
+            if control.cleanup_check:
+                try:
+                    await control.cleanup_check()
+                except (httpx.HTTPError, RuntimeError) as exc:
+                    raise RuntimeError(control.blocker) from exc
+                control.cleanup_check = None
+                control.cleanup_ready.set()
         if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            done, pending = await asyncio.wait(tasks, timeout=30)
+            if pending:
+                raise RuntimeError('运行仍在收尾；尚未确认停止，保留执行锁与服务')
+            results = await asyncio.gather(*done, return_exceptions=True)
             for result in results:
                 if isinstance(result,BaseException) and not isinstance(result,asyncio.CancelledError):
                     raise RuntimeError('任务收尾失败，不能确认整栈已安全退出') from result

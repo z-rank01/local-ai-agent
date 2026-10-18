@@ -134,7 +134,9 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_safe_shutdown_does_not_kill_while_draining(self):
         from bff import app as module
         from core.stock_service import stock_service
-        with patch.object(stock_service, 'status', AsyncMock(return_value={'online': True})), \
+        from types import SimpleNamespace
+        with patch.object(module,'get_chat_service',return_value=SimpleNamespace(runs=SimpleNamespace(close=AsyncMock()))), \
+patch.object(stock_service, 'status', AsyncMock(return_value={'online': True})), \
              patch.object(stock_service, 'request', AsyncMock(side_effect=ValueError('正在收尾'))), \
              patch.object(module, '_stack_shutdown_targets', return_value={'bff': [1], 'web': [2]}), \
              patch.object(module, 'schedule_stack_shutdown') as kill:
