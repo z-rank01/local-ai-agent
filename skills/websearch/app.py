@@ -10,6 +10,7 @@ import logging
 import os
 import re
 from typing import Optional
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -237,15 +238,32 @@ async def web_fetch(req: WebFetchRequest):
         }
 
     try:
-        return source_snapshot(resp.content, url=str(resp.url),
+        result = source_snapshot(resp.content, url=str(resp.url),
             title=_extract_title(resp.text) if 'html' in content_type else '', pages=pages,
             offset=req.offset, max_chars=max_chars, expected_hash=req.source_hash,
             include_file=req.include_file, media_type=content_type)
+        if 'html' in content_type:
+            result['document_links'] = _document_links(resp.text, str(resp.url))
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
+
+def _document_links(html: str, url: str) -> list[dict]:
+    """Keep actual PDF attachment targets that plain-text extraction discards."""
+    links, seen = [], set()
+    for anchor in BeautifulSoup(html, 'lxml').find_all('a', href=True):
+        target = urljoin(url, anchor['href'])
+        parts = urlsplit(target)
+        if parts.scheme not in ('http', 'https') or not parts.path.lower().endswith('.pdf') or target in seen:
+            continue
+        seen.add(target)
+        links.append({'url': target, 'label': anchor.get_text(' ', strip=True), 'found_on': url})
+        if len(links) == 20:
+            break
+    return links
 
 def _extract_readable_text(html: str, url: str) -> str:
     """Use readability to extract main content, then strip tags."""

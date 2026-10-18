@@ -7,11 +7,15 @@ from io import BytesIO
 
 def pdf_pages(raw: bytes) -> list[dict]:
     from pypdf import PdfReader
-    reader = PdfReader(BytesIO(raw))
-    if reader.is_encrypted:
-        raise ValueError('PDF 已加密，无法提取原文')
-    pages = [{'page': i + 1, 'text': page.extract_text() or ''}
-             for i, page in enumerate(reader.pages)]
+    from pypdf.errors import PdfReadError
+    try:
+        reader = PdfReader(BytesIO(raw))
+        if reader.is_encrypted:
+            raise ValueError('PDF 已加密，无法提取原文')
+        pages = [{'page': i + 1, 'text': page.extract_text() or ''}
+                 for i, page in enumerate(reader.pages)]
+    except PdfReadError as exc:
+        raise ValueError('PDF 为空或损坏，无法提取原文') from exc
     if not any(page['text'].strip() for page in pages):
         raise ValueError('PDF 没有可提取文本，可能需要 OCR；不能将空文本当成已读原文')
     return pages
