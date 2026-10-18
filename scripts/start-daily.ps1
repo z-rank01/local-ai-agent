@@ -119,8 +119,18 @@ try {
             npm ci --prefix (Join-Path $dailyRoot 'apps/web') *> $null
             if ($LASTEXITCODE -ne 0) { throw 'Web dependency install failed.' }
         }
-        npm run build --prefix (Join-Path $dailyRoot 'apps/web') *> $null
-        if ($LASTEXITCODE -ne 0) { throw 'Web build failed (see output above).' }
+        $dailyWebBuildLog = Join-Path $dailyLogs 'web-build.log'
+        $dailyBuildTemp = Join-Path $dailyRoot 'data/private/web-build-tmp'
+        New-Item -ItemType Directory -Force -Path $dailyBuildTemp | Out-Null
+        $dailySavedTemp, $dailySavedTmp = $env:TEMP, $env:TMP
+        try {
+            $env:TEMP = $dailyBuildTemp
+            $env:TMP = $dailyBuildTemp
+            npm run build --prefix (Join-Path $dailyRoot 'apps/web') *> $dailyWebBuildLog
+            if ($LASTEXITCODE -ne 0) { throw "Web build failed: $dailyWebBuildLog" }
+        } finally {
+            $env:TEMP, $env:TMP = $dailySavedTemp, $dailySavedTmp
+        }
         Write-Ok 'web bundle built'
     } else {
         Write-Ok 'web bundle present (use -RebuildWeb after UI code changes)'

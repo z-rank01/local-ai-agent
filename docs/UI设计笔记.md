@@ -11,6 +11,7 @@
 | 构建 | `npm run build --prefix apps/web`（tsc + vite），BFF 托管 `apps/web/dist`，构建后刷新页面才生效 |
 | 类型检查 | `npm run typecheck --prefix apps/web`（只跑 tsc，不产出 dist） |
 | esbuild 临时目录报错 | Windows 上若报 `remove ... esbuild-* Access is denied`，用项目内临时目录重跑：`TEMP="…\data\tmp\esbuild-tmp" TMP="…\data\tmp\esbuild-tmp" npm run build --prefix apps/web` |
+| 唯一入口构建缓存 | `-RebuildWeb`已在构建子进程期间使用`data/private/web-build-tmp/`，结束恢复原环境；失败查看`data/logs/web-build.log`，不改系统临时目录ACL |
 | 单测 | `.\.conda\python.exe -m unittest discover -s tests`（改动后保持全绿） |
 | 行尾 | `styles.css` 全文件纯 CRLF；tsx/ts 为 LF；提交前不要整文件翻转行尾 |
 
