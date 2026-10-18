@@ -195,7 +195,7 @@ class ResearchSession:
         attempt = f'publication-attempts/{self.publication_attempts}.json'
         await self.write(attempt, params)
         try:
-            validate_publication(params, self.sources, self.read_text)
+            params = validate_publication(params, self.sources, self.read_text)
             charts = render_charts(params.get('charts', []))
         except (ValueError, KeyError, TypeError, DecimalException) as exc:
             return {'error': str(exc), 'draft_path': self.record['directory'] + '/' + attempt,
@@ -213,7 +213,7 @@ class ResearchSession:
             material_sha256=digest, as_of=params['as_of'], stance=params['stance'],
             scope_label=self.record['scope'], charts_html=charts,
             provenance='聊天自主研究 · 模型生成',
-            material_note='本轮使用公开来源；资料时点见各来源。模型承担分析与自查，程序核对引用和算式不等于事实认证。')
+            material_note='本轮使用公开来源；资料时点见各来源。算术结果由程序按输入计算；模型承担分析与自查，程序核对不等于事实认证。')
         # HTML is the last publication file. Failure never returns a report card.
         await self.write('model-original.md', original)
         await self.write('report.md', original + references)

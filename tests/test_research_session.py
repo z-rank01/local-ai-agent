@@ -232,6 +232,39 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.record['status'], 'DELIVERY_INCOMPLETE')
         self.assertIsNone(run.published)
 
+    async def test_program_fills_derived_values_without_changing_submitted_draft(self):
+        files, run, params = await self.prepare()
+        source = params['sources'][0]['id']
+        params['calculations'] = [
+            {'operation': 'divide', 'unit': '万元', 'inputs': [
+                {'value': '100', 'unit': '元', 'period': '2025', 'source': source},
+                {'value': '10000', 'unit': '元/万元', 'period': '不适用', 'source': 'constant:单位换算'}]},
+            {'operation': 'sum', 'unit': '万元', 'inputs': [
+                {'unit': '万元', 'period': '2025', 'source': 'calculation:0'},
+                {'unit': '万元', 'period': '2025', 'source': 'calculation:0'}]}]
+        params['charts'][0].update(unit='万元', items=[{'label': '合计', 'calculation': 1}])
+        submitted = copy.deepcopy(params)
+        result = await run.publish(params)
+        self.assertEqual(result['status'], 'PUBLISHED')
+        self.assertEqual(params, submitted)
+        self.assertEqual(json.loads(files.files[run.record['directory']+'/publication-attempts/1.json']), submitted)
+        evidence = json.loads(files.files[run.record['directory']+'/evidence.json'])
+        self.assertEqual(evidence['calculations'][0]['result'], '0.01')
+        self.assertEqual(evidence['calculations'][1]['result'], '0.02')
+        self.assertEqual(evidence['charts'][0]['items'][0]['value'], '0.02')
+        self.assertEqual(result, await run.publish(submitted))
+
+    async def test_program_result_keeps_decimal_precision_and_rejects_explicit_conflicts(self):
+        _, run, params = await self.prepare()
+        params['calculations'] = [{'operation': 'divide', 'unit': '元', 'inputs': [
+            {'value': '100', 'unit': '元', 'period': '2025', 'source': params['sources'][0]['id']},
+            {'value': '3', 'unit': '份', 'period': '不适用', 'source': 'constant:份数'}]}]
+        checked = validate_publication(params, run.sources, run.read_text)
+        self.assertEqual(checked['calculations'][0]['result'], '33.'+'3'*38)
+        params['calculations'][0]['result'] = '33.33'
+        self.assertIn('error', await run.publish(params))
+        self.assertIsNone(run.published)
+
     async def test_calculation_dependencies_keep_values_and_units_bound(self):
         _, run, params = await self.prepare()
         source = params['sources'][0]['id']

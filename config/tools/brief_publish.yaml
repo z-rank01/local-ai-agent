@@ -6,8 +6,8 @@ cloud: write
 description: >-
   核对后发布当前研究的HTML简报。先research_begin、实际读方法和新原文，再进入核对阶段。
   原文引句必须来自web_fetch返回的source_id及实际已读内容。正文直接回答问题，解释术语，长段拆分，含理由、反证和最多3项观察条件。
-  calculations保存容器计算的完整精度，不手工四舍五入result；图表原值须出现在原文引句或引用calculation的零起始索引，单位一致。
-  单位换算和多步计算须逐步列式：输入可引用此前已核对结果，source填calculation:零起始索引，value和unit须与该结果相同。不能把换算值或中间结果当成原文原值。
+  calculations只需提交操作及有来源/期间/单位的输入，result由程序计算，不必抄写长小数。图表原值须出现在原文引句；引用calculation零起始索引时可省略value，由程序填入。
+  单位换算和多步计算须逐步列式：前项结果的source填calculation:零起始索引，value可省略，unit须一致。显式提供的结果或图值若冲突仍拒绝。不能把换算值或中间结果当成原文原值。
   推荐先用容器脚本在本轮研究目录写完整发布JSON，再仅传draft_path。也兼容直接传完整参数。
   核对失败会返回已保存的draft_path和具体错误；复制为工作草稿后定向修改再提交路径，不反复重传全文。不能将失败草稿当成报告卡。
   仅返回已保存文件。最后用返回path的Markdown链接交付报告卡。检查不认证研究判断。
@@ -35,18 +35,18 @@ parameters:
         properties:
           operation: {type: string, enum: [sum, subtract, multiply, divide]}
           unit: {type: string}
-          result: {type: string, description: Decimal40位精度原结果}
+          result: {type: string, description: 可省略，由程序以Decimal40位精度计算；显式值必须与算式一致}
           inputs:
             type: array
             items:
               type: object
               properties:
-                value: {type: string}
+                value: {type: string, description: 原文或常数原值；source引用前项计算时可省略，由程序取值}
                 unit: {type: string}
                 period: {type: string}
                 source: {type: string, description: 实际source_id；前项结果使用calculation:零起始索引；数学常数使用constant:含义且period为不适用}
-              required: [value, unit, period, source]
-        required: [operation, inputs, result, unit]
+              required: [unit, period, source]
+        required: [operation, inputs, unit]
     charts:
       type: array
       maxItems: 3
@@ -62,10 +62,10 @@ parameters:
               type: object
               properties:
                 label: {type: string}
-                value: {type: string}
+                value: {type: string, description: 原文原值；引用calculation时可省略，由程序取值}
                 source: {type: string, description: 原值来源id，或使用calculation}
                 calculation: {type: integer, description: calculations零起始索引}
-              required: [label, value]
+              required: [label]
         required: [title, unit, period, items]
     review:
       type: object
