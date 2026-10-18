@@ -1540,3 +1540,17 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
   from { opacity: 1; transform: none; }
   to { opacity: 0; transform: translateY(var(--space-2)); }
 }
+
+/* Shared run controls: workbench list and current conversation. */
+.run-row { padding-block: var(--space-4); border-bottom: 1px solid var(--border-soft); overflow-wrap: anywhere; }
+.run-row p, .runs-panel h3 { margin-block: var(--space-2); }
+.run-heading { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: space-between; }
+.run-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.run-note { color: var(--muted); font-size: var(--text-xs); }
+.run-error { color: var(--danger); font-size: var(--text-sm); }
+.run-status { color: var(--fg-2); font-size: var(--text-xs); }
+.run-status.running, .run-status.pausing, .run-status.paused, .run-status.stopping { color: var(--warn-text); }
+.run-status.failed { color: var(--danger-text); }
+.run-status.succeeded { color: var(--ok-text); }
+.conversation-run { padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); font-size: var(--text-xs); max-height: 30vh; overflow: auto; overflow-wrap: anywhere; }
+.run-count { white-space: normal; text-align: center; font-size: var(--text-xs); line-height: var(--ui-leading); }

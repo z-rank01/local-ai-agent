@@ -60,6 +60,36 @@ async function requestJson<T>(path: string, init?: RequestInit, baseUrl = DEFAUL
 }
 export function fetchWorkspaces(): Promise<Workspace[]> { return requestJson('/api/workspaces'); }
 
+export function fetchRuns(): Promise<import('./types').RunList> { return requestJson('/api/runs'); }
+export function fetchRun(id: string): Promise<import('./types').RunSummary> {
+  return requestJson('/api/runs/'+encodeURIComponent(id));
+}
+export function controlRun(id: string, action: 'pause' | 'resume' | 'stop'): Promise<import('./types').RunSummary> {
+  return requestJson('/api/runs/'+encodeURIComponent(id)+'/control', {
+    method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({action}),
+  });
+}
+export async function observeRun(id: string, after: number, onEvent: (event: UIStreamEvent) => void, signal: AbortSignal): Promise<void> {
+  const response=await apiFetch(`${DEFAULT_BASE_URL}/api/runs/${encodeURIComponent(id)}/events?after_seq=${after}`, {signal});
+  if (!response.ok) await readJson(response);
+  if (!response.body) throw new Error('观察连接没有返回事件流');
+  const reader=response.body.getReader(), decoder=new TextDecoder();
+  let buffer='';
+  try {
+    while (true) {
+      const {done,value}=await reader.read();
+      buffer+=decoder.decode(value,{stream:!done});
+      let end=buffer.indexOf('\n');
+      while(end>=0) {
+        const line=buffer.slice(0,end).trim(); buffer=buffer.slice(end+1);
+        if(line) onEvent(JSON.parse(line));
+        end=buffer.indexOf('\n');
+      }
+      if(done) { if(buffer.trim()) onEvent(JSON.parse(buffer)); return; }
+    }
+  } finally { reader.releaseLock(); }
+}
+
 export function deliverWorkspaceBrief(conversationId: string, path: string): Promise<MessageRecord> {
   return requestJson(`/api/conversations/${encodeURIComponent(conversationId)}/brief-delivery`, {
     method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({path}),

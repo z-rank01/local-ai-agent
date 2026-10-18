@@ -10,8 +10,9 @@ import type {ConversationSummary} from '../types';
 import {Icon} from '../ui/Icon';
 import {Markdown} from '../ui/Markdown';
 import {Panel} from '../ui/Panel';
+import {RunsPanel} from '../panels/RunsPanel';
 
-export type SheetView = 'workbench' | 'doc';
+export type SheetView = 'workbench' | 'doc' | 'runs';
 
 export type SheetDoc = {
   title: string;
@@ -34,6 +35,7 @@ export type SheetProps = {
     onChanged?: () => void;
     onMethodChanged?: (conversation: ConversationSummary) => void;
   };
+  runs: ComponentProps<typeof RunsPanel>;
 };
 
 const MIN_WIDTH = 340;
@@ -55,6 +57,7 @@ export function Sheet({
   onZoomDoc,
   workspace, workspaceManager,
   skills,
+  runs,
 }: SheetProps): JSX.Element {
   const [overlay, setOverlay] = useState(window.innerWidth - width < 560);
   useEffect(() => { const update = () => setOverlay(window.innerWidth - width < 560); update(); window.addEventListener("resize", update); return () => window.removeEventListener("resize", update); }, [width]);
@@ -105,7 +108,7 @@ export function Sheet({
     applyWidth(width + (event.key === 'ArrowLeft' ? WIDTH_STEP : -WIDTH_STEP));
   };
 
-  const title = view === 'doc' && doc ? doc.title : '工作台';
+  const title = view === 'doc' && doc ? doc.title : view==='runs'?'全部任务':'工作台';
 
   return (
     <aside
@@ -134,13 +137,14 @@ export function Sheet({
         onKeyDown={handleResizeKeyDown}
       />
       <div className="sheet-head">
-        {view === 'doc' ? (
+        {view !== 'workbench' ? (
           <button type="button" className="sheet-back" onClick={() => onViewChange('workbench')}>
             <Icon name="i-chev-left" className="ico-sm" />
             工作台
           </button>
         ) : null}
         <span className="sheet-title">{title}</span>
+        {view==='workbench'&&<button className="btn btn-quiet btn-sm" onClick={()=>onViewChange('runs')}>查看全部任务</button>}
         <span id="sheetActs">
           {view === 'doc' ? (
             <button type="button" className="btn btn-quiet btn-sm" onClick={onZoomDoc}>
@@ -153,6 +157,7 @@ export function Sheet({
           <Icon name="i-x" />
         </button>
       </div>
+      <div className="sheet-scroll" hidden={view!=='runs'}><RunsPanel {...runs}/></div>
       <div className="sheet-scroll" hidden={view !== 'workbench'}>
         <Panel id="workspace" title="工作区">
           <WorkspaceManager {...workspaceManager} />

@@ -20,6 +20,9 @@ export type TopBarProps = {
   sheetOpen: boolean;
   onToggleSheet: () => void;
   onOpenSettings: () => void;
+  runningCount: number;
+  pausedCount: number;
+  onOpenRuns: () => void;
 };
 
 const EXPORT_ITEMS: {format: ExportFormat; label: string; icon: string}[] = [
@@ -44,6 +47,7 @@ export function TopBar({
   sheetOpen,
   onToggleSheet,
   onOpenSettings,
+  runningCount, pausedCount, onOpenRuns,
 }: TopBarProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   const exportRef = useRef<HTMLButtonElement | null>(null);
@@ -72,6 +76,9 @@ export function TopBar({
           </span>
         </button>
         <div className="tb-actions">
+          <button className="btn btn-quiet btn-sm run-count" onClick={onOpenRuns} title="查看并控制全部任务">
+            运行中 {runningCount} · 已暂停 {pausedCount}
+          </button>
           <ModelPicker
             providers={providers}
             value={value}

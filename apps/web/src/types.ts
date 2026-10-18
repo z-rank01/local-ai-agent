@@ -157,6 +157,7 @@ export type WorkspaceRestoreResponse = {
 };
 
 export type UIStreamEvent = {
+  seq?: number | null;
   event: string;
   conversation_id?: string | null;
   run_id?: string | null;
@@ -164,6 +165,16 @@ export type UIStreamEvent = {
   message_id?: string | null;
   data: Record<string, unknown>;
 };
+
+export type RunSummary = {
+  id: string; source?: 'stock'; kind: string; conversation_id: string | null; workspace_id: string;
+  request_id: string; title: string; model: string; status: string; phase: string;
+  created_at: string; updated_at: string; last_seq: number; error?: string | null;
+  resumable: boolean; resume_blocker: string; checkpoint_available: boolean;
+  business_status?: string; report_available?: boolean; actions?: string[];
+};
+export type RunList = {runs: RunSummary[]; stock_service: {online: boolean; message?: string;
+  worker?: {enabled: boolean; busy: boolean; research_only: boolean}}};
 
 export type TranscriptKind = 'user' | 'assistant' | 'reasoning' | 'tool' | 'meta' | 'error';
 

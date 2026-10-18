@@ -1,8 +1,10 @@
 import {useEffect, useRef} from 'react';
+import type {ReactNode} from 'react';
 import type {KeyboardEvent as ReactKeyboardEvent} from 'react';
 import {Icon} from '../ui/Icon';
 
 export type ComposerProps = {
+  runStatus?: ReactNode;
   contextLoading?: boolean;
   value: string;
   onChange: (value: string) => void;
@@ -27,6 +29,7 @@ const baseName = (path: string): string => path.split('/').filter(Boolean).pop()
    Enter 发送（Shift+Enter 换行），中文输入法组字中的 Enter 不发送；
    生成中只把发送切成停止，文本域照常可继续起草。 */
 export function Composer({
+  runStatus,
   contextLoading = false,
   value,
   onChange,
@@ -79,6 +82,7 @@ export function Composer({
 
   return (
     <footer className="composer-wrap">
+      {runStatus}
       <div className="composer">
         {attachments.length > 0 ? (
           <div className="attach-row">

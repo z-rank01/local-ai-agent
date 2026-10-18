@@ -2,7 +2,7 @@ import {BriefReaderContext} from '../lib/briefReader';
 import {prepareHtmlBrief} from '../lib/htmlBrief';
 import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {
-  DEFAULT_BASE_URL,
+  DEFAULT_BASE_URL, fetchRuns, fetchRun, controlRun, observeRun,
   fetchWorkspacePreview,
   deliverWorkspaceBrief,
   ensureBrowserSession,
@@ -46,7 +46,7 @@ import {
   type EditingState,
 } from '../lib/transcript';
 import type {
-  AppStatus,
+  AppStatus, RunList, RunSummary,
   ConversationSummary,
   Workspace,
   ModelInfo,
@@ -59,6 +59,8 @@ import {Icon, IconSprite} from '../ui/Icon';
 import {Toast} from '../ui/Toast';
 import {WorkspaceContext, ToolNamesContext} from '../lib/workspace';
 import {Composer} from './Composer';
+import {RunControls, runLabel} from '../panels/RunsPanel';
+import {RUN_LIVE,conversationRun,acceptRunEvent} from '../lib/runs';
 import {ConversationDrawer} from './ConversationDrawer';
 import {Reader} from './Reader';
 import {SettingsDialog, type SettingsTab} from './SettingsDialog';
@@ -119,6 +121,14 @@ export default function App(): JSX.Element {
   const [readerZoomed, setReaderZoomed] = useState(false);
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadAppearanceSettings());
   const [busy, setBusy] = useState(false);
+  const [runList,setRunList]=useState<RunList>({runs:[],stock_service:{online:false}});
+  const [runError,setRunError]=useState('');
+  const [observation,setObservation]=useState('');
+  const runCursors=useRef<Record<string,number>>({});
+  const currentRun=conversationRun(runList.runs,conversationId);
+  const refreshRuns=useCallback(async()=>{
+    const next=await fetchRuns(); setRunList(next); setRunError(''); return next;
+  },[]);
   const [versionBusy, setVersionBusy] = useState(false);
   const [conversationLoading, setConversationLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -254,14 +264,25 @@ export default function App(): JSX.Element {
     return next;
   }, []);
 
+  const detachObserver=useCallback(()=>{
+    const previous=abortRef.current;
+    abortRef.current=null; runIdentityRef.current=null;
+    previous?.abort(); flushDeltaBuffer();
+    pendingPromptRef.current='';pendingUserBlockIdRef.current=null;pendingAssistantBlockIdRef.current=null;
+    setBusy(false);setObservation('');
+  },[flushDeltaBuffer]);
+
   const openConversation = useCallback(async (targetId: string) => {
-    if (abortRef.current) { notify('请等待当前任务结束或停止后再切换会话', 'error'); return; }
+    detachObserver();
     persistDraft();
     const sequence = ++loadSequenceRef.current;
     flushDeltaBuffer();
     closeReportReader(false);
     setConversationLoading(true);
     try {
+      const snapshot=await refreshRuns();
+      const running=conversationRun(snapshot.runs,targetId);
+      if(running) runCursors.current[running.id]=running.last_seq;
       const [messages, summary] = await Promise.all([fetchMessages(targetId), fetchConversation(targetId)]);
       if (!summary || sequence !== loadSequenceRef.current) return;
       const nextWorkspaceId = summary.workspace_id ?? 'default';
@@ -282,7 +303,7 @@ export default function App(): JSX.Element {
     } finally {
       if (sequence === loadSequenceRef.current) setConversationLoading(false);
     }
-  }, [closeReportReader, flushDeltaBuffer, persistDraft, restoreDraft]);
+  }, [closeReportReader, detachObserver, flushDeltaBuffer, persistDraft, restoreDraft, refreshRuns]);
 
   const refreshModels = useCallback(async () => {
     setModelsRefreshing(true);
@@ -337,7 +358,8 @@ export default function App(): JSX.Element {
   }, [openConversation, restoreDraft]);
 
   const resetConversation = useCallback(() => {
-    if (abortRef.current || uploading || workspaceFilesBusy) return;
+    if (uploading || workspaceFilesBusy) return;
+    detachObserver();
     persistDraft();
     ++loadSequenceRef.current;
     activeConversationIdRef.current = null;
@@ -354,7 +376,7 @@ export default function App(): JSX.Element {
     setError('');
     stickToBottomRef.current = true;
     closeReportReader(false);
-  }, [closeReportReader, flushDeltaBuffer, persistDraft, restoreDraft, uploading, workspaceFilesBusy]);
+  }, [detachObserver, closeReportReader, flushDeltaBuffer, persistDraft, restoreDraft, uploading, workspaceFilesBusy]);
 
   const attachWorkspacePath = useCallback((path: string) => {
     if (workspaceIdRef.current !== workspaceId || activeConversationIdRef.current !== conversationId) {
@@ -394,7 +416,10 @@ export default function App(): JSX.Element {
     if (!identity) return;
     if (identity.runId && event.run_id && identity.runId !== event.run_id) return;
     if (identity.conversationId && event.conversation_id && identity.conversationId !== event.conversation_id) return;
-    if (event.run_id) identity.runId = event.run_id;
+    if (event.run_id) {
+      identity.runId = event.run_id;
+      if(!acceptRunEvent(runCursors.current,event)) return;
+    }
     if (event.conversation_id) { identity.conversationId = event.conversation_id; activeConversationIdRef.current = event.conversation_id; }
     if (event.event !== 'assistant.delta' && event.event !== 'reasoning.delta') {
       flushDeltaBuffer();
@@ -403,6 +428,11 @@ export default function App(): JSX.Element {
       setConversationId(event.conversation_id);
     }
     switch (event.event) {
+      case 'run.updated': {
+        const row=event.data.run as RunSummary;
+        setRunList(list=>({...list,runs:[row,...list.runs.filter(r=>r.id!==row.id)]}));
+        break;
+      }
       case 'session.started': {
         const summary = readConversationSummary(event);
         if (summary) {
@@ -623,6 +653,41 @@ export default function App(): JSX.Element {
     }
   }, [conversationFilter, conversationId, flushDeltaBuffer, queueDelta, refreshConversations]);
 
+  useEffect(()=>{
+    let mounted=true;
+    const poll=()=>void refreshRuns().catch(cause=>{if(mounted) setRunError(formatBackendError(cause));});
+    poll(); const timer=window.setInterval(poll,3000);
+    return ()=>{mounted=false;window.clearInterval(timer);};
+  },[refreshRuns]);
+
+  useEffect(()=>{
+    const run=conversationRun(runList.runs,conversationId);
+    if(!run||!RUN_LIVE.has(run.status)||abortRef.current||conversationLoading) return;
+    const controller=new AbortController(); abortRef.current=controller;
+    runIdentityRef.current={conversationId:run.conversation_id,runId:run.id};
+    setBusy(true);setObservation('正在连接运行记录…');
+    void (async()=>{
+      try {
+        await observeRun(run.id,runCursors.current[run.id]??0,event=>{
+          if(abortRef.current!==controller) return;
+          setObservation('');applyEvent(event);
+        },controller.signal);
+        const final=await fetchRun(run.id);
+        if(abortRef.current!==controller) return;
+        setRunList(list=>({...list,runs:[final,...list.runs.filter(r=>r.id!==final.id)]}));
+        if(RUN_LIVE.has(final.status)) setObservation('连接中断，正在重新连接；任务仍由后端持有');
+        else {
+          const messages=await fetchMessages(run.conversation_id!);
+          if(abortRef.current===controller) {flushDeltaBuffer();setBlocks(buildBlocksFromMessages(messages));setObservation('');}
+        }
+      } catch(cause) {
+        if(abortRef.current===controller&&!controller.signal.aborted) setObservation('连接中断，正在重新连接；'+formatBackendError(cause));
+      } finally {
+        if(abortRef.current===controller) {abortRef.current=null;runIdentityRef.current=null;setBusy(false);}
+      }
+    })();
+  },[runList,conversationId,conversationLoading,applyEvent,flushDeltaBuffer]);
+
   const sendMessage = async () => {
     const activeEdit = editingMessage;
     const draft = activeEdit ? editText : input;
@@ -689,7 +754,7 @@ export default function App(): JSX.Element {
           activeEdit.messageId,
           message,
           {signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name, requestId: crypto.randomUUID()},
-          applyEvent,
+          event=>{if(abortRef.current===controller) applyEvent(event);},
         );
       } else {
         await streamChat(
@@ -702,13 +767,16 @@ export default function App(): JSX.Element {
             provider_id: selectedModel?.provider_id,
             model: selectedModel?.name,
           },
-          applyEvent,
+          event=>{if(abortRef.current===controller) applyEvent(event);},
           {signal: controller.signal},
         );
       }
       if (streamFailureRef.current) throw new Error(streamFailureRef.current);
-      if (!streamCompletedRef.current) throw new Error('输出连接已中断，请核查会话中已保存的结果。');
+
     } catch (err) {
+      if(abortRef.current!==controller) return;
+      if(err instanceof Error&&err.name==='AbortError') return;
+      setObservation('连接中断，正在重新连接；任务状态以后端为准');
       const pendingId = pendingAssistantBlockIdRef.current;
       if (pendingId) {
         setBlocks((current) => current.filter((block) => block.id !== pendingId));
@@ -745,6 +813,7 @@ export default function App(): JSX.Element {
 
       }
     } finally {
+      if(abortRef.current!==controller) return;
       flushDeltaBuffer();
       pendingPromptRef.current = '';
       pendingUserBlockIdRef.current = null;
@@ -757,13 +826,19 @@ export default function App(): JSX.Element {
         } catch (err) { setError(formatBackendError(err)); }
       }
       abortRef.current = null; setBusy(false);
+      void refreshRuns().catch(cause=>setRunError(formatBackendError(cause)));
       void refreshConversations().catch(() => {});
       void refreshWorkspaces().catch(() => {});
     }
   };
 
+  const controlExecution=useCallback(async(id:string,action:'pause'|'resume'|'stop')=>{
+    await controlRun(id,action); await refreshRuns();
+  },[refreshRuns]);
   const stopGeneration = () => {
-    abortRef.current?.abort();
+    const id=runIdentityRef.current?.runId??currentRun?.id;
+    if(id) void controlExecution(id,'stop').catch(cause=>setError(formatBackendError(cause)));
+    else setError('运行尚在登记，请稍后从任务列表核对；不会仅断开浏览器连接来假报停止。');
   };
 
   const renameConversation = async (item: ConversationSummary) => {
@@ -876,11 +951,13 @@ export default function App(): JSX.Element {
       await streamRegenerate(
         conversationId,
         {messageId: lastUserBlock.messageId, signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name, requestId: crypto.randomUUID()},
-        applyEvent,
+        event=>{if(abortRef.current===controller) applyEvent(event);},
       );
       if (streamFailureRef.current) throw new Error(streamFailureRef.current);
-      if (!streamCompletedRef.current) throw new Error('输出连接已中断，请核查已保存的结果。');
+
     } catch (err) {
+      if(abortRef.current!==controller||(err instanceof Error&&err.name==='AbortError')) return;
+      setObservation('连接中断，正在重新连接；任务状态以后端为准');
       const pendingId = pendingAssistantBlockIdRef.current;
       if (pendingId) {
         setBlocks((current) => current.filter((block) => block.id !== pendingId));
@@ -902,9 +979,11 @@ export default function App(): JSX.Element {
 
       }
     } finally {
+      if(abortRef.current!==controller) return;
       flushDeltaBuffer();
       setBusy(false);
       abortRef.current = null;
+      void refreshRuns().catch(cause=>setRunError(formatBackendError(cause)));
       runIdentityRef.current = null;
       try { const messages = await fetchMessages(conversationId); if (activeConversationIdRef.current === conversationId && !abortRef.current) setBlocks(buildBlocksFromMessages(messages)); } catch (err) { setError(formatBackendError(err)); }
       void refreshWorkspaces().catch(() => {});
@@ -1121,7 +1200,8 @@ export default function App(): JSX.Element {
   useEffect(() => { persistDraft(); }, [input, attachedPaths, conversationId, workspaceId, persistDraft]);
   useEffect(() => { writeString('local-ai-agent.workspace', workspaceId); void refreshConversations().catch(() => {}); }, [workspaceId, refreshConversations]);
   const selectWorkspace = useCallback((id: string) => {
-    if (abortRef.current || uploading || workspaceFilesBusy || versionBusy) return;
+    if (uploading || workspaceFilesBusy || versionBusy) return;
+    detachObserver();
     persistDraft(); ++loadSequenceRef.current; ++searchSequenceRef.current;
     workspaceIdRef.current = id; activeConversationIdRef.current = null;
     setConversationLoading(false);
@@ -1129,7 +1209,7 @@ export default function App(): JSX.Element {
     setConversationFilter(''); setEditingMessage(null); setEditText(''); setError('');
     setSheetDoc(null); setSheetView('workbench'); closeReportReader(false); restoreDraft(null, id);
     void fetchStatus(undefined, id).then(setStatus).catch(err => setError(formatBackendError(err)));
-  }, [closeReportReader, persistDraft, restoreDraft, uploading, workspaceFilesBusy, versionBusy]);
+  }, [closeReportReader, detachObserver, persistDraft, restoreDraft, uploading, workspaceFilesBusy, versionBusy]);
 
   /* 工作台打开时把内容区右边界让出 Sheet 宽度：顶栏、正文、输入胶囊、通告条共同消费。
      Sheet 只负责自己的 --sheet-w，此处是 App 侧的布局让位。 */
@@ -1269,6 +1349,9 @@ export default function App(): JSX.Element {
     <ToolNamesContext.Provider value={Object.fromEntries((status?.tool_catalog ?? []).map(tool => [tool.name, tool.display_name]))}>
       <IconSprite />
       <TopBar
+        runningCount={runList.runs.filter(r=>['RUNNING','PAUSING','STOPPING'].includes(r.status)).length}
+        pausedCount={runList.runs.filter(r=>r.status==='PAUSED').length}
+        onOpenRuns={()=>{setSheetView('runs');setSheetOpen(true);}}
         title={activeConversation?.title ?? (conversationId ? '当前会话' : '新对话')}
         onOpenDrawer={() => setDrawerOpen(true)}
         providers={providers}
@@ -1309,6 +1392,10 @@ export default function App(): JSX.Element {
       />
       {conflictConversationId && <div className="notice-bar" role="status"><button className="btn btn-quiet" onClick={() => void openConversation(conflictConversationId)}>查看正在执行的会话</button></div>}
       <Composer
+        runStatus={currentRun&&<section className="conversation-run" aria-label="当前会话运行状态">
+          <span role="status">{runLabel(currentRun.status)} · {currentRun.phase||'准备中'}{observation?' · '+observation:''}</span>
+          <RunControls run={currentRun} onControl={controlExecution}/>
+        </section>}
         contextLoading={loading || conversationLoading}
         value={editingMessage ? editText : input}
         onChange={editingMessage ? setEditText : setInput}
@@ -1331,7 +1418,7 @@ export default function App(): JSX.Element {
         onClose={() => setDrawerOpen(false)}
         conversations={conversations}
         workspaces={workspaces} workspaceId={workspaceId} onSelectWorkspace={selectWorkspace}
-        busy={busy || versionBusy || uploading || workspaceFilesBusy || conversationLoading || loading}
+        busy={versionBusy || uploading || workspaceFilesBusy || conversationLoading || loading}
         activeId={conversationId}
         filter={conversationFilter}
         onFilterChange={setConversationFilter}
@@ -1351,6 +1438,7 @@ export default function App(): JSX.Element {
         shutdownPending={shutdownPending}
       />
       <Sheet
+        runs={{data:runList,error:runError,onOpen:id=>{setSheetOpen(false);void openConversation(id);},onControl:controlExecution}}
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
         view={sheetView}
@@ -1359,7 +1447,7 @@ export default function App(): JSX.Element {
         onWidthChange={setSheetWidth}
         doc={sheetDoc}
         onZoomDoc={handleZoomDoc}
-        workspaceManager={{workspace: workspaces.find(w => w.id === workspaceId), workspaces, busy: busy || versionBusy || uploading || workspaceFilesBusy || loading || conversationLoading, onSelect: selectWorkspace, onRefresh: refreshWorkspaces, onOpenConversation: openConversation}}
+        workspaceManager={{workspace: workspaces.find(w => w.id === workspaceId), workspaces, busy: versionBusy || uploading || workspaceFilesBusy || loading || conversationLoading, onSelect: selectWorkspace, onRefresh: refreshWorkspaces, onOpenConversation: openConversation}}
         workspace={{
           workspaceId, roots: workspaces.find(w => w.id === workspaceId)?.roots ?? [], primaryPath: workspaces.find(w => w.id === workspaceId)?.primary_path,
           busy: busy || versionBusy || loading || conversationLoading || uploading,
