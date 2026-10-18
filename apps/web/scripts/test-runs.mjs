@@ -6,7 +6,16 @@ import ts from 'typescript';
 const module={exports:{}};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/runs.ts',import.meta.url),'utf8'),
   {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{module,exports:module.exports});
-const {conversationRun,acceptRunEvent}=module.exports;
+const {conversationRun,acceptRunEvent,shouldObserveRun}=module.exports;
+
+test('a script finishing between polls still synchronizes its final messages exactly once',()=>{
+  const finished={id:'script',status:'SUCCEEDED',last_seq:42};
+  assert.equal(shouldObserveRun(finished,{}),true);
+  assert.equal(shouldObserveRun(finished,{script:42}),false);
+  assert.equal(shouldObserveRun({...finished,last_seq:43},{script:42}),true);
+  assert.equal(shouldObserveRun({...finished,status:'RUNNING'},{script:42}),true);
+  assert.equal(shouldObserveRun(undefined,{}),false);
+});
 test('a continued live execution wins over its recently updated parent',()=>{
   const parent={id:'parent',conversation_id:'a',status:'STOPPED'};
   const child={id:'child',conversation_id:'a',status:'RUNNING'};

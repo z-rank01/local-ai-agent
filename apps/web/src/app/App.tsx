@@ -60,7 +60,7 @@ import {Toast} from '../ui/Toast';
 import {WorkspaceContext, ToolNamesContext} from '../lib/workspace';
 import {Composer} from './Composer';
 import {RunControls} from '../panels/RunsPanel';
-import {RUN_LIVE,conversationRun,acceptRunEvent,runLabel} from '../lib/runs';
+import {RUN_LIVE,conversationRun,acceptRunEvent,runLabel,shouldObserveRun} from '../lib/runs';
 import {ConversationDrawer} from './ConversationDrawer';
 import {Reader} from './Reader';
 import {SettingsDialog, type SettingsTab} from './SettingsDialog';
@@ -125,6 +125,7 @@ export default function App(): JSX.Element {
   const [runError,setRunError]=useState('');
   const [observation,setObservation]=useState('');
   const runCursors=useRef<Record<string,number>>({});
+  const syncedRunSnapshots=useRef<Record<string,number>>({});
   const currentRun=conversationRun(runList.runs,conversationId);
   const refreshRuns=useCallback(async()=>{
     const next=await fetchRuns(); setRunList(next); setRunError(''); return next;
@@ -662,10 +663,10 @@ export default function App(): JSX.Element {
 
   useEffect(()=>{
     const run=conversationRun(runList.runs,conversationId);
-    if(!run||!RUN_LIVE.has(run.status)||abortRef.current||conversationLoading) return;
+    if(!shouldObserveRun(run,syncedRunSnapshots.current)||abortRef.current||conversationLoading) return;
     const controller=new AbortController(); abortRef.current=controller;
     runIdentityRef.current={conversationId:run.conversation_id,runId:run.id};
-    setBusy(true);setObservation(run.status==='PAUSED'?'':'正在连接运行记录…');
+    setBusy(RUN_LIVE.has(run.status));setObservation(run.status==='PAUSED'?'':'正在同步运行记录…');
     void (async()=>{
       try {
         await observeRun(run.id,runCursors.current[run.id]??0,event=>{
@@ -678,7 +679,10 @@ export default function App(): JSX.Element {
         if(RUN_LIVE.has(final.status)) setObservation('连接中断，正在重新连接；任务仍由后端持有');
         else {
           const messages=await fetchMessages(run.conversation_id!);
-          if(abortRef.current===controller) {flushDeltaBuffer();setBlocks(buildBlocksFromMessages(messages));setObservation('');}
+          if(abortRef.current===controller) {
+            syncedRunSnapshots.current[run.id]=final.last_seq;
+            flushDeltaBuffer();setBlocks(buildBlocksFromMessages(messages));setObservation('');
+          }
         }
       } catch(cause) {
         if(abortRef.current===controller&&!controller.signal.aborted) setObservation('连接中断，正在重新连接；'+formatBackendError(cause));
