@@ -5,7 +5,10 @@ import re
 
 
 def number(value):
-    result = Decimal(str(value))
+    text = str(value)
+    if re.fullmatch(r'[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?', text):
+        text = text.replace(',', '')
+    result = Decimal(text)
     if not result.is_finite():
         raise ValueError('数值必须有限')
     return result

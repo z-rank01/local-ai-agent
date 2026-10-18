@@ -3,7 +3,7 @@ import copy
 import unittest
 
 from core.research_session import ResearchSession
-from core.research_visuals import validate_publication
+from core.research_visuals import number, validate_publication
 
 
 class Files:
@@ -23,6 +23,13 @@ class Files:
 
 
 class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
+    def test_grouped_numbers_accept_only_valid_thousands_format(self):
+        from decimal import Decimal, InvalidOperation
+        self.assertEqual(number('1,123,645,275'), Decimal('1123645275'))
+        self.assertEqual(number('-1,234.50'), Decimal('-1234.50'))
+        with self.assertRaises(InvalidOperation):
+            number('1,23')
+
     async def prepare(self):
         files = Files()
         run = ResearchSession(files, conversation_id='conversation', model='selected', allowed=True)
