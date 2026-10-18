@@ -47,5 +47,19 @@
     "context_window": 1000000,
     "context_reference": "https://help.aliyun.com/zh/model-studio/qwen3-8-flash",
     "context_verified_at": "2026-10-12"
+  },
+  {
+    "provider_id": "deepseek",
+    "provider_name": "DeepSeek",
+    "kind": "cloud",
+    "model": "deepseek-flash",
+    "base_url": "https://api.deepseek.com",
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "capabilities": [
+      "text"
+    ],
+    "context_window": 1000000,
+    "context_reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "context_verified_at": "2026-10-18"
   }
 ]
