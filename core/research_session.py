@@ -92,7 +92,8 @@ class ResearchSession:
             # The executor owns new research directories; the file service may
             # save evidence there without making the parent unwritable to scripts.
             created = await self.router.dispatch('shell_exec', {
-                'command': 'mkdir -p ' + directory}, self.conversation_id)
+                'command': 'mkdir -p ' + ' '.join(directory + suffix for suffix in
+                    ('', '/sources', '/drafts', '/publication-attempts'))}, self.conversation_id)
             if created.get('exit_code') != 0 or created.get('error'):
                 raise RuntimeError('计算容器未能创建研究目录，请检查工作区执行权限')
             self.record = {'id': identifier, 'conversation_id': self.conversation_id,

@@ -15,6 +15,8 @@ class Files:
     async def dispatch(self, tool, params, session):
         if tool == 'shell_exec':
             assert params['command'].startswith('mkdir -p /workspace/reports/chat-research/')
+            for child in ('sources', 'drafts', 'publication-attempts'):
+                assert '/' + child in params['command']
             return {'exit_code': 0}
         if tool == 'file_read':
             content = self.files[params['path']]
