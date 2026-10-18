@@ -405,6 +405,9 @@ class Agent:
                 autonomous = research is not None and research.active
                 active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
+                if autonomous:
+                    from .research_session import RESEARCH_TOOLS
+                    active = [d for d in active if d['function']['name'] in RESEARCH_TOOLS]
                 public_window_closed = public_research_deadline is not None and time.monotonic() >= public_research_deadline
                 stock_window_closed = not autonomous and ((stock_deadline is not None and time.monotonic() >= stock_deadline) or public_window_closed)
                 no_progress_closed = (quality_research or autonomous) and no_progress_rounds >= 2
@@ -754,6 +757,15 @@ class Agent:
                     reply = accumulated.get('content') or ''
                     if not reply:
                         raise RuntimeError('模型返回空回答，已有工具结果仍保留。')
+                    if autonomous:
+                        if not no_progress_closed and execution_retries == 0:
+                            execution_retries += 1
+                            messages.append({'role': 'system', 'content':
+                                '当前研究尚未通过brief_publish交付。若可以继续，请实际读取方法、获取原文并完成发布；'
+                                '只说将检索不会执行。不转交专业任务。确实无法推进时明确失败原因。'})
+                            continue
+                        await research.incomplete()
+                        raise RuntimeError('研究未完成交付；已保存研究记录与工具结果，不会在后台自动继续。')
                     if (not stock_window_closed and tool_defs and self.allow_tools and
                             unfinished_execution(reply, user_request)):
                         if (execution_retries >= 2 or not active or

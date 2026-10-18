@@ -67,6 +67,11 @@ class ToolRouter:
         return {'X-Workspace-Token': token} if token and backend in {'skill-files', 'skill-runner'} else {}
 
     async def dispatch(self, tool: str, params: dict[str, Any], session_id: str = "default") -> Any:
+        research = getattr(self, 'research', None)
+        if research is not None and research.active:
+            from .research_session import RESEARCH_TOOLS
+            if tool not in RESEARCH_TOOLS:
+                raise PermissionError('当前聊天研究仅开放取证、计算与发布，不提交或恢复专业任务')
         if tool not in self._registry.known_tools:
             raise ValueError(f"Unknown tool: {tool!r}")
 

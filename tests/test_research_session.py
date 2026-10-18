@@ -106,7 +106,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         async def process(messages):
             return messages
         agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw: [
-            {'type': 'function', 'function': {'name': n}} for n in ('code_exec', 'brief_publish')]),
+            {'type': 'function', 'function': {'name': n}} for n in ('code_exec', 'brief_publish', 'stock_research_submit')]),
             audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
         agent.stock_window_seconds = -1
@@ -114,5 +114,6 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         events = [e async for e in agent.run([{'role': 'user', 'content': '完成研究'}])]
         self.assertEqual(len(calls), 4)
         self.assertTrue(all('brief_publish' in c for c in calls))
+        self.assertTrue(all('stock_research_submit' not in c for c in calls))
         self.assertEqual(events[-1].kind, 'done')
         self.assertIn('阅读简报', events[-1].text)

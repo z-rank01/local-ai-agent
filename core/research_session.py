@@ -13,6 +13,11 @@ from .brief_document import render_document
 from .research_visuals import render_charts, validate_publication
 
 PHASES = ('准备', '获取', '分析', '核对', '交付')
+RESEARCH_TOOLS = frozenset({
+    'research_begin', 'brief_publish', 'skill_list', 'skill_info', 'file_read',
+    'file_write', 'file_list', 'code_exec', 'shell_exec', 'web_search', 'web_fetch',
+    'context_evidence_read', 'stock_report_read', 'stock_public_evidence_find',
+    'stock_public_evidence_read', 'stock_research_find', 'stock_theme_research_find'})
 
 
 def encoded(value):
@@ -45,6 +50,11 @@ class ResearchSession:
     async def checkpoint(self):
         await self.write('research.json', {**self.record, 'sources': self.sources,
                                           'methods': sorted(self.methods), 'trace': self.trace})
+
+    async def incomplete(self):
+        if self.record is not None and self.published is None:
+            self.record['status'] = 'DELIVERY_INCOMPLETE'
+            await self.checkpoint()
 
     async def begin(self, params):
         if not self.allowed:
