@@ -19,7 +19,7 @@ export function prepareHtmlBrief(file: WorkspaceFilePreview, workspaceId: string
   const metadata = (name: string) => root.querySelector(`meta[name="${name}"]`)?.getAttribute('content')?.trim();
   const meta = [metadata('brief-edition'), metadata('brief-as-of'), metadata('brief-authorship'), metadata('brief-research-status')];
   const title = root.querySelector('title')?.textContent || file.name;
-  const allowed = new Set('html head body title style article header main footer section nav div span p h1 h2 h3 h4 h5 h6 strong em b i small sup sub br hr ul ol li dl dt dd table caption thead tbody tfoot tr th td figure figcaption a details summary svg g rect circle line path text tspan polyline polygon ellipse defs clipPath'.toLowerCase().split(' '));
+  const allowed = new Set('html head body title style article header main footer section nav div span p blockquote pre code h1 h2 h3 h4 h5 h6 strong em b i small sup sub br hr ul ol li dl dt dd table caption thead tbody tfoot tr th td figure figcaption a details summary svg g rect circle line path text tspan polyline polygon ellipse defs clipPath'.toLowerCase().split(' '));
   const attrs = new Set('id class style lang dir role aria-label aria-labelledby aria-hidden viewbox xmlns x y x1 x2 y1 y2 width height rx ry r cx cy d points fill stroke stroke-width text-anchor font-size transform preserveaspectratio colspan rowspan scope open'.split(' '));
   for (const node of [...root.querySelectorAll('*')]) {
     if (!allowed.has(node.tagName.toLowerCase())) { node.remove(); continue; }

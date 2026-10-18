@@ -2,7 +2,7 @@
 from html import escape
 from pathlib import Path
 from urllib.parse import urlsplit
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from hashlib import sha256
 import json
@@ -86,7 +86,9 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
     else:
         refs = '<section class="references" id="references"><h2>论证与参考</h2><p>来源请核对正文引用；未新增来源声明。</p></section>'
     body += _scale_charts(material, material_sha256) + charts_html + refs
-    display_time = datetime.fromisoformat(generated_at).strftime('%Y-%m-%d %H:%M')
+    generated_time = datetime.fromisoformat(generated_at)
+    display_time = (generated_time.astimezone(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M') + '（北京时间）'
+                    if generated_time.tzinfo else generated_time.strftime('%Y-%m-%d %H:%M') + '（时区未注明）')
     if material_note is None:
         material_note = '材料从已有公开研究回执整理，未进行新资料采集。生成日期不是资料截止日期；原研究状态不变。'
     css = (Path(__file__).parent / 'templates' / 'brief.css').read_text(encoding='utf-8')

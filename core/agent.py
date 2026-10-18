@@ -881,7 +881,8 @@ class Agent:
                             yield event
                 if research is not None and research.published:
                     report = research.published
-                    text = '研究简报已生成，资料边界和核对说明见文末。\n\n[阅读简报](' + report['path'] + ')'
+                    label = ' '.join(report['title'].split()).replace('\\', '\\\\').replace('[', '\\[').replace(']', '\\]')
+                    text = '研究简报已生成，资料边界和核对说明见文末。\n\n阅读简报：[' + label + '](' + report['path'] + ')'
                     message = {'role': 'assistant', 'content': text}
                     messages.append(message)
                     yield AgentEvent('token', text=text)

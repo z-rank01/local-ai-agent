@@ -3,6 +3,7 @@ import argparse
 from datetime import datetime, timezone
 from html import escape
 import json
+import sqlite3
 from pathlib import Path
 import sys
 
@@ -38,6 +39,8 @@ def inventory(workspace, additional_workspaces=()):
             row = {k: run.get(k) for k in ('id', 'model', 'scope', 'started_at', 'phase', 'status',
                                           'directory', 'methods', 'trace', 'conversation_id')}
             row['workspace'] = 'default' if root == workspace else root.name
+            report = path.parent/'report.html'
+            row['report_url'] = report.resolve().as_uri() if report.is_file() else None
             runs.append(row)
     runs.sort(key=lambda row: row.get('started_at') or '', reverse=True)
     # Join only explicitly selected runs; never include model text or raw payloads.
@@ -59,8 +62,33 @@ def inventory(workspace, additional_workspaces=()):
                     ('result_status', 'delivery_status', 'finish_reason', 'failure_category', 'elapsed_seconds', 'usage')})
     for row in runs:
         row['native_calls'] = list(native[row['conversation_id']].values())
+    # A conversation can contain several research versions. Match actual
+    # server-owned executions, rather than showing the whole conversation's
+    # calls as if each version made them all.
+    database = ROOT/'data/conversations.db'
+    managed = {}
+    if database.is_file():
+        from contextlib import closing
+        with closing(sqlite3.connect(database.resolve().as_uri()+'?mode=ro', uri=True)) as db:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_runs'").fetchone():
+                for identifier, status, start, end, checkpoint in db.execute(
+                        'SELECT id,status,created_at,updated_at,checkpoint FROM chat_runs'):
+                    research = (json.loads(checkpoint).get('research') or {}).get('record') or {}
+                    if research.get('id'):
+                        managed.setdefault(research['id'], []).append({'id':identifier, 'status':status,
+                            'start':start, 'end':end})
+    for row in runs:
+        row['executions'] = managed.get(row['id'], [])
+        row['native_calls'], row['native_scope'] = scoped_calls(row['native_calls'], row['executions'])
     return {'tools': tools, 'methods': methods, 'runs': runs, 'scenarios': SCENARIOS,
             'generated_at': datetime.now(timezone.utc).isoformat()}
+
+
+def scoped_calls(calls, executions):
+    if not executions:
+        return calls, '会话级历史记录；没有运行关联，不作为单份研究的调用总数'
+    return [call for call in calls if any(run['start'] <= (call.get('at') or '') <= run['end']
+            for run in executions)], '本研究关联运行（含人工续行），按实际执行时间范围归属'
 
 
 def render(data):
@@ -100,7 +128,7 @@ for(const k of Object.keys(data.scenarios)){const o=text('option',k);o.value=k;e
 function scenario(){const box=el('scenario-body');box.replaceChildren(text('p','准备：research_begin → 读取 '+data.scenarios[el('scenario').value].join('、')),text('p','获取：web_search 发现线索 → web_fetch 读原文；必要时读股票已保存来源。'),text('p','分析：容器计算、比较与反证；出现冲突则补查原文，资料不足则收窄结论。'),text('p','核对与交付：检查引用及数字 → brief_publish → 当前对话报告卡。失败保留记录，不伪造交付。'))}el('scenario').onchange=scenario;scenario();
 for(const [i,r] of data.runs.entries()){const o=text('option',r.scope+' · '+r.id.slice(0,8));o.value=i;el('run').append(o)}
 function table(box,head,rows){const t=document.createElement('table');const h=document.createElement('tr');for(const v of head)h.append(text('th',v));t.append(h);for(const row of rows){const tr=document.createElement('tr');for(const v of row)tr.append(text('td',v));t.append(tr)}const wrap=document.createElement('div');wrap.className='scroll';wrap.append(t);box.append(wrap)}
-function replay(){const box=el('run-body');box.replaceChildren();const r=data.runs[el('run').value];if(!r){box.append(text('p','当前没有实际运行记录。'));return}box.append(text('p','模型：'+r.model+'；保存阶段：'+r.phase+'；保存状态：'+r.status),text('p','工作区：'+r.workspace+'；产物：'+r.directory),text('pre','实际读取方法：\n'+(r.methods||[]).join('\n')));box.append(text('h3','工具步骤'));table(box,['阶段','工具','状态','耗时','位置'],(r.trace||[]).map(row=>[row.phase,row.tool,row.status,row.elapsed+'秒',row.path||row.source_id||'']));box.append(text('h3','已记录模型调用（'+r.native_calls.length+'）'));table(box,['请求时间','输入字符','供应商 / 本地交付','耗时','实际用量'],r.native_calls.map(n=>[n.at||'未记录',n.input_chars??'未知',(n.result_status||'终态未记录')+' / '+(n.delivery_status||'未知')+(n.failure_category?' · '+n.failure_category:''),n.elapsed_seconds==null?'未知':n.elapsed_seconds+'秒',n.usage==null?'未知':JSON.stringify(n.usage)]))}el('run').onchange=replay;replay();</script></html>'''.replace('PAYLOAD', payload)
+function replay(){const box=el('run-body');box.replaceChildren();const r=data.runs[el('run').value];if(!r){box.append(text('p','当前没有实际运行记录。'));return}box.append(text('p','模型：'+r.model+'；保存阶段：'+r.phase+'；保存状态：'+r.status),text('p','工作区：'+r.workspace+'；产物：'+r.directory),text('pre','实际读取方法：\n'+(r.methods||[]).join('\n')));if(r.report_url){const a=text('a','打开该版本HTML报告');a.href=r.report_url;a.target='_blank';a.rel='noopener';box.append(a)}box.append(text('p',r.native_scope),text('p','关联运行：'+(r.executions||[]).map(x=>x.id+' / '+x.status).join('；')));box.append(text('h3','工具步骤'));table(box,['阶段','工具','状态','耗时','位置'],(r.trace||[]).map(row=>[row.phase,row.tool,row.status,row.elapsed+'秒',row.path||row.source_id||'']));box.append(text('h3','已记录模型调用（'+r.native_calls.length+'）'));table(box,['请求时间','输入字符','供应商 / 本地交付','耗时','实际用量'],r.native_calls.map(n=>[n.at||'未记录',n.input_chars??'未知',(n.result_status||'终态未记录')+' / '+(n.delivery_status||'未知')+(n.failure_category?' · '+n.failure_category:''),n.elapsed_seconds==null?'未知':n.elapsed_seconds+'秒',n.usage==null?'未知':JSON.stringify(n.usage)]))}el('run').onchange=replay;replay();</script></html>'''.replace('PAYLOAD', payload)
 
 
 if __name__ == '__main__':

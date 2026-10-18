@@ -5,6 +5,11 @@ from core.brief_document import render_document
 
 
 class BriefDocumentTests(unittest.TestCase):
+    def test_utc_generation_time_is_displayed_in_explicit_beijing_time(self):
+        html = render_document('原稿不改。', title='测试', generated_at='2026-10-18T14:42:00+00:00',
+            model='selected', material_sha256='a'*64)
+        self.assertIn('2026-10-18 22:42（北京时间）', html)
+        self.assertIn('原稿不改。', html)
     def render(self, text):
         return render_document(text, title='测试', generated_at='2026-10-15', model='试点', material_sha256='a'*64)
 
