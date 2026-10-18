@@ -19,6 +19,30 @@ PARAMS = dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_
 
 
 class DirectTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stop_associated_node_returns_unknown_to_stock_and_ids_never_leave(self):
+        import asyncio
+        from core.research_generation import stop_job
+        entered=asyncio.Event()
+        self.body['node']={'job_id':'cancel-test','request_id':'node-1'}
+        async def pending(*args,**kwargs):
+            self.assertNotIn('node',kwargs['json'])
+            self.assertNotIn('cancel-test',json.dumps(kwargs['json']))
+            entered.set()
+            await asyncio.Event().wait()
+        client=AsyncMock(); client.post.side_effect=pending
+        manager=AsyncMock(); manager.__aenter__.return_value=client
+        with patch('core.research_generation.read_key',return_value='test'), patch(
+                'core.research_generation.httpx.AsyncClient',return_value=manager):
+            task=asyncio.create_task(generate(self.runtime,self.body))
+            await entered.wait()
+            stopped=await stop_job('cancel-test')
+            result=await task
+        self.assertEqual(stopped['cancelled_nodes'],1)
+        self.assertEqual(result['status'],'UNKNOWN')
+        self.assertEqual(result['error'],'REQUEST_CANCELLED')
+        with closing(sqlite3.connect(self.ledger.path)) as db:
+            self.assertEqual(db.execute('SELECT status FROM research_receipts').fetchone()[0],'UNKNOWN')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

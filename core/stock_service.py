@@ -92,10 +92,10 @@ class StockService:
     def url(self):
         return f"http://127.0.0.1:{self.settings['port']}"
 
-    async def request(self, path, body=None):
+    async def request(self, path, body=None, *, timeout=8):
         _, state = self.paths()
         token = (state / '.paper-control-token').read_text(encoding='utf-8').strip()
-        async with httpx.AsyncClient(timeout=8, trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             response = await client.request('GET' if body is None else 'POST', self.url + path,
                                             headers={'Authorization': 'Bearer ' + token}, json=body)
         if response.is_error:

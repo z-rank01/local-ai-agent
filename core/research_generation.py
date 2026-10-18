@@ -1,5 +1,6 @@
 """Authenticated public-only specialist transport; business validation stays in stock."""
 from __future__ import annotations
+import asyncio
 
 import json
 import httpx
@@ -84,7 +85,43 @@ def validate_public(value, *, _path=(), _cash_paths=None):
         raise HTTPException(422, '研究材料类型无效')
 
 
+_active_nodes = {}
+_stopped_jobs = set()
+
+
+async def stop_job(job_id):
+    """Cancel the supplier socket, while allowing the stock HTTP caller to save UNKNOWN."""
+    import asyncio
+    _stopped_jobs.add(job_id)
+    tasks = [task for (job, _), task in tuple(_active_nodes.items()) if job == job_id]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks)
+    return {'job_id': job_id, 'cancelled_nodes': len(tasks)}
+
+
 async def generate(runtime, body):
+    import asyncio
+    import re
+    association = body.get('node') if isinstance(body, dict) else None
+    if association is None:
+        return await _generate(runtime, body)
+    if (not isinstance(association, dict) or set(association) != {'job_id', 'request_id'} or
+            any(not isinstance(v, str) or not re.fullmatch(r'[\w:.-]{1,160}', v) for v in association.values())):
+        raise HTTPException(422, '内部任务关联无效')
+    key = (association['job_id'], association['request_id'])
+    if key in _active_nodes or key[0] in _stopped_jobs:
+        raise HTTPException(409, '任务已停止或节点仍在执行，不自动重发')
+    task = asyncio.create_task(_generate(runtime, {k:v for k,v in body.items() if k != 'node'}))
+    _active_nodes[key] = task
+    try:
+        return await task
+    finally:
+        _active_nodes.pop(key, None)
+
+
+async def _generate(runtime, body):
     required = {'duty', 'provider', 'model', 'generation', 'prompt', 'material', 'execution_hash'}
     if not isinstance(body, dict) or not required <= set(body) or set(body) - required - {'transport'} or body['duty'] not in DUTIES:
         raise HTTPException(422, '只读职责请求无效')
@@ -172,6 +209,9 @@ async def generate(runtime, body):
                 'text': content, 'finish_reason': reason, 'response_model': answer['model'],
                 'response_id': answer.get('id'), 'usage_status': 'REPORTED' if usage else 'NOT_REPORTED', 'usage': {k: usage[k] for k in
                     ('prompt_tokens', 'completion_tokens', 'total_tokens') if type(usage.get(k)) is int}})
+    except asyncio.CancelledError:
+        return finish({**receipt, **progress_receipt, 'status': 'UNKNOWN', 'text': '',
+                       'error': 'REQUEST_CANCELLED', 'usage': {}, 'usage_status': 'NOT_REPORTED'})
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         if isinstance(exc, ResearchStreamError):
             category = exc.category
