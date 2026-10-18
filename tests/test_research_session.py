@@ -196,6 +196,18 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 validate_publication(changed, run.sources, run.read_text)
 
+    async def test_chart_accepts_explicit_table_header_unit(self):
+        _, run, params = await self.prepare()
+        source = params['sources'][0]['id']
+        quote = '本报告期比上年同期增减(%)\n营业收入\n13.84'
+        run.read_text[source].append(quote)
+        params['sources'][0]['quote'] = quote
+        params['charts'][0].update(unit='%', items=[{'label': '营业收入增速', 'value': '13.84', 'source': source}])
+        validate_publication(params, run.sources, run.read_text)
+        params['charts'][0]['unit'] = '亿元'
+        with self.assertRaises(ValueError):
+            validate_publication(params, run.sources, run.read_text)
+
     async def test_stop_preserves_material_and_records_incomplete(self):
         import asyncio
         from core.agent import Agent

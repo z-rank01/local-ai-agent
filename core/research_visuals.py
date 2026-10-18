@@ -84,7 +84,7 @@ def validate_publication(params, sources, read_text):
                 if source is None or not quoted_number(item['value'], source['quote']):
                     raise ValueError('图表原值须在对应原文引句中；单位转换请使用计算结果')
                 unit = re.escape(chart['unit'])
-                if not re.search(r'(?:\d\s*|单位\s*[:：]\s*)' + unit + r'(?![\w])', source['quote']):
+                if not re.search(r'(?:\d\s*|单位\s*[:：]\s*|[（(]\s*)' + unit + r'(?![\w])', source['quote']):
                     raise ValueError(f"charts[{chart_index}].items[{item_index}] 的原文未明确匹配单位 {chart['unit']}；请引用单位说明或保留换算计算")
 
 
