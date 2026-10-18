@@ -799,6 +799,10 @@ class Agent:
                                    'content': '{"error":"本轮窗口已到，此步骤未执行。"}'}
                         messages.append(skipped)
                         yield AgentEvent('message', data={'message': skipped})
+                    if autonomous:
+                        await research.incomplete()
+                        yield AgentEvent('error', text='连续两轮未取得新增有效结果，研究未完成交付；已保存来源与计算，不会自动重跑。')
+                        return
                     yield AgentEvent('done', text='已取得的结果保留在会话中。已提交的后台研究可继续查询；'
                                      '本轮未执行的步骤仍列为缺口。')
                     return

@@ -125,3 +125,32 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all('stock_research_submit' not in c for c in calls))
         self.assertEqual(events[-1].kind, 'done')
         self.assertIn('阅读简报', events[-1].text)
+
+    async def test_no_progress_closes_research_with_visible_error(self):
+        from core.agent import Agent
+        from types import SimpleNamespace
+        _, run, _ = await self.prepare()
+        attempts = []
+        class Model:
+            cloud = False
+            async def chat_stream_with_tools(self, messages, tools):
+                attempts.append(1)
+                yield '', {'role': 'assistant', 'content': '', 'tool_calls': [
+                    {'id': str(len(attempts)), 'function': {
+                        'name': 'web_fetch', 'arguments': {'url': 'https://example.org/unavailable'}}}]}
+        class Router:
+            research = run
+            async def dispatch(self, name, args, session):
+                return {'error': 'source unavailable'}
+        async def process(messages):
+            return messages
+        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw: [
+            {'type': 'function', 'function': {'name': 'web_fetch'}}]),
+            audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
+        events = [e async for e in agent.run([{'role': 'user', 'content': '完成研究'}])]
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual(events[-1].kind, 'error')
+        self.assertIn('未完成交付', events[-1].text)
+        self.assertEqual(run.record['status'], 'DELIVERY_INCOMPLETE')
+        self.assertIsNone(run.published)
