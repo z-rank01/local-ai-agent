@@ -401,6 +401,8 @@ class Agent:
             background_submitted = False
             handoff_tools = {'stock_theme_research_submit', 'stock_research_submit'}
             research = getattr(self.router, 'research', None)
+            from .research_material_view import ResearchMaterialView
+            research_view = ResearchMaterialView()
             while (research is not None and research.active) or stock_deadline is not None or research_continuing or round_number < self.max_rounds:
                 autonomous = research is not None and research.active
                 active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or
@@ -506,6 +508,8 @@ class Agent:
                 # Pure purpose selection sends only its short view. Full
                 # history is processed when analysis actually resumes.
                 if not purpose_step:
+                    if autonomous:
+                        messages = research_view.apply(messages, self.context_mgr)
                     messages = await self.context_mgr.process(messages)
                 accumulated = None
                 quote_guard = not autonomous and stock_read_seen and (quality_research or getattr(self, 'stock_source_review_enabled', False))
@@ -989,7 +993,10 @@ class Agent:
             if budgets and counts is not None and name in budgets:
                 remaining = {n: max(0, b - counts.get(n, 0) - (1 if n == name else 0)) for n, b in budgets.items()}
                 if getattr(self, 'quality_first_research', False):
-                    content += '\n[检索批次提示：请核对本批发现、反证与未决问题。有新证据可继续检索；长股票研究请提交现有后台研究工具，不要求用户反复发送继续。]'
+                    research = getattr(self.router, 'research', None)
+                    content += ('\n[研究批次提示：核对已取得证据与缺口；已有足够材料时进入核对并用brief_publish交付有边界的简报，不为填满模板重复检索。]'
+                                if research is not None and research.active else
+                                '\n[检索批次提示：请核对本批发现、反证与未决问题。有新证据可继续检索；长股票研究请提交现有后台研究工具，不要求用户反复发送继续。]')
                 else:
                     content += '\n[联网额度：' + '，'.join(f'{n} 还可 {r} 次' for n, r in remaining.items()) + '；请据此规划后续检索，额度用尽后基于已有结果回答。]'
             message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
