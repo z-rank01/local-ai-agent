@@ -66,6 +66,20 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         _ = [e async for e in self.manager.subscribe(run)]
         self.assertEqual(self.manager.store.get(run)['status'], 'FAILED')
 
+    async def test_known_terminal_without_checkpoint_is_not_labelled_unknown(self):
+        run = self.start(self.producer)
+        await self.entered.wait()
+        control = self.manager.live[run]
+        control.begin_step('模型请求')
+        control.end_step(confirmed=True)
+        public = self.manager.public(self.manager.store.get(run))
+        self.assertFalse(public['resumable'])
+        self.assertIn('步骤已结束', public['resume_blocker'])
+        control.end_step(confirmed=False)
+        control.end_step(confirmed=True)
+        self.assertIn('未确认', self.manager.public(self.manager.store.get(run))['resume_blocker'])
+        self.release.set()
+
     async def test_immediate_stop_before_producer_started(self):
         run = self.start(self.producer)
         await self.manager.action(run, 'stop')

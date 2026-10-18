@@ -55,6 +55,11 @@ class RunControl:
             checkpoint = self.manager.store.get(self.id)['checkpoint']
             checkpoint.update(safe=False, blocker=self.blocker)
             self.manager.store.update(self.id, checkpoint=checkpoint)
+        elif not self.blocker:
+            checkpoint = self.manager.store.get(self.id)['checkpoint']
+            if not checkpoint.get('safe'):
+                checkpoint['blocker'] = '最新步骤已结束，尚未保存包含本步结果的安全检查点'
+                self.manager.store.update(self.id, checkpoint=checkpoint)
 
     def emit(self, event):
         for queue in tuple(self.subscribers):

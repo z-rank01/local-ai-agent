@@ -49,6 +49,16 @@ class ResearchMaterialViewTests(unittest.TestCase):
         rows, manager, _ = self.prepare()
         manager.reader = None
         self.assertEqual(ResearchMaterialView().apply(rows, manager), rows)
+
+    def test_live_reasoning_protocol_survives_indexing_without_entering_archive(self):
+        rows, manager, saved = self.prepare()
+        for row in rows:
+            if row['role'] == 'assistant':
+                row['reasoning_content'] = 'synthetic-protocol-' + row['tool_calls'][0]['id']
+        view = ResearchMaterialView().apply(rows, manager)
+        self.assertEqual([r['reasoning_content'] for r in view if r['role'] == 'assistant'],
+                         [r['reasoning_content'] for r in rows if r['role'] == 'assistant'])
+        self.assertNotIn('synthetic-protocol', json.dumps(saved))
         manager.reader = lambda eid: None
         manager.archive = lambda row: None
         self.assertEqual(ResearchMaterialView().apply(rows, manager), rows)
