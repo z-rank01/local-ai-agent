@@ -85,11 +85,18 @@ class ResearchSession:
             if phase != '准备' or not params.get('scope') or not params.get('plan'):
                 raise ValueError('首次研究需提供范围和简短计划，并从准备阶段开始')
             identifier = uuid4().hex
+            directory = '/workspace/reports/chat-research/' + identifier
+            # The executor owns new research directories; the file service may
+            # save evidence there without making the parent unwritable to scripts.
+            created = await self.router.dispatch('shell_exec', {
+                'command': 'mkdir -p ' + directory}, self.conversation_id)
+            if created.get('exit_code') != 0 or created.get('error'):
+                raise RuntimeError('计算容器未能创建研究目录，请检查工作区执行权限')
             self.record = {'id': identifier, 'conversation_id': self.conversation_id,
                 'model': self.model, 'started_at': datetime.now(timezone.utc).isoformat(),
                 'scope': params['scope'], 'targets': params.get('targets', []),
                 'plan': params['plan'], 'phase': phase, 'status': 'IN_PROGRESS',
-                'directory': '/workspace/reports/research/' + identifier}
+                'directory': directory}
         else:
             self.record['phase'] = phase
         await self.checkpoint()

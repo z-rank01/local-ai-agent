@@ -12,6 +12,9 @@ class Files:
         self.fail = None
 
     async def dispatch(self, tool, params, session):
+        if tool == 'shell_exec':
+            assert params['command'].startswith('mkdir -p /workspace/reports/chat-research/')
+            return {'exit_code': 0}
         assert tool == 'file_write'
         if params['path'].endswith(self.fail or '\0'):
             raise OSError('disk unavailable')
@@ -61,6 +64,18 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             await run.publish(params)
         self.assertIsNone(run.published)
         self.assertTrue(run.active)
+
+    async def test_directory_creation_failure_does_not_begin_research(self):
+        class ReadOnly:
+            async def dispatch(self, tool, params, session):
+                self_tool = tool
+                if self_tool != 'shell_exec':
+                    raise AssertionError('must stop before writing files')
+                return {'exit_code': 1, 'stderr': 'permission denied'}
+        run = ResearchSession(ReadOnly(), conversation_id='c', model='m', allowed=True)
+        with self.assertRaises(RuntimeError):
+            await run.begin({'scope': '公司研究', 'plan': ['核对']})
+        self.assertIsNone(run.record)
 
     async def test_unread_quote_and_chart_conflict_rejected(self):
         files, run, params = await self.prepare()

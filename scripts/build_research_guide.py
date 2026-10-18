@@ -29,7 +29,9 @@ def inventory(workspace, additional_workspaces=()):
                 'source_file': str(p.relative_to(ROOT))} for p in sorted((PACKAGE/'references').glob('*.md'))]
     runs = []
     for root in dict.fromkeys((workspace, *additional_workspaces)):
-        for path in sorted((root/'reports/research').glob('*/research.json')):
+        paths = [p for folder in ('research', 'chat-research')
+                 for p in (root/'reports'/folder).glob('*/research.json')]
+        for path in sorted(paths):
             run = json.loads(path.read_text(encoding='utf-8'))
             # Only explicitly selected workspaces; no scan of unrelated private roots.
             row = {k: run.get(k) for k in ('id', 'model', 'scope', 'started_at', 'phase', 'status',
