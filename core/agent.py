@@ -508,7 +508,7 @@ class Agent:
                 if not purpose_step:
                     messages = await self.context_mgr.process(messages)
                 accumulated = None
-                quote_guard = stock_read_seen and (quality_research or getattr(self, 'stock_source_review_enabled', False))
+                quote_guard = not autonomous and stock_read_seen and (quality_research or getattr(self, 'stock_source_review_enabled', False))
                 pending_tokens = []
                 reviewing_thinking = False
                 # With a typed program receipt, defer visible prose until its
@@ -604,6 +604,9 @@ class Agent:
                         if msg is not None:
                             accumulated = msg
                         elif token:
+                            if autonomous:
+                                # Drafts are not published research. Stage/tool events remain visible.
+                                continue
                             if source_parameter_step or purpose_step:
                                 # Parameter planning is protocol, not user prose.
                                 # Its completed tool call is retained below.
@@ -747,11 +750,16 @@ class Agent:
                         accumulated = {**accumulated, 'content': isolate_quote_paragraphs(reply, issues)}
                         messages[-1] = accumulated
                         pending_tokens = [accumulated['content']]
+                if autonomous:
+                    await research.save_draft(accumulated.get('content') or '')
                 for token in pending_tokens:
                     yield AgentEvent('token', text=token)
                 self.pending_source_review = ''
                 public_message = ({k: v for k, v in accumulated.items() if k != 'reasoning_content'}
                                   if purpose_step else accumulated)
+                if autonomous:
+                    public_message = {k: v for k, v in accumulated.items() if k != 'reasoning_content'}
+                    public_message['content'] = ''
                 yield AgentEvent('message', data={'message': public_message})
                 if not calls:
                     reply = accumulated.get('content') or ''
@@ -980,7 +988,9 @@ class Agent:
             messages.append(message)
             yield AgentEvent('message', data={'message': message})
             pending_install = isinstance(result, dict) and result.get('job_id') and result.get('status') in ('queued', 'running')
-            yield AgentEvent('tool_end', text='安装已提交，后台运行中' if pending_install else '已完成' if status == 'ok' else '执行失败', data={
+            stage_text = ('研究阶段：' + str(result['phase'])
+                          if name == 'research_begin' and status == 'ok' and isinstance(result, dict) and 'phase' in result else None)
+            yield AgentEvent('tool_end', text=stage_text or ('安装已提交，后台运行中' if pending_install else '已完成' if status == 'ok' else '执行失败'), data={
                 'name': name, 'call_id': tc['id'], 'params': params, 'status': status,
                 'elapsed': time.monotonic() - start, 'result': result, 'result_preview': _format_tool_result_preview(result)})
             self.audit.record('tool_loop', {'session_id': session_id, 'name': name, 'status': status})

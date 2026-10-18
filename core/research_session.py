@@ -34,6 +34,7 @@ class ResearchSession:
         self.trace = []
         self.methods = set()
         self.published = None
+        self.draft_count = 0
 
     @property
     def active(self):
@@ -55,6 +56,13 @@ class ResearchSession:
         if self.record is not None and self.published is None:
             self.record['status'] = 'DELIVERY_INCOMPLETE'
             await self.checkpoint()
+
+    async def save_draft(self, content):
+        # Visible draft only. Existing model reasoning is never copied to artifacts.
+        content = re.sub(r'<think>.*?(?:</think>|$)', '', content, flags=re.S | re.I)
+        if content.strip():
+            self.draft_count += 1
+            await self.write(f'drafts/{self.draft_count}.md', content)
 
     async def begin(self, params):
         if not self.allowed:

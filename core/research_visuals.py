@@ -1,6 +1,7 @@
 """Deterministic publication checks and accessible SVG charts."""
 from decimal import Decimal, localcontext
 from html import escape
+import re
 
 
 def number(value):
@@ -8,6 +9,12 @@ def number(value):
     if not result.is_finite():
         raise ValueError('数值必须有限')
     return result
+
+
+def quoted_number(value, quote):
+    clean = quote.replace(',', '').replace('，', '')
+    return any(number(match.group()) == number(value) for match in
+               re.finditer(r'(?<![\d.])-?\d+(?:\.\d+)?(?![\d.])', clean))
 
 
 def validate_publication(params, sources, read_text):
@@ -23,15 +30,19 @@ def validate_publication(params, sources, read_text):
             raise ValueError('引用须绑定本轮实际来源及原文位置')
         if not any(quote in text for text in read_text.get(key, [])):
             raise ValueError(f'{key} 引文不在实际收到的原文中')
-        cited[key] = item
+        cited.setdefault(key, {'quote': ''})['quote'] += '\n' + quote
     if not cited:
         raise ValueError('简报没有实际原文引用')
     calculations = params.get('calculations', [])
     for calc in calculations:
         values = [number(row['value']) for row in calc['inputs']]
-        if not values or any(row['source'] not in cited or not row['period'] or not row['unit']
-                             for row in calc['inputs']):
+        if not values or any(not row['period'] or not row['unit'] for row in calc['inputs']):
             raise ValueError('计算输入缺少来源、期间或单位')
+        for row in calc['inputs']:
+            if row['source'].startswith('constant:') and row['period'] == '不适用':
+                continue
+            if row['source'] not in cited or not quoted_number(row['value'], cited[row['source']]['quote']):
+                raise ValueError('计算原值未在所引原文中定位；数学常数须明确标为constant:含义且期间不适用')
         with localcontext() as ctx:
             ctx.prec = 40
             operation = calc['operation']
@@ -59,8 +70,11 @@ def validate_publication(params, sources, read_text):
                     raise ValueError('图表值或单位与计算不一致')
             else:
                 source = cited.get(item.get('source'))
-                if source is None or str(item['value']).replace(',', '') not in source['quote'].replace(',', ''):
+                if source is None or not quoted_number(item['value'], source['quote']):
                     raise ValueError('图表原值须在对应原文引句中；单位转换请使用计算结果')
+                unit = re.escape(chart['unit'])
+                if not re.search(r'(?:\d\s*|单位\s*[:：]\s*)' + unit + r'(?![\w])', source['quote']):
+                    raise ValueError('图表原文未明确匹配单位；请引用单位说明或保留换算计算')
 
 
 def render_charts(charts):

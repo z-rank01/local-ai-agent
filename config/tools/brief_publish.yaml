@@ -40,7 +40,7 @@ parameters:
                 value: {type: string}
                 unit: {type: string}
                 period: {type: string}
-                source: {type: string, description: 实际source_id}
+                source: {type: string, description: 实际source_id，数学常数使用constant:含义且period为不适用}
               required: [value, unit, period, source]
         required: [operation, inputs, result, unit]
     charts:

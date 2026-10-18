@@ -69,6 +69,14 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await run.publish(changed)
         changed = copy.deepcopy(params)
+        changed['charts'][0]['unit'] = '亿元'
+        with self.assertRaises(ValueError):
+            await run.publish(changed)
+        changed = copy.deepcopy(params)
+        changed['charts'][0]['items'][0]['value'] = '10'
+        with self.assertRaises(ValueError):
+            await run.publish(changed)
+        changed = copy.deepcopy(params)
         changed['charts'][0]['items'][0]['value'] = '200'
         with self.assertRaises(ValueError):
             await run.publish(changed)
