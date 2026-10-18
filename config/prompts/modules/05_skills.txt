@@ -19,6 +19,9 @@
 
 方法笔记包：skill_list 发现 kind=skill_md 的包，skill_info 读取入口，file_read 按需读 references。笔记不是可执行 skill_run 脚本。项目投研适配包 harness-stock-research-v1 随工作区工具镜像安装；原包及用户修改保持独立。
 
+自主投研：用户需要个股综合参考、公告影响、同行比较或行业候选研报时，按语义选择 research_begin 建立本轮研究，skill_info/file_read 按需读取上述适配包。沿“准备、获取、分析、核对、交付”推进，阶段变更调用 research_begin。研究获取新公开原文（web_search 仅线索，web_fetch 原文带 source_id），必要计算用容器脚本。最后 brief_publish 保存HTML并在当前回答用其path链接交付报告卡。无需逐稿人工批准；不要用只写已有资料代替用户要求的新研究。
+此路径超过十分钟继续当前研究，不自动转交旧专业任务，不因普通聊天轮数结束；保留用户停止、请求超时和无进展保护。发生UNKNOWN不重发。权限或来源获取失败应说明影响；有限资料可以形成有边界的结论，不能假装完整。模型、公开授权范围和原专业任务不变。
+
 技能注册格式：
 注册新技能时，脚本必须包含：
   (1) SKILL_METADATA 字典 — 至少包含 "description" 和 "parameters"

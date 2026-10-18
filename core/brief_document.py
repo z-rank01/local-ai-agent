@@ -50,7 +50,8 @@ def _scale_charts(material, digest):
 def render_document(markdown, *, title, generated_at, model, material_sha256,
                     edition='v1', material=None, as_of='已有保存资料，未更新至生成日',
                     scope_label='研究简报', material_note=None,
-                    authorship='模型生成 · 程序排版', stance=None):
+                    authorship='模型生成 · 程序排版', stance=None,
+                    charts_html='', provenance='已有资料写作试点'):
     """Render received prose as-is with explicit saved-material provenance.
 
     No remote images, executable HTML or scripts. This function neither approves
@@ -84,7 +85,7 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
         body = body[:reference.start()]
     else:
         refs = '<section class="references" id="references"><h2>论证与参考</h2><p>来源请核对正文引用；未新增来源声明。</p></section>'
-    body += _scale_charts(material, material_sha256) + refs
+    body += _scale_charts(material, material_sha256) + charts_html + refs
     display_time = datetime.fromisoformat(generated_at).strftime('%Y-%m-%d %H:%M')
     if material_note is None:
         material_note = '材料从已有公开研究回执整理，未进行新资料采集。生成日期不是资料截止日期；原研究状态不变。'
@@ -97,15 +98,15 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
 <meta name="brief-as-of" content="{escape(as_of, quote=True)}">
 <meta name="brief-scope" content="{escape(scope_label, quote=True)}">
 <meta name="brief-authorship" content="{escape(authorship, quote=True)}">
-<meta name="brief-research-status" content="已有资料写作试点；原研究状态不变">
+<meta name="brief-research-status" content="{escape(provenance, quote=True)}；原研究状态不变">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>{escape(title)}</title><style>{css}</style></head>
 <body class="{stance_class}"><main class="sheet"><header>
-<div class="eyebrow">RESEARCH BRIEF / 已保存资料写作</div><h1>{escape(title)}</h1>
+<div class="eyebrow">RESEARCH BRIEF / {escape(provenance)}</div><h1>{escape(title)}</h1>
 <div class="meta">{stance_badge}<span class="badge">{escape(edition)}</span><span>{escape(model)} · {escape(authorship)}</span><span>生成时间：{display_time}</span></div>
 <p class="unit">报告范围：{escape(scope_label)} · 资料时点：{escape(as_of)}</p>
 <p class="unit">{escape(material_note)}</p>
 <nav class="reading"><a href="#references">论证与参考</a></nav>
 </header><article class="body">{body}</article>
-<footer>已有资料写作试点 · 原始模型输出另行保留；排版完成不代表事实或推断自动认证。</footer>
+<footer>{escape(provenance)} · 原始模型输出另行保留；排版完成不代表事实或推断自动认证。</footer>
 </main></body></html>'''

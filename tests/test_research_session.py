@@ -1,0 +1,118 @@
+import base64
+import copy
+import unittest
+
+from core.research_session import ResearchSession
+from core.research_visuals import validate_publication
+
+
+class Files:
+    def __init__(self):
+        self.files = {}
+        self.fail = None
+
+    async def dispatch(self, tool, params, session):
+        assert tool == 'file_write'
+        if params['path'].endswith(self.fail or '\0'):
+            raise OSError('disk unavailable')
+        self.files[params['path']] = params['content']
+        return {'written': params['path']}
+
+
+class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
+    async def prepare(self):
+        files = Files()
+        run = ResearchSession(files, conversation_id='conversation', model='selected', allowed=True)
+        await run.begin({'scope': '公司研究', 'plan': ['读原文'], 'phase': '准备'})
+        await run.observe({'name': 'file_read', 'status': 'ok', 'params': {
+            'path': '/workspace/skills/harness-stock-research-v1/references/company.md'},
+            'result': {'content': '方法'}})
+        source = await run.save_source({'url': 'https://example.org/report', 'title': '报告',
+            'sha256': 'a'*64, 'fetched_at': '2026-10-18', 'page_count': 1,
+            'total_chars': 8, 'media_type': 'text/html', 'content': '营业收入100元',
+            '_source_file': {'base64': base64.b64encode(b'raw').decode(),
+                             'pages': [{'page': 1, 'text': '营业收入100元'}]}})
+        await run.begin({'phase': '核对'})
+        params = {'title': '参考', 'markdown': '## 结论\n等待验证。', 'as_of': '2026-10-18',
+            'stance': '等待验证', 'sources': [{'id': source['source_id'], 'locator': '第1页', 'quote': '营业收入100元'}],
+            'calculations': [], 'charts': [{'title': '收入', 'unit': '元', 'period': '2025',
+                'items': [{'label': '收入', 'value': '100', 'source': source['source_id']}]}],
+            'review': {'checks': ['核对原值'], 'limitations': '未核对估值', 'conflicts': []}}
+        return files, run, params
+
+    async def test_publish_preserves_original_and_is_idempotent(self):
+        files, run, params = await self.prepare()
+        result = await run.publish(params)
+        self.assertEqual(result, await run.publish(params))
+        self.assertEqual(files.files[run.record['directory']+'/model-original.md'], params['markdown'])
+        self.assertIn('<svg', files.files[result['path']])
+        self.assertIn('selected', files.files[result['path']])
+        self.assertFalse(run.active)
+        with self.assertRaises(ValueError):
+            await run.publish({**params, 'markdown': 'changed'})
+
+    async def test_unauthorized_and_failed_publish_do_not_create_success(self):
+        denied = ResearchSession(Files(), conversation_id='c', model='m', allowed=False)
+        with self.assertRaises(PermissionError):
+            await denied.begin({'scope': 'x', 'plan': ['x']})
+        files, run, params = await self.prepare()
+        files.fail = 'report.html'
+        with self.assertRaises(OSError):
+            await run.publish(params)
+        self.assertIsNone(run.published)
+        self.assertTrue(run.active)
+
+    async def test_unread_quote_and_chart_conflict_rejected(self):
+        files, run, params = await self.prepare()
+        changed = copy.deepcopy(params)
+        changed['sources'][0]['quote'] = '收入没有风险'
+        with self.assertRaises(ValueError):
+            await run.publish(changed)
+        changed = copy.deepcopy(params)
+        changed['charts'][0]['items'][0]['value'] = '200'
+        with self.assertRaises(ValueError):
+            await run.publish(changed)
+        self.assertIsNone(run.published)
+
+    async def test_wrong_calculation_is_not_published(self):
+        files, run, params = await self.prepare()
+        params['calculations'] = [{'operation': 'divide', 'unit': '元', 'result': '51',
+            'inputs': [{'value': '100', 'unit': '元', 'period': '2025', 'source': params['sources'][0]['id']},
+                       {'value': '2', 'unit': '份', 'period': '2025', 'source': params['sources'][0]['id']}]}]
+        with self.assertRaises(ValueError):
+            await run.publish(params)
+
+    async def test_agent_continues_past_round_limit_and_expired_legacy_window(self):
+        from core.agent import Agent
+        from types import SimpleNamespace
+        files, run, params = await self.prepare()
+        calls = []
+        class Model:
+            cloud = False
+            async def chat_stream_with_tools(self, messages, tools):
+                calls.append([t['function']['name'] for t in tools or []])
+                if len(calls) <= 3:
+                    name, args = 'code_exec', {'code': str(len(calls))}
+                else:
+                    name, args = 'brief_publish', params
+                yield '', {'role': 'assistant', 'content': '', 'tool_calls': [
+                    {'id': str(len(calls)), 'function': {'name': name, 'arguments': args}}]}
+        class Router:
+            research = run
+            async def dispatch(self, name, args, session):
+                if name == 'brief_publish':
+                    return await run.publish(args)
+                return {'stdout': args['code']}
+        async def process(messages):
+            return messages
+        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw: [
+            {'type': 'function', 'function': {'name': n}} for n in ('code_exec', 'brief_publish')]),
+            audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
+        agent.stock_window_seconds = -1
+        agent.quality_first_research = agent.stock_loop_enabled = True
+        events = [e async for e in agent.run([{'role': 'user', 'content': '完成研究'}])]
+        self.assertEqual(len(calls), 4)
+        self.assertTrue(all('brief_publish' in c for c in calls))
+        self.assertEqual(events[-1].kind, 'done')
+        self.assertIn('阅读简报', events[-1].text)

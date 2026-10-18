@@ -76,6 +76,11 @@ class ToolRouter:
         self._policy.check(tool, params)
 
         backend = self._registry.get_backend(tool)
+        if backend == 'research-runtime':
+            research = getattr(self, 'research', None)
+            if research is None:
+                raise RuntimeError('研究工具需要当前会话和工作区上下文')
+            return await (research.begin(params) if tool == 'research_begin' else research.publish(params))
         if backend == "local-runtime":
             result = self._dispatch_local(tool, params)
             self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
@@ -90,6 +95,8 @@ class ToolRouter:
             await self.workspace_validate()
         base_url = self._backend_urls[backend]
 
+        if tool == 'web_fetch':
+            params = {**params, 'include_file': bool(getattr(self, 'research', None) and self.research.active)}
         resp = await self._client.post(
             f"{base_url}/tool/{tool}",
             json=params, headers=self._headers(backend),
@@ -110,6 +117,12 @@ class ToolRouter:
             )
 
         result = resp.json()
+        if tool == 'web_fetch' and isinstance(result, dict):
+            research = getattr(self, 'research', None)
+            if research and research.active:
+                result = await research.save_source(result)
+            else:
+                result.pop('_source_file', None)
 
         # Truncate large string values
         max_chars = self._registry.get_max_result_chars(tool)

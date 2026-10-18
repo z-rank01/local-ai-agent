@@ -1,0 +1,73 @@
+display_name: 发布研究简报
+name: brief_publish
+backend: research-runtime
+tier: core
+cloud: write
+description: >-
+  核对后发布当前研究的HTML简报。先research_begin、实际读方法和新原文，再进入核对阶段。
+  原文引句必须来自web_fetch返回的source_id及实际已读内容。正文直接回答问题，解释术语，长段拆分，含理由、反证和最多3项观察条件。
+  calculations保存容器计算的完整精度，不手工四舍五入result；图表原值须出现在原文引句或引用calculation的零起始索引，单位一致。
+  仅返回已保存文件。最后用返回path的Markdown链接交付报告卡。检查不认证研究判断。
+parameters:
+  type: object
+  properties:
+    title: {type: string}
+    markdown: {type: string, description: 模型正文原稿，来源和计算另由程序附在末尾}
+    as_of: {type: string, description: 资料截止日期及未更新范围}
+    stance: {type: string, enum: [继续研究, 等待验证, 暂不关注]}
+    sources:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, description: 实际source_id}
+          locator: {type: string, description: 页码或章节位置}
+          quote: {type: string, description: 逐字原文，不拼接改写}
+        required: [id, locator, quote]
+    calculations:
+      type: array
+      items:
+        type: object
+        properties:
+          operation: {type: string, enum: [sum, subtract, multiply, divide]}
+          unit: {type: string}
+          result: {type: string, description: Decimal40位精度原结果}
+          inputs:
+            type: array
+            items:
+              type: object
+              properties:
+                value: {type: string}
+                unit: {type: string}
+                period: {type: string}
+                source: {type: string, description: 实际source_id}
+              required: [value, unit, period, source]
+        required: [operation, inputs, result, unit]
+    charts:
+      type: array
+      maxItems: 3
+      items:
+        type: object
+        properties:
+          title: {type: string}
+          unit: {type: string}
+          period: {type: string}
+          items:
+            type: array
+            items:
+              type: object
+              properties:
+                label: {type: string}
+                value: {type: string}
+                source: {type: string, description: 原值来源id，或使用calculation}
+                calculation: {type: integer, description: calculations零起始索引}
+              required: [label, value]
+        required: [title, unit, period, items]
+    review:
+      type: object
+      properties:
+        checks: {type: array, items: {type: string}, description: 已实际做的核对，非思维链}
+        limitations: {type: string}
+        conflicts: {type: array, items: {type: string}}
+      required: [checks, limitations, conflicts]
+  required: [title, markdown, as_of, stance, sources, calculations, charts, review]

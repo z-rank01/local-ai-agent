@@ -400,13 +400,15 @@ class Agent:
             handoff_prepared = False
             background_submitted = False
             handoff_tools = {'stock_theme_research_submit', 'stock_research_submit'}
-            while stock_deadline is not None or research_continuing or round_number < self.max_rounds:
-                active = [d for d in tool_defs if quality_research or d['function']['name'] not in budgets or
+            research = getattr(self.router, 'research', None)
+            while (research is not None and research.active) or stock_deadline is not None or research_continuing or round_number < self.max_rounds:
+                autonomous = research is not None and research.active
+                active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
                 public_window_closed = public_research_deadline is not None and time.monotonic() >= public_research_deadline
-                stock_window_closed = (stock_deadline is not None and time.monotonic() >= stock_deadline) or public_window_closed
-                no_progress_closed = quality_research and no_progress_rounds >= 2
-                generic_final_round = stock_deadline is None and not research_continuing and round_number == self.max_rounds - 1
+                stock_window_closed = not autonomous and ((stock_deadline is not None and time.monotonic() >= stock_deadline) or public_window_closed)
+                no_progress_closed = (quality_research or autonomous) and no_progress_rounds >= 2
+                generic_final_round = not autonomous and stock_deadline is None and not research_continuing and round_number == self.max_rounds - 1
                 handoff_round = (quality_research and stock_window_closed and not no_progress_closed
                     and not handoff_attempted and not background_submitted
                     and any(d['function']['name'] in handoff_tools for d in active))
@@ -755,7 +757,7 @@ class Agent:
                     if (not stock_window_closed and tool_defs and self.allow_tools and
                             unfinished_execution(reply, user_request)):
                         if (execution_retries >= 2 or not active or
-                                (stock_deadline is None and round_number >= self.max_rounds - 1)):
+                                (not autonomous and stock_deadline is None and round_number >= self.max_rounds - 1)):
                             raise RuntimeError('模型只给出了待执行代码，没有完成所述操作。已有工具结果保留；代码未自动运行，任务尚未完成。')
                         execution_retries += 1
                         messages.append({'role': 'system', 'content': '执行检查：你刚才说要继续操作，却只输出了代码，代码块不会被执行。请根据用户原任务及只读/讨论等限制判断：若仍需且已获授权执行，使用实际工具调用继续；若用户只需要示例或存在阻碍，明确说明未执行及原因。不新增用户未授权的操作，不把代码示例当作已完成结果。'})
@@ -798,9 +800,11 @@ class Agent:
                 pure_purpose_requested = False
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
                                                        budgets=budgets, counts=counts,
-                                                       stock_deadline=None if handoff_round else stock_deadline,
+                                                       stock_deadline=None if handoff_round or autonomous else stock_deadline,
                                                        research_handoff=handoff_round)) as events:
                     async for event in events:
+                        if research is not None and event.kind == 'tool_end':
+                            await research.observe(event.data)
                         if purpose_step and event.kind == 'tool_end':
                             purpose_tool_failed |= event.data.get('status') != 'ok'
                             pure_purpose_requested |= (event.data.get('params') or {}).get('reply_focus') in ('calculation','source_scope')
@@ -821,7 +825,7 @@ class Agent:
                         if event.kind == 'stock_boundary':
                             stock_boundary = True
                         else:
-                            if quality_research and event.kind == 'tool_end' and event.data.get('status') == 'ok':
+                            if (quality_research or (research is not None and research.active)) and event.kind == 'tool_end' and event.data.get('status') == 'ok':
                                 if (event.data.get('name') in handoff_tools and
                                         isinstance(event.data.get('result'), dict) and
                                         event.data['result'].get('code') == 'TASK_SUBMITTED'):
@@ -833,7 +837,16 @@ class Agent:
                                     observations.add(fingerprint)
                                     fresh_observation = True
                             yield event
-                if verified_scope_reply:
+                if research is not None and research.published:
+                    report = research.published
+                    text = '研究简报已生成，资料边界和核对说明见文末。\n\n[阅读简报](' + report['path'] + ')'
+                    message = {'role': 'assistant', 'content': text}
+                    messages.append(message)
+                    yield AgentEvent('token', text=text)
+                    yield AgentEvent('message', data={'message': message})
+                    yield AgentEvent('done', text=text)
+                    return
+                if verified_scope_reply and not (research is not None and research.active):
                     # Pure read metadata is delivered from verified receipts;
                     # do not ask the cloud to recreate a business analysis.
                     message = {'role': 'assistant', 'content': verified_scope_reply}
@@ -844,7 +857,7 @@ class Agent:
                     yield AgentEvent('message', data={'message': message})
                     yield AgentEvent('done', text=verified_scope_reply)
                     return
-                if verified_calculation_reply:
+                if verified_calculation_reply and not (research is not None and research.active):
                     message={'role':'assistant','content':verified_calculation_reply}
                     messages.append(message)
                     self.audit.record('program_calculation_reply',{'session_id':session_id,
@@ -853,7 +866,7 @@ class Agent:
                     yield AgentEvent('message',data={'message':message})
                     yield AgentEvent('done',text=verified_calculation_reply)
                     return
-                if purpose_step and (purpose_tool_failed or pure_purpose_requested):
+                if purpose_step and (purpose_tool_failed or pure_purpose_requested) and not (research is not None and research.active):
                     raise RuntimeError('所选回复用途的读取或同版回执核验未完成；已有结果保留，不自动改参数或生成替代结论。')
                 research_continuing = quality_research and bool(calls) and all(
                     call['function']['name'] in research_tools for call in calls)

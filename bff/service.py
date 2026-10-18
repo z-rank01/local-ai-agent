@@ -941,6 +941,9 @@ class ChatSessionService:
             router.workspace_validate = lambda: self.workspaces.verify(record)
         router._policy._denied = list(router._policy._denied) + [p + "/.git" for p in self._snapshot.roots]
         agent.router = router
+        from core.research_session import ResearchSession
+        router.research = ResearchSession(router, conversation_id=conversation.id,
+            model=spec['id'], allowed=not cloud or bool(workspace_allowed and cloud_write_allowed))
         if agent.memory is not None and (self._snapshot.id != "default" or os.environ.get("DAILY_SERVICES") == "1"):
             from core.memory_manager import MemoryManager
             agent.memory = MemoryManager(router, llm)
@@ -979,7 +982,7 @@ class ChatSessionService:
                 '已有结果足够时直接回答；不要重复已成功的查找、读取或任务提交。'
                 '根据已返回的总页数停止读取，不请求不存在的页；任务引用只作工具参数，不在回答中展示。'
                 '参数错误可定向修正；结果未知不能自动重发。'
-                '本轮股票交付窗口为十分钟；到时通过已有提交工具和真实受理回执，'
+                '旧股票工具通路交付窗口为十分钟；research_begin开启的聊天自主研究不受此交接窗口约束。旧通路到时通过已有提交工具和真实受理回执，'
                 '将尚未完成且已授权的公开研究交给股票工作进程自动继续，无需要求用户重复发送“继续”。'
                 '保留原问题、反证、完成判据及已保存来源；已有后台任务直接查询，不重复提交。'
                 '未受理、结果未知、材料不可得或没有进展时，交付已核对内容并说明实际缺口，不能声称后台已接续。'
