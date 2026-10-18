@@ -5,7 +5,7 @@ tier: core
 cloud: write
 description: >-
   核对后发布当前研究的HTML简报。先research_begin、实际读方法和新原文，再进入核对阶段。
-  原文引句必须来自web_fetch返回的source_id及实际已读内容。正文直接回答问题，解释术语，长段拆分，含理由、反证和最多3项观察条件。
+  原文引句必须来自web_fetch返回的source_id及实际已读内容；只允许排版空白差异，不能删词、拼接或改写条件。正文直接回答问题，解释术语，长段拆分，含理由、反证和最多3项观察条件。
   calculations只需提交操作及有来源/期间/单位的输入，result由程序计算，不必抄写长小数。图表原值须出现在原文引句；引用calculation零起始索引时可省略value，由程序填入。
   单位换算和多步计算须逐步列式：前项结果的source填calculation:零起始索引，value可省略，unit须一致。显式提供的结果或图值若冲突仍拒绝。不能把换算值或中间结果当成原文原值。
   推荐先用容器脚本在本轮研究目录写完整发布JSON，再仅传draft_path。也兼容直接传完整参数。
@@ -26,7 +26,7 @@ parameters:
         properties:
           id: {type: string, description: 实际source_id}
           locator: {type: string, description: 页码或章节位置}
-          quote: {type: string, description: 逐字原文，不拼接改写}
+          quote: {type: string, description: 连续原文，允许换行或空白排版差异，不删词或拼接改写}
         required: [id, locator, quote]
     calculations:
       type: array

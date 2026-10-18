@@ -265,6 +265,17 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('error', await run.publish(params))
         self.assertIsNone(run.published)
 
+    async def test_quote_allows_layout_whitespace_but_not_omitted_words(self):
+        _, run, params = await self.prepare()
+        source = params['sources'][0]['id']
+        run.read_text[source] = ['营业收入\u00a0100元。\nnot\nable']
+        params['sources'][0]['quote'] = '营业收入  100元。 not able'
+        validate_publication(params, run.sources, run.read_text)
+        for quote in ('营业收入 100元。 notable', '营业收入 100元。 able'):
+            params['sources'][0]['quote'] = quote
+            with self.subTest(quote=quote), self.assertRaises(ValueError):
+                validate_publication(params, run.sources, run.read_text)
+
     async def test_calculation_dependencies_keep_values_and_units_bound(self):
         _, run, params = await self.prepare()
         source = params['sources'][0]['id']

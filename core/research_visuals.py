@@ -34,7 +34,10 @@ def validate_publication(params, sources, read_text):
         key, quote = item['id'], item['quote']
         if key not in sources or not quote.strip() or not item['locator']:
             raise ValueError('引用须绑定本轮实际来源及原文位置')
-        if not any(quote in text for text in read_text.get(key, [])):
+        # PDF line wrapping and HTML NBSP do not change the quoted words.
+        normalized = re.sub(r'\s+', ' ', quote).strip()
+        if not any(normalized in re.sub(r'\s+', ' ', text).strip()
+                   for text in read_text.get(key, [])):
             raise ValueError(f'{key} 引文不在实际收到的原文中')
         cited.setdefault(key, {'quote': ''})['quote'] += '\n' + quote
     if not cited:
