@@ -53,5 +53,9 @@ test('shared Markdown renders headings lists quotes tables and code without arbi
   assert.ok(brief.includes('class="report-card"'));
   assert.ok(brief.includes('>阅读简报</button>'));
   assert.ok(brief.includes('href="https://example.com/report.html"'));
+  const titled=renderedModule.exports.renderBrief('阅读简报：[实际报告标题](/workspace/reports/report.html)');
+  assert.ok(titled.includes('class="report-card"'));
+  assert.ok(titled.includes('实际报告标题'));
+  assert.ok(!renderedModule.exports.renderBrief('正文引用：[资料](/workspace/reports/report.html)').includes('class="report-card"'));
   assert.ok(!renderedModule.exports.render('[下载](/workspace/report.html)').includes('class="report-card"'));
 });

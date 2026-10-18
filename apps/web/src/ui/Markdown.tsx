@@ -118,10 +118,13 @@ function Table({node, children, ...rest}: TableProps): JSX.Element {
   );
 }
 
-// Promote only a standalone HTML link; inline references retain their sentence layout.
+// A standalone delivery link may have the publisher's fixed "阅读简报：" prefix.
+// Other inline references retain their sentence layout.
 const Paragraph: NonNullable<Components['p']> = ({node, children, ...rest}) => {
   const readBrief = useContext(BriefReaderContext);
-  const link = node?.children.length === 1 ? node.children[0] : undefined;
+  const nodes = node?.children ?? [];
+  const prefixed = nodes.length === 2 && nodes[0].type === 'text' && /^\s*阅读简报[:：]\s*$/.test(nodes[0].value);
+  const link = nodes.length === 1 ? nodes[0] : prefixed ? nodes[1] : undefined;
   if (readBrief && link?.type === 'element' && link.tagName === 'a') {
     const href = link.properties.href;
     let path = '';
@@ -129,7 +132,7 @@ const Paragraph: NonNullable<Components['p']> = ({node, children, ...rest}) => {
       try { path = decodeURIComponent(href); } catch { /* Keep the ordinary link on malformed encoding. */ }
     }
     if (isWorkspaceHtml(path)) {
-      const label = textOf(children).trim();
+      const label = textOf(children).trim().replace(/^阅读简报[:：]\s*/, '');
       return <ArtifactCard title={label && label !== '阅读简报' ? label : 'HTML 简报'}
         badge="工作区文件" meta={[path.split('/').pop() || 'HTML']}
         actionLabel="阅读简报" onOpen={() => readBrief(path)} />;
