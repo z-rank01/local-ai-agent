@@ -41,7 +41,7 @@ def validate_publication(params, sources, read_text):
         values = [number(row['value']) for row in calc['inputs']]
         if not values or any(not row['period'] or not row['unit'] for row in calc['inputs']):
             raise ValueError('计算输入缺少来源、期间或单位')
-        for row in calc['inputs']:
+        for input_index, row in enumerate(calc['inputs']):
             if row['source'].startswith('calculation:'):
                 reference = row['source'].removeprefix('calculation:')
                 if not reference.isdecimal() or not 0 <= int(reference) < index:
@@ -53,7 +53,7 @@ def validate_publication(params, sources, read_text):
             if row['source'].startswith('constant:') and row['period'] == '不适用':
                 continue
             if row['source'] not in cited or not quoted_number(row['value'], cited[row['source']]['quote']):
-                raise ValueError('计算原值未在所引原文中定位；数学常数须明确标为constant:含义且期间不适用')
+                raise ValueError(f"calculations[{index}].inputs[{input_index}] 的 {row['value']} 未在来源 {row['source']} 引句中定位；换算或中间结果须引用前项计算，数学常数须标明含义")
         with localcontext() as ctx:
             ctx.prec = 40
             operation = calc['operation']
@@ -68,10 +68,10 @@ def validate_publication(params, sources, read_text):
                 raise ValueError('不支持的算术操作')
             if value != number(calc['result']):
                 raise ValueError('计算结果不一致，请用容器计算后保留完整精度')
-    for chart in params.get('charts', []):
+    for chart_index, chart in enumerate(params.get('charts', [])):
         if not all(chart.get(k) for k in ('title', 'unit', 'period', 'items')):
             raise ValueError('图表须有标题、单位、期间与数据')
-        for item in chart['items']:
+        for item_index, item in enumerate(chart['items']):
             value = number(item['value'])
             if 'calculation' in item:
                 index = item['calculation']
@@ -85,7 +85,7 @@ def validate_publication(params, sources, read_text):
                     raise ValueError('图表原值须在对应原文引句中；单位转换请使用计算结果')
                 unit = re.escape(chart['unit'])
                 if not re.search(r'(?:\d\s*|单位\s*[:：]\s*)' + unit + r'(?![\w])', source['quote']):
-                    raise ValueError('图表原文未明确匹配单位；请引用单位说明或保留换算计算')
+                    raise ValueError(f"charts[{chart_index}].items[{item_index}] 的原文未明确匹配单位 {chart['unit']}；请引用单位说明或保留换算计算")
 
 
 def render_charts(charts):
