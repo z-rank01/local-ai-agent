@@ -20,7 +20,10 @@ class Files:
             content = self.files[params['path']]
             offset = params.get('offset', 0)
             end = offset + 100
-            return {'content': content[offset:end], 'next_offset': end if end < len(content) else None}
+            end = min(end, len(content))
+            return {'content': content[offset:end]+'\n[读取提示：不是文件正文]',
+                    'range': {'start': offset, 'end': end, 'total': len(content)},
+                    'sha256': 'a'*64, 'next_offset': end if end < len(content) else None}
         assert tool == 'file_write'
         if params['path'].endswith(self.fail or '\0'):
             raise OSError('disk unavailable')
@@ -131,12 +134,38 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_draft_cannot_cross_research_directory_or_mix_inputs(self):
         _, run, params = await self.prepare()
         for path in ['/workspace/other.json', run.record['directory']+'/../escape.json',
-                     run.record['directory']+'-other/draft.json']:
+                     run.record['directory']+'-other/draft.json', run.record['directory']+'/..\\other.json']:
             with self.assertRaises(ValueError):
                 await run.publish({'draft_path': path})
         with self.assertRaises(ValueError):
             await run.publish({**params, 'draft_path': run.record['directory']+'/draft.json'})
         self.assertEqual(run.publication_attempts, 0)
+
+    async def test_publication_uses_real_file_window_and_rejects_changing_snapshot(self):
+        from tests.test_file_paging import FileOps
+        from hashlib import sha256
+        files, run, params = await self.prepare()
+        params['markdown'] += '\n正文中的[已读到文件末尾]也必须保留。'
+        path = run.record['directory']+'/working.json'
+        text = json.dumps(params, ensure_ascii=False)
+        class ActualWindow(Files):
+            changing = False
+            async def dispatch(self, tool, args, session):
+                if tool == 'file_read':
+                    offset = args.get('offset', 0)
+                    digest = sha256(text.encode()).hexdigest()
+                    if self.changing and offset:
+                        digest = '0'*64
+                    return FileOps._window(text, path, digest, offset, 80, {})
+                return await super().dispatch(tool, args, session)
+        actual = ActualWindow(); actual.files = files.files; run.router = actual
+        actual.changing = True
+        with self.assertRaisesRegex(ValueError, '发生变化'):
+            await run.publish({'draft_path': path})
+        actual.changing = False
+        result = await run.publish({'draft_path': path})
+        self.assertEqual(actual.files[run.record['directory']+'/model-original.md'], params['markdown'])
+        self.assertEqual(result['status'], 'PUBLISHED')
 
     async def test_agent_continues_past_round_limit_and_expired_legacy_window(self):
         from core.agent import Agent

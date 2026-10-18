@@ -152,14 +152,21 @@ class ResearchSession:
             raise ValueError('draft_path 与内联正文不能混用；请修改 JSON 文件后只传路径')
         path = params['draft_path']
         root = PurePosixPath(self.record['directory'])
-        if not isinstance(path, str) or '..' in PurePosixPath(path).parts or not PurePosixPath(path).is_relative_to(root) or not path.endswith('.json'):
+        if not isinstance(path, str) or '\\' in path or '..' in PurePosixPath(path).parts or not PurePosixPath(path).is_relative_to(root) or not path.endswith('.json'):
             raise ValueError('发布草稿必须是本轮研究目录内的 JSON 文件')
-        parts, offset = [], 0
+        parts, offset, digest = [], 0, None
         while True:
             page = await self.router.dispatch('file_read', {'path': path, 'offset': offset}, self.conversation_id)
             if page.get('error') or not isinstance(page.get('content'), str):
                 raise ValueError('发布草稿未能读取')
-            parts.append(page['content'])
+            span = page.get('range') or {}
+            start, end = span.get('start'), span.get('end')
+            if start != offset or type(end) is not int or not offset < end <= offset + len(page['content']):
+                raise ValueError('文件工具未提供有效字符范围，不能将阅读提示当成发布JSON；请更新文件服务')
+            if digest is not None and page.get('sha256') != digest:
+                raise ValueError('发布草稿在分页读取期间发生变化，请完成编辑后再提交')
+            digest = page.get('sha256')
+            parts.append(page['content'][:end-start])
             following = page.get('next_offset')
             if following is None:
                 break
