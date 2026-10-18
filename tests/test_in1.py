@@ -231,6 +231,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.runtime = build_runtime()
         self.addAsyncCleanup(self.runtime.close)
         self.service = ChatSessionService(self.runtime)
+        self.addAsyncCleanup(self.service.runs.close)
         self.seen = []
         self.seen_tools = []
         parent = self
@@ -332,8 +333,8 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_repeated_request_id_not_executed_after_completion(self):
         request=ChatRequest(message='hello',model='qwen:qwen3.5-flash',request_id='repeat-request')
         first=[e async for e in self.service.stream_chat(request)]
-        with self.assertRaisesRegex(Exception,'已受理'):
-            _=[e async for e in self.service.stream_chat(request)]
+        replay=[e async for e in self.service.stream_chat(request)]
+        self.assertEqual(first[0].run_id,replay[0].run_id)
         self.assertEqual(len(self.seen),1)
         self.assertEqual(len(self.service.get_messages(first[0].conversation_id)),2)
 
@@ -347,28 +348,48 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         users=[m for m in self.service.get_messages(cid) if m.role=='user']
         self.assertEqual([m.content for m in users],['edited'])
         _=[e async for e in self.service.regenerate_chat(cid,request_id='regen-req-1')]
-        with self.assertRaisesRegex(Exception,'已受理'):
-            _=[e async for e in self.service.regenerate_chat(cid,request_id='regen-req-1')]
+        _=[e async for e in self.service.regenerate_chat(cid,request_id='regen-req-1')]
         assistants=[m for m in self.service.get_messages(cid) if m.role=='assistant']
         self.assertEqual(len(assistants),1)
 
     async def test_duplicate_active_send_rejected_before_mutation(self):
+        import asyncio
+        release=asyncio.Event()
+        client=self.runtime.models.clients['qwen:qwen3.5-flash']
+        async def blocked(*args,**kwargs):
+            await release.wait()
+            yield '',{'role':'assistant','content':'finished'}
+        client.chat_stream_with_tools=blocked
         conv = self.runtime.store.create_conversation(title='test',model='qwen:qwen3.5-flash')
         first = self.service.stream_chat(ChatRequest(conversation_id=conv.id,message='first'))
         await anext(first)
         with self.assertRaisesRegex(Exception,'仍在运行'):
             _ = [e async for e in self.service.stream_chat(ChatRequest(conversation_id=conv.id,message='duplicate'))]
-        self.assertEqual(self.runtime.store.get_messages(conv.id),[])
+        self.assertEqual([m.content for m in self.runtime.store.get_messages(conv.id) if m.role=='user'],['first'])
         await first.aclose()
+        self.assertTrue(self.service._active_conversations)
+        release.set()
+        run=next(iter(self.service.runs.live))
+        _=[e async for e in self.service.runs.subscribe(run)]
         self.assertFalse(self.service._active_conversations)
 
     async def test_cancel_retains_partial_and_unlocks(self):
+        import asyncio
+        hold=asyncio.Event()
+        async def blocked(*args,**kwargs):
+            yield 'partial',None
+            await hold.wait()
+            yield '',{'role':'assistant','content':'partial'}
+        self.runtime.models.clients['qwen:qwen3.5-flash'].chat_stream_with_tools=blocked
         stream = self.service.stream_chat(ChatRequest(message='hi',model='qwen:qwen3.5-flash'))
         cid = None
         async for event in stream:
             cid = event.conversation_id
             if event.event=='assistant.delta': break
         await stream.aclose()
+        self.assertTrue(self.service._active_conversations)
+        run=next(iter(self.service.runs.live))
+        await self.service.runs.action(run,'stop')
         self.assertIn('中断',self.service.get_messages(cid)[-1].content)
         self.assertFalse(self.service._active_conversations)
 

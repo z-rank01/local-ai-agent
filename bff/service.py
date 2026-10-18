@@ -72,37 +72,60 @@ def _redact_params(value):
 
 def exclusive_turn(method):
     async def guarded(self, *args, **kwargs):
+        from core.run_manager import current_run
+        request = args[0] if isinstance(args[0], ChatRequest) else None
+        key = request.conversation_id if request else args[0]
+        workspace_id = (request.workspace_id or (self._require_conversation(key).workspace_id if key else 'default')) if request else self._require_conversation(key).workspace_id
+        request_id = request.request_id if request else kwargs.get('request_id')
+        payload = request.model_dump() if request else {'conversation_id': key, **kwargs}
+        payload = {'action': method.__name__, **payload}
+        existing = self.runs.store.by_request(request_id)
+        if existing:
+            if existing['workspace_id'] != workspace_id or existing['payload'] != payload:
+                raise HTTPException(409, '该请求已受理；请求标识不能用于另一份输入')
+            async for event in self.runs.subscribe(existing['id']):
+                yield UIStreamEvent.model_validate(event)
+            return
         from core.stock_service import stock_service
         if stock_service.lock.locked():
             raise HTTPException(409, '股票服务正在切换，请稍后发送')
-        key = args[0].conversation_id if isinstance(args[0], ChatRequest) else args[0]
-        workspace_id = (args[0].workspace_id or (self._require_conversation(key).workspace_id if key else 'default')) if isinstance(args[0], ChatRequest) else self._require_conversation(key).workspace_id
+        provider = request.provider_id if request else kwargs.get('provider_id')
+        model = request.model if request else kwargs.get('model')
+        if provider or model:
+            self._runtime.models.resolve(provider, model)
         if key and isinstance(args[0], ChatRequest) and self._require_conversation(key).workspace_id != workspace_id:
             raise HTTPException(409, '会话工作区不能更改')
         snapshot = self.workspaces.snapshot(workspace_id)
         if key in self._active_conversations:
             raise HTTPException(409, '本会话仍在运行，请等待或停止后再发送。')
         self.workspaces.assert_idle(snapshot)
+        if any(row['workspace_id'] == workspace_id for row in
+               (self.runs.store.get(rid) for rid in self.runs.live)):
+            raise HTTPException(409, '本工作区仍在运行，请等待或停止后再发送。')
         if workspace_id != 'default' or snapshot.record['roots']:
             snapshot = await self.workspaces.ensure(workspace_id)
-        lease = self.workspaces.acquire(snapshot, key or '__new__')
-        self = self.for_workspace(workspace_id, snapshot=snapshot)
-        key = key or '__new__:' + workspace_id
-        if key in self._active_conversations:
-            raise HTTPException(409, '本会话仍在运行，请等待或停止后再发送。')
-        self._active_conversations.add(key)
-        keys = {key}
-        try:
-            async with aclosing(method(self, *args, **kwargs)) as events:
-                async for event in events:
-                    if event.conversation_id:
-                        self.workspaces.active[lease] = (event.conversation_id, snapshot)
-                        keys.add(event.conversation_id)
-                        self._active_conversations.add(event.conversation_id)
-                    yield event
-        finally:
-            self._active_conversations.difference_update(keys)
-            self.workspaces.active.pop(lease, None)
+        async def execute():
+            lease = self.workspaces.acquire(snapshot, key or '__new__')
+            scoped = self.for_workspace(workspace_id, snapshot=snapshot)
+            scoped._run_control = current_run.get()
+            active_key = key or '__new__:' + workspace_id
+            self._active_conversations.add(active_key)
+            keys = {active_key}
+            try:
+                async with aclosing(method(scoped, *args, **kwargs)) as events:
+                    async for event in events:
+                        if event.conversation_id:
+                            self.workspaces.active[lease] = (event.conversation_id, snapshot)
+                            keys.add(event.conversation_id)
+                            self._active_conversations.add(event.conversation_id)
+                        yield event
+            finally:
+                self._active_conversations.difference_update(keys)
+                self.workspaces.active.pop(lease, None)
+        run_id = self.runs.start(workspace_id=workspace_id, conversation_id=key,
+            request_id=request_id, kind=method.__name__, payload=payload, factory=execute)
+        async for event in self.runs.subscribe(run_id):
+            yield UIStreamEvent.model_validate(event)
     return guarded
 
 
@@ -117,6 +140,8 @@ class ChatSessionService:
         self._workspace_root.mkdir(parents=True, exist_ok=True)
         self.workspaces = WorkspaceManager(self._store, self._workspace_root)
         self._snapshot = self.workspaces.snapshot()
+        from core.run_manager import RunManager
+        self.runs = RunManager(self._store)
 
     def for_workspace(self, workspace_id="default", *, snapshot=None):
         scoped = copy.copy(self)
@@ -521,7 +546,7 @@ class ChatSessionService:
 
         conversation = self._ensure_conversation(request.conversation_id, request.title)
         self._select_model(conversation, request.provider_id, request.model)
-        run_id = uuid.uuid4().hex[:12]
+        run_id = self._run_control.id
         yield UIStreamEvent(
             event="session.started",
             conversation_id=conversation.id,
@@ -616,7 +641,7 @@ class ChatSessionService:
                 version_number=response_version_number)
         conversation = self._require_conversation(conversation_id)
 
-        run_id = uuid.uuid4().hex[:12]
+        run_id = self._run_control.id
         yield UIStreamEvent(
             event="session.started",
             conversation_id=conversation.id,
@@ -674,7 +699,7 @@ class ChatSessionService:
         self._store.delete_messages_from(conversation_id, message_id, inclusive=False)
         conversation = self._require_conversation(conversation_id)
 
-        run_id = uuid.uuid4().hex[:12]
+        run_id = self._run_control.id
         yield UIStreamEvent(
             event="session.started",
             conversation_id=conversation.id,
@@ -912,6 +937,7 @@ class ChatSessionService:
                 llm.spec = {**spec, 'options': options}
         messages = self._store.messages_as_dicts(conversation.id, cloud=cloud)
         agent = self._runtime.agent_for(spec, llm)
+        agent.run_control = getattr(self, '_run_control', None)
         evidence_scope = ('cloud' if cloud else 'local') + ':' + self._snapshot.id
         agent.context_mgr.archive = lambda message: self._store.archive_task_evidence(
             conversation.id, evidence_scope, message)

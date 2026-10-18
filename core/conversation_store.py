@@ -96,6 +96,19 @@ _MIGRATIONS: list[str] = [
         PRIMARY KEY(conversation_id,scope,evidence_id),
         FOREIGN KEY(conversation_id,scope,evidence_id)
         REFERENCES task_evidence(conversation_id,scope,id) ON DELETE CASCADE);""",
+    """CREATE TABLE chat_runs (
+        id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL,
+        request_id TEXT UNIQUE, kind TEXT NOT NULL, status TEXT NOT NULL,
+        model TEXT NOT NULL DEFAULT '', phase TEXT NOT NULL DEFAULT '',
+        payload TEXT NOT NULL, checkpoint TEXT NOT NULL DEFAULT '{}',
+        resume_of TEXT, error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        last_seq INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX chat_runs_workspace ON chat_runs(workspace_id,updated_at);
+    CREATE TABLE chat_run_events (
+        run_id TEXT NOT NULL REFERENCES chat_runs(id) ON DELETE CASCADE,
+        seq INTEGER NOT NULL, payload TEXT NOT NULL,
+        PRIMARY KEY(run_id,seq));""",
 ]
 
 

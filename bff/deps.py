@@ -26,6 +26,8 @@ def get_chat_service() -> ChatSessionService:
 
 async def shutdown_runtime() -> None:
     global _runtime, _chat_service
+    if _chat_service is not None:
+        await _chat_service.runs.close()
     if _runtime is not None:
         await _runtime.close()
     _runtime = None

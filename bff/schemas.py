@@ -220,6 +220,7 @@ class WorkspaceRestoreResponse(BaseModel):
 
 class UIStreamEvent(BaseModel):
     event: str
+    seq: int | None = None
     conversation_id: str | None = None
     run_id: str | None = None
     block_id: str | None = None

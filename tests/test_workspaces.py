@@ -145,18 +145,24 @@ class WorkspaceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException): await self.manager.update({'name': '改名'}, old['id'])
         self.assertEqual(self.manager.get(old['id'])['name'], old['name'])
 
-    async def test_turn_locks_release_on_disconnect(self):
+    async def test_turn_locks_survive_observer_disconnect_until_explicit_stop(self):
+        import asyncio
+        hold=asyncio.Event()
         w = self.workspace()
         conv = self.store.create_conversation(workspace_id=w['id'])
         @exclusive_turn
         async def probe(service, request):
             yield UIStreamEvent(event='session.started', conversation_id=request.conversation_id)
+            await hold.wait()
             yield UIStreamEvent(event='session.completed', conversation_id=request.conversation_id)
         with patch.object(self.manager, 'ensure', new=AsyncMock(return_value=self.manager.snapshot(w['id']))):
             async with aclosing(probe(self.service, ChatRequest(message='a', conversation_id=conv.id))) as first:
                 await anext(first)
                 other = self.store.create_conversation(workspace_id=w['id'])
                 with self.assertRaises(HTTPException): await anext(probe(self.service, ChatRequest(message='b', conversation_id=other.id)))
+            self.assertTrue(self.manager.active)
+            run=next(iter(self.service.runs.live))
+            await self.service.runs.action(run,'stop')
             self.assertEqual(self.manager.active, {})
             self.assertEqual(self.service._active_conversations, set())
 

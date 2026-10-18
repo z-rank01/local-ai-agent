@@ -541,6 +541,34 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         service.stream_chat(request),
         conversation_id=request.conversation_id,
     )
+
+@app.get('/api/runs')
+async def list_runs(workspace_id: str | None = None):
+    service = get_chat_service()
+    if workspace_id:
+        service.workspaces.get(workspace_id)
+    return [service.runs.public(row) for row in service.runs.store.list(workspace_id)]
+
+@app.get('/api/runs/{run_id}')
+async def get_run(run_id: str):
+    return get_chat_service().runs.public(get_chat_service().runs.store.get(run_id))
+
+@app.get('/api/runs/{run_id}/events')
+async def run_events(run_id: str, after_seq: int = Query(0, ge=0)):
+    service = get_chat_service()
+    service.runs.public(service.runs.store.get(run_id))
+    async def events():
+        async for event in service.runs.subscribe(run_id, after_seq):
+            yield UIStreamEvent.model_validate(event)
+    return await _stream_ndjson(events(), conversation_id=None)
+
+@app.post('/api/runs/{run_id}/control')
+async def control_run(run_id: str, request: Request):
+    require_local_control(request)
+    body = await request.json()
+    if not isinstance(body, dict) or set(body) != {'action'}:
+        raise HTTPException(422, '操作须为pause、resume或stop')
+    return await get_chat_service().runs.action(run_id, body['action'])
 @app.post("/api/conversations/{conversation_id}/messages/{message_id}/activate-version", response_model=list[MessageRecord])
 async def activate_message_version(
     conversation_id: str,
