@@ -5,6 +5,7 @@ Policy engine — path whitelist/blacklist, execution restrictions.
 import logging
 import os
 import posixpath
+import re
 from pathlib import Path
 from typing import Any
 
@@ -116,7 +117,8 @@ class PolicyEngine:
                 )
             lowered = command.lower()
             for fragment in self._denied_shell_fragments:
-                if fragment in lowered:
+                # Match a command name, not the suffix of an identifier (enc).
+                if re.search(r'(?<!\w)' + re.escape(fragment), lowered):
                     raise PermissionError(
                         f"command contains forbidden fragment {fragment!r}"
                     )

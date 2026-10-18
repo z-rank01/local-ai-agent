@@ -60,5 +60,20 @@ class PolicyEnginePathTests(unittest.TestCase):
             engine.check("file_delete", {"path": "/workspace/skills/example.py"})
 
 
+class PolicyEngineShellTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = PolicyEngine(_MODULE_PATH.parents[1] / 'config/policy.yaml')
+
+    def test_command_suffix_in_python_identifier_is_not_a_shell_command(self):
+        self.engine.check('shell_exec', {
+            'command': "python -c \"for enc in ['utf-8']: print(enc)\""})
+
+    def test_denied_commands_still_block_at_command_boundaries(self):
+        for command in ('nc example.org 80', 'echo x; nc example.org 80',
+                        '/usr/bin/nc example.org 80', 'rm /workspace/example'):
+            with self.subTest(command=command), self.assertRaises(PermissionError):
+                self.engine.check('shell_exec', {'command': command})
+
+
 if __name__ == "__main__":
     unittest.main()
