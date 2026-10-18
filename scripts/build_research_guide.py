@@ -4,10 +4,13 @@ from datetime import datetime, timezone
 from html import escape
 import json
 from pathlib import Path
+import sys
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from core.research_session import RESEARCH_TOOLS
 PACKAGE = ROOT / 'skills/runner/packages/harness-stock-research-v1'
 SCENARIOS = {
     '公司综合': ['company', 'finance', 'risk', 'delivery'],
@@ -21,9 +24,7 @@ def inventory(workspace, additional_workspaces=()):
     tools = []
     for path in sorted((ROOT/'config/tools').glob('*.yaml')):
         tool = yaml.safe_load(path.read_text(encoding='utf-8'))
-        if tool['name'] in ('research_begin', 'brief_publish', 'web_search', 'web_fetch',
-                            'file_read', 'file_write', 'code_exec', 'shell_exec',
-                            'skill_list', 'skill_info', 'context_evidence_read') or tool['name'].startswith('stock_public_evidence'):
+        if tool['name'] in RESEARCH_TOOLS:
             tools.append({**tool, 'source_file': str(path.relative_to(ROOT))})
     methods = [{'name': p.stem, 'text': p.read_text(encoding='utf-8'),
                 'source_file': str(p.relative_to(ROOT))} for p in sorted((PACKAGE/'references').glob('*.md'))]
@@ -56,14 +57,16 @@ body{overflow-wrap:anywhere;margin:0;background:#f3f5f1;color:#21332c;font:16px/
 <g fill="#e4eee8" stroke="#7b9788"><rect x="10" y="30" width="220" height="70" rx="10"/><rect x="270" y="30" width="220" height="70" rx="10"/><rect x="530" y="30" width="220" height="70" rx="10"/><rect x="790" y="30" width="200" height="70" rx="10"/></g>
 <g font-size="19" text-anchor="middle" fill="#21332c"><text x="120" y="60">问题 → 选择方法</text><text x="120" y="86">模型决策</text><text x="380" y="60">取证 → 计算 → 反证</text><text x="380" y="86">模型调用现有工具</text><text x="640" y="60">核对 → 发布</text><text x="640" y="86">程序检查与排版</text><text x="890" y="60">HTML → 报告卡</text><text x="890" y="86">原工作区 / 阅读器</text></g>
 <g stroke="#53645b" stroke-width="3"><path d="M230 65H270M490 65H530M750 65H790"/></g><text x="10" y="150" font-size="18">来源、字段、计算与模型判断分别保存；UNKNOWN 不自动重发。</text><text x="10" y="182" font-size="18">方法是笔记，不是事实。结构检查不是语义认证。</text></svg>
-<h3>实际方法文件</h3><div id="methods" class="grid"></div><h3>实际工具定义</h3><div id="tools" class="grid"></div>
+<h3>实际方法文件</h3><div id="methods" class="grid"></div><h3>研究工具静态定义</h3><p>清单取自当前研究允许集合和对应YAML；开关、授权仍决定每轮实际可用工具。context_evidence_read由Agent按已登记证据动态提供，定义见core/agent.py。</p><div id="tools" class="grid"></div>
 <details><summary>业务模块与产物</summary><pre>core/research_session.py：会话研究记录、容器文件保存、发布
 core/research_visuals.py：发布输入核对、SVG
+core/research_material_view.py：旧大工具回执和参数转为可完整回读的证据指针
 core/brief_document.py：既有阅读模板
 skills/websearch/source_document.py：PDF页码、快照与分页
 skills/runner/packages/harness-stock-research-v1/scripts/calculate.py：容器算术
 股票侧：既有公开字段与金融口径，旧专业任务不由本流程恢复
-产物：research.json、sources/、model-original.md、report.md、evidence.json、report.html</pre></details></section>
+产物：research.json、sources/、model-original.md、report.md、evidence.json、report.html
+publication-attempts/N.json：每次实际发布输入；失败后复制工作稿定向修订，再传draft_path</pre></details></section>
 <section id="flow"><h2>场景流程</h2><span class="badge warn">可能路径 · 非执行证据</span><p><select id="scenario"></select></p><div id="scenario-body"></div></section>
 <section id="replay"><h2>真实运行回放</h2><p>只读取工作区实际 research.json。未记录交付不表示仍在运行，也不表示供应商失败。隐藏思维链、密钥和完整请求均不展示。</p><select id="run"></select><div id="run-body"></div></section>
 <section id="gaps"><h2>能力与缺口</h2><ul><li>已实现：方法安装、来源分页、容器算术、研究记录和HTML发布。</li><li>实测范围：以本页真实回放和验证记录为准，不能以工具存在推定成功。</li><li>扫描PDF需OCR；当前明确报错，不认证空文本。</li><li>来源冲突和业务因果由模型核查，程序不认证语义；权限、停止及错误需结合验收记录。</li><li>四场景、命名工作区、停止和中断尚未全部完成验收。</li></ul><p>验证记录：docs/记录/2026-10-18-聊天自主投研闭环.md；当前进度：股票 docs/计划.md。</p></section></main>
