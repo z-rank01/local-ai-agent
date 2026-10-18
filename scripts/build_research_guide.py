@@ -17,7 +17,7 @@ SCENARIOS = {
 }
 
 
-def inventory(workspace):
+def inventory(workspace, additional_workspaces=()):
     tools = []
     for path in sorted((ROOT/'config/tools').glob('*.yaml')):
         tool = yaml.safe_load(path.read_text(encoding='utf-8'))
@@ -28,11 +28,14 @@ def inventory(workspace):
     methods = [{'name': p.stem, 'text': p.read_text(encoding='utf-8'),
                 'source_file': str(p.relative_to(ROOT))} for p in sorted((PACKAGE/'references').glob('*.md'))]
     runs = []
-    for path in sorted((workspace/'reports/research').glob('*/research.json')):
-        run = json.loads(path.read_text(encoding='utf-8'))
-        # Fixed replay projection: never copy original messages or hidden reasoning.
-        runs.append({k: run.get(k) for k in ('id', 'model', 'scope', 'started_at', 'phase', 'status',
-                                            'directory', 'methods', 'trace')})
+    for root in dict.fromkeys((workspace, *additional_workspaces)):
+        for path in sorted((root/'reports/research').glob('*/research.json')):
+            run = json.loads(path.read_text(encoding='utf-8'))
+            # Only explicitly selected workspaces; no scan of unrelated private roots.
+            row = {k: run.get(k) for k in ('id', 'model', 'scope', 'started_at', 'phase', 'status',
+                                          'directory', 'methods', 'trace')}
+            row['workspace'] = 'default' if root == workspace else root.name
+            runs.append(row)
     return {'tools': tools, 'methods': methods, 'runs': runs, 'scenarios': SCENARIOS,
             'generated_at': datetime.now(timezone.utc).isoformat()}
 
@@ -70,15 +73,16 @@ for(const t of data.tools){const d=document.createElement('details');d.append(te
 for(const k of Object.keys(data.scenarios)){const o=text('option',k);o.value=k;el('scenario').append(o)}
 function scenario(){const box=el('scenario-body');box.replaceChildren(text('p','准备：research_begin → 读取 '+data.scenarios[el('scenario').value].join('、')),text('p','获取：web_search 发现线索 → web_fetch 读原文；必要时读股票已保存来源。'),text('p','分析：容器计算、比较与反证；出现冲突则补查原文，资料不足则收窄结论。'),text('p','核对与交付：检查引用及数字 → brief_publish → 当前对话报告卡。失败保留记录，不伪造交付。'))}el('scenario').onchange=scenario;scenario();
 for(const [i,r] of data.runs.entries()){const o=text('option',r.scope+' · '+r.id.slice(0,8));o.value=i;el('run').append(o)}
-function replay(){const box=el('run-body');box.replaceChildren();const r=data.runs[el('run').value];if(!r){box.append(text('p','当前没有实际运行记录。'));return}box.append(text('p','模型：'+r.model+'；阶段：'+r.phase+'；状态：'+r.status),text('p','产物：'+r.directory),text('pre','实际读取方法：\n'+(r.methods||[]).join('\n')));const table=document.createElement('table');for(const row of r.trace||[]){const tr=document.createElement('tr');for(const v of [row.phase,row.tool,row.status,row.elapsed+'秒',row.path||row.source_id||''])tr.append(text('td',v));table.append(tr)}const wrap=document.createElement('div');wrap.className='scroll';wrap.append(table);box.append(wrap)}el('run').onchange=replay;replay();</script></html>'''.replace('PAYLOAD', payload)
+function replay(){const box=el('run-body');box.replaceChildren();const r=data.runs[el('run').value];if(!r){box.append(text('p','当前没有实际运行记录。'));return}box.append(text('p','模型：'+r.model+'；阶段：'+r.phase+'；状态：'+r.status),text('p','工作区：'+r.workspace+'；产物：'+r.directory),text('pre','实际读取方法：\n'+(r.methods||[]).join('\n')));const table=document.createElement('table');for(const row of r.trace||[]){const tr=document.createElement('tr');for(const v of [row.phase,row.tool,row.status,row.elapsed+'秒',row.path||row.source_id||''])tr.append(text('td',v));table.append(tr)}const wrap=document.createElement('div');wrap.className='scroll';wrap.append(table);box.append(wrap)}el('run').onchange=replay;replay();</script></html>'''.replace('PAYLOAD', payload)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--workspace', type=Path, default=ROOT/'data/workspace')
+    parser.add_argument('--include-workspace', type=Path, action='append', default=[])
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     output = args.output or args.workspace/'developer/research-toolkit/index.html'
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(render(inventory(args.workspace)), encoding='utf-8')
+    output.write_text(render(inventory(args.workspace, args.include_workspace)), encoding='utf-8')
     print(output)
