@@ -168,9 +168,14 @@ class FileOps:
 
     def write(self, path: str, content: str, encoding: str = "utf-8") -> dict:
         resolved = self._guard.resolve(path)
+        if encoding == 'base64':
+            import base64
+            payload = base64.b64decode(content, validate=True)
+        else:
+            payload = content.encode(encoding)
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding=encoding)
-        return {"written": str(resolved), "bytes": len(content.encode(encoding))}
+        resolved.write_bytes(payload)
+        return {"written": str(resolved), "bytes": len(payload)}
 
     def edit(self, path, old_text, new_text, expected_sha256):
         resolved = self._guard.resolve(path)

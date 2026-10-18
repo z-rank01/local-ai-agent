@@ -6,7 +6,7 @@ cloud: read
 short_description: "Fetch a web page."
 description: >
   获取指定网页的正文内容。用于在 web_search 搜索到结果后，深入阅读某个页面的详细内容。
-  会自动提取网页正文，去除导航栏、广告等无关内容。
+  会自动提取网页或PDF原文，PDF保留页码。next_offset非空时可续读，传回sha256作为source_hash以拒绝快照混合。
 parameters:
   type: object
   properties:
@@ -16,6 +16,12 @@ parameters:
     max_chars:
       type: integer
       description: "最大返回字符数（默认20000，最大50000）"
+    offset:
+      type: integer
+      description: "续读使用实际next_offset，首次为0"
+    source_hash:
+      type: string
+      description: "续读传上次sha256；来源变化时明确报错"
   required:
     - url
 max_result_chars: 50000

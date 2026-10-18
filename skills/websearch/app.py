@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from readability import Document
 
 from search_pages import is_search_page
+from source_document import pdf_pages, source_snapshot
 from search_batches import select_batch, PageSnapshots, engine_capabilities
 from pathlib import Path
 import tempfile
@@ -170,7 +171,10 @@ async def web_search(req: WebSearchRequest):
 
 class WebFetchRequest(BaseModel):
     url: str
-    max_chars: Optional[int] = MAX_FETCH_CHARS
+    max_chars: int = Field(default=MAX_FETCH_CHARS, ge=1, le=50000)
+    offset: int = Field(default=0, ge=0)
+    source_hash: str | None = None
+    include_file: bool = False  # Internal router persistence; not a public tool parameter.
 
 
 @app.post("/tool/web_fetch")
@@ -194,20 +198,35 @@ async def web_fetch(req: WebFetchRequest):
     logger.info("web_fetch: url=%r max_chars=%d", req.url, max_chars)
 
     try:
-        resp = await _client.get(req.url)
-        resp.raise_for_status()
+        async with _client.stream('GET', req.url) as response:
+            response.raise_for_status()
+            raw = bytearray()
+            async for chunk in response.aiter_bytes():
+                raw.extend(chunk)
+                if len(raw) > 7 * 1024 * 1024:
+                    raise HTTPException(status_code=413, detail='来源超过7MiB，本次未提取或保存')
+            resp = httpx.Response(response.status_code, headers=response.headers,
+                                  content=bytes(raw), request=response.request)
     except httpx.TimeoutException:
         return {"error": "页面获取超时", "url": req.url, "content": ""}
-    except Exception as exc:
+    except httpx.HTTPError as exc:
         logger.error("web_fetch failed for %s: %s", req.url, exc)
         return {"error": f"页面获取失败: {exc}", "url": req.url, "content": ""}
 
     content_type = resp.headers.get("content-type", "")
 
-    if "text/html" in content_type or "application/xhtml" in content_type:
+    if 'application/pdf' in content_type or resp.content.startswith(b'%PDF-'):
+        try:
+            pages = pdf_pages(resp.content)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        content_type = 'application/pdf'
+    elif "text/html" in content_type or "application/xhtml" in content_type:
         text = _extract_readable_text(resp.text, req.url)
+        pages = [{'page': 1, 'text': text}]
     elif "text/" in content_type or "application/json" in content_type:
         text = resp.text
+        pages = [{'page': 1, 'text': text}]
     else:
         return {
             "error": f"不支持的内容类型: {content_type}",
@@ -215,16 +234,13 @@ async def web_fetch(req: WebFetchRequest):
             "content": "",
         }
 
-    # Truncate to max_chars
-    if len(text) > max_chars:
-        text = text[:max_chars] + f"\n\n... (内容已截断，共 {len(resp.text)} 字符)"
-
-    return {
-        "url": req.url,
-        "title": _extract_title(resp.text) if "html" in content_type else "",
-        "content": text,
-        "char_count": len(text),
-    }
+    try:
+        return source_snapshot(resp.content, url=str(resp.url),
+            title=_extract_title(resp.text) if 'html' in content_type else '', pages=pages,
+            offset=req.offset, max_chars=max_chars, expected_hash=req.source_hash,
+            include_file=req.include_file, media_type=content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
