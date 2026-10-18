@@ -23,14 +23,32 @@ class RunControl:
         self.task = None
         self.started = False
         self.subscribers = set()
+        self.checkpoint_factory = None
+        self.validate = None
+        self.blocker = ''
 
     async def boundary(self, checkpoint=None):
+        if self.checkpoint_factory is not None and checkpoint is not None:
+            checkpoint = self.checkpoint_factory(checkpoint)
+            checkpoint.update(safe=not bool(self.blocker), blocker=self.blocker)
         if checkpoint is not None:
             self.manager.store.update(self.id, checkpoint=checkpoint)
         if self.pause_requested:
             self.manager.state(self.id, 'PAUSED')
             self.gate.clear()
             await self.gate.wait()
+
+    def begin_step(self, kind):
+        checkpoint = self.manager.store.get(self.id)['checkpoint']
+        checkpoint.update(safe=False, blocker=kind+'尚无确认终态')
+        self.manager.store.update(self.id, checkpoint=checkpoint, phase=kind)
+
+    def end_step(self, *, confirmed=True):
+        if not confirmed:
+            self.blocker = '存在未确认的模型或工具结果，不能自动重跑'
+            checkpoint = self.manager.store.get(self.id)['checkpoint']
+            checkpoint.update(safe=False, blocker=self.blocker)
+            self.manager.store.update(self.id, checkpoint=checkpoint)
 
     def emit(self, event):
         for queue in tuple(self.subscribers):
@@ -50,10 +68,11 @@ class RunManager:
             raise HTTPException(404, '运行不存在')
         checkpoint = row['checkpoint']
         payload = row['payload']
+        safe = bool(checkpoint.get('safe')) and row['status'] != 'SUCCEEDED' and not checkpoint.get('continued_by')
         return {k: v for k, v in row.items() if k not in ('payload', 'checkpoint')} | {
             'title': payload.get('title') or payload.get('message', '')[:80] or row['kind'],
             'checkpoint_available': bool(checkpoint),
-            'resumable': bool(checkpoint.get('safe')),
+            'resumable': safe,
             'resume_blocker': checkpoint.get('blocker') or ('' if checkpoint.get('safe') else '尚无安全检查点'),
         }
 
@@ -82,9 +101,8 @@ class RunManager:
         if not event.get('message_reference'):
             return event
         row = self.store.get(event['run_id'])
-        messages = self.conversations.get_messages(row['conversation_id'], include_inactive=True)
-        message = next((m for m in messages if m.id == event['message_id']), None)
-        if message is None:
+        message = self.conversations.get_message(event['message_id'])
+        if message is None or message.conversation_id != row['conversation_id']:
             raise RuntimeError('运行事件引用的消息不存在')
         data = dict(event['data'])
         if event['event'] == 'tool.completed':
@@ -191,13 +209,17 @@ class RunManager:
         elif action == 'resume':
             if row['status'] not in ('PAUSED', 'PAUSING'):
                 raise HTTPException(409, '当前运行没有暂停')
+            if control.validate:
+                control.validate()
             control.pause_requested = False
             self.state(run_id, 'RUNNING')
             control.gate.set()
         elif action == 'stop':
             self.state(run_id, 'STOPPING')
             control.task.cancel()
-            await asyncio.gather(control.task, return_exceptions=True)
+            result = (await asyncio.gather(control.task, return_exceptions=True))[0]
+            if isinstance(result, BaseException) and not isinstance(result,asyncio.CancelledError):
+                raise RuntimeError('运行收尾失败，不能确认已停止') from result
         else:
             raise HTTPException(422, '未知运行操作')
         return self.public(self.store.get(run_id))
@@ -208,4 +230,7 @@ class RunManager:
         for task in tasks:
             task.cancel()
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result,BaseException) and not isinstance(result,asyncio.CancelledError):
+                    raise RuntimeError('任务收尾失败，不能确认整栈已安全退出') from result

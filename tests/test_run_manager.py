@@ -117,7 +117,8 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_api_snapshots_events_and_origin_protected_control(self):
         from bff.app import app
-        service = SimpleNamespace(runs=self.manager)
+        service = SimpleNamespace(runs=self.manager, control_run=self.manager.action,
+                                  run_summary=self.manager.public)
         run = self.start(self.producer)
         await self.entered.wait()
         with patch('bff.app.get_chat_service', return_value=service):

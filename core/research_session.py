@@ -37,6 +37,7 @@ class ResearchSession:
         self.read_text = {}
         self.trace = []
         self.methods = set()
+        self.method_fingerprints = {}
         self.published = None
         self.draft_count = 0
         self.publication_attempts = 0
@@ -116,10 +117,12 @@ class ResearchSession:
         if key not in self.sources:
             extension = 'pdf' if result['media_type'] == 'application/pdf' else 'html'
             await self.write(f'sources/{key}.{extension}', payload['base64'], binary=True)
-            await self.write(f'sources/{key}.json', {**result, 'pages': payload['pages']})
+            saved = {**result, 'pages': payload['pages']}
+            await self.write(f'sources/{key}.json', saved)
             self.sources[key] = {k: result[k] for k in
                 ('url', 'title', 'sha256', 'fetched_at', 'page_count', 'total_chars', 'media_type')}
             self.sources[key]['path'] = self.record['directory'] + f'/sources/{key}.json'
+            self.sources[key]['artifact_sha256'] = sha256(encoded(saved).encode('utf-8')).hexdigest()
         self.read_text.setdefault(key, []).append(result['content'])
         result['source_id'] = key
         result['saved_source'] = self.sources[key]['path']
@@ -134,6 +137,8 @@ class ResearchSession:
         path = params.get('path', '')
         if success and name == 'file_read' and '/skills/harness-stock-research-v1/references/' in path:
             self.methods.add(path)
+            if isinstance(result,dict) and result.get('sha256'):
+                self.method_fingerprints[path] = result['sha256']
         if success and name == 'file_read' and isinstance(result, dict):
             for key, source in self.sources.items():
                 if path == source['path']:

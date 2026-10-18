@@ -123,7 +123,8 @@ def exclusive_turn(method):
                 self._active_conversations.difference_update(keys)
                 self.workspaces.active.pop(lease, None)
         run_id = self.runs.start(workspace_id=workspace_id, conversation_id=key,
-            request_id=request_id, kind=method.__name__, payload=payload, factory=execute)
+            request_id=request_id, kind=method.__name__, payload=payload, factory=execute,
+            resume_of=kwargs.get('parent_run_id'))
         async for event in self.runs.subscribe(run_id):
             yield UIStreamEvent.model_validate(event)
     return guarded
@@ -914,11 +915,8 @@ class ChatSessionService:
         filename = f"{safe_title}-{conversation.id}.txt"
         return content, filename
 
-    async def _run_assistant_turn(self, conversation, run_id, *, response_to_message_id, response_version_number, answer_only=False, request_id=None):
-        spec, llm = self._select_model(conversation)
-        cloud = spec['kind'] == 'cloud'
-        workspace_allowed = self._snapshot.record["cloud_read"]
-        cloud_write_allowed = self._snapshot.record["cloud_write"]
+    def _execution_model(self, conversation):
+        spec, llm = self._runtime.models.resolve(fallback=conversation.model)
         # Explicit thinking setting only; "default" leaves the client untouched so
         # static options apply and discovered models use the provider default.
         thinking_state = model_settings.thinking_setting(spec) if thinking_capability(spec) else None
@@ -935,6 +933,91 @@ class ChatSessionService:
                 else:
                     options.pop('thinking_budget', None)
                 llm.spec = {**spec, 'options': options}
+        if spec['kind'] == 'local':
+            spec = {**spec,'options':{'think':getattr(llm,'think',None)}}
+        return spec, llm
+
+    def validate_run_resume(self, row):
+        from core.run_checkpoint import environment, load_message
+        checkpoint = row['checkpoint']
+        if checkpoint.get('format') != 1 or not checkpoint.get('safe'):
+            raise HTTPException(409, checkpoint.get('blocker') or '没有兼容的安全检查点')
+        target = self._store.get_message(checkpoint['response_to_message_id'])
+        import hashlib
+        if target is None or hashlib.sha256(target.content.encode()).hexdigest() != checkpoint.get('response_fingerprint'):
+            raise HTTPException(409, '原用户问题已变化或不存在，不能按旧检查点继续')
+        scoped = self.for_workspace(row['workspace_id'])
+        conversation = self._require_conversation(row['conversation_id'])
+        spec, client = self._execution_model(conversation)
+        actual = environment(getattr(client,'spec',spec), scoped._snapshot, conversation.research_method)
+        if checkpoint['frozen'] != actual:
+            raise HTTPException(409, '模型、方法、权限、提示或工作区配置已变化；不能按原检查点继续')
+        scope = ('cloud' if spec['kind']=='cloud' else 'local')+':'+row['workspace_id']
+        ids = set(checkpoint['messages']) | set(checkpoint['evidence_ids'])
+        state = checkpoint.get('research')
+        if state:
+            ids.update(eid for spans in state['read_text'].values() for eid in spans)
+        for evidence_id in ids:
+            try:
+                load_message(self._store, conversation.id, scope, evidence_id)
+            except ValueError as exc:
+                raise HTTPException(409,str(exc)) from exc
+        return scoped
+
+    async def control_run(self, run_id, action):
+        row = self.runs.store.get(run_id)
+        if row is None:
+            raise HTTPException(404, '运行不存在')
+        if action != 'resume' or run_id in self.runs.live:
+            return await self.runs.action(run_id, action)
+        checkpoint = row['checkpoint']
+        if checkpoint.get('continued_by'):
+            return self.runs.public(self.runs.store.get(checkpoint['continued_by']))
+        if row['status'] == 'SUCCEEDED':
+            raise HTTPException(409, '运行已经完成')
+        self.validate_run_resume(row)
+        stream = self.resume_checkpoint(row['conversation_id'], parent_run_id=run_id,
+                                        request_id='continue:'+run_id)
+        try:
+            first = await anext(stream)
+            child = first.run_id
+        finally:
+            await stream.aclose()
+        self.runs.store.update(run_id,checkpoint={**checkpoint,'continued_by':child})
+        return self.runs.public(self.runs.store.get(child))
+
+    def run_summary(self, row):
+        summary = self.runs.public(row)
+        if summary['resumable'] and row['status'] in ('PAUSED','STOPPED','INTERRUPTED','FAILED'):
+            try:
+                self.validate_run_resume(row)
+            except (HTTPException, ValueError) as exc:
+                summary['resumable'] = False
+                summary['resume_blocker'] = str(exc.detail) if isinstance(exc,HTTPException) else str(exc)
+        return summary
+
+    @exclusive_turn
+    async def resume_checkpoint(self, conversation_id, *, parent_run_id, request_id):
+        parent = self.runs.store.get(parent_run_id)
+        self.validate_run_resume(parent)
+        self._resume_checkpoint = parent['checkpoint']
+        conversation = self._require_conversation(conversation_id)
+        response_id = self._resume_checkpoint['response_to_message_id']
+        yield UIStreamEvent(event='session.started',conversation_id=conversation_id,
+            run_id=self._run_control.id,data={'resumed_from':parent_run_id,
+                'conversation':self._conversation_summary(conversation).model_dump()})
+        async with aclosing(self._run_assistant_turn(conversation,self._run_control.id,
+                response_to_message_id=response_id,
+                response_version_number=self._store.next_response_version_number(conversation_id,response_id),
+                answer_only=self._resume_checkpoint.get('answer_only',False),request_id=request_id)) as events:
+            async for event in events:
+                yield event
+
+    async def _run_assistant_turn(self, conversation, run_id, *, response_to_message_id, response_version_number, answer_only=False, request_id=None):
+        spec, llm = self._execution_model(conversation)
+        cloud = spec['kind'] == 'cloud'
+        workspace_allowed = self._snapshot.record['cloud_read']
+        cloud_write_allowed = self._snapshot.record['cloud_write']
         messages = self._store.messages_as_dicts(conversation.id, cloud=cloud)
         agent = self._runtime.agent_for(spec, llm)
         agent.run_control = getattr(self, '_run_control', None)
@@ -970,6 +1053,23 @@ class ChatSessionService:
         from core.research_session import ResearchSession
         router.research = ResearchSession(router, conversation_id=conversation.id,
             model=spec['id'], allowed=not cloud or bool(workspace_allowed and cloud_write_allowed))
+        resume = getattr(self, '_resume_checkpoint', None)
+        if resume:
+            from core.run_checkpoint import load_message, continuation_messages, restore_research
+            load = lambda evidence_id: load_message(self._store,conversation.id,evidence_scope,evidence_id)
+            messages = continuation_messages(resume, load)
+            agent.continuing_checkpoint = True
+            agent.evidence_history = [load(evidence_id) for evidence_id in resume['messages']]
+            restore_research(router.research, resume.get('research'), load)
+            for source in router.research.sources.values():
+                page = await router.dispatch('file_read',{'path':source['path'],'max_chars':1},conversation.id)
+                if page.get('sha256') != source.get('artifact_sha256'):
+                    raise ValueError('检查点来源文件缺失或已变化，未继续生成')
+            for path,fingerprint in router.research.method_fingerprints.items():
+                page = await router.dispatch('file_read',{'path':path,'max_chars':1},conversation.id)
+                if page.get('sha256') != fingerprint:
+                    raise ValueError('已读取的方法文件已变化，未继续生成')
+            agent.context_mgr.evidence_ids.update(resume['evidence_ids'])
         if agent.memory is not None and (self._snapshot.id != "default" or os.environ.get("DAILY_SERVICES") == "1"):
             from core.memory_manager import MemoryManager
             agent.memory = MemoryManager(router, llm)
@@ -1017,6 +1117,18 @@ class ChatSessionService:
         stock_pending_local = {}   # broker sequence -> call_id for local-only results
         stock_tool_rows = {}       # call_id -> saved tool row id
         turn_query = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
+        control = getattr(self,'_run_control',None)
+        if control:
+            from core.run_checkpoint import environment, capture
+            frozen = environment(getattr(llm,'spec',spec),self._snapshot,method_id)
+            def checkpoint(history):
+                value = capture(agent,history,frozen,response_to_message_id,agent.context_mgr.archive)
+                import hashlib
+                value['response_fingerprint'] = hashlib.sha256(self._store.get_message(response_to_message_id).content.encode()).hexdigest()
+                value['answer_only'] = answer_only
+                return value
+            control.checkpoint_factory = checkpoint
+            control.validate = lambda: self.validate_run_resume(self.runs.store.get(control.id))
         brief_comparison = (BriefComparison() if stock_bridge is not None and not answer_only
                             and brief_comparison_requested(turn_query) else None)
         brief_failed = False

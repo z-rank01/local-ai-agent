@@ -219,6 +219,10 @@ class CompatibleClient:
         call_id = self.budget.reserve(self.spec['id'])
         from .native_response import NativeStreamReceipt
         receipt = NativeStreamReceipt(uuid.uuid4().hex)
+        from .run_manager import current_run
+        run_control = current_run.get()
+        if run_control:
+            run_control.begin_step('模型请求')
         if request_observer:
             import hashlib
             from .native_tool_schema import tool_schema_observation
@@ -320,6 +324,8 @@ class CompatibleClient:
                 receipt.failure_category='STREAM_PROTOCOL_ERROR'
             raise
         finally:
+            if run_control:
+                run_control.end_step(confirmed=receipt.result()['result_status'] in ('COMPLETE','FAILED','TRUNCATED'))
             if request_observer:
                 request_observer('native_model_result', {'call_id':call_id,'model':self.spec['id'], **receipt.result()})
 

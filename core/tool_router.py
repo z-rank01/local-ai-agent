@@ -6,7 +6,7 @@ import json
 import os
 import asyncio
 import time
-from contextlib import suppress
+from contextlib import suppress, aclosing
 import logging
 from typing import Any
 
@@ -74,6 +74,14 @@ class ToolRouter:
                 raise PermissionError('当前聊天研究仅开放取证、计算与发布，不提交或恢复专业任务')
         if tool not in self._registry.known_tools:
             raise ValueError(f"Unknown tool: {tool!r}")
+
+        if tool in {'shell_exec', 'code_exec', 'skill_run'}:
+            async with aclosing(self.dispatch_stream(tool, params, session_id)) as events:
+                async for event in events:
+                    if event.get('event') == 'result':
+                        self._audit.record(tool,{'session_id':session_id,'params':params,'status':'ok'})
+                        return event['result']
+            raise RuntimeError('执行工具未返回最终结果')
 
         if tool in {"shell_exec", "code_exec"}:
             params = {"cwd": getattr(self, "default_cwd", "/workspace"), **params}

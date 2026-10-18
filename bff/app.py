@@ -547,11 +547,11 @@ async def list_runs(workspace_id: str | None = None):
     service = get_chat_service()
     if workspace_id:
         service.workspaces.get(workspace_id)
-    return [service.runs.public(row) for row in service.runs.store.list(workspace_id)]
+    return [service.run_summary(row) for row in service.runs.store.list(workspace_id)]
 
 @app.get('/api/runs/{run_id}')
 async def get_run(run_id: str):
-    return get_chat_service().runs.public(get_chat_service().runs.store.get(run_id))
+    return get_chat_service().run_summary(get_chat_service().runs.store.get(run_id))
 
 @app.get('/api/runs/{run_id}/events')
 async def run_events(run_id: str, after_seq: int = Query(0, ge=0)):
@@ -568,7 +568,7 @@ async def control_run(run_id: str, request: Request):
     body = await request.json()
     if not isinstance(body, dict) or set(body) != {'action'}:
         raise HTTPException(422, '操作须为pause、resume或stop')
-    return await get_chat_service().runs.action(run_id, body['action'])
+    return await get_chat_service().control_run(run_id, body['action'])
 @app.post("/api/conversations/{conversation_id}/messages/{message_id}/activate-version", response_model=list[MessageRecord])
 async def activate_message_version(
     conversation_id: str,
