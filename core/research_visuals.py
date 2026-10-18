@@ -34,11 +34,19 @@ def validate_publication(params, sources, read_text):
     if not cited:
         raise ValueError('简报没有实际原文引用')
     calculations = params.get('calculations', [])
-    for calc in calculations:
+    for index, calc in enumerate(calculations):
         values = [number(row['value']) for row in calc['inputs']]
         if not values or any(not row['period'] or not row['unit'] for row in calc['inputs']):
             raise ValueError('计算输入缺少来源、期间或单位')
         for row in calc['inputs']:
+            if row['source'].startswith('calculation:'):
+                reference = row['source'].removeprefix('calculation:')
+                if not reference.isdecimal() or not 0 <= int(reference) < index:
+                    raise ValueError('计算依赖只能引用此前已核对的 calculation:零起始索引')
+                previous = calculations[int(reference)]
+                if number(row['value']) != number(previous['result']) or row['unit'] != previous['unit']:
+                    raise ValueError('计算依赖的原值或单位与前项结果不一致')
+                continue
             if row['source'].startswith('constant:') and row['period'] == '不适用':
                 continue
             if row['source'] not in cited or not quoted_number(row['value'], cited[row['source']]['quote']):

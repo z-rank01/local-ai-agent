@@ -154,3 +154,22 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('未完成交付', events[-1].text)
         self.assertEqual(run.record['status'], 'DELIVERY_INCOMPLETE')
         self.assertIsNone(run.published)
+
+    async def test_calculation_dependencies_keep_values_and_units_bound(self):
+        _, run, params = await self.prepare()
+        source = params['sources'][0]['id']
+        params['calculations'] = [
+            {'operation': 'divide', 'inputs': [
+                {'value': '100', 'unit': '元', 'period': '2025', 'source': source},
+                {'value': '10000', 'unit': '元/万元', 'period': '不适用', 'source': 'constant:单位换算'}],
+             'result': '0.01', 'unit': '万元'},
+            {'operation': 'sum', 'inputs': [
+                {'value': '0.01', 'unit': '万元', 'period': '2025', 'source': 'calculation:0'},
+                {'value': '0.01', 'unit': '万元', 'period': '2025', 'source': 'calculation:0'}],
+             'result': '0.02', 'unit': '万元'}]
+        validate_publication(params, run.sources, run.read_text)
+        for key, bad in [('source', 'calculation:1'), ('value', '0.1'), ('unit', '亿元')]:
+            changed = copy.deepcopy(params)
+            changed['calculations'][1]['inputs'][0][key] = bad
+            with self.assertRaises(ValueError):
+                validate_publication(changed, run.sources, run.read_text)
