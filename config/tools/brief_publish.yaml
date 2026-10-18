@@ -8,10 +8,13 @@ description: >-
   原文引句必须来自web_fetch返回的source_id及实际已读内容。正文直接回答问题，解释术语，长段拆分，含理由、反证和最多3项观察条件。
   calculations保存容器计算的完整精度，不手工四舍五入result；图表原值须出现在原文引句或引用calculation的零起始索引，单位一致。
   单位换算和多步计算须逐步列式：输入可引用此前已核对结果，source填calculation:零起始索引，value和unit须与该结果相同。不能把换算值或中间结果当成原文原值。
+  推荐先用容器脚本在本轮研究目录写完整发布JSON，再仅传draft_path。也兼容直接传完整参数。
+  核对失败会返回已保存的draft_path和具体错误；复制为工作草稿后定向修改再提交路径，不反复重传全文。不能将失败草稿当成报告卡。
   仅返回已保存文件。最后用返回path的Markdown链接交付报告卡。检查不认证研究判断。
 parameters:
   type: object
   properties:
+    draft_path: {type: string, description: 本轮research_begin返回目录内的完整发布JSON。使用此项时不要再传其他字段；文件包含下列正文、引用、计算、图表与核对项。}
     title: {type: string}
     markdown: {type: string, description: 模型正文原稿，来源和计算另由程序附在末尾}
     as_of: {type: string, description: 资料截止日期及未更新范围}
@@ -71,4 +74,3 @@ parameters:
         limitations: {type: string}
         conflicts: {type: array, items: {type: string}}
       required: [checks, limitations, conflicts]
-  required: [title, markdown, as_of, stance, sources, calculations, charts, review]

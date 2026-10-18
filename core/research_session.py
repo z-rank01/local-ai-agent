@@ -9,6 +9,8 @@ import json
 import logging
 import re
 from uuid import uuid4
+from pathlib import PurePosixPath
+from decimal import DecimalException
 import httpx
 
 from .brief_document import render_document
@@ -37,6 +39,7 @@ class ResearchSession:
         self.methods = set()
         self.published = None
         self.draft_count = 0
+        self.publication_attempts = 0
 
     @property
     def active(self):
@@ -142,9 +145,36 @@ class ResearchSession:
             'at': datetime.now(timezone.utc).isoformat()})
         await self.checkpoint()
 
+    async def publication_input(self, params):
+        if 'draft_path' not in params:
+            return params
+        if set(params) != {'draft_path'}:
+            raise ValueError('draft_path 与内联正文不能混用；请修改 JSON 文件后只传路径')
+        path = params['draft_path']
+        root = PurePosixPath(self.record['directory'])
+        if not isinstance(path, str) or '..' in PurePosixPath(path).parts or not PurePosixPath(path).is_relative_to(root) or not path.endswith('.json'):
+            raise ValueError('发布草稿必须是本轮研究目录内的 JSON 文件')
+        parts, offset = [], 0
+        while True:
+            page = await self.router.dispatch('file_read', {'path': path, 'offset': offset}, self.conversation_id)
+            if page.get('error') or not isinstance(page.get('content'), str):
+                raise ValueError('发布草稿未能读取')
+            parts.append(page['content'])
+            following = page.get('next_offset')
+            if following is None:
+                break
+            if type(following) is not int or following <= offset:
+                raise ValueError('发布草稿读取游标未前进')
+            offset = following
+        value = json.loads(''.join(parts))
+        if not isinstance(value, dict) or 'draft_path' in value:
+            raise ValueError('发布草稿须为包含正文、引用、计算和图表的 JSON 对象')
+        return value
+
     async def publish(self, params):
         if not self.allowed or self.record is None:
             raise PermissionError('请先通过 research_begin 建立有权限的本轮研究')
+        params = await self.publication_input(params)
         digest = sha256(encoded(params).encode()).hexdigest()
         if self.published:
             if self.published['sha256'] != digest:
@@ -152,8 +182,17 @@ class ResearchSession:
             return self.published
         if self.record['phase'] != '核对' or not self.methods or not self.sources:
             raise ValueError('发布前须实际读取方法、新公开原文，并进入核对阶段')
-        validate_publication(params, self.sources, self.read_text)
-        charts = render_charts(params.get('charts', []))
+        # Keep every submitted draft, including rejected inputs. The model can
+        # edit a working copy in the executor without re-sending the full payload.
+        self.publication_attempts += 1
+        attempt = f'publication-attempts/{self.publication_attempts}.json'
+        await self.write(attempt, params)
+        try:
+            validate_publication(params, self.sources, self.read_text)
+            charts = render_charts(params.get('charts', []))
+        except (ValueError, KeyError, TypeError, DecimalException) as exc:
+            return {'error': str(exc), 'draft_path': self.record['directory'] + '/' + attempt,
+                'next': '原提交已保存。复制为本轮目录内的工作草稿，用容器脚本定向修正；brief_publish仅传draft_path可重新核对。原文、算式及单位仍须配套，不能删除有效反证来通过。'}
         references = '\n\n## 论证与参考\n'
         for item in params['sources']:
             source = self.sources[item['id']]

@@ -1,5 +1,6 @@
 import base64
 import copy
+import json
 import unittest
 
 from core.research_session import ResearchSession
@@ -15,6 +16,11 @@ class Files:
         if tool == 'shell_exec':
             assert params['command'].startswith('mkdir -p /workspace/reports/chat-research/')
             return {'exit_code': 0}
+        if tool == 'file_read':
+            content = self.files[params['path']]
+            offset = params.get('offset', 0)
+            end = offset + 100
+            return {'content': content[offset:end], 'next_offset': end if end < len(content) else None}
         assert tool == 'file_write'
         if params['path'].endswith(self.fail or '\0'):
             raise OSError('disk unavailable')
@@ -88,20 +94,16 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         files, run, params = await self.prepare()
         changed = copy.deepcopy(params)
         changed['sources'][0]['quote'] = '收入没有风险'
-        with self.assertRaises(ValueError):
-            await run.publish(changed)
+        self.assertIn('error', await run.publish(changed))
         changed = copy.deepcopy(params)
         changed['charts'][0]['unit'] = '亿元'
-        with self.assertRaises(ValueError):
-            await run.publish(changed)
+        self.assertIn('error', await run.publish(changed))
         changed = copy.deepcopy(params)
         changed['charts'][0]['items'][0]['value'] = '10'
-        with self.assertRaises(ValueError):
-            await run.publish(changed)
+        self.assertIn('error', await run.publish(changed))
         changed = copy.deepcopy(params)
         changed['charts'][0]['items'][0]['value'] = '200'
-        with self.assertRaises(ValueError):
-            await run.publish(changed)
+        self.assertIn('error', await run.publish(changed))
         self.assertIsNone(run.published)
 
     async def test_wrong_calculation_is_not_published(self):
@@ -109,8 +111,32 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         params['calculations'] = [{'operation': 'divide', 'unit': '元', 'result': '51',
             'inputs': [{'value': '100', 'unit': '元', 'period': '2025', 'source': params['sources'][0]['id']},
                        {'value': '2', 'unit': '份', 'period': '2025', 'source': params['sources'][0]['id']}]}]
+        self.assertIn('error', await run.publish(params))
+
+    async def test_rejected_draft_can_be_repaired_and_published_by_path(self):
+        files, run, params = await self.prepare()
+        bad = copy.deepcopy(params)
+        bad['charts'][0]['items'][0]['value'] = '200'
+        result = await run.publish(bad)
+        original = files.files[result['draft_path']]
+        self.assertEqual(json.loads(original), bad)
+        self.assertNotIn(run.record['directory']+'/report.html', files.files)
+        path = run.record['directory']+'/working.json'
+        files.files[path] = json.dumps(params, ensure_ascii=False)
+        published = await run.publish({'draft_path': path})
+        self.assertEqual(published, await run.publish({'draft_path': path}))
+        self.assertEqual(files.files[result['draft_path']], original)
+        self.assertEqual(json.loads(files.files[run.record['directory']+'/publication-attempts/2.json']), params)
+
+    async def test_draft_cannot_cross_research_directory_or_mix_inputs(self):
+        _, run, params = await self.prepare()
+        for path in ['/workspace/other.json', run.record['directory']+'/../escape.json',
+                     run.record['directory']+'-other/draft.json']:
+            with self.assertRaises(ValueError):
+                await run.publish({'draft_path': path})
         with self.assertRaises(ValueError):
-            await run.publish(params)
+            await run.publish({**params, 'draft_path': run.record['directory']+'/draft.json'})
+        self.assertEqual(run.publication_attempts, 0)
 
     async def test_agent_continues_past_round_limit_and_expired_legacy_window(self):
         from core.agent import Agent
