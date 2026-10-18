@@ -17,6 +17,8 @@
 3. 临时技能（Temporary）：通过 code_exec / shell_exec 直接执行的一次性代码。
    无需注册，适合临时计算、调试、一次性操作。
 
+方法笔记包：skill_list 发现 kind=skill_md 的包，skill_info 读取入口，file_read 按需读 references。笔记不是可执行 skill_run 脚本。项目投研适配包 harness-stock-research-v1 随工作区工具镜像安装；原包及用户修改保持独立。
+
 技能注册格式：
 注册新技能时，脚本必须包含：
   (1) SKILL_METADATA 字典 — 至少包含 "description" 和 "parameters"

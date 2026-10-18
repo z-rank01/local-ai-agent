@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from sandbox import run_python, run_shell, run_pip_install
+from bundled_methods import install_methods
 import package_jobs
 from skill_registry import (
     list_skills, run_skill, register_skill, unregister_skill,
@@ -48,6 +49,7 @@ app = FastAPI(title="Skill: Runner")
 @app.on_event("startup")
 async def startup_event():
     """Initialize skill registry on startup."""
+    install_methods()
     init_registry()
     logger.info("Skill registry initialized")
 
