@@ -205,7 +205,9 @@ async def web_fetch(req: WebFetchRequest):
                 raw.extend(chunk)
                 if len(raw) > 7 * 1024 * 1024:
                     raise HTTPException(status_code=413, detail='来源超过7MiB，本次未提取或保存')
-            resp = httpx.Response(response.status_code, headers=response.headers,
+            headers = {k: v for k, v in response.headers.items()
+                       if k.lower() not in ('content-encoding', 'content-length')}
+            resp = httpx.Response(response.status_code, headers=headers,
                                   content=bytes(raw), request=response.request)
     except httpx.TimeoutException:
         return {"error": "页面获取超时", "url": req.url, "content": ""}
