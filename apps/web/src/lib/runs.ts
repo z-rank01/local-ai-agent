@@ -1,6 +1,9 @@
 import type {RunSummary,UIStreamEvent} from '../types';
 
 export const RUN_LIVE = new Set(['RUNNING','PAUSING','PAUSED','STOPPING']);
+const LABELS: Record<string,string>={RUNNING:'运行中',PAUSING:'正在暂停',PAUSED:'已暂停',STOPPING:'正在停止',
+  SUCCEEDED:'已完成',FAILED:'失败',STOPPED:'已停止',INTERRUPTED:'已中断',QUEUED:'等待领取'};
+export const runLabel=(status: string) => LABELS[status] ?? status;
 export function conversationRun(rows: RunSummary[], id: string | null): RunSummary | undefined {
   if(!id) return undefined;
   const matches=rows.filter(r=>r.conversation_id===id&&r.source!=='stock');

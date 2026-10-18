@@ -588,7 +588,8 @@ async def list_runs(workspace_id: str | None = None):
         except (ValueError, httpx.HTTPError, OSError) as exc:
             stock['message'] = str(exc) if isinstance(exc, ValueError) else '股票任务列表暂时不可读'
     return {'runs': rows, 'stock_service': {k:stock.get(k) for k in ('online','worker','message')},
-            'shutdown_error':getattr(app.state,'shutdown_error','')}
+            'shutdown_error':getattr(app.state,'shutdown_error',''),
+            'page_connections':len(getattr(getattr(app.state,'auto_exit',None),'pages',()))}
 
 @app.get('/api/runs/{run_id}')
 async def get_run(run_id: str):

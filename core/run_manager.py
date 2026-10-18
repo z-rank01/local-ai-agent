@@ -83,8 +83,9 @@ class RunManager:
         safe = bool(checkpoint.get('safe')) and row['status'] != 'SUCCEEDED' and not checkpoint.get('continued_by')
         research = checkpoint.get('research') or {}
         published = checkpoint.get('published')
+        conversation = self.conversations.get_conversation(row['conversation_id']) if row['conversation_id'] else None
         return {k: v for k, v in row.items() if k not in ('payload', 'checkpoint')} | {
-            'title': payload.get('title') or payload.get('message', '')[:80] or row['kind'],
+            'title': (conversation.title if conversation else None) or payload.get('title') or payload.get('message', '')[:80] or row['kind'],
             'checkpoint_available': bool(checkpoint),
             'resumable': safe,
             'resume_blocker': checkpoint.get('blocker') or ('' if checkpoint.get('safe') else '尚无安全检查点'),

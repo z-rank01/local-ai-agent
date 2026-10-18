@@ -90,7 +90,7 @@ export function TopBar({
           <button
             ref={exportRef}
             type="button"
-            className="tb-btn"
+            className="tb-btn tb-export"
             aria-haspopup="menu"
             aria-expanded={exportEnabled && menuOpen}
             aria-disabled={exportEnabled ? undefined : true}
@@ -105,6 +105,7 @@ export function TopBar({
             type="button"
             className="tb-btn"
             title="模型设置"
+            data-compact-hide="true"
             aria-label="模型设置"
             onClick={onOpenModelSettings}
           >

@@ -10,6 +10,7 @@ import {
 } from '../lib/format';
 import {useToolNames} from '../lib/workspace';
 import {isLocalReportBlock} from '../lib/report';
+import {runLabel,RUN_LIVE} from '../lib/runs';
 import type {AssistantTimelineEntry} from '../lib/transcript';
 import type {TranscriptBlock} from '../types';
 import {Collapse} from '../ui/Collapse';
@@ -17,6 +18,7 @@ import {Icon} from '../ui/Icon';
 import {Markdown} from '../ui/Markdown';
 
 export type ToolTraceProps = {
+  runStatus?: string;
   steps: AssistantTimelineEntry[];
   blocks: TranscriptBlock[];
   open: boolean;
@@ -301,13 +303,13 @@ function StepDetail({
   );
 }
 
-export function ToolTrace({steps, blocks, open, onToggle, onToggleStep, onOpenConversation}: ToolTraceProps): JSX.Element {
+export function ToolTrace({steps, blocks, open, onToggle, onToggleStep, onOpenConversation,runStatus}: ToolTraceProps): JSX.Element {
   const tone: TraceTone = steps.some((step) => step.status === 'error')
     ? 'error'
-    : steps.some((step) => step.status === 'running')
+    : (runStatus&&RUN_LIVE.has(runStatus)) || steps.some((step) => step.status === 'running')
       ? 'running'
       : 'ok';
-  const stateLabel = tone === 'error' ? '有失败步骤' : tone === 'running' ? '进行中' : '完成';
+  const stateLabel = runStatus ? runLabel(runStatus)+(tone==='error'?' · 有失败步骤':'') : tone === 'error' ? '有失败步骤' : tone === 'running' ? '进行中' : '完成';
   const totalElapsed = steps.reduce((sum, step) => sum + (typeof step.elapsed === 'number' ? step.elapsed : 0), 0);
   const names = useToolNames();
   steps = steps.map(step => {

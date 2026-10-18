@@ -8,11 +8,13 @@ import {
   type AssistantTranscriptGroup,
 } from '../lib/transcript';
 import {statusLabel} from '../statusLabels';
+import {runLabel,RUN_LIVE} from '../lib/runs';
 import {Icon} from '../ui/Icon';
 import {Markdown} from '../ui/Markdown';
 import {statusTone, ToolTrace} from './ToolTrace';
 
 export type AssistantTurnProps = {
+  runStatus?: string;
   item: AssistantTranscriptGroup;
   busy: boolean;
   onToggleBlock: (blockId: string) => void;
@@ -37,6 +39,7 @@ function LoadingLine({label}: {label: string}): JSX.Element {
 }
 
 export function AssistantTurn({
+  runStatus,
   item,
   busy,
   onToggleBlock,
@@ -49,7 +52,7 @@ export function AssistantTurn({
   const [traceOpen, setTraceOpen] = useState(true);
   const ordered = item.blocks;
   const status = assistantGroupStatus(ordered);
-  const isRunning = status === 'running';
+  const isRunning = status === 'running' || Boolean(runStatus&&RUN_LIVE.has(runStatus));
   const createdAt = ordered.find((block) => block.createdAt)?.createdAt;
   const hasAnswer = ordered.some((block) => block.kind === 'assistant');
   const answerBlock = [...ordered].reverse().find((block) => block.kind === 'assistant') ?? null;
@@ -67,12 +70,13 @@ export function AssistantTurn({
     <article className="msg msg-ai" data-turn={item.id}>
       <header className="msg-head">
         <span className="msg-who">{fileDelivery ? '简报交付' : '助手'}</span>
-        {status ? <span className="msg-status" data-tone={statusTone(status)}>{statusLabel(status)}</span> : null}
+        {status ? <span className="msg-status" data-tone={isRunning?'running':statusTone(status)}>{runStatus?runLabel(runStatus):statusLabel(status)}</span> : null}
         {modelLabel ? <span className="meta">{modelLabel}</span> : null}
         {createdAt ? <span className="meta">· {formatTime(createdAt)}</span> : null}
       </header>
       {showTrace ? (
         <ToolTrace
+          runStatus={runStatus}
           steps={traceSteps}
           blocks={ordered}
           open={traceOpen}

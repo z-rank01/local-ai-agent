@@ -50,7 +50,8 @@ test('shared Markdown renders headings lists quotes tables and code without arbi
   }
   assert.ok(!html.includes('<script>'));
   const brief=renderedModule.exports.renderBrief('[样稿](/workspace/reports/v3/report.html)\n\n[外部](https://example.com/report.html)');
-  assert.ok(brief.includes('阅读简报：'));
+  assert.ok(brief.includes('class="report-card"'));
+  assert.ok(brief.includes('>阅读简报</button>'));
   assert.ok(brief.includes('href="https://example.com/report.html"'));
-  assert.ok(!renderedModule.exports.render('[下载](/workspace/report.html)').includes('阅读简报：'));
+  assert.ok(!renderedModule.exports.render('[下载](/workspace/report.html)').includes('class="report-card"'));
 });

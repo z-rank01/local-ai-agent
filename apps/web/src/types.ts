@@ -175,7 +175,7 @@ export type RunSummary = {
   research_status?: string; publication_status?: string;
   artifacts?: {path:string;title:string;sha256:string}[];
 };
-export type RunList = {runs: RunSummary[]; shutdown_error?: string; stock_service: {online: boolean; message?: string;
+export type RunList = {runs: RunSummary[]; shutdown_error?: string; page_connections?: number; stock_service: {online: boolean; message?: string;
   worker?: {enabled: boolean; busy: boolean; research_only: boolean}}};
 
 export type TranscriptKind = 'user' | 'assistant' | 'reasoning' | 'tool' | 'meta' | 'error';

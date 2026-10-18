@@ -1553,4 +1553,8 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .run-status.failed { color: var(--danger-text); }
 .run-status.succeeded { color: var(--ok-text); }
 .conversation-run { padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); font-size: var(--text-xs); max-height: 30vh; overflow: auto; overflow-wrap: anywhere; }
-.run-count { white-space: normal; text-align: center; font-size: var(--text-xs); line-height: var(--ui-leading); }
+.run-count { flex: none; white-space: nowrap; text-align: center; font-size: var(--text-xs); line-height: var(--ui-leading); }
+
+@container (max-width: 480px) {
+  .tb-actions .tb-export, .tb-actions [data-compact-hide] { display: none; }
+}

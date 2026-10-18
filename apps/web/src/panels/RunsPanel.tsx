@@ -1,11 +1,8 @@
 import {useState} from 'react';
 import type {RunList, RunSummary} from '../types';
 import {formatBackendError} from '../lib/format';
-import {RUN_LIVE} from '../lib/runs';
+import {RUN_LIVE,runLabel} from '../lib/runs';
 
-const LABELS: Record<string,string>={RUNNING:'运行中',PAUSING:'正在暂停',PAUSED:'已暂停',STOPPING:'正在停止',
-  SUCCEEDED:'已完成',FAILED:'失败',STOPPED:'已停止',INTERRUPTED:'已中断',QUEUED:'等待领取'};
-export const runLabel=(status: string) => LABELS[status] ?? status;
 function time(value: string) { return new Date(value).toLocaleString('zh-CN',{hour12:false}); }
 function elapsed(run: RunSummary) {
   const end=RUN_LIVE.has(run.status)?Date.now():new Date(run.updated_at).getTime();
@@ -31,7 +28,7 @@ export function RunControls({run,onControl}:{run:RunSummary;onControl:(id:string
       {pending&&<span role="status">正在提交操作…</span>}
     </div>
     {error&&<p className="run-error" role="alert">{error}</p>}
-    {!run.resumable&&['PAUSED','INTERRUPTED','STOPPED'].includes(run.status)&&<p className="run-note">{run.resume_blocker||'没有可继续的安全检查点'}</p>}
+    {!run.resumable&&['PAUSED','INTERRUPTED','STOPPED','QUEUED'].includes(run.status)&&<p className="run-note">{run.resume_blocker||'没有可继续的安全检查点'}</p>}
   </>;
 }
 

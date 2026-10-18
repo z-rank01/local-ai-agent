@@ -2,12 +2,14 @@ import {formatTime} from '../lib/format';
 import type {ReadingReport} from '../lib/report';
 import type {TranscriptViewItem} from '../lib/transcript';
 import {statusLabel} from '../statusLabels';
+import {runLabel} from '../lib/runs';
 import type {TranscriptBlock} from '../types';
 import {Icon} from '../ui/Icon';
 import {AssistantTurn} from './AssistantTurn';
 import {statusTone} from './ToolTrace';
 
 export type TranscriptProps = {
+  runStatus?: string;
   items: TranscriptViewItem[];
   busy: boolean;
   loading: boolean;
@@ -171,6 +173,7 @@ function TranscriptItem({
 }
 
 export function Transcript({
+  runStatus,
   items,
   busy,
   loading,
@@ -207,6 +210,7 @@ export function Transcript({
                 <AssistantTurn
                   key={item.id}
                   item={item}
+                  runStatus={items[items.length-1]?.id===item.id?runStatus:undefined}
                   busy={busy}
                   onToggleBlock={onToggleBlock}
                   onCopy={onCopy}
@@ -234,7 +238,7 @@ export function Transcript({
                 />
               )
           ))}
-          {busy ? <LoadingLine label="正在生成…" /> : null}
+          {busy ? (runStatus==='PAUSED'?<p className="loading" role="status">已暂停，等待继续。</p>:<LoadingLine label={runStatus?runLabel(runStatus)+'…':'正在生成…'} />) : null}
         </div>
       </main>
       {error ? (
