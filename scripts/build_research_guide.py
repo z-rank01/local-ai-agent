@@ -11,7 +11,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from core.research_session import RESEARCH_TOOLS
-PACKAGE = ROOT / 'skills/runner/packages/harness-stock-research-v1'
+PACKAGE = ROOT / 'skills/runner/packages/harness-stock-research-v2'
 SCENARIOS = {
     '公司综合': ['company', 'finance', 'risk', 'delivery'],
     '公告影响': ['event', 'finance', 'delivery'],
@@ -83,7 +83,8 @@ core/research_visuals.py：发布输入核对、SVG
 core/research_material_view.py：旧大工具回执和参数转为可完整回读的证据指针
 core/brief_document.py：既有阅读模板
 skills/websearch/source_document.py：PDF页码、快照与分页
-skills/runner/packages/harness-stock-research-v1/scripts/calculate.py：容器算术
+skills/runner/packages/harness-stock-research-v2/scripts/calculate.py：容器算术
+skills/runner/packages/harness-stock-research-v2/scripts/extract.py：批量原文摘录，精确页码与位置；收到并核对的原句才登记为已读
 股票侧：既有公开字段与金融口径，旧专业任务不由本流程恢复
 产物：research.json、sources/、model-original.md、report.md、evidence.json、report.html
 publication-attempts/N.json：每次实际发布输入；失败后复制工作稿定向修订，再传draft_path</pre></details></section>
