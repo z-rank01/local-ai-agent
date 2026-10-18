@@ -404,6 +404,7 @@ class Agent:
             research = getattr(self.router, 'research', None)
             from .research_material_view import ResearchMaterialView
             research_view = ResearchMaterialView()
+            research_guidance_message = None
             while (research is not None and research.active) or stock_deadline is not None or research_continuing or round_number < self.max_rounds:
                 autonomous = research is not None and research.active
                 active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or
@@ -413,7 +414,8 @@ class Agent:
                     active = [d for d in active if d['function']['name'] in RESEARCH_TOOLS]
                 public_window_closed = public_research_deadline is not None and time.monotonic() >= public_research_deadline
                 stock_window_closed = not autonomous and ((stock_deadline is not None and time.monotonic() >= stock_deadline) or public_window_closed)
-                no_progress_closed = (quality_research or autonomous) and no_progress_rounds >= 2
+                no_progress_closed = (research.steps_without_progress >= 12 if autonomous
+                                      else quality_research and no_progress_rounds >= 2)
                 generic_final_round = not autonomous and stock_deadline is None and not research_continuing and round_number == self.max_rounds - 1
                 handoff_round = (quality_research and stock_window_closed and not no_progress_closed
                     and not handoff_attempted and not background_submitted
@@ -441,7 +443,7 @@ class Agent:
                 elif stock_window_closed or generic_final_round or no_progress_closed:
                     active = []
                     messages.append({"role": "system", "content":
-                        "[连续两轮没有新增有效工具结果。请交付已有成果，说明无法推进的原因与缺口。]" if no_progress_closed else
+                        "[连续步骤没有增加研究原文或阶段成果。请交付已有成果，说明无法推进的原因与缺口。]" if no_progress_closed else
                         "[本轮股票交付窗口已到。围绕原问题交付已核对判断、依据、反证及缺口。报告卡承载任务引用，用户未明确要求时不重复内部ID。仅按真实受理回执与当前状态说明后台进度，未受理或已暂停的任务不能声称正在自动运行；不新增用户未授权任务。]"
                         if stock_window_closed else
                         "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
@@ -510,6 +512,11 @@ class Agent:
                 # history is processed when analysis actually resumes.
                 if not purpose_step:
                     if autonomous:
+                        if research_guidance_message is not None:
+                            messages = [m for m in messages if not (m.get('role') == 'system'
+                                        and m.get('content') == research_guidance_message['content'])]
+                        research_guidance_message = {'role': 'system', 'content': research.guidance()}
+                        messages.append(research_guidance_message)
                         messages = research_view.apply(messages, self.context_mgr)
                     messages = await self.context_mgr.process(messages)
                 accumulated = None
@@ -812,7 +819,7 @@ class Agent:
                         yield AgentEvent('message', data={'message': skipped})
                     if autonomous:
                         await research.incomplete()
-                        yield AgentEvent('error', text='连续两轮未取得新增有效结果，研究未完成交付；已保存来源与计算，不会自动重跑。')
+                        yield AgentEvent('error', text='连续12个工具步骤未增加原文读取、方法或阶段成果，研究未完成交付；已保存来源与计算，不会自动重跑。')
                         return
                     yield AgentEvent('done', text='已取得的结果保留在会话中。已提交的后台研究可继续查询；'
                                      '本轮未执行的步骤仍列为缺口。')

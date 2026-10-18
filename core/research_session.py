@@ -41,6 +41,65 @@ class ResearchSession:
         self.published = None
         self.draft_count = 0
         self.publication_attempts = 0
+        self._source_pages = {}
+        self._milestones = set()
+        self._observed_milestones = 0
+        self.steps_without_progress = 0
+
+    def progress(self, kind, value):
+        key = (kind, sha256(encoded(value).encode()).hexdigest())
+        if key in self._milestones:
+            return False
+        self._milestones.add(key)
+        return True
+
+    def guidance(self):
+        sources = [{'source_id': key, 'saved_source': row['path'], 'title': row['title']}
+                   for key, row in self.sources.items()]
+        return ('当前研究已登记来源（文件路径和source_id只能取自实际回执，不猜文件名或证据编号）：\n'
+                + encoded(sources) + '\n可用工具包 scripts/extract.py 对 saved_source 一次提取多个关键词的原句，'
+                '输出source_excerpts包含实际页码、位置和原句；阅读成功后可直接用于发布引用。'
+                '需要单位说明与数值时分别保留原句，不拼接成一条假引句。'
+                '同一source_id可在sources数组引用多段原文。'
+                '不要逐次打印小片段或为定位一句话反复编写脚本。'
+                + (f'\n已有{self.steps_without_progress}步未增加原文读取、方法或阶段成果；请合并必要计算，'
+                   '修正具体错误后进入核对、发布有边界的结果。普通成功打印不算研究进展。'
+                   if self.steps_without_progress >= 4 else ''))
+
+    def received_text(self, key, text):
+        if text and self.progress('read:'+key, text):
+            self.read_text.setdefault(key, []).append(text)
+
+    async def source_excerpts(self, result):
+        """Bind *delivered* script excerpts to the saved original page and offsets.
+
+        Downloaded pages are used only as verification material. They are never
+        marked as read unless an exact excerpt was actually returned by a tool.
+        """
+        try:
+            receipt = json.loads(result.get('stdout', ''))
+        except (ValueError, TypeError):
+            return
+        if not isinstance(receipt, dict) or not isinstance(receipt.get('source_excerpts'), list):
+            return
+        for row in receipt['source_excerpts']:
+            if not isinstance(row, dict):
+                continue
+            key = row.get('source_id')
+            if not isinstance(key, str) or key not in self.sources or row.get('sha256') != self.sources[key]['sha256']:
+                continue
+            if key not in self._source_pages:
+                # On manual continuation the original file is fingerprinted by
+                # the existing checkpoint; re-read for verification, not AI coverage.
+                saved = await self.read_json(self.sources[key]['path'])
+                if sha256(encoded(saved).encode()).hexdigest() != self.sources[key]['artifact_sha256']:
+                    raise ValueError('已保存来源指纹变化，不能绑定脚本摘录')
+                self._source_pages[key] = saved['pages']
+            page = next((p['text'] for p in self._source_pages[key] if p['page'] == row.get('page')), None)
+            start, end, quote = row.get('start'), row.get('end'), row.get('quote')
+            if (page is not None and type(row.get('page')) is int and type(start) is int and type(end) is int and
+                    0 <= start < end <= len(page) and isinstance(quote, str) and page[start:end] == quote):
+                self.received_text(key, quote)
 
     @property
     def active(self):
@@ -107,7 +166,8 @@ class ResearchSession:
         await self.checkpoint()
         return {'research_id': self.record['id'], 'directory': self.record['directory'],
                 'phase': phase, 'model': self.model,
-                'next': '按需读取 harness-stock-research-v1 方法；研究不会因十分钟自动转交专业任务。'}
+                'sources': [{'source_id': key, 'saved_source': row['path']} for key, row in self.sources.items()],
+                'next': '按需读取 harness-stock-research-v2 方法；研究不会因十分钟自动转交专业任务。'}
 
     async def save_source(self, result):
         payload = result.pop('_source_file', None)
@@ -123,7 +183,8 @@ class ResearchSession:
                 ('url', 'title', 'sha256', 'fetched_at', 'page_count', 'total_chars', 'media_type')}
             self.sources[key]['path'] = self.record['directory'] + f'/sources/{key}.json'
             self.sources[key]['artifact_sha256'] = sha256(encoded(saved).encode('utf-8')).hexdigest()
-        self.read_text.setdefault(key, []).append(result['content'])
+        self._source_pages[key] = payload['pages']
+        self.received_text(key, result['content'])
         result['source_id'] = key
         result['saved_source'] = self.sources[key]['path']
         await self.checkpoint()
@@ -133,16 +194,27 @@ class ResearchSession:
         if self.record is None:
             return
         name, params, result = event['name'], event.get('params', {}), event.get('result', {})
+        before = self._observed_milestones
         success = event.get('status') == 'ok'
         path = params.get('path', '')
-        if success and name == 'file_read' and '/skills/harness-stock-research-v1/references/' in path:
+        if success and name == 'file_read' and any('/skills/'+version+'/references/' in path
+                for version in ('harness-stock-research-v1', 'harness-stock-research-v2')):
             self.methods.add(path)
+            self.progress('method', path)
             if isinstance(result,dict) and result.get('sha256'):
                 self.method_fingerprints[path] = result['sha256']
         if success and name == 'file_read' and isinstance(result, dict):
             for key, source in self.sources.items():
                 if path == source['path']:
-                    self.read_text.setdefault(key, []).append(result.get('content', ''))
+                    self.received_text(key, result.get('content', ''))
+        if success and name in ('code_exec', 'shell_exec') and isinstance(result, dict):
+            await self.source_excerpts(result)
+        if success and name == 'research_begin':
+            self.progress('phase', self.record['phase'])
+        if name == 'brief_publish' and self.publication_attempts:
+            self.progress('draft', 'first-submitted-draft')
+        self.steps_without_progress = 0 if len(self._milestones) > before else self.steps_without_progress + 1
+        self._observed_milestones = len(self._milestones)
         # Only fixed diagnostics, no code, model chain-of-thought or full arguments.
         self.trace.append({'tool': name, 'status': event['status'],
             'phase': self.record['phase'], 'elapsed': round(event.get('elapsed', 0), 3),
@@ -151,15 +223,7 @@ class ResearchSession:
             'at': datetime.now(timezone.utc).isoformat()})
         await self.checkpoint()
 
-    async def publication_input(self, params):
-        if 'draft_path' not in params:
-            return params
-        if set(params) != {'draft_path'}:
-            raise ValueError('draft_path 与内联正文不能混用；请修改 JSON 文件后只传路径')
-        path = params['draft_path']
-        root = PurePosixPath(self.record['directory'])
-        if not isinstance(path, str) or '\\' in path or '..' in PurePosixPath(path).parts or not PurePosixPath(path).is_relative_to(root) or not path.endswith('.json'):
-            raise ValueError('发布草稿必须是本轮研究目录内的 JSON 文件')
+    async def read_json(self, path):
         parts, offset, digest = [], 0, None
         while True:
             page = await self.router.dispatch('file_read', {'path': path, 'offset': offset}, self.conversation_id)
@@ -179,7 +243,18 @@ class ResearchSession:
             if type(following) is not int or following <= offset:
                 raise ValueError('发布草稿读取游标未前进')
             offset = following
-        value = json.loads(''.join(parts))
+        return json.loads(''.join(parts))
+
+    async def publication_input(self, params):
+        if 'draft_path' not in params:
+            return params
+        if set(params) != {'draft_path'}:
+            raise ValueError('draft_path 与内联正文不能混用；请修改 JSON 文件后只传路径')
+        path = params['draft_path']
+        root = PurePosixPath(self.record['directory'])
+        if not isinstance(path, str) or '\\' in path or '..' in PurePosixPath(path).parts or not PurePosixPath(path).is_relative_to(root) or not path.endswith('.json'):
+            raise ValueError('发布草稿必须是本轮研究目录内的 JSON 文件')
+        value = await self.read_json(path)
         if not isinstance(value, dict) or 'draft_path' in value:
             raise ValueError('发布草稿须为包含正文、引用、计算和图表的 JSON 对象')
         return value

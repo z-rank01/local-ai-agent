@@ -228,7 +228,8 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
         events = [e async for e in agent.run([{'role': 'user', 'content': '完成研究'}])]
-        self.assertEqual(len(attempts), 3)
+        self.assertEqual(len([e for e in events if e.kind == 'tool_end']), 13)
+        self.assertEqual(len(attempts), 14)  # one finalization response executes no tool
         self.assertEqual(events[-1].kind, 'error')
         self.assertIn('未完成交付', events[-1].text)
         self.assertEqual(run.record['status'], 'DELIVERY_INCOMPLETE')

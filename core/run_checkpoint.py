@@ -24,6 +24,8 @@ def capture(agent, messages, frozen, response_id, archive):
         state = {k:getattr(research,k) for k in ('record','sources','trace','draft_count','publication_attempts')}
         state['methods'] = sorted(research.methods)
         state['method_fingerprints'] = research.method_fingerprints
+        state['milestones'] = sorted(research._milestones)
+        state['steps_without_progress'] = research.steps_without_progress
         state['read_text'] = {key:[save({'role':'tool','content':text}) for text in spans]
                               for key,spans in research.read_text.items()}
     return {'format':1, 'safe':True, 'blocker':'', 'frozen':frozen,
@@ -65,5 +67,8 @@ def restore_research(research, state, load):
     research.record = {**research.record,'status':'IN_PROGRESS'}
     research.methods = set(state['methods'])
     research.method_fingerprints = state.get('method_fingerprints',{})
+    research._milestones = {tuple(item) for item in state.get('milestones', [])}
+    research._observed_milestones = len(research._milestones)
+    research.steps_without_progress = state.get('steps_without_progress', 0)
     research.read_text = {key:[load(evidence_id)['content'] for evidence_id in spans]
                           for key,spans in state['read_text'].items()}
