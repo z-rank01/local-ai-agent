@@ -98,6 +98,11 @@ try {
             Write-Step ('building web search image; progress: ' + $dailySearchBuildLog)
             docker compose --progress plain --project-directory $dailyRoot --profile websearch build skill-websearch *> $dailySearchBuildLog
             if ($LASTEXITCODE -ne 0) { throw 'Web search image build failed; see websearch-build.log.' }
+            # A surviving healthy container would otherwise bypass restore().
+            # Stop it now; the saved skill switch decides whether to start the
+            # new image through the launcher controller after BFF is ready.
+            docker compose --project-directory $dailyRoot --profile websearch stop skill-websearch *>> $dailySearchBuildLog
+            if ($LASTEXITCODE -ne 0) { throw 'Old web search container could not stop; see websearch-build.log.' }
         }
         if ($Build) { docker compose --progress plain --project-directory $dailyRoot -f data/private/workspace-compose.json up -d --build skill-files skill-runner *> $dailyContainerLog } else { docker compose --project-directory $dailyRoot -f data/private/workspace-compose.json up -d skill-files skill-runner *> $dailyContainerLog }
         if ($LASTEXITCODE -ne 0) { throw 'Tool containers failed to start.' }

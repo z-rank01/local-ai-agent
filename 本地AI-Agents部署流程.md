@@ -79,6 +79,7 @@
 | 搜索工具更新 | 操作与核验 |
 | --- | --- |
 | 修改 skills/websearch 后 | 唯一入口 start-daily.ps1 -Build 同时构建搜索镜像；构建不改变搜索技能开关，启动仍由保存的开关决定。失败时停止启动，日志 data/logs/websearch-build.log |
+| 遗留搜索容器 | Build 构建后停止旧 skill-websearch；BFF 按保存开关经原启动器控制接口恢复新镜像，避免旧健康容器跳过更新 |
 | 生效核验 | 搜索容器 OpenAPI 的 WebSearchRequest 应含 page、offset、page_hash；通过内部搜索接口实测游标，不能只检查源码 |
 
 ## 固定端口启动排错（2026-10-15）
