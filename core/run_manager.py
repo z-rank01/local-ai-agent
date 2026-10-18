@@ -88,13 +88,15 @@ class RunManager:
         safe = bool(checkpoint.get('safe')) and row['status'] != 'SUCCEEDED' and not checkpoint.get('continued_by')
         research = checkpoint.get('research') or {}
         published = checkpoint.get('published')
+        research_status = ('PUBLISHED' if published else 'DELIVERY_INCOMPLETE'
+                           if research and row['status'] in TERMINAL else (research.get('record') or {}).get('status'))
         conversation = self.conversations.get_conversation(row['conversation_id']) if row['conversation_id'] else None
         return {k: v for k, v in row.items() if k not in ('payload', 'checkpoint')} | {
             'title': (conversation.title if conversation else None) or payload.get('title') or payload.get('message', '')[:80] or row['kind'],
             'checkpoint_available': bool(checkpoint),
             'resumable': safe,
-            'resume_blocker': checkpoint.get('blocker') or ('' if checkpoint.get('safe') else '尚无安全检查点'),
-            'research_status': (research.get('record') or {}).get('status'),
+            'resume_blocker': '' if row['status'] == 'SUCCEEDED' else checkpoint.get('blocker') or ('' if checkpoint.get('safe') else '尚无安全检查点'),
+            'research_status': research_status,
             'publication_status': 'PUBLISHED' if published else ('NOT_PUBLISHED' if research else None),
             'artifacts': [published] if published else [],
         }
@@ -174,6 +176,7 @@ class RunManager:
                         self.store.update(control.id, model=value['data']['model'])
                     if value['event'] in ('error', 'session.error'):
                         failed = True
+                        self.store.update(control.id, error=value['data'].get('message') or '执行失败')
                     if value['event'] == 'tool.started':
                         self.store.update(control.id, phase=value['data'].get('summary') or value['data'].get('name', '工具执行'))
                     if value['event'] == 'tool.completed' and value['data'].get('name') == 'brief_publish':

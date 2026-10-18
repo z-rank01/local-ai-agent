@@ -65,6 +65,21 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         run = self.start(failure)
         _ = [e async for e in self.manager.subscribe(run)]
         self.assertEqual(self.manager.store.get(run)['status'], 'FAILED')
+        self.assertEqual(self.manager.store.get(run)['error'], 'no report')
+
+    async def test_terminal_report_projection_does_not_show_stale_in_progress(self):
+        async def done():
+            yield UIStreamEvent(event='session.completed')
+        run = self.start(done)
+        self.manager.store.update(run, checkpoint={'research':{'record':{'status':'IN_PROGRESS'}}})
+        _ = [e async for e in self.manager.subscribe(run)]
+        self.assertEqual(self.manager.public(self.manager.store.get(run))['research_status'], 'DELIVERY_INCOMPLETE')
+        checkpoint = self.manager.store.get(run)['checkpoint']
+        checkpoint['published'] = {'path':'/workspace/report.html','title':'Actual published report','sha256':'a'*64}
+        self.manager.store.update(run, checkpoint=checkpoint)
+        row = self.manager.public(self.manager.store.get(run))
+        self.assertEqual(row['research_status'], 'PUBLISHED')
+        self.assertEqual(row['resume_blocker'], '')
 
     async def test_known_terminal_without_checkpoint_is_not_labelled_unknown(self):
         run = self.start(self.producer)
