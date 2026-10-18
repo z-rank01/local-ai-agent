@@ -910,6 +910,10 @@ class Agent:
                     'quality_issues':[{'reason':'SOURCE_SELECTOR_MISMATCH'}]})
             logger.error('Agent loop failed: %s', type(exc).__name__)
             yield AgentEvent('error', text=str(exc))
+        finally:
+            research = getattr(self.router, 'research', None)
+            if research is not None:
+                await research.close()
 
     async def run_sync(
         self,

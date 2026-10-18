@@ -6,8 +6,10 @@ sources and conclusions; this module records actual reads and publishes files.
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import logging
 import re
 from uuid import uuid4
+import httpx
 
 from .brief_document import render_document
 from .research_visuals import render_charts, validate_publication
@@ -56,6 +58,15 @@ class ResearchSession:
         if self.record is not None and self.published is None:
             self.record['status'] = 'DELIVERY_INCOMPLETE'
             await self.checkpoint()
+
+    async def close(self):
+        if self.record is None or self.record['status'] != 'IN_PROGRESS':
+            return
+        try:
+            await self.incomplete()
+        except (OSError, RuntimeError, httpx.HTTPError) as exc:
+            # Preserve the original stop/failure; do not hide a failed checkpoint.
+            logging.getLogger(__name__).error('Research terminal checkpoint failed: %s', type(exc).__name__)
 
     async def save_draft(self, content):
         # Visible draft only. Existing model reasoning is never copied to artifacts.

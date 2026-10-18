@@ -173,3 +173,26 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             changed['calculations'][1]['inputs'][0][key] = bad
             with self.assertRaises(ValueError):
                 validate_publication(changed, run.sources, run.read_text)
+
+    async def test_stop_preserves_material_and_records_incomplete(self):
+        import asyncio
+        from core.agent import Agent
+        from types import SimpleNamespace
+        files, run, _ = await self.prepare()
+        saved_sources = copy.deepcopy(run.sources)
+        class Model:
+            cloud = False
+            async def chat_stream_with_tools(self, messages, tools):
+                raise asyncio.CancelledError()
+                yield  # async generator, interrupted before any supplier response
+        async def process(messages):
+            return messages
+        agent = Agent(llm=Model(), router=SimpleNamespace(research=run),
+            registry=SimpleNamespace(get_definitions=lambda **kw: []),
+            audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw: 'test'))
+        with self.assertRaises(asyncio.CancelledError):
+            _ = [e async for e in agent.run([{'role': 'user', 'content': '停止'}])]
+        self.assertEqual(run.record['status'], 'DELIVERY_INCOMPLETE')
+        self.assertEqual(run.sources, saved_sources)
+        self.assertIn('DELIVERY_INCOMPLETE', files.files[run.record['directory']+'/research.json'])
