@@ -83,6 +83,22 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(run.published)
         self.assertTrue(run.active)
 
+    async def test_editorial_notes_are_saved_separately_without_rewriting_research(self):
+        files, run, params = await self.prepare()
+        for notes in ('订正记录', [1], ['']):
+            self.assertIn('editorial_notes', (await run.publish({**params, 'editorial_notes': notes}))['error'])
+        params['markdown'] += '\n原披露数值已更正；资料限制仍需说明。'
+        params['editorial_notes'] = ['根据开发反馈调整段落与术语解释。']
+        result = await run.publish(params)
+        root = run.record['directory']
+        self.assertEqual(files.files[root+'/model-original.md'], params['markdown'])
+        self.assertIn(params['markdown'], files.files[root+'/report.md'])
+        self.assertNotIn(params['editorial_notes'][0], files.files[result['path']])
+        self.assertNotIn(params['editorial_notes'][0], files.files[root+'/report.md'])
+        self.assertEqual(json.loads(files.files[root+'/editorial-notes.json'])['notes'], params['editorial_notes'])
+        self.assertEqual(json.loads(files.files[root+'/evidence.json'])['editorial_notes'], params['editorial_notes'])
+        self.assertEqual(result, await run.publish(params))
+
     async def test_directory_creation_failure_does_not_begin_research(self):
         class ReadOnly:
             async def dispatch(self, tool, params, session):

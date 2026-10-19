@@ -6,6 +6,7 @@ cloud: write
 description: >-
   核对后发布当前研究的HTML简报。先research_begin、实际读方法和新原文，再进入核对阶段。
   原文引句必须来自web_fetch返回的source_id及实际已读内容；只允许排版空白差异，不能删词、拼接或改写条件。正文直接回答问题，解释术语，长段拆分，含理由、反证和最多3项观察条件。
+  markdown只写给读者的研究内容，不写修订轮次、删改清单、提示词执行情况或开发验收记录；需要留存时放editorial_notes，程序另存编制记录，不放入简报正文或参考来源。影响判断的事实更正与资料限制仍须在研究内容中说明。
   calculations只需提交操作及有来源/期间/单位的输入，result由程序计算，不必抄写长小数。图表原值须出现在原文引句；引用calculation零起始索引时可省略value，由程序填入。
   单位换算和多步计算须逐步列式：前项结果的source填calculation:零起始索引，value可省略，unit须一致。显式提供的结果或图值若冲突仍拒绝。不能把换算值或中间结果当成原文原值。
   推荐先用容器脚本在本轮研究目录写完整发布JSON，再仅传draft_path。也兼容直接传完整参数。
@@ -16,7 +17,11 @@ parameters:
   properties:
     draft_path: {type: string, description: 本轮research_begin返回目录内的完整发布JSON。使用此项时不要再传其他字段；文件包含下列正文、引用、计算、图表与核对项。}
     title: {type: string}
-    markdown: {type: string, description: 模型正文原稿，来源和计算另由程序附在末尾}
+    markdown: {type: string, description: 面向读者的研究正文，不含编制过程或订正清单；来源和计算由程序附在末尾}
+    editorial_notes:
+      type: array
+      items: {type: string}
+      description: 可选的编制及修订说明，单独保存为editorial-notes.json；不是独立事实核验，不进入阅读正文
     as_of: {type: string, description: 资料截止日期及未更新范围}
     stance: {type: string, enum: [继续研究, 等待验证, 暂不关注]}
     sources:

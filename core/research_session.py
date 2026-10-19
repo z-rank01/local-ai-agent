@@ -299,6 +299,10 @@ class ResearchSession:
         await self.write('model-original.md', original)
         await self.write('report.md', original + references)
         await self.write('evidence.json', {**params, 'actual_sources': self.sources, 'model': self.model})
+        if params.get('editorial_notes'):
+            await self.write('editorial-notes.json', {
+                'model': self.model, 'notes': params['editorial_notes'],
+                'purpose': '编制记录，不构成独立事实核验'})
         await self.write('report.html', document)
         self.record.update(phase='交付', status='PUBLISHED')
         await self.checkpoint()

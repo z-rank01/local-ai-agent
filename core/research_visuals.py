@@ -27,6 +27,9 @@ def validate_publication(params, sources, read_text):
     for key in ('title', 'markdown', 'as_of', 'stance'):
         if not isinstance(params.get(key), str) or not params[key].strip():
             raise ValueError(f'发布缺少 {key}')
+    notes = params.get('editorial_notes', [])
+    if not isinstance(notes, list) or any(not isinstance(note, str) or not note.strip() for note in notes):
+        raise ValueError('editorial_notes须为非空文字组成的列表')
     if not params.get('review', {}).get('checks') or not params['review'].get('limitations'):
         raise ValueError('须提供已做的核对和资料限制')
     cited = {}
