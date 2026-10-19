@@ -57,7 +57,7 @@ def validate_publication(params, sources, read_text):
                 previous = calculations[int(reference)]
                 row.setdefault('value', previous['result'])
                 if number(row['value']) != number(previous['result']) or row['unit'] != previous['unit']:
-                    raise ValueError('计算依赖的原值或单位与前项结果不一致')
+                    raise ValueError(f'calculations[{index}].inputs[{input_index}] 的原值或单位与前项calculation:{reference}不一致；沿用前项单位，换算需另列算式')
                 continue
             if row['source'].startswith('constant:') and row['period'] == '不适用':
                 continue

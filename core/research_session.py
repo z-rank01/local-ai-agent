@@ -167,7 +167,7 @@ class ResearchSession:
         return {'research_id': self.record['id'], 'directory': self.record['directory'],
                 'phase': phase, 'model': self.model,
                 'sources': [{'source_id': key, 'saved_source': row['path']} for key, row in self.sources.items()],
-                'next': '按需读取 harness-stock-research-v2 方法；研究不会因十分钟自动转交专业任务。'}
+                'next': '按需读取 harness-stock-research-v3 方法；本轮已成功读取的方法不必重读，研究不会因十分钟自动转交专业任务。'}
 
     async def save_source(self, result):
         payload = result.pop('_source_file', None)
@@ -191,8 +191,6 @@ class ResearchSession:
         return result
 
     async def observe(self, event):
-        if self.record is None:
-            return
         name, params, result = event['name'], event.get('params', {}), event.get('result', {})
         before = self._observed_milestones
         success = event.get('status') == 'ok'
@@ -203,6 +201,10 @@ class ResearchSession:
             self.progress('method', path)
             if isinstance(result,dict) and result.get('sha256'):
                 self.method_fingerprints[path] = result['sha256']
+        # Method selection may precede the plan. Keep actual reads from this
+        # turn, without inheriting another turn's methods or source coverage.
+        if self.record is None:
+            return
         if success and name == 'file_read' and isinstance(result, dict):
             for key, source in self.sources.items():
                 if path == source['path']:

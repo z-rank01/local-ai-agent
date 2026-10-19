@@ -111,6 +111,25 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             await run.begin({'scope': '公司研究', 'plan': ['核对']})
         self.assertIsNone(run.record)
 
+    async def test_actual_method_read_before_begin_is_retained_only_for_this_turn(self):
+        files = Files()
+        run = ResearchSession(files, conversation_id='c', model='m', allowed=True)
+        path = '/workspace/skills/harness-stock-research-v3/references/finance.md'
+        event = {'name':'file_read', 'status':'error', 'params':{'path':path},
+                 'result':{'content':'方法', 'sha256':'b'*64}}
+        await run.observe(event)
+        self.assertFalse(run.methods)
+        await run.observe({**event, 'status':'ok'})
+        self.assertIn(path, run.methods)
+        self.assertFalse(files.files)  # no research or file writes before begin
+        reply = await run.begin({'scope':'公司', 'plan':['核对'], 'phase':'准备'})
+        self.assertIn('harness-stock-research-v3', reply['next'])
+        saved = json.loads(files.files[reply['directory']+'/research.json'])
+        self.assertIn(path, saved['methods'])
+        fresh = ResearchSession(files, conversation_id='c', model='m', allowed=True)
+        self.assertFalse(fresh.methods)
+        self.assertFalse(run.read_text)  # method receipt is not source reading
+
     async def test_unread_quote_and_chart_conflict_rejected(self):
         files, run, params = await self.prepare()
         changed = copy.deepcopy(params)
