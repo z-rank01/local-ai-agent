@@ -14,7 +14,7 @@ class BundledMethodsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             for name in ('default', 'named'):
                 workspace = Path(directory) / name
-                self.assertEqual(install_methods(workspace), ['harness-stock-research-v1', 'harness-stock-research-v2', 'harness-stock-research-v3'])
+                self.assertEqual(install_methods(workspace), ['harness-public-sources-v1', 'harness-stock-research-v1', 'harness-stock-research-v2', 'harness-stock-research-v3'])
                 target = workspace / 'skills/harness-stock-research-v1'
                 package, error = parse_package(target, target.parent)
                 self.assertIsNone(error)
@@ -31,7 +31,7 @@ class BundledMethodsTests(unittest.TestCase):
             edited = workspace / 'skills/harness-stock-research-v2/references/finance.md'
             edited.parent.mkdir(parents=True)
             edited.write_text('User finance method', encoding='utf-8')
-            self.assertEqual(install_methods(workspace), ['harness-stock-research-v1', 'harness-stock-research-v3'])
+            self.assertEqual(install_methods(workspace), ['harness-public-sources-v1', 'harness-stock-research-v1', 'harness-stock-research-v3'])
             self.assertEqual(edited.read_text(encoding='utf-8'), 'User finance method')
             self.assertTrue((workspace/'skills/harness-stock-research-v3/scripts/extract.py').is_file())
 
