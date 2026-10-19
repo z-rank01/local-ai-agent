@@ -2,6 +2,7 @@
 Policy engine — path whitelist/blacklist, execution restrictions.
 """
 
+import ast
 import logging
 import os
 import posixpath
@@ -14,6 +15,40 @@ import yaml
 logger = logging.getLogger("core.policy")
 
 _PATH_KEYS = frozenset({"path", "src", "dst", "directory", "cwd"})
+
+
+def _uses_dynamic_compile(code: str) -> bool:
+    """Distinguish Python compilation from an unshadowed regex module call."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return "compile(" in code.lower()  # leave other syntax errors to runner
+    nodes = list(ast.walk(tree))
+    regex_modules = {a.asname or a.name for n in nodes if isinstance(n, ast.Import)
+                     for a in n.names if a.name == 're'}
+    for node in nodes:
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            regex_modules.discard(node.id)
+        elif isinstance(node, ast.arg):
+            regex_modules.discard(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            regex_modules.discard(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if isinstance(node, ast.ImportFrom) or alias.name != 're':
+                    regex_modules.discard(alias.asname or alias.name.split('.')[0])
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store) and isinstance(node.value, ast.Name):
+            regex_modules.discard(node.value.id)
+    for node in nodes:
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if isinstance(function, ast.Name) and function.id == 'compile':
+            return True
+        if isinstance(function, ast.Attribute) and function.attr == 'compile':
+            if not (isinstance(function.value, ast.Name) and function.value.id in regex_modules):
+                return True
+    return False
 
 
 def _normalize_virtual_path(path: str) -> str:
@@ -102,7 +137,8 @@ class PolicyEngine:
                 )
             lowered = code.lower()
             for fragment in self._denied_code_fragments:
-                if fragment in lowered:
+                blocked = _uses_dynamic_compile(code) if fragment == 'compile(' else fragment in lowered
+                if blocked:
                     raise PermissionError(
                         f"code contains forbidden fragment {fragment!r}"
                     )

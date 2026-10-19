@@ -84,6 +84,22 @@ class PolicyEngineShellTests(unittest.TestCase):
         self.engine.check('code_exec', {'code':'print(1)'})
         self.engine.check('shell_exec', {'command':'pwd'})
 
+    def test_regex_compilation_is_not_dynamic_python_compilation(self):
+        for code in ("import json,re\npattern=re.compile(r'\\d+')",
+                     "import re as regex\npattern=regex.compile(r'\\d+')",
+                     "message='compile( is a function name'"):
+            with self.subTest(code=code):
+                self.engine.check('code_exec', {'code':code})
+        for code in ("compile('print(1)', 'x', 'exec')",
+                     "compile ('print(1)', 'x', 'exec')",
+                     "import builtins\nbuiltins.compile('1', 'x', 'eval')",
+                     "import re, builtins\nre=builtins\nre.compile('1', 'x', 'eval')",
+                     "import re\ndef f(re): return re.compile('1', 'x', 'eval')",
+                     "import re\nre.compile=other\nre.compile('1')",
+                     "import re\nfrom other import re\nre.compile('1')"):
+            with self.subTest(code=code), self.assertRaisesRegex(PermissionError, 'compile'):
+                self.engine.check('code_exec', {'code':code})
+
 
 if __name__ == "__main__":
     unittest.main()
