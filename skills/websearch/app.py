@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from readability import Document
 
 from search_pages import is_search_page
-from source_document import pdf_pages, source_snapshot
+from source_document import pdf_pages, source_snapshot, json_body, json_document_links
 from search_batches import select_batch, PageSnapshots, engine_capabilities
 from pathlib import Path
 import tempfile
@@ -227,7 +227,8 @@ async def web_fetch(req: WebFetchRequest):
     elif "text/html" in content_type or "application/xhtml" in content_type:
         text = _extract_readable_text(resp.text, req.url)
         pages = [{'page': 1, 'text': text}]
-    elif "text/" in content_type or "application/json" in content_type:
+    elif ("text/" in content_type or "application/json" in content_type or
+          ('application/javascript' in content_type and json_body(resp.text) is not None)):
         text = resp.text
         pages = [{'page': 1, 'text': text}]
     else:
@@ -237,7 +238,8 @@ async def web_fetch(req: WebFetchRequest):
             "content": "",
         }
 
-    document_links = _document_links(resp.text, str(resp.url)) if 'html' in content_type else []
+    document_links = (_document_links(resp.text, str(resp.url)) if 'html' in content_type
+                      else json_document_links(resp.text, str(resp.url)))
     if not any(page['text'].strip() for page in pages):
         return {
             "error": "页面未提取到正文；不能将空页面当作已读原文。可继续读取附件或寻找其他原文入口。",
@@ -249,7 +251,7 @@ async def web_fetch(req: WebFetchRequest):
             title=_extract_title(resp.text) if 'html' in content_type else '', pages=pages,
             offset=req.offset, max_chars=max_chars, expected_hash=req.source_hash,
             include_file=req.include_file, media_type=content_type)
-        if 'html' in content_type:
+        if 'html' in content_type or document_links:
             result['document_links'] = document_links
         return result
     except ValueError as exc:

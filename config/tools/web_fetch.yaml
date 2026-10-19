@@ -7,7 +7,9 @@ short_description: "Fetch a web page."
 description: >
   获取指定网页的正文内容。用于在 web_search 搜索到结果后，深入阅读某个页面的详细内容。
   会自动提取网页或PDF原文，PDF保留页码。next_offset非空时可续读，传回sha256作为source_hash以拒绝快照混合。
-  网页如含PDF附件会返回document_links（原地址、链接文字、所属页面）；可据此继续读原文，不把链接本身当已读。
+  网页或JSON/JSONP接口如含实际PDF附件地址会返回document_links（原地址、链接文字或字段位置、所属页面）；
+  可据此继续读原文，不把链接本身当已读。财务接口也须由本工具取得并登记，再用容器处理saved_source，
+  避免仅在临时代码中下载而无法随简报引用。
 parameters:
   type: object
   properties:

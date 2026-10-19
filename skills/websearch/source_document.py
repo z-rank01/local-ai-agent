@@ -1,8 +1,49 @@
 """Page-addressable public source snapshots. No model or workspace access."""
 import base64
+import json
+import re
 from datetime import datetime, timezone
 from hashlib import sha256
 from io import BytesIO
+from urllib.parse import urlsplit
+
+
+def json_body(text):
+    """Read JSON or a JSONP wrapper as data, never execute JavaScript."""
+    text = text.strip().lstrip('\ufeff')
+    wrapper = re.fullmatch(r'[A-Za-z_$][\w.$]*\s*\((.*)\)\s*;?', text, re.S)
+    try:
+        value = json.loads(wrapper.group(1) if wrapper else text)
+    except ValueError:
+        return None
+    return value if isinstance(value, (dict, list)) else None
+
+
+def json_document_links(text, url):
+    """Expose PDF addresses actually present in a provider receipt."""
+    found, seen = [], set()
+
+    def visit(value, location):
+        if len(found) == 20:
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                visit(child, f'{location}.{key}')
+        elif isinstance(value, list):
+            for i, child in enumerate(value):
+                visit(child, f'{location}[{i}]')
+        elif isinstance(value, str) and value.startswith(('https://', 'http://')):
+            try:
+                parts = urlsplit(value)
+            except ValueError:
+                return
+            if (parts.scheme in ('http', 'https') and parts.netloc and
+                    parts.path.lower().endswith('.pdf') and value not in seen):
+                found.append({'url': value, 'label': location, 'found_on': url})
+                seen.add(value)
+
+    visit(json_body(text), '$')
+    return found
 
 
 def pdf_pages(raw: bytes) -> list[dict]:

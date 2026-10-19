@@ -6,6 +6,19 @@ import app
 
 
 class FetchTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_jsonp_preserves_raw_receipt_and_actual_pdf_target(self):
+        from unittest.mock import patch
+        raw = b'callback({"data":{"attach_url_web":"https://pdf.example.org/notice.PDF?token=1"}});'
+        transport = httpx.MockTransport(lambda req: httpx.Response(200,
+            headers={'content-type': 'application/javascript'}, content=raw))
+        async with httpx.AsyncClient(transport=transport) as client:
+            with patch.object(app, '_client', client):
+                result = await app.web_fetch(app.WebFetchRequest(url='https://example.org/api', include_file=True))
+        self.assertIn(raw.decode(), result['content'])
+        self.assertEqual(result['document_links'], [{'url': 'https://pdf.example.org/notice.PDF?token=1',
+            'label': '$.data.attach_url_web', 'found_on': 'https://example.org/api'}])
+        self.assertEqual(len(result['_source_file']['pages']), 1)
+
     async def test_empty_html_is_not_a_source_but_attachment_links_remain(self):
         from unittest.mock import patch
         for html, expected_links in (
