@@ -33,7 +33,7 @@ def validate_publication(params, sources, read_text):
     if not params.get('review', {}).get('checks') or not params['review'].get('limitations'):
         raise ValueError('须提供已做的核对和资料限制')
     cited = {}
-    for item in params['sources']:
+    for source_index, item in enumerate(params['sources']):
         key, quote = item['id'], item['quote']
         if key not in sources or not quote.strip() or not item['locator']:
             raise ValueError('引用须绑定本轮实际来源及原文位置')
@@ -41,7 +41,7 @@ def validate_publication(params, sources, read_text):
         normalized = re.sub(r'\s+', ' ', quote).strip()
         if not any(normalized in re.sub(r'\s+', ' ', text).strip()
                    for text in read_text.get(key, [])):
-            raise ValueError(f'{key} 引文不在实际收到的原文中')
+            raise ValueError(f'sources[{source_index}] {key}（{item["locator"]}）引文不在实际收到的原文中；请web_fetch读取对应页或让摘录脚本完整输出source_excerpts回执。保存文件不等于已读，不要拼接或改写引句')
         cited.setdefault(key, {'quote': ''})['quote'] += '\n' + quote
     if not cited:
         raise ValueError('简报没有实际原文引用')

@@ -95,7 +95,7 @@ class PolicyEngine:
         if tool == "code_exec":
             code = params.get("code")
             if not isinstance(code, str) or not code.strip():
-                raise PermissionError("code must be a non-empty string")
+                raise PermissionError("code_exec.code须为非空Python源码；Shell命令请调用shell_exec并传command，不会自动转换参数")
             if len(code) > self._max_code_chars:
                 raise PermissionError(
                     f"Code length exceeds policy maximum {self._max_code_chars} characters"
@@ -110,7 +110,7 @@ class PolicyEngine:
         if tool == "shell_exec":
             command = params.get("command")
             if not isinstance(command, str) or not command.strip():
-                raise PermissionError("command must be a non-empty string")
+                raise PermissionError("shell_exec.command须为非空Shell命令；Python源码请调用code_exec并传code")
             if len(command) > self._max_command_chars:
                 raise PermissionError(
                     f"Command length exceeds policy maximum {self._max_command_chars} characters"

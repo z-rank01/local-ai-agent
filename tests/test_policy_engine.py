@@ -74,6 +74,16 @@ class PolicyEngineShellTests(unittest.TestCase):
             with self.subTest(command=command), self.assertRaises(PermissionError):
                 self.engine.check('shell_exec', {'command': command})
 
+    def test_wrong_execution_parameter_reports_the_correct_tool_without_rewriting(self):
+        params = {'command': 'pwd'}
+        with self.assertRaisesRegex(PermissionError, 'code_exec.code.*shell_exec'):
+            self.engine.check('code_exec', params)
+        self.assertEqual(params, {'command': 'pwd'})
+        with self.assertRaisesRegex(PermissionError, 'shell_exec.command.*code_exec'):
+            self.engine.check('shell_exec', {'code':'print(1)'})
+        self.engine.check('code_exec', {'code':'print(1)'})
+        self.engine.check('shell_exec', {'command':'pwd'})
+
 
 if __name__ == "__main__":
     unittest.main()

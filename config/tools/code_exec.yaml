@@ -4,13 +4,13 @@ backend: skill-runner
 tier: core
 cloud: write
 short_description: "Run Python code."
-description: "Execute a short Python snippet inside the sandboxed runner. Use this for computation, parsing, and temporary verification."
+description: "在工具容器执行Python源码，参数名是code，不是command。适合计算、解析和临时核对；Shell命令用shell_exec.command。优先使用json、decimal、urllib等标准库；第三方库先用importlib.util.find_spec核实，不假设requests等已安装。"
 parameters:
   type: object
   properties:
     code:
       type: string
-      description: "Python source code to execute"
+      description: "Python源码文本；不能传Shell命令或command字段"
     cwd:
       type: string
       description: "工作区内的执行目录；省略时使用当前工作区主要目录"

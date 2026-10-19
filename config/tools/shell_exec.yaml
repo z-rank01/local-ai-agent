@@ -4,7 +4,7 @@ backend: skill-runner
 tier: core
 cloud: write
 short_description: "Run a shell command."
-description: "在 Linux 容器 /bin/sh 中执行命令，可搜索文件、运行脚本与测试。工作目录必须在当前工作区已挂载目录内。这不是 Windows CMD 或 PowerShell。输出、退出码、超时和截断会返回；较长命令逐段显示输出。"
+description: "使用command参数在Linux容器/bin/sh执行命令，可搜索文件、运行脚本与测试。Python源码用code_exec.code。工作目录必须在当前工作区已挂载目录内。这不是Windows CMD或PowerShell。输出、退出码、超时和截断会返回；较长命令逐段显示输出。"
 parameters:
   type: object
   properties:

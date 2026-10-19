@@ -268,8 +268,15 @@ class ResearchSession:
             if self.published['sha256'] != digest:
                 raise ValueError('本轮已经交付；不同内容须作为新的修订研究保存')
             return self.published
-        if self.record['phase'] != '核对' or not self.methods or not self.sources:
-            raise ValueError('发布前须实际读取方法、新公开原文，并进入核对阶段')
+        missing = []
+        if self.record['phase'] != '核对':
+            missing.append(f"当前阶段为{self.record['phase']}，请research_begin进入核对")
+        if not self.methods:
+            missing.append('尚未实际读取方法，请file_read读取本轮适用的方法笔记')
+        if not self.sources:
+            missing.append('尚无本轮公开来源，请web_fetch取得并读取关键原文')
+        if missing:
+            raise ValueError('发布前置条件未满足：'+'；'.join(missing))
         # Keep every submitted draft, including rejected inputs. The model can
         # edit a working copy in the executor without re-sending the full payload.
         self.publication_attempts += 1

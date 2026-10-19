@@ -127,6 +127,22 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('error', await run.publish(changed))
         self.assertIsNone(run.published)
 
+    async def test_publication_errors_identify_missing_steps_and_unread_source(self):
+        _, run, params = await self.prepare()
+        run.record['phase'] = '分析'
+        run.methods.clear()
+        with self.assertRaisesRegex(ValueError, '当前阶段为分析.*尚未实际读取方法') as error:
+            await run.publish(params)
+        self.assertNotIn('尚无本轮公开来源', str(error.exception))
+        run.record['phase'] = '核对'
+        run.methods.add('/workspace/skills/harness-stock-research-v3/references/finance.md')
+        params['sources'][0]['quote'] = '未实际读取的句子'
+        result = await run.publish(params)
+        self.assertIn('sources[0]', result['error'])
+        self.assertIn(params['sources'][0]['id'], result['error'])
+        self.assertIn('对应页', result['error'])
+        self.assertIsNone(run.published)
+
     async def test_wrong_calculation_is_not_published(self):
         files, run, params = await self.prepare()
         params['calculations'] = [{'operation': 'divide', 'unit': '元', 'result': '51',
