@@ -6,7 +6,7 @@ cloud: write
 description: >-
   开始当前对话的公开投研并保存范围、标的和计划。首次phase=准备；随后用同一工具报告获取、分析、核对阶段。
   跟随本轮聊天模型，不调用专业任务、不因十分钟强制结束。返回当前工作区的产物目录。
-  开始后读取 harness-stock-research-v2 方法，使用实际搜索/原文/计算工具，最后 brief_publish。已登记的source_id和保存路径随阶段回执返回，不能猜文件名。
+  通过 skill_list/skill_info 发现当前项目投研适配包，按需读取方法，使用实际搜索/原文/计算工具，最后 brief_publish。已登记的source_id和保存路径随阶段回执返回，不能猜文件名。
 parameters:
   type: object
   properties:
