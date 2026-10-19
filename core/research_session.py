@@ -164,10 +164,15 @@ class ResearchSession:
         else:
             self.record['phase'] = phase
         await self.checkpoint()
+        next_step = '按需读取项目当前投研方法；本轮已成功读取的方法不必重读，研究不会因十分钟自动转交专业任务。'
+        if phase == '核对':
+            next_step = ('先从反方检查完整草稿的标题、排序和结论，按所选方法逐条核对支持推断的来源、期间与必要前提；'
+                         '不能只核对引句和数字存在。发现缺口就修订对应陈述或补查，保留其他有效成果。'
+                         '在review.checks记录具体核对结果及位置，不写隐藏推理或泛化通过声明；完成后再brief_publish。')
         return {'research_id': self.record['id'], 'directory': self.record['directory'],
                 'phase': phase, 'model': self.model,
                 'sources': [{'source_id': key, 'saved_source': row['path']} for key, row in self.sources.items()],
-                'next': '按需读取 harness-stock-research-v3 方法；本轮已成功读取的方法不必重读，研究不会因十分钟自动转交专业任务。'}
+                'next': next_step}
 
     async def save_source(self, result):
         payload = result.pop('_source_file', None)

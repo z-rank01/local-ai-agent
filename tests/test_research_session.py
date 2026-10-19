@@ -123,7 +123,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(path, run.methods)
         self.assertFalse(files.files)  # no research or file writes before begin
         reply = await run.begin({'scope':'公司', 'plan':['核对'], 'phase':'准备'})
-        self.assertIn('harness-stock-research-v3', reply['next'])
+        self.assertIn('本轮已成功读取的方法不必重读', reply['next'])
         saved = json.loads(files.files[reply['directory']+'/research.json'])
         self.assertIn(path, saved['methods'])
         fresh = ResearchSession(files, conversation_id='c', model='m', allowed=True)
