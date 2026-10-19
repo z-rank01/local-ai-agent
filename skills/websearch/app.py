@@ -237,13 +237,20 @@ async def web_fetch(req: WebFetchRequest):
             "content": "",
         }
 
+    document_links = _document_links(resp.text, str(resp.url)) if 'html' in content_type else []
+    if not any(page['text'].strip() for page in pages):
+        return {
+            "error": "页面未提取到正文；不能将空页面当作已读原文。可继续读取附件或寻找其他原文入口。",
+            "url": str(resp.url), "content": "", "document_links": document_links,
+        }
+
     try:
         result = source_snapshot(resp.content, url=str(resp.url),
             title=_extract_title(resp.text) if 'html' in content_type else '', pages=pages,
             offset=req.offset, max_chars=max_chars, expected_hash=req.source_hash,
             include_file=req.include_file, media_type=content_type)
         if 'html' in content_type:
-            result['document_links'] = _document_links(resp.text, str(resp.url))
+            result['document_links'] = document_links
         return result
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

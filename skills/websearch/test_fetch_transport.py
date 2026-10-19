@@ -6,6 +6,26 @@ import app
 
 
 class FetchTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_html_is_not_a_source_but_attachment_links_remain(self):
+        from unittest.mock import patch
+        for html, expected_links in (
+            (b'<html><body><script>load()</script></body></html>', []),
+            (b'<html><body><a href="notice.pdf"></a></body></html>',
+             [{'url': 'https://example.org/notice.pdf', 'label': '',
+               'found_on': 'https://example.org/report'}]),
+        ):
+            transport = httpx.MockTransport(lambda req: httpx.Response(200,
+                headers={'content-type': 'text/html'}, content=html))
+            async with httpx.AsyncClient(transport=transport) as client:
+                with patch.object(app, '_client', client):
+                    result = await app.web_fetch(app.WebFetchRequest(
+                        url='https://example.org/report', include_file=True))
+            self.assertIn('未提取到正文', result['error'])
+            self.assertEqual(result['content'], '')
+            self.assertEqual(result['document_links'], expected_links)
+            self.assertNotIn('_source_file', result)
+            self.assertNotIn('sha256', result)
+
     def test_pdf_links_preserve_actual_targets_and_skip_non_http_links(self):
         links = app._document_links('''<a href="../notice.PDF?download=1">公告原文</a>
             <a href="../notice.PDF?download=1">重复</a><a href="javascript:bad.pdf">不执行</a>
