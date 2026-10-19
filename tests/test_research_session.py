@@ -251,6 +251,47 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.record['status'], 'DELIVERY_INCOMPLETE')
         self.assertIsNone(run.published)
 
+    async def test_stalled_research_can_finalize_but_phase_changes_cannot_reopen_search(self):
+        from core.agent import Agent
+        from types import SimpleNamespace
+        for publish in (True, False):
+            with self.subTest(publish=publish):
+                _, run, params = await self.prepare()
+                await run.begin({'phase': '分析'})
+                run.steps_without_progress = 12
+                offered = []
+                class Model:
+                    cloud = False
+                    async def chat_stream_with_tools(self, messages, tools):
+                        names = {d['function']['name'] for d in tools or []}
+                        offered.append(names)
+                        if not names:
+                            yield '不能发布。', {'role': 'assistant', 'content': '不能发布。'}
+                            return
+                        name, args = ('brief_publish', params) if publish and len(offered) == 2 else ('research_begin', {'phase': '核对'})
+                        yield '', {'role': 'assistant', 'content': '', 'tool_calls': [
+                            {'id': str(len(offered)), 'function': {'name': name, 'arguments': args}}]}
+                class Router:
+                    research = run
+                    async def dispatch(self, name, args, session):
+                        return await (run.publish(args) if name == 'brief_publish' else run.begin(args))
+                async def process(messages):
+                    return messages
+                agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw: [
+                    {'type': 'function', 'function': {'name': n}} for n in ('web_fetch', 'research_begin', 'brief_publish')]),
+                    audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
+                    prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
+                events = [e async for e in agent.run([{'role': 'user', 'content': '完成研究'}])]
+                self.assertEqual(offered[:2], [{'research_begin', 'brief_publish'}]*2)
+                if publish:
+                    self.assertEqual(len(offered), 2)
+                    self.assertEqual(events[-1].kind, 'done')
+                    self.assertEqual(run.record['status'], 'PUBLISHED')
+                else:
+                    self.assertEqual(offered[2:], [set()])
+                    self.assertEqual(events[-1].kind, 'error')
+                    self.assertIsNone(run.published)
+
     async def test_program_fills_derived_values_without_changing_submitted_draft(self):
         files, run, params = await self.prepare()
         source = params['sources'][0]['id']

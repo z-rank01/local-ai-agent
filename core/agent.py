@@ -405,6 +405,7 @@ class Agent:
             from .research_material_view import ResearchMaterialView
             research_view = ResearchMaterialView()
             research_guidance_message = None
+            closing_rounds = None
             while (research is not None and research.active) or stock_deadline is not None or research_continuing or round_number < self.max_rounds:
                 autonomous = research is not None and research.active
                 active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or
@@ -414,13 +415,26 @@ class Agent:
                     active = [d for d in active if d['function']['name'] in RESEARCH_TOOLS]
                 public_window_closed = public_research_deadline is not None and time.monotonic() >= public_research_deadline
                 stock_window_closed = not autonomous and ((stock_deadline is not None and time.monotonic() >= stock_deadline) or public_window_closed)
-                no_progress_closed = (research.steps_without_progress >= 12 if autonomous
+                if autonomous and closing_rounds is None and research.steps_without_progress >= 12:
+                    closing_rounds = 2
+                delivery_only = autonomous and closing_rounds is not None
+                no_progress_closed = (closing_rounds == 0 if autonomous
                                       else quality_research and no_progress_rounds >= 2)
+                if delivery_only and not no_progress_closed:
+                    active = [d for d in active if d['function']['name'] in {'research_begin', 'brief_publish'}]
+                    closing_rounds -= 1
+                    no_progress_closed = not active
                 generic_final_round = not autonomous and stock_deadline is None and not research_continuing and round_number == self.max_rounds - 1
                 handoff_round = (quality_research and stock_window_closed and not no_progress_closed
                     and not handoff_attempted and not background_submitted
                     and any(d['function']['name'] in handoff_tools for d in active))
-                if handoff_round:
+                if delivery_only and not no_progress_closed:
+                    messages.append({'role': 'system', 'content':
+                        '连续步骤没有增加原文或阶段成果，停止继续取证。现在只保留核对阶段与发布工具，'
+                        f'含本轮最多还有{closing_rounds+1}轮收尾；阶段变更不会重新开放取证。'
+                        '用已有实际读取的依据交付有边界的结果，可直接提交发布字段或已有draft_path。'
+                        '不能补造依据或放宽核验；条件不足时明确未完成，不重新开始研究。'})
+                elif handoff_round:
                     # A search-only stock question may not yet own a safe brief reference.
                     # Allow one lookup step before submission; the normal stock ticket
                     # still governs every dispatched operation and UNKNOWN is never redone.
@@ -784,7 +798,7 @@ class Agent:
                     if not reply:
                         raise RuntimeError('模型返回空回答，已有工具结果仍保留。')
                     if autonomous:
-                        if not no_progress_closed and execution_retries == 0:
+                        if not no_progress_closed and not delivery_only and execution_retries == 0:
                             execution_retries += 1
                             messages.append({'role': 'system', 'content':
                                 '当前研究尚未通过brief_publish交付。若可以继续，请实际读取方法、获取原文并完成发布；'
