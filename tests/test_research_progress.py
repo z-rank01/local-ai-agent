@@ -77,3 +77,26 @@ class ResearchProgressTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result['unmatched_terms'],['不存在'])
             for row in result['source_excerpts']:
                 self.assertEqual(row['quote'],pages[row['page']-1]['text'][row['start']:row['end']])
+
+    def test_v3_limit_receipt_keeps_fields_and_does_not_claim_full_source_absence(self):
+        path = Path('skills/runner/packages/harness-stock-research-v3/scripts/extract.py')
+        spec = importlib.util.spec_from_file_location('research_extract_v3', path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with TemporaryDirectory(dir='data/tmp') as directory:
+            source = Path(directory)/'Sactual.json'
+            pages = [{'page':1, 'text':'营业收入100元'}, {'page':2, 'text':'实际回款80元'}]
+            source.write_text(json.dumps({'sha256':'a'*64, 'pages':pages}), encoding='utf-8')
+            limited = module.extract(source, ['营业收入','实际回款'], limit=1)
+            self.assertEqual(limited['unmatched_terms'], ['实际回款'])
+            self.assertEqual(limited['source_excerpts'][0]['page'], 1)
+            full = module.extract(source, ['营业收入','实际回款'], limit=4)
+            self.assertEqual(full['unmatched_terms'], [])
+            empty = module.extract(source, ['未披露词'], limit=1)
+            self.assertEqual(empty, {'source_excerpts':[], 'unmatched_terms':['未披露词']})
+
+    async def test_current_method_is_observed_without_requiring_previous_versions(self):
+        _, run, _ = await self.prepare()
+        path = '/workspace/skills/harness-stock-research-v3/references/finance.md'
+        await run.observe({'name':'file_read', 'status':'ok', 'params':{'path':path},
+                           'result':{'content':'核对分母与期间', 'sha256':'b'*64}})
+        self.assertIn(path, run.methods)

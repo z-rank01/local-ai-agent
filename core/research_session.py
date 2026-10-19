@@ -198,7 +198,7 @@ class ResearchSession:
         success = event.get('status') == 'ok'
         path = params.get('path', '')
         if success and name == 'file_read' and any('/skills/'+version+'/references/' in path
-                for version in ('harness-stock-research-v1', 'harness-stock-research-v2')):
+                for version in ('harness-stock-research-v1', 'harness-stock-research-v2', 'harness-stock-research-v3')):
             self.methods.add(path)
             self.progress('method', path)
             if isinstance(result,dict) and result.get('sha256'):
