@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import unittest
 
 from core.agent import Agent
-from core.research_review import fingerprint, parse_review, review_messages
+from core.research_review import fingerprint, parse_review, review_messages, review_evidence
 from core.research_session import ResearchSession
 from tests import test_research_session as session_tests
 
@@ -104,6 +104,23 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('保留有用的明确条件分析',text)
         self.assertIn('快报',text)
         self.assertIn('EPC',text)
+
+    def test_writer_affirmation_not_in_independent_review_and_original_unchanged(self):
+        draft={'markdown':'正文','review':{'checks':['writer_self_certification'],'limitations':['known gap']}}
+        before=copy.deepcopy(draft)
+        run=SimpleNamespace(evidence_index=lambda:{},method_text={})
+        messages=review_messages('问题',draft,run,'permissions')
+        self.assertNotIn('writer_self_certification',json.dumps(messages))
+        self.assertIn('known gap',json.dumps(messages))
+        self.assertEqual(draft,before)
+
+    def test_review_compaction_keeps_all_unique_counterevidence_and_identity(self):
+        source={'sources':{'a':{'received':['profit100','risk: debt','profit100 and cash10','risk: debt']},
+                            'b':{'received':['profit100']}}}
+        before=copy.deepcopy(source);view=review_evidence(source)
+        self.assertEqual(view['sources']['a']['received'],['risk: debt','profit100 and cash10'])
+        self.assertEqual(view['sources']['b']['received'],['profit100'])
+        self.assertEqual(source,before)
 
     def test_chinese_pdf_spaces_do_not_remove_conditions_or_english_boundaries(self):
         from core.research_visuals import literal_text
