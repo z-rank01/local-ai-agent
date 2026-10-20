@@ -218,6 +218,7 @@ class ResearchSession:
             'source_id': source, 'error': result.get('error')})
         request = entry['request']
         if status == 'ok' and source in self.sources:
+            self.queue_document(result, request.get('terms', []))
             pages = self._source_pages[source]
             listing = catalogue(pages)
             if listing:
@@ -232,7 +233,7 @@ class ResearchSession:
             entry['status'] = 'FAILED' if any(r['status'] != 'ok' for r in entry['results']) else 'COMPLETE'
         await self.checkpoint()
 
-    def queue_document(self, result):
+    def queue_document(self, result, terms=()):
         """Follow one actual attachment, including manual detail-page reads.
 
         Selection remains the model's detail URL. Multiple attachments need an
@@ -247,12 +248,7 @@ class ResearchSession:
         key = 'attachment:'+sha256(url.encode()).hexdigest()
         if key in self.evidence_requests:
             return
-        terms = []
-        if (self.pending_evidence and self.pending_evidence[0]['name'] == 'web_fetch'
-                and self.pending_evidence[0]['params'].get('url') == result.get('url')):
-            parent = self.evidence_requests[self.pending_evidence[0]['request_key']]['request']
-            terms = parent.get('terms', [])
-        self.evidence_requests[key]={'request':{'kind':'attachment','url':url,'terms':terms},
+        self.evidence_requests[key]={'request':{'kind':'attachment','url':url,'terms':list(terms)},
                                      'status':'PENDING','results':[]}
         self.pending_evidence.append({'name':'web_fetch','params':{'url':url},'request_key':key,
             'purpose':'读取已选详情页实际返回的唯一PDF附件；沿原工具授权与事件执行'})

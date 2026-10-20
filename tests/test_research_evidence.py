@@ -61,8 +61,8 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
             'media_type':'text/html','content':'公告原文',
             'document_links':[{'url':'https://example.org/actual.pdf'}],
             '_source_file':{'base64':base64.b64encode(b'raw').decode(),'pages':[{'page':1,'text':'公告原文'}]}})
-        await run.observe({'name':'web_fetch','params':{},'status':'ok','result':result})
         await run.complete_evidence(run.pending_evidence[0],result,'ok')
+        await run.observe({'name':'web_fetch','params':{},'status':'ok','result':result})
         self.assertEqual(run.pending_evidence[0]['params']['url'],'https://example.org/actual.pdf')
         self.assertEqual(run.read_text[result['source_id']],['公告原文'])
         self.assertIn('evidence-index.json',' '.join(run.router.files))
@@ -98,11 +98,16 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         # Existing directory/field tools have completed; no report text was read.
         for _ in range(3):await run.complete_evidence(run.pending_evidence[0],{},'ok')
         url=run.pending_evidence[0]['params']['url']
-        run.queue_document({'url':url,'document_links':[{'url':'https://example.org/full.pdf'}]})
-        await run.complete_evidence(run.pending_evidence[0],{},'ok')
+        detail=await run.save_source({'url':url,'title':'报告详情','sha256':'b'*64,'fetched_at':'2026-10-20',
+            'page_count':1,'total_chars':2,'media_type':'application/json','content':'详情',
+            'document_links':[{'url':'https://example.org/full.pdf'}],
+            '_source_file':{'base64':base64.b64encode(b'raw').decode(),'pages':[{'page':1,'text':'详情'}]}})
+        # Production order: complete the queued step, then observe tool_end.
+        await run.complete_evidence(run.pending_evidence[0],detail,'ok')
+        await run.observe({'name':'web_fetch','params':{'url':url},'status':'ok','result':detail})
         request=run.evidence_requests[run.pending_evidence[0]['request_key']]['request']
         self.assertEqual(request['terms'],['应付股利'])
-        self.assertFalse(run.read_text)
+        self.assertNotIn('应付股利已确认',str(run.read_text))
         result=await run.save_source({'url':'https://example.org/full.pdf','title':'报告',
             'sha256':'a'*64,'fetched_at':'2026-10-20','page_count':2,'total_chars':20,
             'media_type':'application/pdf','content':'[第1页]封面',
