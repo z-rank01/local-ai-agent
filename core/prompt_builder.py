@@ -3,6 +3,7 @@ Prompt Builder — assembles system prompt from modular text files.
 """
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger("core.prompt")
@@ -58,10 +59,15 @@ class PromptBuilder:
         exclude: set[str] | None = None,
         extra_sections: list[str] | None = None,
     ) -> str:
+        runtime_context = (
+            '本轮当前时间：' + datetime.now().astimezone().isoformat(timespec='seconds') + '。\n'
+            '用户问“最近”或“今年”时以此定位；资料披露日、报告期和价格日仍须核对来源，'
+            '当前时间不代表资料已更新。'
+        )
         if not self._modules:
-            return self._load_legacy()
+            return runtime_context + _SECTION_SEPARATOR + self._load_legacy()
 
-        parts: list[str] = []
+        parts: list[str] = [runtime_context]
         for key in sorted(self._modules):
             if exclude and key in exclude:
                 continue
