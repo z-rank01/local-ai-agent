@@ -990,6 +990,9 @@ class Agent:
                 params = json.loads(raw) if isinstance(raw, str) else raw
                 if not isinstance(params, dict):
                     raise ValueError('工具参数必须是 JSON 对象')
+                research = getattr(self.router, 'research', None)
+                if research is not None and research.active and name not in research.tool_names:
+                    raise ValueError('自主研究当前步骤未开放此工具；先读取适用方法，并使用本轮已开放的研究工具。本步骤未执行。')
                 if research_handoff and name == 'stock_research_submit' and params.get('research_mode', 'reuse') not in ('reuse', 'continue'):
                     raise ValueError('后台交接只能复用研究，不能以新版本绕过未知调用。')
                 if research_handoff and name in ('stock_theme_research_submit', 'stock_research_submit') and not str(params.get('research_question') or '').strip():

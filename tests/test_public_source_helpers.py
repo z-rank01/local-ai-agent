@@ -66,6 +66,25 @@ class PublicSourceHelpersTests(unittest.TestCase):
 
 
 class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_batch_cannot_use_old_tool_list_to_skip_method_read(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        from core.agent import Agent
+        run = ResearchSession(Files(), conversation_id='test', model='unchanged', allowed=True)
+        await run.begin({'scope': '研究', 'plan': ['选方法']})
+        dispatch = AsyncMock(return_value={'content': 'actual'})
+        agent = SimpleNamespace(router=SimpleNamespace(research=run, dispatch=dispatch),
+                                audit=SimpleNamespace(record=lambda *args: None))
+        calls = [{'id': 'one', 'function': {'name': 'web_fetch', 'arguments': {'url': 'https://example.org'}}}]
+        events = [e async for e in Agent._execute_tools(agent, calls, 'test', [], allowed={'web_fetch'})]
+        dispatch.assert_not_awaited()
+        self.assertEqual(next(e for e in events if e.kind == 'tool_end').data['status'], 'error')
+        await run.observe({'name': 'file_read', 'status': 'ok', 'params': {
+            'path': '/workspace/skills/harness-stock-research-v3/references/event.md'}, 'result': {}})
+        events = [e async for e in Agent._execute_tools(agent, calls, 'test', [], allowed={'web_fetch'})]
+        dispatch.assert_awaited_once()
+        self.assertEqual(next(e for e in events if e.kind == 'tool_end').data['status'], 'ok')
+
     async def test_method_read_precedes_fetch_compute_and_publication(self):
         run = ResearchSession(Files(), conversation_id='test', model='unchanged', allowed=True)
         await run.begin({'scope': '研究', 'plan': ['选方法', '取证']})
