@@ -22,6 +22,7 @@ RESEARCH_TOOLS = frozenset({
     'file_write', 'file_list', 'code_exec', 'shell_exec', 'web_search', 'web_fetch',
     'context_evidence_read', 'stock_report_read', 'stock_public_evidence_find',
     'stock_public_evidence_read', 'stock_research_find', 'stock_theme_research_find'})
+METHOD_TOOLS = frozenset({'research_begin', 'skill_list', 'skill_info', 'file_list', 'file_read'})
 
 
 def encoded(value):
@@ -104,6 +105,12 @@ class ResearchSession:
     @property
     def active(self):
         return self.record is not None and self.published is None
+
+    @property
+    def tool_names(self):
+        # Reuse the actual-read requirement already enforced at publication,
+        # before collecting data or writing a draft instead of rejecting it late.
+        return RESEARCH_TOOLS if self.methods else METHOD_TOOLS
 
     async def write(self, name, value, *, binary=False):
         result = await self.router.dispatch('file_write', {

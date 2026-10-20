@@ -411,8 +411,7 @@ class Agent:
                 active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
                 if autonomous:
-                    from .research_session import RESEARCH_TOOLS
-                    active = [d for d in active if d['function']['name'] in RESEARCH_TOOLS]
+                    active = [d for d in active if d['function']['name'] in research.tool_names]
                 public_window_closed = public_research_deadline is not None and time.monotonic() >= public_research_deadline
                 stock_window_closed = not autonomous and ((stock_deadline is not None and time.monotonic() >= stock_deadline) or public_window_closed)
                 if autonomous and closing_rounds is None and research.steps_without_progress >= 12:

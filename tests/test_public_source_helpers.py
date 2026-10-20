@@ -66,6 +66,18 @@ class PublicSourceHelpersTests(unittest.TestCase):
 
 
 class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_method_read_precedes_fetch_compute_and_publication(self):
+        run = ResearchSession(Files(), conversation_id='test', model='unchanged', allowed=True)
+        await run.begin({'scope': '研究', 'plan': ['选方法', '取证']})
+        self.assertTrue({'skill_info', 'file_read'}.issubset(run.tool_names))
+        self.assertTrue({'web_fetch', 'code_exec', 'brief_publish'}.isdisjoint(run.tool_names))
+        await run.observe({'name': 'file_read', 'status': 'error', 'params': {
+            'path': '/workspace/skills/harness-stock-research-v3/references/event.md'}, 'result': {}})
+        self.assertNotIn('web_fetch', run.tool_names)
+        await run.observe({'name': 'file_read', 'status': 'ok', 'params': {
+            'path': '/workspace/skills/harness-stock-research-v3/references/event.md'}, 'result': {'content': '原方法'}})
+        self.assertTrue({'web_fetch', 'code_exec', 'brief_publish'}.issubset(run.tool_names))
+
     async def test_download_then_actual_read_then_referenced_calculation_and_html(self):
         files = Files()
         run = ResearchSession(files, conversation_id='test', model='unchanged', allowed=True)
