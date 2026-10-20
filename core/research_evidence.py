@@ -26,7 +26,7 @@ def evidence_steps(request):
 def financial_read_step(request, source):
     """Use the installed reader with model-selected exact provider keys."""
     code = ('import json, runpy\n'
-            'reader=runpy.run_path("/workspace/skills/harness-public-sources-v1/scripts/read_json.py")\n'
+            'reader=runpy.run_path("/workspace/skills/harness-public-sources-v2/scripts/read_json.py")\n'
             f'args=json.loads({json.dumps(json.dumps([source, request["where"], request["fields"], 2]), ensure_ascii=False)})\n'
             'print(json.dumps(reader["read_rows"](*args),ensure_ascii=False))')
     return {'name': 'code_exec', 'params': {'code': code}, 'purpose': '按实际字段和期间读取已登记财务原值'}

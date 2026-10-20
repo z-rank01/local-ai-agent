@@ -21,7 +21,7 @@ def install_methods(workspace: Path = Path('/workspace'), packages: Path | None 
             continue
         with tempfile.TemporaryDirectory(prefix='.install-', dir=root) as staging:
             copied = Path(staging) / source.name
-            shutil.copytree(source, copied)
+            shutil.copytree(source, copied, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             copied.rename(target)
         installed.append(source.name)
     return installed
