@@ -224,11 +224,14 @@ async def web_fetch(req: WebFetchRequest):
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         content_type = 'application/pdf'
+    elif json_body(resp.text) is not None:
+        # Some provider APIs label JSONP as text/html. Preserve the actual data
+        # before HTML extraction can strip or reinterpret its contents.
+        pages = [{'page': 1, 'text': resp.text}]
     elif "text/html" in content_type or "application/xhtml" in content_type:
         text = _extract_readable_text(resp.text, req.url)
         pages = [{'page': 1, 'text': text}]
-    elif ("text/" in content_type or "application/json" in content_type or
-          ('application/javascript' in content_type and json_body(resp.text) is not None)):
+    elif "text/" in content_type or "application/json" in content_type:
         text = resp.text
         pages = [{'page': 1, 'text': text}]
     else:
@@ -238,8 +241,9 @@ async def web_fetch(req: WebFetchRequest):
             "content": "",
         }
 
-    document_links = (_document_links(resp.text, str(resp.url)) if 'html' in content_type
-                      else json_document_links(resp.text, str(resp.url)))
+    document_links = json_document_links(resp.text, str(resp.url))
+    if not document_links and 'html' in content_type:
+        document_links = _document_links(resp.text, str(resp.url))
     if not any(page['text'].strip() for page in pages):
         return {
             "error": "页面未提取到正文；不能将空页面当作已读原文。可继续读取附件或寻找其他原文入口。",
