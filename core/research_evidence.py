@@ -1,7 +1,17 @@
-"""Expand explicit evidence needs into existing tools; no financial interpretation."""
+"""Prepare evidence tools and model views; no financial interpretation."""
+from copy import deepcopy
 from datetime import date
 from importlib import import_module
 import json
+
+
+def model_evidence(index):
+    """Keep each source's full information without contained duplicate text."""
+    index=deepcopy(index)
+    for source in index.get('sources',{}).values():
+        texts=list(dict.fromkeys(source.get('received',[])))
+        source['received']=[text for text in texts if not any(text!=other and text in other for other in texts)]
+    return index
 
 
 def evidence_steps(request):

@@ -14,6 +14,42 @@ class ResearchProgressTests(unittest.IsolatedAsyncioTestCase):
         result[1]._observed_milestones = len(result[1]._milestones)
         return result
 
+    async def test_contained_reads_remain_available_without_resetting_stagnation(self):
+        files, run, params = await self.prepare()
+        key=params['sources'][0]['id']
+        page=json.loads(files.files[run.sources[key]['path']])['pages'][0]
+        text=page['text'];quote=text[1:-1]
+        self.assertTrue(quote)
+        run.read_text[key]=[text]
+        run._milestones.clear();run._observed_milestones=0
+        event={'name':'code_exec','status':'ok','params':{},'result':{'exit_code':0,
+            'stdout':json.dumps({'source_excerpts':[{'source_id':key,'sha256':run.sources[key]['sha256'],
+                'page':page['page'],'start':1,'end':len(text)-1,'quote':quote}]})}}
+        await run.observe(event)
+        self.assertEqual(run.steps_without_progress,1)
+        self.assertEqual(run.read_text[key],[text,quote])
+        await run.observe(event)
+        self.assertEqual(run.steps_without_progress,2)
+        self.assertEqual(run.read_text[key],[text,quote])
+        from core.research_evidence import model_evidence
+        raw=run.evidence_index();before=copy.deepcopy(raw)
+        self.assertEqual(model_evidence(raw)['sources'][key]['received'],[text])
+        self.assertEqual(raw,before)
+        self.assertEqual(run.evidence_index()['sources'][key]['received'],[text,quote])
+        # The guidance uses the same compact view, without rewriting evidence.
+        view=json.JSONDecoder().raw_decode(run.guidance().split('\n',1)[1])[0]
+        self.assertEqual(view['sources'][key]['received'],[text])
+
+    async def test_new_text_or_another_source_still_counts_as_progress(self):
+        _,run,_=await self.prepare()
+        before=len(run._milestones)
+        run.received_text('one','风险：尚未签约')
+        run.received_text('one','尚未签约')
+        self.assertEqual(len(run._milestones),before+1)
+        run.received_text('one','风险：尚未签约，收入时间不确定')
+        run.received_text('two','尚未签约')
+        self.assertEqual(len(run._milestones),before+3)
+
     async def test_different_prints_and_repeated_phase_do_not_reset_stagnation(self):
         _, run, _ = await self.prepare()
         for i in range(14):

@@ -4,7 +4,8 @@ from types import SimpleNamespace
 import unittest
 
 from core.agent import Agent
-from core.research_review import fingerprint, parse_review, review_messages, review_evidence
+from core.research_review import fingerprint, parse_review, review_messages
+from core.research_evidence import model_evidence
 from core.research_session import ResearchSession
 from tests import test_research_session as session_tests
 
@@ -117,7 +118,7 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
     def test_review_compaction_keeps_all_unique_counterevidence_and_identity(self):
         source={'sources':{'a':{'received':['profit100','risk: debt','profit100 and cash10','risk: debt']},
                             'b':{'received':['profit100']}}}
-        before=copy.deepcopy(source);view=review_evidence(source)
+        before=copy.deepcopy(source);view=model_evidence(source)
         self.assertEqual(view['sources']['a']['received'],['risk: debt','profit100 and cash10'])
         self.assertEqual(view['sources']['b']['received'],['profit100'])
         self.assertEqual(source,before)
