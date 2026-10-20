@@ -1,5 +1,5 @@
 """Deterministic publication checks and accessible SVG charts."""
-from decimal import Decimal, localcontext
+from decimal import Decimal, localcontext, InvalidOperation
 from copy import deepcopy
 from html import escape
 import re
@@ -9,7 +9,10 @@ def number(value):
     text = str(value)
     if re.fullmatch(r'[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?', text):
         text = text.replace(',', '')
-    result = Decimal(text)
+    try:
+        result = Decimal(text)
+    except InvalidOperation as exc:
+        raise InvalidOperation('数值格式无效：value须为原数字字符串或省略派生值，不能填未提供、取消或JSON对象') from exc
     if not result.is_finite():
         raise ValueError('数值必须有限')
     return result
@@ -26,6 +29,13 @@ def literal_text(text):
     # Keep English word boundaries, punctuation, numbers and conditions intact.
     text = re.sub(r'(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])', '', text)
     return re.sub(r'\s+', ' ', text).strip()
+
+
+def validate_visual_plan(params):
+    """New publication intent only; historical documents remain readable."""
+    if not params.get('charts') and not (isinstance(params.get('visual_limitations'),str)
+                                        and params['visual_limitations'].strip()):
+        raise ValueError('图文简报请提供有来源的有用图表；无适合绘图的数据时填写visual_limitations说明，不编造数据或静默省略图表')
 
 
 def validate_publication(params, sources, read_text):
@@ -102,7 +112,7 @@ def validate_publication(params, sources, read_text):
                 number(item['value'])
                 source = cited.get(item.get('source'))
                 if source is None or not quoted_number(item['value'], source['quote']):
-                    raise ValueError('图表原值须在对应原文引句中；单位转换请使用计算结果')
+                    raise ValueError(f"charts[{chart_index}].items[{item_index}] {item.get('label','')} 的图表原值 {item['value']} 未在来源 {item.get('source')} 的发布引句中定位；补入对应连续原句，单位转换请使用计算结果")
                 unit = re.escape(chart['unit'])
                 if not re.search(r'(?:\d\s*|单位\s*[:：]\s*|[（(]\s*)' + unit + r'(?![\w])', source['quote']):
                     raise ValueError(f"charts[{chart_index}].items[{item_index}] 的原文未明确匹配单位 {chart['unit']}；请引用单位说明或保留换算计算")

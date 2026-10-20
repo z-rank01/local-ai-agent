@@ -10,6 +10,7 @@ description: >-
   calculations只需提交操作及有来源/期间/单位的输入，result由程序计算，不必抄写长小数。图表原值须出现在原文引句；引用calculation零起始索引时可省略value，由程序填入。
   单位换算和多步计算须逐步列式：前项结果的source填calculation:零起始索引，value可省略，unit须一致。显式提供的结果或图值若冲突仍拒绝。不能把换算值或中间结果当成原文原值。
   charts.unit仅填真实量纲（如元、万元、%）；同比等说明放title或period，不把“%（同比）”当单位。
+  图文简报一般提供至少一幅有来源且有用的图；只有数据不足或图示确不适合时，才用visual_limitations说明原因。该编制说明只留在证据文件，不写正文；不能为满足图数编造数据。
   推荐先用容器脚本在本轮研究目录写完整发布JSON，再仅传draft_path。也兼容直接传完整参数。
   核对失败会返回已保存的draft_path和具体错误；复制为工作草稿后定向修改再提交路径，不反复重传全文。不能将失败草稿当成报告卡。
   仅返回已保存文件。最后用返回path的Markdown链接交付报告卡。检查不认证研究判断。
@@ -75,6 +76,7 @@ parameters:
                 calculation: {type: integer, description: calculations零起始索引}
               required: [label]
         required: [title, unit, period, items]
+    visual_limitations: {type: string, description: 无图时必须说明为何不适合绘制；保存于证据而非正文，不替代研究资料限制}
     review:
       type: object
       properties:

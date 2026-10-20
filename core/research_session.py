@@ -14,7 +14,7 @@ from decimal import DecimalException
 import httpx
 
 from .brief_document import render_document
-from .research_visuals import render_charts, validate_publication
+from .research_visuals import render_charts, validate_publication, validate_visual_plan
 
 PHASES = ('准备', '获取', '分析', '核对', '交付')
 RESEARCH_TOOLS = frozenset({
@@ -210,7 +210,7 @@ class ResearchSession:
 
     async def complete_evidence(self, step, result, status):
         """Advance only after the actual normal tool receipt has been recorded."""
-        from .research_evidence import catalogue, financial_read_step, report_read_step
+        from .research_evidence import catalogue, financial_read_step, report_read_step, quote_read_step
         self.pending_evidence.pop(0)
         entry = self.evidence_requests[step['request_key']]
         source = result.get('source_id')
@@ -219,6 +219,9 @@ class ResearchSession:
         request = entry['request']
         if status == 'ok' and source in self.sources:
             self.queue_document(result, request.get('terms', []))
+            if request['kind'] == 'quote':
+                self.pending_evidence.insert(0,{**quote_read_step(result['saved_source'],request['symbol']),
+                                               'request_key':step['request_key']})
             pages = self._source_pages[source]
             listing = catalogue(pages)
             if listing:
@@ -232,6 +235,25 @@ class ResearchSession:
         if not any(s['request_key'] == step['request_key'] for s in self.pending_evidence):
             entry['status'] = 'FAILED' if any(r['status'] != 'ok' for r in entry['results']) else 'COMPLETE'
         await self.checkpoint()
+
+    async def queue_review_reads(self, requests):
+        from .research_evidence import report_read_step
+        # Validate the whole set before queuing any read. Paths come only from
+        # this research's registered sources, never from model-supplied paths.
+        for row in requests:
+            if row['source_id'] not in self.sources:
+                raise ValueError('核对补读只能选择本轮实际来源')
+            if any(p>self.sources[row['source_id']]['page_count'] for p in row.get('pages',[])):
+                raise ValueError('核对补读页码超出该来源')
+        keys=[]
+        for row in requests:
+            key='review-read:'+sha256(encoded(row).encode()).hexdigest()
+            keys.append(key)
+            if key in self.evidence_requests:continue
+            self.evidence_requests[key]={'request':{'kind':'review_read',**row},'status':'PENDING','results':[]}
+            self.pending_evidence.append({**report_read_step(self.sources[row['source_id']]['path'],row['terms'],row.get('pages')),
+                                          'request_key':key})
+        return keys
 
     def queue_document(self, result, terms=()):
         """Follow one actual attachment, including manual detail-page reads.
@@ -391,6 +413,7 @@ class ResearchSession:
         attempt = f'publication-attempts/{self.publication_attempts}.json'
         await self.write(attempt, params)
         try:
+            validate_visual_plan(params)
             checked = validate_publication(params, self.sources, self.read_text)
             charts = render_charts(checked.get('charts', []))
         except (ValueError, KeyError, TypeError, DecimalException) as exc:
@@ -436,5 +459,8 @@ class ResearchSession:
         row=self.review_records.get(fingerprint(candidate),{})
         if row.get('status') != 'COMPLETE' or row.get('issues'):
             raise ValueError('当前候选稿尚未完成单独核对或仍有待修改问题，不能发布')
+        if self.pending_evidence or any(self.evidence_requests[key]['status']!='COMPLETE'
+                for key in row.get('read_request_keys',[])):
+            raise ValueError('核对选定的补读尚未完成或已失败，不能发布')
         if row.get('evidence_sha256') != fingerprint(self.evidence_index()):
             raise ValueError('核对后的证据已变化，需要按当前材料重新核对')

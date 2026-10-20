@@ -8,14 +8,22 @@ def fingerprint(candidate):
     return sha256(json.dumps(candidate,ensure_ascii=False,sort_keys=True,allow_nan=False).encode()).hexdigest()
 
 
-def review_messages(question, candidate, research, system):
+def previous_findings(records):
+    complete=[r for r in records.values() if r.get('status')=='COMPLETE' and r.get('attempts')]
+    if not complete:return []
+    latest=max(complete,key=lambda r:int(r['attempts'][-1].rsplit('/',1)[1]))
+    # Carry adverse findings, not the previous reviewer's possibly wrong fix.
+    return [{k:r[k] for k in ('section','claim','evidence')} for r in latest.get('issues',[])]
+
+
+def review_messages(question, candidate, research, system, findings=()):
     instructions=(Path(__file__).resolve().parents[1]/'config/prompts/research_review.txt').read_text(encoding='utf-8')
     # The writer's self-checks are not independent evidence. Preserve the original
     # submission elsewhere; only remove this affirmation from the review view.
     view={key:value for key,value in candidate.items() if key!='review'}
     payload={'question':question,'candidate':view,'limitations':candidate.get('review',{}).get('limitations',[]),
              'evidence':review_evidence(research.evidence_index()),
-             'methods':research.method_text}
+             'methods':research.method_text,'previous_findings':list(findings)}
     return [{'role':'system','content':system+'\n\n'+instructions},
             {'role':'user','content':json.dumps(payload,ensure_ascii=False)}]
 
@@ -40,4 +48,16 @@ def parse_review(text):
         if not isinstance(issue,dict) or any(not isinstance(issue.get(k),str) or not issue[k].strip()
                 for k in ('section','claim','reason','evidence','action')):
             raise ValueError('单独核对的问题缺少对应陈述、依据或修改要求')
-    return {'issues':value['issues'],'checks':value['checks'],'semantic_certification':False}
+    reads=value.get('read_requests',[])
+    if not isinstance(reads,list):raise ValueError('read_requests须为来源补读列表')
+    for row in reads:
+        if isinstance(row,dict) and row.get('pages') is None:
+            row.pop('pages',None)
+        if (not isinstance(row,dict) or set(row)-{'source_id','terms','pages'} or
+                not isinstance(row.get('source_id'),str) or not row['source_id'] or
+                not isinstance(row.get('terms'),list) or not row['terms'] or
+                any(not isinstance(t,str) or not t.strip() for t in row['terms']) or
+                'pages' in row and (not isinstance(row['pages'],list) or not row['pages'] or
+                                    any(type(p) is not int or p<1 for p in row['pages']))):
+            raise ValueError('补读只接受实际source_id、非空terms及可选真实页码，不接受路径或URL')
+    return {'issues':value['issues'],'checks':value['checks'],'read_requests':reads,'semantic_certification':False}

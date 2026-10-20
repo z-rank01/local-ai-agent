@@ -9,6 +9,7 @@ description: >-
   通过 skill_list/skill_info 发现当前项目投研适配包，按需读取方法，使用实际搜索/原文/计算工具，最后 brief_publish。已登记的source_id和保存路径随阶段回执返回，不能猜文件名。
   读取方法并核实证券后，用evidence_requests登记取证需求，程序会执行现有工具并返回原文目录/附件/字段回执。
   公告研究先notices定位实际art_code，再notice读取原件；财务分析用finance取得目录和字段，随后把已选择的正式报告编号放入report_articles再读取原件，不能只用目录或字段替代财报。
+  需要价格作估值时用kind=quote及已核实symbol读取带行情时间的公开报价；程序同时返回原字段与引句。接口失败不能把猜测价格或数学常数当实际行情。
 parameters:
   type: object
   properties:
@@ -31,7 +32,7 @@ parameters:
       items:
         type: object
         properties:
-          kind: {type: string, enum: [notices, notice, finance, profile]}
+          kind: {type: string, enum: [notices, notice, finance, profile, quote]}
           symbol: {type: string, description: 已核实的交易所加代码，例如SH688178}
           start: {type: string, description: 公告目录起始日期YYYY-MM-DD}
           end: {type: string, description: 公告目录结束日期YYYY-MM-DD}

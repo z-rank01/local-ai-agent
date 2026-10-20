@@ -5,7 +5,7 @@ import json
 
 
 def evidence_steps(request):
-    source_url = import_module('skills.runner.packages.harness-public-sources-v1.scripts.source_urls').source_url
+    source_url = import_module('skills.runner.packages.harness-public-sources-v3.scripts.source_urls').source_url
     kind = request['kind']
     args = {key: request[key] for key in ('symbol', 'start', 'end', 'article', 'page') if key in request}
     steps = []
@@ -27,14 +27,23 @@ def evidence_steps(request):
     return steps
 
 
-def report_read_step(path, terms):
+def report_read_step(path, terms, pages=None):
     """Read model-selected terms from saved pages through the existing executor."""
-    args = json.dumps(json.dumps([path, terms], ensure_ascii=False))
+    args = json.dumps(json.dumps([path, terms, pages], ensure_ascii=False))
     code = ('import json, runpy\n'
             'reader=runpy.run_path("/workspace/skills/harness-stock-research-v4/scripts/read_report.py")\n'
             f'args=json.loads({args})\n'
             'print(json.dumps(reader["read_report"](*args),ensure_ascii=False))')
     return {'name':'code_exec','params':{'code':code},'purpose':'实际读取所选报告章节并返回原页位置；匹配目录不代表读完报告'}
+
+
+def quote_read_step(path, symbol):
+    args=json.dumps(json.dumps([path,symbol]))
+    code=('import json, runpy\n'
+          'reader=runpy.run_path("/workspace/skills/harness-public-sources-v3/scripts/read_quote.py")\n'
+          f'args=json.loads({args})\n'
+          'print(json.dumps(reader["read_quote"](*args),ensure_ascii=False))')
+    return {'name':'code_exec','params':{'code':code},'purpose':'读取实际报价字段及原始行情时间，不把抓取时间当行情时间'}
 
 
 def financial_read_step(request, source):

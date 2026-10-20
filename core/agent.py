@@ -1045,7 +1045,10 @@ class Agent:
                                 yield event
                         from .research_review import fingerprint
                         review = research.review_records[fingerprint(candidate)]
-                        if review.get('issues'):
+                        if research.pending_evidence:
+                            result={'status':'EVIDENCE_PENDING','review':review,
+                                'message':'单独核对已选择现有原件补读；待实际工具返回后，局部处理问题并保留其他有效事实与反证。核对建议不是事实。'}
+                        elif review.get('issues'):
                             result = {'error':'单独核对发现关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
                                       'review':review}
                         else:
@@ -1104,8 +1107,8 @@ class Agent:
             yield AgentEvent('stock_boundary')
 
     async def _review_candidate(self, candidate, session_id, messages):
-        from .research_review import fingerprint, review_messages, parse_review
-        from .research_visuals import validate_publication
+        from .research_review import fingerprint, review_messages, parse_review, previous_findings
+        from .research_visuals import validate_publication, validate_visual_plan
         from contextlib import aclosing
         import uuid
         research=self.router.research
@@ -1115,6 +1118,7 @@ class Agent:
             raise ValueError('已按当前稿选中的引用登记原文回读；待原工具返回实际摘录后，再提交同一稿。未修改正文。')
         # Mechanical errors are returned before another supplier call.
         try:
+            validate_visual_plan(candidate)
             validate_publication(candidate,research.sources,research.read_text)
         except (ValueError, KeyError, TypeError):
             await research.write('publication-attempts/rejected-'+uuid.uuid4().hex+'.json',candidate)
@@ -1134,6 +1138,7 @@ class Agent:
                 return
             raise RuntimeError('该稿核对未成功，原失败保留，不自动重发')
         serial=sum(len(row.get('attempts',[])) for row in research.review_records.values())+1
+        findings=previous_findings(research.review_records)
         directory=f'reviews/{serial}'
         # Existing file tool creates nested parents. Save submitted prose before review.
         await research.write(directory+'-candidate.json',candidate)
@@ -1148,7 +1153,7 @@ class Agent:
             'params':{'candidate_sha256':key},'summary':'单独核对关键结论'})
         question=next((m['content'] for m in reversed(messages) if m.get('role')=='user'),'')
         system=next((m['content'] for m in messages if m.get('role')=='system'),'')
-        context=review_messages(question,candidate,research,system)
+        context=review_messages(question,candidate,research,system,findings)
         receipt={}
         def observe(event,data):
             self.audit.record(event,{'session_id':session_id,'research_phase':'review','candidate_sha256':key,**data})
@@ -1173,6 +1178,7 @@ class Agent:
             if not previous or len(result['issues'])<min(previous):
                 research.progress('review_improvement',len(result['issues']))
             record.update(result,status='COMPLETE')
+            record['read_request_keys']=await research.queue_review_reads(result['read_requests'])
             record['native_call_id']=receipt.get('local_attempt_id')
             await research.write(directory+'-result.json',record)
             await research.checkpoint()
