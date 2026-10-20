@@ -58,3 +58,12 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.pending_evidence[0]['params']['url'],'https://example.org/actual.pdf')
         self.assertEqual(run.read_text[result['source_id']],['公告原文'])
         self.assertIn('evidence-index.json',' '.join(run.router.files))
+        before=json.dumps(run.evidence_index(),ensure_ascii=False,sort_keys=True)
+        self.assertIn('公告原文',run.guidance())
+        self.assertEqual(before,json.dumps(run.evidence_index(),ensure_ascii=False,sort_keys=True))
+        with self.assertRaises(ValueError):
+            await run.begin({'phase':'分析','evidence_notes':[{'source_id':'other','document_kind':'公告'}]})
+        await run.begin({'phase':'分析','evidence_notes':[{'source_id':result['source_id'],
+            'document_kind':'公告','disclosed_at':'2026-10-09','period':'2026','note':'尚未核对后续披露'}]})
+        self.assertIn('尚未核对后续披露',run.guidance())
+        self.assertNotIn('已有足够材料',run.guidance())

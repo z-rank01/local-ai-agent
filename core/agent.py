@@ -1058,9 +1058,8 @@ class Agent:
                 remaining = {n: max(0, b - counts.get(n, 0) - (1 if n == name else 0)) for n, b in budgets.items()}
                 if getattr(self, 'quality_first_research', False):
                     research = getattr(self.router, 'research', None)
-                    content += ('\n[研究批次提示：核对已取得证据与缺口；已有足够材料时进入核对并用brief_publish交付有边界的简报，不为填满模板重复检索。]'
-                                if research is not None and research.active else
-                                '\n[检索批次提示：请核对本批发现、反证与未决问题。有新证据可继续检索；长股票研究请提交现有后台研究工具，不要求用户反复发送继续。]')
+                    if research is None or not research.active:
+                        content += '\n[检索批次提示：请核对本批发现、反证与未决问题。有新证据可继续检索；长股票研究请提交现有后台研究工具，不要求用户反复发送继续。]'
                 else:
                     content += '\n[联网额度：' + '，'.join(f'{n} 还可 {r} 次' for n, r in remaining.items()) + '；请据此规划后续检索，额度用尽后基于已有结果回答。]'
             message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
