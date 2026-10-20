@@ -405,9 +405,13 @@ class Agent:
             from .research_material_view import ResearchMaterialView
             research_view = ResearchMaterialView()
             research_guidance_message = None
-            closing_rounds = None
+            closing_stagnation = None
             while (research is not None and research.active) or stock_deadline is not None or research_continuing or round_number < self.max_rounds:
                 autonomous = research is not None and research.active
+                if autonomous and any(r.get('status') in ('STARTED','UNKNOWN') for r in research.review_records.values()):
+                    await research.incomplete()
+                    yield AgentEvent('error', text='单独核对结果未确认；本轮停止，不自动重发，原稿与证据已保留。')
+                    return
                 if autonomous and research.pending_evidence:
                     import uuid
                     step = research.pending_evidence[0]
@@ -432,14 +436,16 @@ class Agent:
                     active = [d for d in active if d['function']['name'] in research.tool_names]
                 public_window_closed = public_research_deadline is not None and time.monotonic() >= public_research_deadline
                 stock_window_closed = not autonomous and ((stock_deadline is not None and time.monotonic() >= stock_deadline) or public_window_closed)
-                if autonomous and closing_rounds is None and research.steps_without_progress >= 12:
-                    closing_rounds = 2
-                delivery_only = autonomous and closing_rounds is not None
-                no_progress_closed = (closing_rounds == 0 if autonomous
+                if autonomous and closing_stagnation is None and research.steps_without_progress >= 12:
+                    closing_stagnation = research.steps_without_progress
+                delivery_only = autonomous and closing_stagnation is not None
+                if delivery_only:
+                    closing_stagnation = min(closing_stagnation, research.steps_without_progress)
+                no_progress_closed = (delivery_only and research.steps_without_progress-closing_stagnation >= 12 if autonomous
                                       else quality_research and no_progress_rounds >= 2)
                 if delivery_only and not no_progress_closed:
-                    active = [d for d in active if d['function']['name'] in {'research_begin', 'brief_publish'}]
-                    closing_rounds -= 1
+                    active = [d for d in active if d['function']['name'] in {
+                        'research_begin','brief_publish','file_read','file_write','code_exec','shell_exec','context_evidence_read'}]
                     no_progress_closed = not active
                 generic_final_round = not autonomous and stock_deadline is None and not research_continuing and round_number == self.max_rounds - 1
                 handoff_round = (quality_research and stock_window_closed and not no_progress_closed
@@ -447,8 +453,8 @@ class Agent:
                     and any(d['function']['name'] in handoff_tools for d in active))
                 if delivery_only and not no_progress_closed:
                     messages.append({'role': 'system', 'content':
-                        '连续步骤没有增加原文或阶段成果，停止继续取证。现在只保留核对阶段与发布工具，'
-                        f'含本轮最多还有{closing_rounds+1}轮收尾；阶段变更不会重新开放取证。'
+                        '连续步骤没有增加原文或阶段成果，停止继续联网取证。保留已有证据回读、改稿、核对与发布工具；'
+                        '阶段变更不会重新开放联网。收尾连续12个工具步骤仍无新成果时停止。'
                         '用已有实际读取的依据交付有边界的结果，可直接提交发布字段或已有draft_path。'
                         '不能补造依据或放宽核验；条件不足时明确未完成，不重新开始研究。'})
                 elif handoff_round:
@@ -874,7 +880,7 @@ class Agent:
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
                                                        budgets=budgets, counts=counts,
                                                        stock_deadline=None if handoff_round or autonomous else stock_deadline,
-                                                       research_handoff=handoff_round)) as events:
+                                                       research_handoff=handoff_round, research_finalizing=delivery_only)) as events:
                     async for event in events:
                         if research is not None and event.kind == 'tool_end':
                             await research.observe(event.data)
@@ -986,7 +992,7 @@ class Agent:
     # ── Internal helpers ────────────────────────────────────────────────
 
     async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None, budgets=None,
-                             counts=None, stock_deadline=None, research_handoff=False, evidence_step=None):
+                             counts=None, stock_deadline=None, research_handoff=False, evidence_step=None, research_finalizing=False):
         stock_boundary = False
         for tc in tool_calls:
             control = getattr(self, 'run_control', None)
@@ -1008,6 +1014,8 @@ class Agent:
                 params = json.loads(raw) if isinstance(raw, str) else raw
                 if not isinstance(params, dict):
                     raise ValueError('工具参数必须是 JSON 对象')
+                if research_finalizing and name == 'research_begin' and params.get('evidence_requests'):
+                    raise ValueError('当前仅收尾，不再登记新联网取证；可回读已有证据、修改稿件并核对发布。')
                 research = getattr(self.router, 'research', None)
                 if research is not None and research.active and name not in research.tool_names:
                     raise ValueError('自主研究当前步骤未开放此工具；先读取适用方法，并使用本轮已开放的研究工具。本步骤未执行。')
@@ -1018,7 +1026,7 @@ class Agent:
                 if allowed is not None and name not in allowed:
                     if budgets and name in budgets:
                         raise ValueError(f'当前步骤未开放 {name}；该请求未执行。请遵守当前交付或交接阶段，不能据此声称配额已用尽或没有检索结果。')
-                    raise ValueError('本轮工具未开放或调用额度已用完，请基于已有结果回答。')
+                    raise ValueError(f'当前步骤未开放 {name}；本步骤未执行，不代表供应商额度用完。')
                 if control:
                     control.begin_step('工具：'+name)
                 yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id']})
@@ -1029,16 +1037,19 @@ class Agent:
                     if hasattr(self.router, 'authorize_publication'):
                         await self.router.authorize_publication(params)
                     candidate = await research.publication_input(params)
-                    async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
-                        async for event in events:
-                            yield event
-                    from .research_review import fingerprint
-                    review = research.review_records[fingerprint(candidate)]
-                    if review.get('issues'):
-                        result = {'error':'单独核对发现关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
-                                  'review':review}
+                    if await research.queue_citation_reads(candidate):
+                        result={'status':'EVIDENCE_PENDING','message':'已登记当前稿选中的原文回读，待实际摘录返回后再提交；未修改正文。'}
                     else:
-                        result = await research.publish(candidate)
+                        async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
+                            async for event in events:
+                                yield event
+                        from .research_review import fingerprint
+                        review = research.review_records[fingerprint(candidate)]
+                        if review.get('issues'):
+                            result = {'error':'单独核对发现关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
+                                      'review':review}
+                        else:
+                            result = await research.publish(candidate)
                 elif hasattr(self.router, 'dispatch_stream'):
                     async with aclosing(self.router.dispatch_stream(name, params, session_id)) as stream:
                         async for packet in stream:
@@ -1130,6 +1141,7 @@ class Agent:
                 'attempts':(old or {}).get('attempts',[])+[directory], 'semantic_certification':False}
         research.review_records[key]=record
         research.record['phase']='核对'
+        research.progress('phase','核对')
         await research.checkpoint()
         call_id='review_'+uuid.uuid4().hex
         yield AgentEvent('tool_start',data={'name':'research_review','call_id':call_id,
@@ -1156,6 +1168,10 @@ class Agent:
             visible=re.sub(r'<think>.*?(?:</think>|$)','',response.get('content') or '',flags=re.S|re.I).strip()
             await research.write(directory+'-response.txt',visible)
             result=parse_review(visible)
+            previous=[len(r.get('issues',[])) for k,r in research.review_records.items()
+                      if k!=key and r.get('status')=='COMPLETE']
+            if not previous or len(result['issues'])<min(previous):
+                research.progress('review_improvement',len(result['issues']))
             record.update(result,status='COMPLETE')
             record['native_call_id']=receipt.get('call_id')
             await research.write(directory+'-result.json',record)

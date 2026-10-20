@@ -39,7 +39,11 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
     async def test_clean_same_model_review_publish_and_dedup(self):
         files,run,draft,agent,calls=await self.setup_review([{'issues':[],'checks':['已对照原句与期间']}])
         with self.assertRaises(ValueError): run.check_review(draft)
+        run.steps_without_progress=11
+        run._observed_milestones=len(run._milestones)
         events=await self.review(agent,draft)
+        await run.observe({'name':'research_review','status':'ok','params':{},'result':{}})
+        self.assertEqual(run.steps_without_progress,0)
         self.assertEqual([e.kind for e in events],['tool_start','tool_end'])
         text=json.dumps(calls[0][0],ensure_ascii=False)
         self.assertIn('原自然问题',text)
@@ -103,3 +107,26 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(literal_text('签订 相关正式\n合同'),literal_text('签订相关正式合同'))
         self.assertNotEqual(literal_text('not yet signed'),literal_text('notyetsigned'))
         self.assertNotEqual(literal_text('未签订合同'),literal_text('签订合同'))
+
+    async def test_publication_authorization_denial_precedes_supplier_call(self):
+        from unittest.mock import AsyncMock
+        _,run,draft,agent,calls=await self.setup_review([])
+        agent.router.authorize_publication=AsyncMock(side_effect=PermissionError('grant revoked'))
+        call={'id':'blocked','function':{'name':'brief_publish','arguments':draft}}
+        events=[e async for e in agent._execute_tools([call],'s',[],allowed={'brief_publish'})]
+        self.assertEqual(calls,[])
+        self.assertEqual(events[-1].data['status'],'error')
+        self.assertIn('grant revoked',events[-1].data['result']['error'])
+        self.assertFalse(run.review_records)
+
+    async def test_unknown_review_stops_before_another_planning_request(self):
+        _,run,_,agent,calls=await self.setup_review([])
+        run.review_records['old']={'status':'UNKNOWN'}
+        async def process(messages):return messages
+        agent.registry=SimpleNamespace(get_definitions=lambda **kw:[])
+        agent.context_mgr=SimpleNamespace(process=process)
+        agent.prompt_builder=SimpleNamespace(build=lambda **kw:'system')
+        events=[e async for e in agent.run([{'role':'user','content':'原问题'}])]
+        self.assertEqual(calls,[])
+        self.assertEqual(events[-1].kind,'error')
+        self.assertIn('不自动重发',events[-1].text)
