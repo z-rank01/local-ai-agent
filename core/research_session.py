@@ -46,6 +46,10 @@ class ResearchSession:
         self._milestones = set()
         self._observed_milestones = 0
         self.steps_without_progress = 0
+        self.pending_evidence = []
+        self.evidence_requests = {}
+        self.evidence_notes = {}
+        self.method_text = {}
 
     def progress(self, kind, value):
         key = (kind, sha256(encoded(value).encode()).hexdigest())
@@ -122,7 +126,15 @@ class ResearchSession:
 
     async def checkpoint(self):
         await self.write('research.json', {**self.record, 'sources': self.sources,
-                                          'methods': sorted(self.methods), 'trace': self.trace})
+            'methods': sorted(self.methods), 'trace': self.trace,
+            'evidence_requests': self.evidence_requests})
+        await self.write('evidence-index.json', self.evidence_index())
+
+    def evidence_index(self):
+        return {'sources': {key: {**row, 'annotation': self.evidence_notes.get(key, {}),
+                    'received': self.read_text.get(key, [])} for key, row in self.sources.items()},
+                'requests': self.evidence_requests,
+                'reading': 'received只包含实际工具返回内容；目录不是全文；模型标注不构成语义认证'}
 
     async def incomplete(self):
         if self.record is not None and self.published is None:
@@ -151,6 +163,15 @@ class ResearchSession:
         phase = params.get('phase', '准备')
         if phase not in PHASES or phase == '交付':
             raise ValueError('交付阶段由 brief_publish 成功保存后设置')
+        requests = params.get('evidence_requests', [])
+        if requests and not self.methods:
+            raise ValueError('先读取适用方法，再提供已核实的证券与证据需求')
+        from .research_evidence import evidence_steps
+        planned = [(request, evidence_steps(request)) for request in requests]
+        notes = params.get('evidence_notes', [])
+        for note in notes:
+            if note['source_id'] not in self.sources:
+                raise ValueError('证据标注只能引用本轮实际来源')
         if self.record is None:
             if phase != '准备' or not params.get('scope') or not params.get('plan'):
                 raise ValueError('首次研究需提供范围和简短计划，并从准备阶段开始')
@@ -170,6 +191,14 @@ class ResearchSession:
                 'directory': directory}
         else:
             self.record['phase'] = phase
+        for request, steps in planned:
+            key = sha256(json.dumps(request, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+            if key in self.evidence_requests:
+                continue  # Repeated phase calls never repeat external reads.
+            self.evidence_requests[key] = {'request': request, 'status': 'PENDING', 'results': []}
+            self.pending_evidence.extend({**step, 'request_key': key} for step in steps)
+        for note in notes:
+            self.evidence_notes[note['source_id']] = {k: v for k, v in note.items() if k != 'source_id'}
         await self.checkpoint()
         next_step = '按需读取项目当前投研方法；本轮已成功读取的方法不必重读，研究不会因十分钟自动转交专业任务。'
         if phase == '核对':
@@ -178,8 +207,37 @@ class ResearchSession:
                          '在review.checks记录具体核对结果及位置，不写隐藏推理或泛化通过声明；完成后再brief_publish。')
         return {'research_id': self.record['id'], 'directory': self.record['directory'],
                 'phase': phase, 'model': self.model,
+                'pending_evidence_steps': len(self.pending_evidence),
                 'sources': [{'source_id': key, 'saved_source': row['path']} for key, row in self.sources.items()],
                 'next': next_step}
+
+    async def complete_evidence(self, step, result, status):
+        """Advance only after the actual normal tool receipt has been recorded."""
+        from .research_evidence import catalogue, financial_read_step
+        self.pending_evidence.pop(0)
+        entry = self.evidence_requests[step['request_key']]
+        source = result.get('source_id')
+        entry['results'].append({'tool': step['name'], 'status': status,
+            'source_id': source, 'error': result.get('error')})
+        request = entry['request']
+        if status == 'ok' and source in self.sources:
+            pages = self._source_pages[source]
+            listing = catalogue(pages)
+            if listing:
+                result['catalogue'] = listing
+            if request['kind'] == 'notice':
+                links = result.get('document_links', [])
+                if len(links) == 1:
+                    url = links[0]['url'] if isinstance(links[0], dict) else links[0]
+                    if url != result.get('url'):
+                        self.pending_evidence.insert(0, {'name': 'web_fetch', 'params': {'url': url},
+                            'purpose': '读取所选公告实际返回的唯一原件附件', 'request_key': step['request_key']})
+            if request['kind'] == 'finance' and 'ZYZBAjaxNew' in result.get('url', '') and request.get('where') and request.get('fields'):
+                self.pending_evidence.insert(0, {**financial_read_step(request, result['saved_source']),
+                                                'request_key': step['request_key']})
+        if not any(s['request_key'] == step['request_key'] for s in self.pending_evidence):
+            entry['status'] = 'FAILED' if any(r['status'] != 'ok' for r in entry['results']) else 'COMPLETE'
+        await self.checkpoint()
 
     async def save_source(self, result):
         payload = result.pop('_source_file', None)
@@ -210,6 +268,7 @@ class ResearchSession:
         if success and name == 'file_read' and any('/skills/'+version+'/references/' in path
                 for version in ('harness-stock-research-v1', 'harness-stock-research-v2', 'harness-stock-research-v3')):
             self.methods.add(path)
+            self.method_text[path] = result.get('content', '')
             self.progress('method', path)
             if isinstance(result,dict) and result.get('sha256'):
                 self.method_fingerprints[path] = result['sha256']

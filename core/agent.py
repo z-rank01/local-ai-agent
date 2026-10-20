@@ -408,6 +408,24 @@ class Agent:
             closing_rounds = None
             while (research is not None and research.active) or stock_deadline is not None or research_continuing or round_number < self.max_rounds:
                 autonomous = research is not None and research.active
+                if autonomous and research.pending_evidence:
+                    import uuid
+                    step = research.pending_evidence[0]
+                    call = {'id': 'call_' + uuid.uuid4().hex, 'type': 'function',
+                            'function': {'name': step['name'], 'arguments': json.dumps(step['params'], ensure_ascii=False)}}
+                    # Explicit program expansion of a model-selected need. Normal
+                    # tool events, policy checks and checkpoint boundaries apply.
+                    protocol = {'role': 'assistant', 'content': '程序执行已登记证据需求：' + step['purpose'],
+                                'reasoning_content': '', 'tool_calls': [call]}
+                    messages.append(protocol)
+                    yield AgentEvent('message', data={'message': {k:v for k,v in protocol.items() if k != 'reasoning_content'}})
+                    async with aclosing(self._execute_tools([call], session_id, messages,
+                            allowed=research.tool_names, evidence_step=step)) as events:
+                        async for event in events:
+                            if event.kind == 'tool_end':
+                                await research.observe(event.data)
+                            yield event
+                    continue
                 active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
                 if autonomous:
@@ -968,7 +986,7 @@ class Agent:
     # ── Internal helpers ────────────────────────────────────────────────
 
     async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None, budgets=None,
-                             counts=None, stock_deadline=None, research_handoff=False):
+                             counts=None, stock_deadline=None, research_handoff=False, evidence_step=None):
         stock_boundary = False
         for tc in tool_calls:
             control = getattr(self, 'run_control', None)
@@ -1020,9 +1038,13 @@ class Agent:
                     raise RuntimeError('工具未返回最终执行结果')
                 failed = tool_failed(result)
                 status = 'error' if failed else 'ok'
+                if evidence_step is not None:
+                    await research.complete_evidence(evidence_step, result, status)
                 if control:
                     control.end_step()
             except Exception as exc:
+                if evidence_step is not None and research.pending_evidence and research.pending_evidence[0] is evidence_step:
+                    await research.complete_evidence(evidence_step, {'error': str(exc)}, 'error')
                 if control:
                     import httpx
                     control.end_step(confirmed=not isinstance(exc, httpx.TransportError)

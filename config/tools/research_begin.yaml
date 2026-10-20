@@ -7,6 +7,8 @@ description: >-
   开始当前对话的公开投研并保存范围、标的和计划。首次phase=准备；随后用同一工具报告获取、分析、核对阶段。
   跟随本轮聊天模型，不调用专业任务、不因十分钟强制结束。返回当前工作区的产物目录。
   通过 skill_list/skill_info 发现当前项目投研适配包，按需读取方法，使用实际搜索/原文/计算工具，最后 brief_publish。已登记的source_id和保存路径随阶段回执返回，不能猜文件名。
+  读取方法并核实证券后，用evidence_requests登记取证需求，程序会执行现有工具并返回原文目录/附件/字段回执。
+  公告研究先notices定位实际art_code，再notice读取原件；财务分析用finance同时取得定期报告目录和财务入口，检查正式报告及更正，不以旧快报替代。
 parameters:
   type: object
   properties:
@@ -23,4 +25,32 @@ parameters:
       type: array
       items: {type: string}
       description: 简短可观察计划，不含隐藏思维链
+    evidence_requests:
+      type: array
+      description: 已选择的具体取证需求，相同参数不重复执行。目录仍需按标题/主体/期间选公告，不能当全文已读。
+      items:
+        type: object
+        properties:
+          kind: {type: string, enum: [notices, notice, finance, profile]}
+          symbol: {type: string, description: 已核实的交易所加代码，例如SH688178}
+          start: {type: string, description: 公告目录起始日期YYYY-MM-DD}
+          end: {type: string, description: 公告目录结束日期YYYY-MM-DD}
+          article: {type: string, description: 目录实际返回的AN编号，notice使用}
+          page: {type: integer, minimum: 1}
+          purpose: {type: string, description: 本项资料支持或反驳什么判断}
+          where: {type: object, additionalProperties: {type: string}, description: finance可选，按实际字段精确筛选证券和报告期}
+          fields: {type: array, items: {type: string}, description: finance可选，已观察到的原字段名；不猜单位}
+        required: [kind]
+    evidence_notes:
+      type: array
+      description: 对本轮实际来源的模型标注；不是程序认证，可记录版本冲突及其影响
+      items:
+        type: object
+        properties:
+          source_id: {type: string}
+          document_kind: {type: string, enum: [公告, 正式定期报告, 业绩快报, 业绩预告, 更正, 第三方字段, 媒体]}
+          disclosed_at: {type: string}
+          period: {type: string}
+          note: {type: string}
+        required: [source_id, document_kind]
   required: [phase]
