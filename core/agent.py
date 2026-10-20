@@ -1173,20 +1173,20 @@ class Agent:
             if not previous or len(result['issues'])<min(previous):
                 research.progress('review_improvement',len(result['issues']))
             record.update(result,status='COMPLETE')
-            record['native_call_id']=receipt.get('call_id')
+            record['native_call_id']=receipt.get('local_attempt_id')
             await research.write(directory+'-result.json',record)
             await research.checkpoint()
             yield AgentEvent('tool_end',data={'name':'research_review','call_id':call_id,'params':{'candidate_sha256':key},
                 'status':'ok','elapsed':time.monotonic()-started,'result':result},text='关键结论核对完成')
         except asyncio.CancelledError:
             record['status']='UNKNOWN' if receipt.get('result_status') not in ('COMPLETE','FAILED','TRUNCATED') else 'FAILED'
-            record['native_call_id']=receipt.get('call_id')
+            record['native_call_id']=receipt.get('local_attempt_id')
             await research.write(directory+'-result.json',record)
             await research.checkpoint()
             raise
         except Exception:
             record['status']='UNKNOWN' if receipt.get('result_status')=='UNKNOWN' or response is None and not receipt else 'FAILED'
-            record['native_call_id']=receipt.get('call_id')
+            record['native_call_id']=receipt.get('local_attempt_id')
             await research.write(directory+'-result.json',record)
             await research.checkpoint()
             yield AgentEvent('tool_end',data={'name':'research_review','call_id':call_id,'status':'error',

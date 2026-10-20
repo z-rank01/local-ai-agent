@@ -21,11 +21,12 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
                 calls.append((copy.deepcopy(messages),tools))
                 value=outputs[len(calls)-1]
                 observer=options['request_observer']
-                observer('native_model_request',{'call_id':str(len(calls)),'model':run.model})
+                receipt={'call_id':None,'local_attempt_id':'attempt-'+str(len(calls))}
+                observer('native_model_request',{**receipt,'model':run.model})
                 if isinstance(value,Exception):
-                    observer('native_model_result',{'result_status':'UNKNOWN'})
+                    observer('native_model_result',{**receipt,'result_status':'UNKNOWN'})
                     raise value
-                observer('native_model_result',{'result_status':'COMPLETE'})
+                observer('native_model_result',{**receipt,'result_status':'COMPLETE'})
                 yield '',{'role':'assistant','content':json.dumps(value,ensure_ascii=False),'reasoning_content':'not saved'}
         agent=Agent(llm=Model(),router=SimpleNamespace(research=run),
             registry=None,audit=SimpleNamespace(record=lambda *args:None),context_mgr=None,prompt_builder=None)
@@ -57,6 +58,7 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         await self.review(agent,draft)
         self.assertEqual(len(calls),1)
         self.assertFalse(run.review_records[fingerprint(draft)]['semantic_certification'])
+        self.assertEqual(run.review_records[fingerprint(draft)]['native_call_id'],'attempt-1')
 
     async def test_issues_revision_and_changed_evidence_require_new_review(self):
         issue={'section':'理由','claim':'2025亏损所以当前仍亏损','reason':'缺当前期间',
@@ -79,6 +81,7 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         files,run,draft,agent,calls=await self.setup_review([RuntimeError('timeout')])
         with self.assertRaisesRegex(RuntimeError,'timeout'): await self.review(agent,draft)
         self.assertEqual(run.review_records[fingerprint(draft)]['status'],'UNKNOWN')
+        self.assertEqual(run.review_records[fingerprint(draft)]['native_call_id'],'attempt-1')
         with self.assertRaises(ValueError): await run.publish(draft)
         with self.assertRaisesRegex(RuntimeError,'未确认'): await self.review(agent,{**draft,'markdown':'新措辞'})
         self.assertEqual(len(calls),1)
