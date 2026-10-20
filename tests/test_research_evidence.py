@@ -30,6 +30,13 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('PARENTNETPROFIT',code)
         self.assertNotIn('urlopen',code)
 
+    def test_finance_reads_actual_selected_report_ids_not_inferred_titles(self):
+        steps=evidence_steps({'kind':'finance','symbol':'SZ000651','report_articles':['AN123','AN123','AN456']})
+        self.assertEqual(len(steps),5)
+        self.assertIn('AN456',steps[-1]['params']['url'])
+        self.assertIn('v4/references/finance.md',steps[0]['params']['path'])
+        with self.assertRaises(ValueError):evidence_steps({'kind':'finance','symbol':'SZ000651','report_articles':['invented']})
+
     async def test_request_dedup_failure_and_real_receipt_advance(self):
         run=ResearchSession(Files(),conversation_id='c',model='m',allowed=True)
         request={'kind':'notice','article':'AN123'}
@@ -54,6 +61,7 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
             'media_type':'text/html','content':'公告原文',
             'document_links':[{'url':'https://example.org/actual.pdf'}],
             '_source_file':{'base64':base64.b64encode(b'raw').decode(),'pages':[{'page':1,'text':'公告原文'}]}})
+        await run.observe({'name':'web_fetch','params':{},'status':'ok','result':result})
         await run.complete_evidence(run.pending_evidence[0],result,'ok')
         self.assertEqual(run.pending_evidence[0]['params']['url'],'https://example.org/actual.pdf')
         self.assertEqual(run.read_text[result['source_id']],['公告原文'])
@@ -67,6 +75,42 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
             'document_kind':'公告','disclosed_at':'2026-10-09','period':'2026','note':'尚未核对后续披露'}]})
         self.assertIn('尚未核对后续披露',run.guidance())
         self.assertNotIn('已有足够材料',run.guidance())
+
+    async def test_manual_detail_attachment_failure_is_visible_and_not_requeued(self):
+        run=ResearchSession(Files(),conversation_id='c',model='m',allowed=True)
+        run.methods.add('method');await run.begin({'scope':'x','plan':['x']})
+        result={'url':'https://example.org/detail','document_links':[{'url':'https://example.org/report.pdf'}]}
+        run.queue_document(result)
+        self.assertEqual(run.pending_evidence[0]['name'],'web_fetch')
+        step=run.pending_evidence[0]
+        await run.complete_evidence(step,{'error':'HTTP 403'},'error')
+        run.queue_document(result)
+        self.assertFalse(run.pending_evidence)
+        self.assertEqual(run.evidence_requests[step['request_key']]['status'],'FAILED')
+        run.queue_document({**result,'document_links':[{'url':'a'},{'url':'b'}]})
+        self.assertFalse(run.pending_evidence)
+
+    async def test_selected_financial_report_retains_terms_until_actual_pdf_receipt(self):
+        run=ResearchSession(Files(),conversation_id='c',model='m',allowed=True)
+        run.methods.add('method')
+        await run.begin({'scope':'x','plan':['x'],'evidence_requests':[{'kind':'finance','symbol':'SZ000651',
+            'report_articles':['AN123'],'terms':['应付股利']}]})
+        # Existing directory/field tools have completed; no report text was read.
+        for _ in range(3):await run.complete_evidence(run.pending_evidence[0],{},'ok')
+        url=run.pending_evidence[0]['params']['url']
+        run.queue_document({'url':url,'document_links':[{'url':'https://example.org/full.pdf'}]})
+        await run.complete_evidence(run.pending_evidence[0],{},'ok')
+        request=run.evidence_requests[run.pending_evidence[0]['request_key']]['request']
+        self.assertEqual(request['terms'],['应付股利'])
+        self.assertFalse(run.read_text)
+        result=await run.save_source({'url':'https://example.org/full.pdf','title':'报告',
+            'sha256':'a'*64,'fetched_at':'2026-10-20','page_count':2,'total_chars':20,
+            'media_type':'application/pdf','content':'[第1页]封面',
+            '_source_file':{'base64':base64.b64encode(b'raw').decode(),
+                'pages':[{'page':1,'text':'封面'},{'page':70,'text':'应付股利已确认'}]}})
+        await run.complete_evidence(run.pending_evidence[0],result,'ok')
+        self.assertEqual(run.pending_evidence[0]['name'],'code_exec')
+        self.assertNotIn('应付股利已确认',str(run.read_text))
 
     async def test_program_expansion_is_visible_before_next_model_request(self):
         from types import SimpleNamespace

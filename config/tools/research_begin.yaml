@@ -8,7 +8,7 @@ description: >-
   跟随本轮聊天模型，不调用专业任务、不因十分钟强制结束。返回当前工作区的产物目录。
   通过 skill_list/skill_info 发现当前项目投研适配包，按需读取方法，使用实际搜索/原文/计算工具，最后 brief_publish。已登记的source_id和保存路径随阶段回执返回，不能猜文件名。
   读取方法并核实证券后，用evidence_requests登记取证需求，程序会执行现有工具并返回原文目录/附件/字段回执。
-  公告研究先notices定位实际art_code，再notice读取原件；财务分析用finance同时取得定期报告目录和财务入口，检查正式报告及更正，不以旧快报替代。
+  公告研究先notices定位实际art_code，再notice读取原件；财务分析用finance取得目录和字段，随后把已选择的正式报告编号放入report_articles再读取原件，不能只用目录或字段替代财报。
 parameters:
   type: object
   properties:
@@ -40,6 +40,8 @@ parameters:
           purpose: {type: string, description: 本项资料支持或反驳什么判断}
           where: {type: object, additionalProperties: {type: string}, description: finance可选，按实际字段精确筛选证券和报告期}
           fields: {type: array, items: {type: string}, description: finance可选，已观察到的原字段名；不猜单位}
+          report_articles: {type: array, items: {type: string}, description: finance可选，从实际目录选择的正式报告/更正AN编号，程序沿原工具读取详情及唯一附件，不猜版本}
+          terms: {type: array, items: {type: string}, description: 已选报告要实际读取的章节或原文词，例如主营业务、应付股利；返回真实页码摘录及匹配页目录，不等于全文已读}
         required: [kind]
     evidence_notes:
       type: array

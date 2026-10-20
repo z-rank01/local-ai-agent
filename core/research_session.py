@@ -210,7 +210,7 @@ class ResearchSession:
 
     async def complete_evidence(self, step, result, status):
         """Advance only after the actual normal tool receipt has been recorded."""
-        from .research_evidence import catalogue, financial_read_step
+        from .research_evidence import catalogue, financial_read_step, report_read_step
         self.pending_evidence.pop(0)
         entry = self.evidence_requests[step['request_key']]
         source = result.get('source_id')
@@ -222,19 +222,40 @@ class ResearchSession:
             listing = catalogue(pages)
             if listing:
                 result['catalogue'] = listing
-            if request['kind'] == 'notice':
-                links = result.get('document_links', [])
-                if len(links) == 1:
-                    url = links[0]['url'] if isinstance(links[0], dict) else links[0]
-                    if url != result.get('url'):
-                        self.pending_evidence.insert(0, {'name': 'web_fetch', 'params': {'url': url},
-                            'purpose': '读取所选公告实际返回的唯一原件附件', 'request_key': step['request_key']})
+            if result.get('media_type') == 'application/pdf' and request.get('terms'):
+                self.pending_evidence.insert(0, {**report_read_step(result['saved_source'],request['terms']),
+                                                'request_key':step['request_key']})
             if request['kind'] == 'finance' and 'ZYZBAjaxNew' in result.get('url', '') and request.get('where') and request.get('fields'):
                 self.pending_evidence.insert(0, {**financial_read_step(request, result['saved_source']),
                                                 'request_key': step['request_key']})
         if not any(s['request_key'] == step['request_key'] for s in self.pending_evidence):
             entry['status'] = 'FAILED' if any(r['status'] != 'ok' for r in entry['results']) else 'COMPLETE'
         await self.checkpoint()
+
+    def queue_document(self, result):
+        """Follow one actual attachment, including manual detail-page reads.
+
+        Selection remains the model's detail URL. Multiple attachments need an
+        explicit choice; failed reads are not silently tried again.
+        """
+        links = result.get('document_links', [])
+        if len(links) != 1:
+            return
+        url = links[0]['url'] if isinstance(links[0],dict) else links[0]
+        if url == result.get('url') or any(row['url'] == url for row in self.sources.values()):
+            return
+        key = 'attachment:'+sha256(url.encode()).hexdigest()
+        if key in self.evidence_requests:
+            return
+        terms = []
+        if (self.pending_evidence and self.pending_evidence[0]['name'] == 'web_fetch'
+                and self.pending_evidence[0]['params'].get('url') == result.get('url')):
+            parent = self.evidence_requests[self.pending_evidence[0]['request_key']]['request']
+            terms = parent.get('terms', [])
+        self.evidence_requests[key]={'request':{'kind':'attachment','url':url,'terms':terms},
+                                     'status':'PENDING','results':[]}
+        self.pending_evidence.append({'name':'web_fetch','params':{'url':url},'request_key':key,
+            'purpose':'读取已选详情页实际返回的唯一PDF附件；沿原工具授权与事件执行'})
 
     async def queue_citation_reads(self, candidate):
         from .research_visuals import literal_text
@@ -282,7 +303,7 @@ class ResearchSession:
         success = event.get('status') == 'ok'
         path = params.get('path', '')
         if success and name == 'file_read' and any('/skills/'+version+'/references/' in path
-                for version in ('harness-stock-research-v1', 'harness-stock-research-v2', 'harness-stock-research-v3')):
+                for version in ('harness-stock-research-v1', 'harness-stock-research-v2', 'harness-stock-research-v3', 'harness-stock-research-v4')):
             self.methods.add(path)
             self.method_text[path] = result.get('content', '')
             self.progress('method', path)
@@ -292,6 +313,8 @@ class ResearchSession:
         # turn, without inheriting another turn's methods or source coverage.
         if self.record is None:
             return
+        if success and name == 'web_fetch' and result.get('source_id') in self.sources:
+            self.queue_document(result)
         if success and name == 'file_read' and isinstance(result, dict):
             for key, source in self.sources.items():
                 if path == source['path']:

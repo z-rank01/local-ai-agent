@@ -11,7 +11,7 @@ def evidence_steps(request):
     steps = []
     if kind == 'finance':
         today = date.today()
-        steps.append({'name':'file_read','params':{'path':'/workspace/skills/harness-stock-research-v3/references/finance.md'},
+        steps.append({'name':'file_read','params':{'path':'/workspace/skills/harness-stock-research-v4/references/finance.md'},
                       'purpose':'读取财务期间、口径和推导方法'})
         # A directory is a version-discovery aid, not a chosen financial report.
         steps.append({'name': 'web_fetch', 'params': {'url': source_url('notices',
@@ -20,7 +20,21 @@ def evidence_steps(request):
         args = {'symbol': request['symbol']}
     steps.append({'name': 'web_fetch', 'params': {'url': source_url(kind, **args)},
                   'purpose': request.get('purpose', kind)})
+    if kind == 'finance':
+        for article in dict.fromkeys(request.get('report_articles', [])):
+            steps.append({'name':'web_fetch', 'params':{'url':source_url('notice',article=article)},
+                          'purpose':'读取模型从目录选定的定期报告原件；不认证所选版本适用性'})
     return steps
+
+
+def report_read_step(path, terms):
+    """Read model-selected terms from saved pages through the existing executor."""
+    args = json.dumps(json.dumps([path, terms], ensure_ascii=False))
+    code = ('import json, runpy\n'
+            'reader=runpy.run_path("/workspace/skills/harness-stock-research-v4/scripts/read_report.py")\n'
+            f'args=json.loads({args})\n'
+            'print(json.dumps(reader["read_report"](*args),ensure_ascii=False))')
+    return {'name':'code_exec','params':{'code':code},'purpose':'实际读取所选报告章节并返回原页位置；匹配目录不代表读完报告'}
 
 
 def financial_read_step(request, source):
