@@ -9,9 +9,9 @@ from core.research_session import ResearchSession
 class EvidenceTests(unittest.IsolatedAsyncioTestCase):
     def test_explicit_provider_entries_and_finance_version_directory(self):
         steps = evidence_steps({'kind':'finance', 'symbol':'SH688178'})
-        self.assertEqual([s['name'] for s in steps], ['web_fetch','web_fetch'])
-        self.assertIn('ann?', steps[0]['params']['url'])
-        self.assertIn('code=SH688178', steps[1]['params']['url'])
+        self.assertEqual([s['name'] for s in steps], ['file_read','web_fetch','web_fetch'])
+        self.assertIn('ann?', steps[1]['params']['url'])
+        self.assertIn('code=SH688178', steps[2]['params']['url'])
         for request in ({'kind':'notice','article':'guessed'}, {'kind':'finance','symbol':'万德斯'},
                         {'kind':'notices','symbol':'SH688178','start':'2026-10-20','end':'2025-01-01'}):
             with self.assertRaises(ValueError): evidence_steps(request)
@@ -67,3 +67,32 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
             'document_kind':'公告','disclosed_at':'2026-10-09','period':'2026','note':'尚未核对后续披露'}]})
         self.assertIn('尚未核对后续披露',run.guidance())
         self.assertNotIn('已有足够材料',run.guidance())
+
+    async def test_program_expansion_is_visible_before_next_model_request(self):
+        from types import SimpleNamespace
+        from core.agent import Agent
+        from tests import test_research_session as session_tests
+        files,run,_=await session_tests.ResearchSessionTests().prepare()
+        await run.begin({'phase':'获取','evidence_requests':[{'kind':'notice','article':'AN123'}]})
+        actual=[]
+        class Router:
+            research=run
+            async def dispatch(self,name,params,session):
+                actual.append((name,params))
+                return {'error':'HTTP 403','url':params['url']}
+        captured=[]
+        class Model:
+            async def chat_stream_with_tools(self,messages,tools=None):
+                captured.extend(messages)
+                raise RuntimeError('diagnostic stop')
+                yield
+        async def process(messages):return messages
+        agent=Agent(llm=Model(),router=Router(),registry=SimpleNamespace(get_definitions=lambda **kw:[
+            {'type':'function','function':{'name':n}} for n in ('web_fetch','research_begin','brief_publish')]),
+            audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw:'system'),max_rounds=1)
+        events=[e async for e in agent.run([{'role':'user','content':'原问题'}])]
+        self.assertEqual(len(actual),1)
+        self.assertTrue(any(e.kind=='tool_start' and e.data['name']=='web_fetch' for e in events))
+        self.assertIn('AN123',json.dumps(captured))
+        self.assertFalse(run.pending_evidence)

@@ -11,6 +11,8 @@ def evidence_steps(request):
     steps = []
     if kind == 'finance':
         today = date.today()
+        steps.append({'name':'file_read','params':{'path':'/workspace/skills/harness-stock-research-v3/references/finance.md'},
+                      'purpose':'读取财务期间、口径和推导方法'})
         # A directory is a version-discovery aid, not a chosen financial report.
         steps.append({'name': 'web_fetch', 'params': {'url': source_url('notices',
             symbol=request['symbol'], start=request.get('start', f'{today.year-1}-01-01'),

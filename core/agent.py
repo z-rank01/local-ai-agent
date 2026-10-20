@@ -1025,6 +1025,18 @@ class Agent:
                 result = None
                 if name == 'context_evidence_read':
                     result = self.context_mgr.read_evidence(**params)
+                elif name == 'brief_publish' and research is not None:
+                    candidate = await research.publication_input(params)
+                    async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
+                        async for event in events:
+                            yield event
+                    from .research_review import fingerprint
+                    review = research.review_records[fingerprint(candidate)]
+                    if review.get('issues'):
+                        result = {'error':'单独核对发现关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
+                                  'review':review}
+                    else:
+                        result = await research.publish(candidate)
                 elif hasattr(self.router, 'dispatch_stream'):
                     async with aclosing(self.router.dispatch_stream(name, params, session_id)) as stream:
                         async for packet in stream:
@@ -1077,6 +1089,89 @@ class Agent:
                 stock_boundary = True
         if stock_boundary:
             yield AgentEvent('stock_boundary')
+
+    async def _review_candidate(self, candidate, session_id, messages):
+        from .research_review import fingerprint, review_messages, parse_review
+        from .research_visuals import validate_publication
+        from contextlib import aclosing
+        import uuid
+        research=self.router.research
+        # Mechanical errors are returned before another supplier call.
+        try:
+            validate_publication(candidate,research.sources,research.read_text)
+        except (ValueError, KeyError, TypeError):
+            await research.write('publication-attempts/rejected-'+uuid.uuid4().hex+'.json',candidate)
+            raise
+        if research.published:
+            research.check_review(candidate)
+            return
+        if research.record['phase'] != '核对' or not research.methods:
+            raise ValueError('先读取适用方法并进入核对阶段，再提交完整候选稿')
+        if research.pending_evidence:
+            raise ValueError('本轮已登记取证需求尚未结束，不能提前核对发布')
+        if any(row.get('status') in ('STARTED','UNKNOWN') for row in research.review_records.values()):
+            raise RuntimeError('存在未确认的单独核对请求，不自动重发；已保存稿件与证据')
+        key=fingerprint(candidate)
+        evidence_hash=fingerprint(research.evidence_index())
+        old=research.review_records.get(key)
+        if old and old.get('evidence_sha256') == evidence_hash:
+            if old.get('status') == 'COMPLETE':
+                return
+            raise RuntimeError('该稿核对未成功，原失败保留，不自动重发')
+        serial=sum(len(row.get('attempts',[])) for row in research.review_records.values())+1
+        directory=f'reviews/{serial}'
+        # Existing file tool creates nested parents. Save submitted prose before review.
+        await research.write(directory+'-candidate.json',candidate)
+        record={'status':'STARTED','candidate_sha256':key,'evidence_sha256':evidence_hash,
+                'attempts':(old or {}).get('attempts',[])+[directory], 'semantic_certification':False}
+        research.review_records[key]=record
+        await research.checkpoint()
+        call_id='review_'+uuid.uuid4().hex
+        yield AgentEvent('tool_start',data={'name':'research_review','call_id':call_id,
+            'params':{'candidate_sha256':key},'summary':'单独核对关键结论'})
+        question=next((m['content'] for m in reversed(messages) if m.get('role')=='user'),'')
+        system=next((m['content'] for m in messages if m.get('role')=='system'),'')
+        context=review_messages(question,candidate,research,system)
+        receipt={}
+        def observe(event,data):
+            self.audit.record(event,{'session_id':session_id,'research_phase':'review','candidate_sha256':key,**data})
+            if event=='native_model_result': receipt.update(data)
+        options={'request_observer':observe} if getattr(self.llm,'observes_native_requests',False) else {}
+        control=getattr(self,'run_control',None)
+        if control: control.begin_step('模型单独核对')
+        started=time.monotonic()
+        try:
+            response=None
+            async with aclosing(self.llm.chat_stream_with_tools(context,None,**options)) as stream:
+                async for _, message in stream:
+                    if message is not None: response=message
+            if control: control.end_step()
+            if response is None or response.get('tool_calls'):
+                raise ValueError('单独核对未完整返回核对结果')
+            visible=response.get('content') or ''
+            await research.write(directory+'-response.txt',visible)
+            result=parse_review(visible)
+            record.update(result,status='COMPLETE')
+            record['native_call_id']=receipt.get('call_id')
+            await research.write(directory+'-result.json',record)
+            await research.checkpoint()
+            yield AgentEvent('tool_end',data={'name':'research_review','call_id':call_id,'params':{'candidate_sha256':key},
+                'status':'ok','elapsed':time.monotonic()-started,'result':result},text='关键结论核对完成')
+        except asyncio.CancelledError:
+            record['status']='UNKNOWN' if receipt.get('result_status') not in ('COMPLETE','FAILED','TRUNCATED') else 'FAILED'
+            record['native_call_id']=receipt.get('call_id')
+            await research.write(directory+'-result.json',record)
+            await research.checkpoint()
+            raise
+        except Exception:
+            record['status']='UNKNOWN' if receipt.get('result_status')=='UNKNOWN' or response is None and not receipt else 'FAILED'
+            record['native_call_id']=receipt.get('call_id')
+            await research.write(directory+'-result.json',record)
+            await research.checkpoint()
+            yield AgentEvent('tool_end',data={'name':'research_review','call_id':call_id,'status':'error',
+                'params':{'candidate_sha256':key},'elapsed':time.monotonic()-started,
+                'result':{'status':record['status'],'error':'单独核对未完成；未发布，原记录保留'}})
+            raise
 
     async def _inject_context_into_messages(
         self, messages: list[dict], session_id: str

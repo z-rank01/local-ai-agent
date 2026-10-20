@@ -50,6 +50,7 @@ class ResearchSession:
         self.evidence_requests = {}
         self.evidence_notes = {}
         self.method_text = {}
+        self.review_records = {}
 
     def progress(self, kind, value):
         key = (kind, sha256(encoded(value).encode()).hexdigest())
@@ -122,7 +123,7 @@ class ResearchSession:
     async def checkpoint(self):
         await self.write('research.json', {**self.record, 'sources': self.sources,
             'methods': sorted(self.methods), 'trace': self.trace,
-            'evidence_requests': self.evidence_requests})
+            'evidence_requests': self.evidence_requests, 'reviews': self.review_records})
         await self.write('evidence-index.json', self.evidence_index())
 
     def evidence_index(self):
@@ -191,7 +192,8 @@ class ResearchSession:
             if key in self.evidence_requests:
                 continue  # Repeated phase calls never repeat external reads.
             self.evidence_requests[key] = {'request': request, 'status': 'PENDING', 'results': []}
-            self.pending_evidence.extend({**step, 'request_key': key} for step in steps)
+            self.pending_evidence.extend({**step, 'request_key': key} for step in steps
+                if not (step['name'] == 'file_read' and step['params']['path'] in self.methods))
         for note in notes:
             self.evidence_notes[note['source_id']] = {k: v for k, v in note.items() if k != 'source_id'}
         await self.checkpoint()
@@ -351,11 +353,15 @@ class ResearchSession:
         attempt = f'publication-attempts/{self.publication_attempts}.json'
         await self.write(attempt, params)
         try:
-            params = validate_publication(params, self.sources, self.read_text)
-            charts = render_charts(params.get('charts', []))
+            checked = validate_publication(params, self.sources, self.read_text)
+            charts = render_charts(checked.get('charts', []))
         except (ValueError, KeyError, TypeError, DecimalException) as exc:
             return {'error': str(exc), 'draft_path': self.record['directory'] + '/' + attempt,
                 'next': '原提交已保存。复制为本轮目录内的工作草稿，用容器脚本定向修正；brief_publish仅传draft_path可重新核对。原文、算式及单位仍须配套，不能删除有效反证来通过。'}
+        self.check_review(params)
+        from .research_review import fingerprint
+        publication_review=self.review_records.get(fingerprint(params),{})
+        params = checked
         references = '\n\n## 论证与参考\n'
         for item in params['sources']:
             source = self.sources[item['id']]
@@ -373,7 +379,8 @@ class ResearchSession:
         # HTML is the last publication file. Failure never returns a report card.
         await self.write('model-original.md', original)
         await self.write('report.md', original + references)
-        await self.write('evidence.json', {**params, 'actual_sources': self.sources, 'model': self.model})
+        await self.write('evidence.json', {**params, 'actual_sources': self.sources, 'model': self.model,
+                                         'separate_review':publication_review})
         if params.get('editorial_notes'):
             await self.write('editorial-notes.json', {
                 'model': self.model, 'notes': params['editorial_notes'],
@@ -385,3 +392,11 @@ class ResearchSession:
             'path': self.record['directory'] + '/report.html', 'title': params['title'],
             'message': '模型生成简报已保存；请在回复中使用此工作区路径的 Markdown 链接展示报告卡。'}
         return self.published
+
+    def check_review(self, candidate):
+        from .research_review import fingerprint
+        row=self.review_records.get(fingerprint(candidate),{})
+        if row.get('status') != 'COMPLETE' or row.get('issues'):
+            raise ValueError('当前候选稿尚未完成单独核对或仍有待修改问题，不能发布')
+        if row.get('evidence_sha256') != fingerprint(self.evidence_index()):
+            raise ValueError('核对后的证据已变化，需要按当前材料重新核对')

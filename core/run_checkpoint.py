@@ -7,6 +7,9 @@ from . import config
 def environment(spec, snapshot, method):
     prompts = {p.name: sha256(p.read_bytes()).hexdigest()
                for p in (config.PROMPTS_DIR/'modules').glob('*') if p.is_file()}
+    review_prompt = config.PROMPTS_DIR/'research_review.txt'
+    if review_prompt.is_file():
+        prompts[review_prompt.name] = sha256(review_prompt.read_bytes()).hexdigest()
     return {'format': 1, 'model': {k: spec[k] for k in
             ('id','provider_id','model','base_url','options') if k in spec},
             'workspace_id': snapshot.id, 'workspace_version': snapshot.record['version'],
@@ -27,7 +30,7 @@ def capture(agent, messages, frozen, response_id, archive):
         state['milestones'] = sorted(research._milestones)
         state['steps_without_progress'] = research.steps_without_progress
         state.update({key:getattr(research,key) for key in
-                      ('pending_evidence','evidence_requests','evidence_notes','method_text')})
+                      ('pending_evidence','evidence_requests','evidence_notes','method_text','review_records')})
         state['read_text'] = {key:[save({'role':'tool','content':text}) for text in spans]
                               for key,spans in research.read_text.items()}
     return {'format':1, 'safe':True, 'blocker':'', 'frozen':frozen,
@@ -72,7 +75,7 @@ def restore_research(research, state, load):
     research._milestones = {tuple(item) for item in state.get('milestones', [])}
     research._observed_milestones = len(research._milestones)
     research.steps_without_progress = state.get('steps_without_progress', 0)
-    for key in ('pending_evidence','evidence_requests','evidence_notes','method_text'):
+    for key in ('pending_evidence','evidence_requests','evidence_notes','method_text','review_records'):
         setattr(research,key,state.get(key, [] if key == 'pending_evidence' else {}))
     research.read_text = {key:[load(evidence_id)['content'] for evidence_id in spans]
                           for key,spans in state['read_text'].items()}

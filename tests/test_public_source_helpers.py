@@ -125,6 +125,9 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('实际收到', (await run.publish(params))['error'])
         await run.observe({'name': 'code_exec', 'status': 'ok', 'params': {},
                            'result': {'stdout': json.dumps(receipt)}})
+        from core.research_review import fingerprint
+        run.review_records[fingerprint(params)]={'status':'COMPLETE','issues':[],
+            'evidence_sha256':fingerprint(run.evidence_index()),'semantic_certification':False}
         published = await run.publish(params)
         self.assertEqual(published['status'], 'PUBLISHED')
         evidence = json.loads(files.files[run.record['directory'] + '/evidence.json'])

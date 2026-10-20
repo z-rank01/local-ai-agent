@@ -59,6 +59,13 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             'calculations': [], 'charts': [{'title': '收入', 'unit': '元', 'period': '2025',
                 'items': [{'label': '收入', 'value': '100', 'source': source['source_id']}]}],
             'review': {'checks': ['核对原值'], 'limitations': '未核对估值', 'conflicts': []}}
+        # These cases isolate deterministic rendering. Review orchestration is
+        # exercised separately with a real ResearchSession and a mock supplier.
+        from unittest.mock import Mock
+        from core.research_review import fingerprint
+        run.check_review = Mock()
+        run.review_records[fingerprint(params)]={'status':'COMPLETE','issues':[],
+            'evidence_sha256':fingerprint(run.evidence_index())}
         return files, run, params
 
     async def test_publish_preserves_original_and_is_idempotent(self):
