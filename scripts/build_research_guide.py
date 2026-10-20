@@ -43,6 +43,8 @@ def inventory(workspace, additional_workspaces=()):
             row['workspace'] = 'default' if root == workspace else root.name
             row['reviews'] = [{'candidate':key, 'status':value.get('status'),
                 'issues':len(value.get('issues',[])), 'native_call_id':value.get('native_call_id'),
+                'read_requests':len(value.get('read_requests',[])),
+                'read_steps':len(value.get('read_request_keys',[])),
                 'semantic_certification':False} for key,value in run.get('reviews',{}).items()]
             report = path.parent/'report.html'
             row['report_url'] = report.resolve().as_uri() if report.is_file() else None
@@ -119,16 +121,18 @@ core/research_review.py：候选稿指纹、独立核对输入与结果契约，
 core/research_material_view.py：旧大工具回执和参数转为可完整回读的证据指针
 core/brief_document.py：既有阅读模板
 skills/websearch/source_document.py：PDF页码、快照与分页
-skills/runner/packages/当前方法包/scripts/calculate.py：容器算术（实际方法路径见上方清单）
-skills/runner/packages/当前方法包/scripts/extract.py：批量原文摘录，精确页码与位置；收到并核对的原句才登记为已读
-skills/runner/packages/harness-public-sources-v2：公开目录、完整JSON页、短字段原句与日期目录；复用v1入口，不认证金融判断
+skills/runner/packages/harness-stock-research-v3/scripts/calculate.py：容器算术，当前方法复用
+skills/runner/packages/harness-stock-research-v4/scripts/read_report.py：章节摘录及匹配页目录；只有实际返回的原句登记为已读
+skills/runner/packages/harness-public-sources-v2：公开目录、完整JSON页、短字段原句与日期目录；复用v1入口
+skills/runner/packages/harness-public-sources-v3：行情原值与实际时间原句；不推定收盘价或估值，沿原web_fetch/code_exec工具
 股票侧：既有公开字段与金融口径，旧专业任务不由本流程恢复
 产物：research.json、sources/、model-original.md、report.md、evidence.json、report.html
 evidence-index.json：实际证据、模型标注与需求结果；reviews/：候选稿、可见核对答复及结果
+核对可按实际source_id、检索词和页码请求补读；未完成的选定补读不能冒充核对完成
 publication-attempts/N.json：每次实际发布输入；失败后复制工作稿定向修订，再传draft_path</pre></details></section>
 <section id="flow"><h2>场景流程</h2><span class="badge warn">可能路径 · 非执行证据</span><p><select id="scenario"></select></p><div id="scenario-body"></div></section>
 <section id="replay"><h2>真实运行回放</h2><p>读取所选工作区实际research.json，并关联现有日志中的模型诊断字段。保存状态不是实时运行状态；终态未记录不能当成功或失败。只统计已记录调用，不补猜旧调用或未知用量。隐藏思维链、正文、密钥和完整请求均不展示。</p><select id="run"></select><div id="run-body"></div></section>
-<section id="gaps"><h2>能力与缺口</h2><ul><li>已实现：方法安装、来源分页、容器算术、研究记录和HTML发布。</li><li>实测范围：以本页真实回放和验证记录为准，不能以工具存在推定成功。</li><li>扫描PDF需OCR；当前明确报错，不认证空文本。</li><li>来源冲突和业务因果由模型核查，程序不认证语义；权限、停止及错误需结合验收记录。</li><li>四场景、命名工作区、停止和中断尚未全部完成验收。</li></ul><p>验证记录：docs/记录/2026-10-20-取证需求与单独核对.md；历史记录：docs/记录/2026-10-18-聊天自主投研闭环.md。当前进度：股票 docs/计划.md。</p></section></main>
+<section id="gaps"><h2>能力与缺口</h2><ul><li>已实现：方法安装、来源分页、容器算术、研究记录和HTML发布。</li><li>实测范围：以本页真实回放和验证记录为准，不能以工具存在推定成功。</li><li>扫描PDF需OCR；当前明确报错，不认证空文本。</li><li>来源冲突和业务因果由模型核查，程序不认证语义；权限、停止及错误需结合验收记录。</li><li>四场景、命名工作区、停止和中断尚未全部完成验收。</li></ul><p>验证记录：docs/记录/2026-10-20-正式财报读取与核对去自证.md；历史记录：docs/记录/2026-10-20-取证需求与单独核对.md。当前进度：股票 docs/计划.md。</p></section></main>
 <script>const data=PAYLOAD;
 const el=id=>document.getElementById(id);const text=(tag,s)=>{const n=document.createElement(tag);n.textContent=s;return n};
 el('stamp').textContent='生成于 '+data.generated_at+'；重新生成可刷新实际定义和回放。';
@@ -138,7 +142,7 @@ for(const k of Object.keys(data.scenarios)){const o=text('option',k);o.value=k;e
 function scenario(){const box=el('scenario-body');box.replaceChildren(text('p','准备：research_begin → 读取 '+data.scenarios[el('scenario').value].join('、')),text('p','获取：模型登记evidence_requests，原工具执行目录、原件、字段读取；搜索摘要只作线索。'),text('p','分析：容器计算、比较与反证；出现冲突则补查原文，资料不足则收窄结论。'),text('p','核对与交付：当前稿及实际证据 → 同模型单独核对 → 修订或补查 → 程序检查、HTML和报告卡。核对不认证事实，UNKNOWN不重发。'))}el('scenario').onchange=scenario;scenario();
 for(const [i,r] of data.runs.entries()){const o=text('option',r.scope+' · '+r.id.slice(0,8));o.value=i;el('run').append(o)}
 function table(box,head,rows){const t=document.createElement('table');const h=document.createElement('tr');for(const v of head)h.append(text('th',v));t.append(h);for(const row of rows){const tr=document.createElement('tr');for(const v of row)tr.append(text('td',v));t.append(tr)}const wrap=document.createElement('div');wrap.className='scroll';wrap.append(t);box.append(wrap)}
-function replay(){const box=el('run-body');box.replaceChildren();const r=data.runs[el('run').value];if(!r){box.append(text('p','当前没有实际运行记录。'));return}box.append(text('p','模型：'+r.model+'；保存阶段：'+r.phase+'；保存状态：'+r.status),text('p','工作区：'+r.workspace+'；产物：'+r.directory),text('pre','实际读取方法：\n'+(r.methods||[]).join('\n')));if(r.report_url){const a=text('a','打开该版本HTML报告');a.href=r.report_url;a.target='_blank';a.rel='noopener';box.append(a)}box.append(text('p',r.native_scope),text('p','关联运行：'+(r.executions||[]).map(x=>x.id+' / '+x.status).join('；')));box.append(text('h3','工具步骤'));table(box,['阶段','工具','状态','耗时','位置'],(r.trace||[]).map(row=>[row.phase,row.tool,row.status,row.elapsed+'秒',row.path||row.source_id||'']));box.append(text('h3','已记录模型调用（'+r.native_calls.length+'）'));table(box,['阶段','请求时间','输入字符','供应商 / 本地交付','耗时','实际用量'],r.native_calls.map(n=>[n.phase||'历史未区分',n.at||'未记录',n.input_chars??'未知',(n.result_status||'终态未记录')+' / '+(n.delivery_status||'未知')+(n.failure_category?' · '+n.failure_category:''),n.elapsed_seconds==null?'未知':n.elapsed_seconds+'秒',n.usage==null?'未知':JSON.stringify(n.usage)]))}function reviews(){const r=data.runs[el('run').value];if(!r)return;const box=el('run-body');box.append(text('h3','单独核对（不构成事实认证）'));box.append(text('p','实际独立核对调用：'+r.native_calls.filter(n=>n.phase==='单独核对').length));table(box,['候选稿指纹','状态','待修问题','本地调用关联'],(r.reviews||[]).map(v=>[v.candidate,v.status,v.issues,v.native_call_id||'未记录']))}el('run').onchange=()=>{replay();reviews()};replay();reviews();</script></html>'''.replace('PAYLOAD', payload)
+function replay(){const box=el('run-body');box.replaceChildren();const r=data.runs[el('run').value];if(!r){box.append(text('p','当前没有实际运行记录。'));return}box.append(text('p','模型：'+r.model+'；保存阶段：'+r.phase+'；保存状态：'+r.status),text('p','工作区：'+r.workspace+'；产物：'+r.directory),text('pre','实际读取方法：\n'+(r.methods||[]).join('\n')));if(r.report_url){const a=text('a','打开该版本HTML报告');a.href=r.report_url;a.target='_blank';a.rel='noopener';box.append(a)}box.append(text('p',r.native_scope),text('p','关联运行：'+(r.executions||[]).map(x=>x.id+' / '+x.status).join('；')));box.append(text('h3','工具步骤'));table(box,['阶段','工具','状态','耗时','位置'],(r.trace||[]).map(row=>[row.phase,row.tool,row.status,row.elapsed+'秒',row.path||row.source_id||'']));box.append(text('h3','已记录模型调用（'+r.native_calls.length+'）'));table(box,['阶段','请求时间','输入字符','供应商 / 本地交付','耗时','实际用量'],r.native_calls.map(n=>[n.phase||'历史未区分',n.at||'未记录',n.input_chars??'未知',(n.result_status||'终态未记录')+' / '+(n.delivery_status||'未知')+(n.failure_category?' · '+n.failure_category:''),n.elapsed_seconds==null?'未知':n.elapsed_seconds+'秒',n.usage==null?'未知':JSON.stringify(n.usage)]))}function reviews(){const r=data.runs[el('run').value];if(!r)return;const box=el('run-body');box.append(text('h3','单独核对（不构成事实认证）'));box.append(text('p','实际独立核对调用：'+r.native_calls.filter(n=>n.phase==='单独核对').length));table(box,['候选稿指纹','状态','待修问题','请求补读 / 登记步骤','本地调用关联'],(r.reviews||[]).map(v=>[v.candidate,v.status,v.issues,(v.read_requests||0)+' / '+(v.read_steps||0),v.native_call_id||'未记录']))}el('run').onchange=()=>{replay();reviews()};replay();reviews();</script></html>'''.replace('PAYLOAD', payload)
 
 
 if __name__ == '__main__':
