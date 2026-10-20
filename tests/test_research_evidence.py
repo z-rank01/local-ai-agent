@@ -96,3 +96,34 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(e.kind=='tool_start' and e.data['name']=='web_fetch' for e in events))
         self.assertIn('AN123',json.dumps(captured))
         self.assertFalse(run.pending_evidence)
+
+    async def test_selected_citation_is_actually_returned_before_registering_read(self):
+        import tempfile
+        from pathlib import Path
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tests import test_research_session as session_tests
+        _,run,draft=await session_tests.ResearchSessionTests().prepare()
+        source=draft['sources'][0]['id']
+        run.read_text[source]=[]
+        run._milestones={m for m in run._milestones if not m[0].startswith('read:')}
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'source.json'
+            p.write_text(json.dumps({'sha256':'a'*64,'pages':[{'page':1,'text':'营业收入100元'}]}),encoding='utf-8')
+            run.sources[source]['path']=str(p)
+            self.assertTrue(await run.queue_citation_reads(draft))
+            self.assertEqual(run.read_text[source],[])
+            output=StringIO()
+            with redirect_stdout(output):exec(run.pending_evidence[0]['params']['code'],{})
+            receipt=json.loads(output.getvalue())
+            self.assertEqual(receipt['source_excerpts'][0]['quote'],'营业收入100元')
+            self.assertEqual(run.read_text[source],[])
+            await run.observe({'name':'code_exec','params':{},'status':'ok','result':{'stdout':output.getvalue()}})
+            self.assertEqual(run.read_text[source],['营业收入100元'])
+            missing={**draft,'sources':[{'id':source,'locator':'p1','quote':'营业收入200元'}]}
+            self.assertTrue(await run.queue_citation_reads(missing))
+            output=StringIO()
+            with redirect_stdout(output):exec(run.pending_evidence[-1]['params']['code'],{})
+            receipt=json.loads(output.getvalue())
+            self.assertFalse(receipt['source_excerpts'])
+            self.assertEqual(receipt['unmatched'][0]['requested_quote'],'营业收入200元')

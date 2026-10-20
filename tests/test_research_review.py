@@ -97,3 +97,9 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('保留有用的明确条件分析',text)
         self.assertIn('快报',text)
         self.assertIn('EPC',text)
+
+    def test_chinese_pdf_spaces_do_not_remove_conditions_or_english_boundaries(self):
+        from core.research_visuals import literal_text
+        self.assertEqual(literal_text('签订 相关正式\n合同'),literal_text('签订相关正式合同'))
+        self.assertNotEqual(literal_text('not yet signed'),literal_text('notyetsigned'))
+        self.assertNotEqual(literal_text('未签订合同'),literal_text('签订合同'))

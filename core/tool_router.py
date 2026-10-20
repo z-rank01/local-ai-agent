@@ -67,6 +67,12 @@ class ToolRouter:
         token = getattr(self, 'workspace_token', '')
         return {'X-Workspace-Token': token} if token and backend in {'skill-files', 'skill-runner'} else {}
 
+    async def authorize_publication(self, params):
+        """The agent's separate review must cross the same publication boundary."""
+        self._policy.check('brief_publish', params)
+        if hasattr(self, 'workspace_validate'):
+            await self.workspace_validate()
+
     async def dispatch(self, tool: str, params: dict[str, Any], session_id: str = "default") -> Any:
         research = getattr(self, 'research', None)
         if research is not None and research.active:

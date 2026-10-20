@@ -32,6 +32,34 @@ def financial_read_step(request, source):
     return {'name': 'code_exec', 'params': {'code': code}, 'purpose': '按实际字段和期间读取已登记财务原值'}
 
 
+def citation_read_step(needs):
+    """Read the model-selected citations through the executor, never backfill coverage."""
+    code = '''import json
+from pathlib import Path
+needs=json.loads(PAYLOAD)
+excerpts=[]
+missing=[]
+for item in needs:
+    saved=json.loads(Path(item['path']).read_text(encoding='utf-8'))
+    found=False
+    for page in saved['pages']:
+        text=page['text']
+        positions=[i for i,c in enumerate(text) if not c.isspace()]
+        compact=''.join(text[i] for i in positions)
+        needle=''.join(item['quote'].split())
+        at=compact.find(needle)
+        if at < 0 or not needle: continue
+        start,end=positions[at],positions[at+len(needle)-1]+1
+        excerpts.append({'source_id':item['source_id'],'sha256':saved['sha256'],
+            'page':page['page'],'start':start,'end':end,'quote':text[start:end]})
+        found=True
+        break
+    if not found:missing.append({'source_id':item['source_id'],'requested_quote':item['quote']})
+print(json.dumps({'source_excerpts':excerpts,'unmatched':missing},ensure_ascii=False))
+'''.replace('PAYLOAD',json.dumps(json.dumps(needs,ensure_ascii=False)))
+    return {'name':'code_exec','params':{'code':code},'purpose':'实际回读当前稿已选择的原文引句；不修改原文或正文'}
+
+
 def catalogue(pages):
     """Compact the actual provider directory; retain dates and identity verbatim."""
     from skills.websearch.source_document import json_body

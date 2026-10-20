@@ -1026,6 +1026,8 @@ class Agent:
                 if name == 'context_evidence_read':
                     result = self.context_mgr.read_evidence(**params)
                 elif name == 'brief_publish' and research is not None:
+                    if hasattr(self.router, 'authorize_publication'):
+                        await self.router.authorize_publication(params)
                     candidate = await research.publication_input(params)
                     async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
                         async for event in events:
@@ -1096,6 +1098,10 @@ class Agent:
         from contextlib import aclosing
         import uuid
         research=self.router.research
+        if any(row.get('status') in ('STARTED','UNKNOWN') for row in research.review_records.values()):
+            raise RuntimeError('存在未确认的单独核对请求，不自动重发；已保存稿件与证据')
+        if await research.queue_citation_reads(candidate):
+            raise ValueError('已按当前稿选中的引用登记原文回读；待原工具返回实际摘录后，再提交同一稿。未修改正文。')
         # Mechanical errors are returned before another supplier call.
         try:
             validate_publication(candidate,research.sources,research.read_text)
@@ -1105,12 +1111,10 @@ class Agent:
         if research.published:
             research.check_review(candidate)
             return
-        if research.record['phase'] != '核对' or not research.methods:
-            raise ValueError('先读取适用方法并进入核对阶段，再提交完整候选稿')
+        if not research.methods:
+            raise ValueError('先读取适用方法，再提交完整候选稿')
         if research.pending_evidence:
             raise ValueError('本轮已登记取证需求尚未结束，不能提前核对发布')
-        if any(row.get('status') in ('STARTED','UNKNOWN') for row in research.review_records.values()):
-            raise RuntimeError('存在未确认的单独核对请求，不自动重发；已保存稿件与证据')
         key=fingerprint(candidate)
         evidence_hash=fingerprint(research.evidence_index())
         old=research.review_records.get(key)
@@ -1125,6 +1129,7 @@ class Agent:
         record={'status':'STARTED','candidate_sha256':key,'evidence_sha256':evidence_hash,
                 'attempts':(old or {}).get('attempts',[])+[directory], 'semantic_certification':False}
         research.review_records[key]=record
+        research.record['phase']='核对'
         await research.checkpoint()
         call_id='review_'+uuid.uuid4().hex
         yield AgentEvent('tool_start',data={'name':'research_review','call_id':call_id,
@@ -1148,7 +1153,7 @@ class Agent:
             if control: control.end_step()
             if response is None or response.get('tool_calls'):
                 raise ValueError('单独核对未完整返回核对结果')
-            visible=response.get('content') or ''
+            visible=re.sub(r'<think>.*?(?:</think>|$)','',response.get('content') or '',flags=re.S|re.I).strip()
             await research.write(directory+'-response.txt',visible)
             result=parse_review(visible)
             record.update(result,status='COMPLETE')

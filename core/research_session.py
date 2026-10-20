@@ -236,6 +236,25 @@ class ResearchSession:
             entry['status'] = 'FAILED' if any(r['status'] != 'ok' for r in entry['results']) else 'COMPLETE'
         await self.checkpoint()
 
+    async def queue_citation_reads(self, candidate):
+        from .research_visuals import literal_text
+        from .research_evidence import citation_read_step
+        needs=[]
+        for row in candidate.get('sources',[]):
+            key,quote=row.get('id'),row.get('quote')
+            if key not in self.sources or not isinstance(quote,str) or not quote.strip():
+                continue
+            if any(literal_text(quote) in literal_text(text) for text in self.read_text.get(key,[])):
+                continue
+            needs.append({'source_id':key,'path':self.sources[key]['path'],'quote':quote})
+        if not needs:return False
+        key='citations:'+sha256(json.dumps(needs,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+        if key in self.evidence_requests:return False
+        self.evidence_requests[key]={'request':{'kind':'citations'},'status':'PENDING','results':[]}
+        self.pending_evidence.append({**citation_read_step(needs),'request_key':key})
+        await self.checkpoint()
+        return True
+
     async def save_source(self, result):
         payload = result.pop('_source_file', None)
         if payload is None or not self.active:

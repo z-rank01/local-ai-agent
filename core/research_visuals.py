@@ -21,6 +21,13 @@ def quoted_number(value, quote):
                re.finditer(r'(?<![\d.])-?\d+(?:\.\d+)?(?![\d.])', clean))
 
 
+def literal_text(text):
+    # Chinese PDF word wrapping may insert spaces between adjacent ideographs.
+    # Keep English word boundaries, punctuation, numbers and conditions intact.
+    text = re.sub(r'(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])', '', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
 def validate_publication(params, sources, read_text):
     # Complete derived fields in a copy; the model's submitted draft stays intact.
     params = deepcopy(params)
@@ -38,8 +45,8 @@ def validate_publication(params, sources, read_text):
         if key not in sources or not quote.strip() or not item['locator']:
             raise ValueError('引用须绑定本轮实际来源及原文位置')
         # PDF line wrapping and HTML NBSP do not change the quoted words.
-        normalized = re.sub(r'\s+', ' ', quote).strip()
-        if not any(normalized in re.sub(r'\s+', ' ', text).strip()
+        normalized = literal_text(quote)
+        if not any(normalized in literal_text(text)
                    for text in read_text.get(key, [])):
             raise ValueError(f'sources[{source_index}] {key}（{item["locator"]}）引文不在实际收到的原文中；请web_fetch读取对应页或让摘录脚本完整输出source_excerpts回执。保存文件不等于已读，不要拼接或改写引句')
         cited.setdefault(key, {'quote': ''})['quote'] += '\n' + quote
