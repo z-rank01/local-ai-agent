@@ -64,7 +64,7 @@
 | --- | --- | --- |
 | 顶栏 `.topbar` | 会话标题（点击开抽屉）、模型选择器、导出 / 模型设置 / 设置 / 工作台开关 | 固定细条 44px；宽屏对称网格让标题居中于阅读区域，操作组靠右；容器查询按实际可用宽度切换紧凑布局，避免工作台打开时重叠；右边界消费 `--sheet-inset` |
 | 阅读栏 `.transcript` / `.thread` | 全部消息、执行轨迹、报告卡 | 全屏滚动容器（`#transcript`），内容列宽 `--read-width` 居中；仅在底部时粘性跟随（80px 阈值），上翻不抢回 |
-| 输入胶囊 `.composer-wrap` / `.composer` | 附件 chips、文本域、上传 / 发送（生成中变停止） | 底部居中悬浮；Enter 发送、Shift+Enter 换行、输入法组字中的 Enter 不发送；生成中文本域仍可起草 |
+| 输入胶囊 `.composer-wrap` / `.composer` | 上沿统一运行行、附件 chips、文本域、上传 / 发送 | 当前任务状态及暂停/继续/停止只在上沿运行行；生成中发送禁用，文本域仍可起草。Enter 发送、Shift+Enter 换行、输入法组字中的 Enter 不发送 |
 | 会话抽屉 `.drawer`（+ `.scrim` 遮罩） | 新建 / 搜索 / 会话列表（行内导出·重命名·删除）；底部 PackageTasks、服务状态、**退出（全应用唯一入口）** | 左侧覆盖式；退出不得再放到别处 |
 | 工作台 `.sheet` | 工作台视图（工作区 / 技能两个 Panel）与文档预览视图共用；左缘 `.sheet-resize` 拖宽 | 右侧覆盖式；宽 340–760px（默认 400），双击复位、方向键步进 16px，宽度存 localStorage；两个滚动容器常挂载、`hidden` 切换保滚动位置 |
 | 设置 `.settings` | 全屏模态：外观 / 模型 / 工具与技能 / 诊断 四页签 | Escape 关闭；窄屏页签转顶部横排 |
@@ -89,6 +89,8 @@
 | 三态 | 加载=`.loading` 行 / `dots`；空态=`.empty` / `.ws-empty` 一句话给下一步；错误见下行 | 占位文案不假设会随断点失效的方向 |
 | 错误通道 | 会话级错误=`Transcript` 的 `.notice-bar.notice-err`（`role="alert"`、可关闭、离线带"重新连接"）；面板/浮层操作失败=`lib/notify` 的 toast（`role="status"`、2.2s）；面板内状态错误=`.panel-ok` 就地（`role="alert"`） | 同一错误只走一个通道 |
 | 执行轨迹 | 石墨黑 `.trace`：整轨折叠 + 每步可展开；步骤双色轴 `think`（蓝）/ `tool`（灰）/ `answer`（绿），状态 tone ok/error/running；单/多工具同一版式，不得双份渲染 | `app/ToolTrace.tsx` |
+| 会话运行状态 | 输入胶囊上沿一条紧凑状态行，展示后端运行状态、步骤和连接说明，并集中控制；结束后隐藏，存在安全继续入口时保留。正文末尾、回答占位和输入左下角不再重复运行提示；顶栏总任务数量及轨迹步骤状态用途独立 | `App.tsx`、`Composer.tsx`；断开观察连接不表示后端停止 |
+| 执行说明与正文 | 程序展开的证据需求仅保存协议并显示为工具步骤说明，不当作助手回答。旧重复消息仅在与紧邻工具协议全文配对时隐藏，不删除原始历史，不按文字前缀批量清理 | `core/agent.py`、`bff/service.py` |
 | 会话报告阅读 | `ReportCard`（本地报告 + 页/版本/时间 chips + "阅读全文"）直接进入 `.reader` 宽屏阅读；首/前/后/末页按钮读取同一报告，失败保留原页，关闭返回会话；正文和折叠区复用Markdown。文件预览仍走Sheet；**措辞中性，不暗示模型已读或未读** | `app/ReportCard.tsx`、`app/Reader.tsx`、`lib/report.ts` |
 | 会话/文件行 | 行主体是 `button`，操作钮是行内并列真 button；**禁止 role=button 内嵌 button、禁止 span onClick 伪按钮** | `app/ConversationDrawer.tsx`、`panels/WorkspacePanel.tsx` |
 
