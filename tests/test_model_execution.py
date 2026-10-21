@@ -68,6 +68,15 @@ class ModelExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code,422)
         self.assertEqual(self.seen,[])
 
+    async def test_local_rejection_is_known_failure_not_unknown(self):
+        _,client=self.runtime.models.resolve(model='ollama:gemma4:26b')
+        await client._client.aclose()
+        client._client=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request:httpx.Response(404,json={'error':'model not found'})))
+        result=await invoke(self.runtime,self.profile('ollama:gemma4:26b'),'test','public')
+        self.assertEqual(result['status'],'FAILED')
+        self.assertEqual(result['http_status'],404)
+
     async def test_local_delegate_has_no_tools_and_checks_evidence_before_call(self):
         profile=self.profile(); seen=[]
         spec,client=self.runtime.models.resolve(model='ollama:gemma4:26b')

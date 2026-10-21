@@ -57,6 +57,7 @@ async def invoke(runtime, profile, prompt, material, *, observe=None):
             result['model_params']={**data['parameters'],'model':spec['id']}
         safe = {**data, 'call_id':call_id, 'model':spec['id'],
                 'session_id':profile['conversation_id']}
+        safe.setdefault('local_attempt_id',call_id)
         runtime.audit.record(name,safe)
         if observe: observe(name,safe)
     result = {'status':'UNKNOWN', 'text':'', 'model_params':params, 'ledger_call_id':call_id,
@@ -108,6 +109,11 @@ async def invoke(runtime, profile, prompt, material, *, observe=None):
         raise
     except (httpx.HTTPError,RuntimeError,ValueError,KeyError,TypeError) as exc:
         result.update(error=type(exc).__name__,failure_category=native.get('failure_category'))
+        for key in ('http_status','failure_category','rejection_category','provider_error_code',
+                    'provider_request_id','provider_request_id_status'):
+            if key in native: result[key]=native[key]
+        if isinstance(exc,httpx.HTTPStatusError):
+            result.update(status='FAILED',error='HTTP_REJECTED',http_status=exc.response.status_code)
         if isinstance(exc,(httpx.ConnectError,httpx.ConnectTimeout)):
             result.update(status='FAILED',error='MODEL_UNAVAILABLE')
         if native.get('result_status') in ('COMPLETE','FAILED','TRUNCATED'):

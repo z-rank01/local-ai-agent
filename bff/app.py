@@ -193,7 +193,7 @@ async def stock_service_action(request: Request):
         body = await request.json()
         if not isinstance(body, dict):
             raise ValueError('服务操作必须为对象')
-        if body.get('action')=='operator':
+        if body.get('action') in ('operator','worker_start','recover'):
             cid=body.get('conversation_id')
             if not cid: raise ValueError('请先选择任务所属会话')
             service=get_chat_service()

@@ -118,7 +118,7 @@ export function StockPanel({conversation, onChanged}: StockPanelProps): JSX.Elem
     setError('');
     try {
       const result = await stockServiceAction({action, ...extra,
-        ...(action==='operator'?{conversation_id:conversation?.id}:{}),
+        ...(['operator','worker_start','recover'].includes(action)?{conversation_id:conversation?.id}:{}),
       });
       if (result.challenge) {
         setChallenge(result.challenge);

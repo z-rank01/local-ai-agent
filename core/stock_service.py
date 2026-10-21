@@ -173,8 +173,8 @@ class StockService:
             status = await self.status()
             if not status['online']:
                 raise ValueError(status.get('message') or '启动器已启动股票后台，但控制接口尚未就绪')
-        if self.settings['worker']:
-            await self.request('/api/control/action', {'action': 'worker_start'})
+        # Worker execution requires an explicitly associated conversation. The
+        # service switch starts the backend only; the page controls acquisition.
         await self.attach(runtime, True)
         self.settings['enabled'] = True
         self.save()
