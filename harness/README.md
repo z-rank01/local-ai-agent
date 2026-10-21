@@ -92,3 +92,6 @@ receipt = await gateway.generate(ModelRequest(
 工具回执中的 `local_result` 仍保存在原消息记录。宿主先核验会话归属和有效记录，再构造 `SavedArtifact`。`GET /api/conversations/{id}/artifacts/{message_id}` 返回已保存正文、内容哈希修订号和 `conversation-local-ui` 可见范围；不把内部参数返回页面，也不把片段完整度猜成 COMPLETE。传入旧 `revision` 时返回 409，不替换为另一个版本。
 
 插件声明 `artifacts: {provider, owner, tools}`，实现 `ArtifactProvider.read_page(saved, request)`。提供者只取得已授权记录和自身声明的已登记传输；金融包负责原任务引用、分页与业务修订冲突。旧 report-page 页面接口沿通用提供者路由，保存正文的读取不依赖插件在线。完整成果类型、历史全部修订保留以及前端自定义成果渲染贡献仍待继续；不能将这一步等同于全部 ArtifactProvider 验收。
+
+
+Skill 的运行快照摘要通过宿主的 `tool_descriptions` 注入本轮 `skill_info` 工具说明，正文仍由实际调用按需读取。说明不改 schema、工具登记或权限，也不改共享注册表；新包不需要新增工具或 Agent 分支。仅摘要进入选择面不代表模型必然选择，必须保留真实调用与成果验收。

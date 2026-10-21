@@ -13,6 +13,7 @@ sys.path.insert(0, str(RUNNER))
 from skill_versions import SkillVersions
 import skill_version_api
 from harness.capabilities.skill_session import SkillSession
+from harness.runtime.tool_context import describe_tools
 
 
 class SkillVersionFlowTests(unittest.IsolatedAsyncioTestCase):
@@ -33,6 +34,13 @@ class SkillVersionFlowTests(unittest.IsolatedAsyncioTestCase):
                     first = await SkillSession.prepare(client, 'http://runner', {})
                     self.assertIn('整理会议', first.discovery_context())
                     self.assertNotIn('旧方法', first.discovery_context())
+                    definitions = [{'type': 'function', 'function': {'name': 'skill_info',
+                        'description': '原始说明', 'parameters': {'type': 'object'}}}]
+                    offered = describe_tools(definitions, {'skill_info': first.discovery_context()})
+                    self.assertIn('整理会议', offered[0]['function']['description'])
+                    self.assertNotIn('旧方法', offered[0]['function']['description'])
+                    self.assertEqual(definitions[0]['function']['description'], '原始说明')
+                    self.assertEqual(offered[0]['function']['parameters'], definitions[0]['function']['parameters'])
                     mark.write_text(prefix + '新方法', encoding='utf-8')
                     self.assertEqual((await first.info('meeting'))['body'], '旧方法')
                     second = await SkillSession.prepare(client, 'http://runner', {})

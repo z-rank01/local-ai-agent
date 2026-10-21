@@ -214,6 +214,7 @@ class Agent:
         self.tool_tier = tool_tier
         self.max_rounds = max_rounds
         self.allow_tools = True
+        self.tool_descriptions: dict[str, str] = {}
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -337,6 +338,8 @@ class Agent:
             tool_defs = self.registry.get_definitions(
                 tier=self.tool_tier, use_short_desc=True,
                 allow_write=(not cloud) or allow_write)
+            from harness.runtime.tool_context import describe_tools
+            tool_defs = describe_tools(tool_defs, self.tool_descriptions)
             if not hasattr(self.router,'models_runtime') or (
                     not cloud and getattr(self.llm,'model','').split(':')[0].lower()=='gemma4'):
                 tool_defs=[d for d in tool_defs if d['function']['name']!='local_agent']
