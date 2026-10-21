@@ -13,14 +13,16 @@ class StackLifecycleTests(unittest.IsolatedAsyncioTestCase):
         async def runs(): order.append('runs')
         async def stock(*args,**kwargs): order.append('stock'); return {'status':'shutting_down'}
         async def containers(): order.append('containers')
+        async def plugins(): order.append('plugins')
         with patch.object(module,'get_chat_service',return_value=SimpleNamespace(runs=SimpleNamespace(close=runs))), \
+             patch.object(module,'get_runtime',return_value=SimpleNamespace(container_packages={'example':SimpleNamespace(client=SimpleNamespace(stop=plugins))})), \
              patch.object(stock_service,'status',AsyncMock(return_value={'online':True})), \
              patch.object(stock_service,'request',side_effect=stock), \
              patch.object(module,'_stop_tool_containers',side_effect=containers), \
              patch.object(module,'_stack_shutdown_targets',return_value={'bff':[1]}), \
              patch.object(module,'schedule_stack_shutdown',side_effect=lambda t:order.append('exit')):
             await module._request_stack_shutdown()
-        self.assertEqual(order,['runs','stock','containers','exit'])
+        self.assertEqual(order,['runs','plugins','stock','containers','exit'])
 
     async def test_unconfirmed_cleanup_preserves_service_and_error(self):
         from bff import app as module

@@ -38,6 +38,18 @@ class WorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.manager.manifest()
         return record
 
+    async def test_background_provider_blocks_config_before_any_save_or_reconcile(self):
+        record = self.workspace()
+        check = AsyncMock(side_effect=RuntimeError('后台任务未完成'))
+        self.manager.reconfiguration_checks.append(check)
+        with patch.object(self.manager, 'reconcile', AsyncMock()) as reconcile:
+            with self.assertRaises(HTTPException) as caught:
+                await self.manager.update({'name': 'changed'}, record['id'])
+            self.assertEqual(caught.exception.status_code, 409)
+            reconcile.assert_not_awaited()
+        self.assertEqual(self.manager.get(record['id']), record)
+        self.assertEqual(self.manager.changing, {})
+
     def test_old_conversations_default_and_many_chats_in_workspace(self):
         old = self.store.create_conversation(title='旧会话')
         workspace = self.workspace()

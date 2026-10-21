@@ -14,7 +14,8 @@ router = APIRouter()
 def providers():
     runtime = get_runtime()
     if getattr(runtime, 'task_providers', None) is None:
-        runtime.task_providers = TaskRegistry.bundled(config._PROJECT_ROOT / 'plugins')
+        runtime.task_providers = TaskRegistry.bundled(config._PROJECT_ROOT / 'plugins',
+            {identity: package.client for identity, package in (getattr(runtime, 'container_packages', None) or {}).items()})
     return runtime.task_providers
 
 

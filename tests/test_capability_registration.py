@@ -107,10 +107,12 @@ class CapabilityRegistrationTests(unittest.TestCase):
 class CapabilityApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_inventory_requires_page_session_and_returns_registered_tools(self):
         from bff.app import app
+        from unittest.mock import Mock
         registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=True)
         with patch.dict(os.environ, {'DAILY_SERVICES': '1'}), \
                 patch('core.ui_session.session_token', return_value='test-page-token'), \
-                patch('bff.capabilities.get_runtime', return_value=SimpleNamespace(tool_registry=registry)):
+                patch('bff.capabilities.CapabilityStore.list', return_value={}), \
+                patch('bff.capabilities.get_runtime', return_value=SimpleNamespace(tool_registry=registry, store=Mock())):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:9510') as client:
                 denied = await client.get('/api/capabilities')
                 self.assertEqual(denied.status_code, 403)

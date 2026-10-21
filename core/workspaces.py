@@ -108,6 +108,7 @@ class WorkspaceManager:
     def __init__(self, store, base: Path):
         self.store, self.base = store, base.resolve()
         self.active: dict[str, tuple[str, WorkspaceSnapshot]] = {}
+        self.reconfiguration_checks = []
         self.changing = {}
         self.lock = asyncio.Lock()
         with store._connect() as conn:
@@ -156,6 +157,11 @@ class WorkspaceManager:
         changing = any(self.shared_execution_scope(snapshot, pending) for group in self.changing.values() for pending in group)
         if owner or changing:
             raise HTTPException(409, {'message': '工作区或重叠目录正在执行任务', 'conversation_id': owner if owner and not owner.startswith('__') else None})
+
+    async def check_reconfiguration(self, snapshots):
+        for snapshot in snapshots:
+            for check in self.reconfiguration_checks:
+                await check(snapshot)
 
     def acquire(self, snapshot, conversation_id):
         self.assert_idle(snapshot)
@@ -284,6 +290,7 @@ class WorkspaceManager:
                 for snapshot in snapshots: self.assert_idle(snapshot)
                 self.changing[workspace_id] = snapshots
                 try:
+                    await self.check_reconfiguration(snapshots)
                     await self.reconcile(workspace_id)
                 except (RuntimeError, httpx.HTTPError) as exc:
                     raise HTTPException(503, str(exc)) from exc
@@ -303,8 +310,12 @@ class WorkspaceManager:
             if old:
                 self.assert_idle(WorkspaceSnapshot(old, self.base))
             self.changing[record['id']] = [WorkspaceSnapshot(r, self.base) for r in (record, old) if r]
-            self.save({**old, 'pending_config': record} if old else record)
             try:
+                try:
+                    await self.check_reconfiguration(self.changing[record['id']])
+                except (RuntimeError, httpx.HTTPError) as exc:
+                    raise HTTPException(409, str(exc)) from exc
+                self.save({**old, 'pending_config': record} if old else record)
                 await self.reconcile(record["id"])
             except (RuntimeError, httpx.HTTPError) as exc:
                 error = str(exc)

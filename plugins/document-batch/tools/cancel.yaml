@@ -1,0 +1,11 @@
+name: documents_batch_cancel
+display_name: 取消文档识别
+backend: document-batch
+tier: extended
+cloud: write
+description: 取消当前工作区的文档处理任务，等待正在处理的文件退出并保存明确状态。保留原件和已经完成的成果。
+parameters:
+  type: object
+  properties:
+    task_id: {type: string}
+  required: [task_id]

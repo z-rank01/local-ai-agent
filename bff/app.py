@@ -73,6 +73,8 @@ async def lifespan(_: FastAPI):
     from harness.capabilities.packaged_plugins import restore_packages
     await restore_packages(runtime, config._PROJECT_ROOT / 'plugins',
         config.SKILL_FILES_URL, {'X-Workspace-Token': tool_token('default')})
+    from harness.capabilities.container_plugins import restore_containers
+    await restore_containers(runtime, config._PROJECT_ROOT / 'plugins')
     watcher = asyncio.create_task(_auto_exit_watcher()) if config.AUTO_EXIT_ON_CLOSE else None
     try:
         yield
@@ -310,6 +312,8 @@ async def _drain_stack() -> dict:
 async def _finish_stack_shutdown() -> dict:
     """Confirm run cleanup, stock checkpoint persistence and containers before scheduling our exit."""
     await get_chat_service().runs.close()
+    for package in (getattr(get_runtime(), 'container_packages', None) or {}).values():
+        await package.client.stop()
     targets = _stack_shutdown_targets()
     from core.stock_service import stock_service
     service_status = await stock_service.status()
@@ -478,6 +482,11 @@ async def delete_workspace(workspace_id: str, request: Request):
         if manager.active:
             raise HTTPException(409, '请等待任务结束后删除工作区')
         old = manager.get(workspace_id)
+        manager.changing[workspace_id] = [manager.snapshot(workspace_id)]
+        try:
+            await manager.check_reconfiguration(manager.changing[workspace_id])
+        finally:
+            manager.changing.pop(workspace_id, None)
         manager.delete(workspace_id)
         try:
             await manager.reconcile()

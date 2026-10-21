@@ -4,7 +4,9 @@ import hashlib
 
 def package_revision(root):
     digest = hashlib.sha256()
-    paths = [root / 'plugin.json', *root.glob('tools/*.yaml'), *root.glob('runtime/**/*.py')]
+    paths = [root / 'plugin.json', *root.glob('tools/*.yaml'),
+             *(p for p in root.glob('runtime/**/*') if p.is_file() and
+               '__pycache__' not in p.parts and p.suffix != '.pyc')]
     for path in sorted(paths):
         if not path.resolve().is_relative_to(root.resolve()):
             raise ValueError('插件资源越界')

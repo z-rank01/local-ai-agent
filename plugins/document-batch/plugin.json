@@ -1,0 +1,10 @@
+{
+  "id": "document-batch", "version": "1.0.0", "harness_api": 1,
+  "title": "批量文档处理", "description": "保留扫描原件，批量生成中文、英文可搜索 PDF 和文本副本",
+  "backends": ["document-batch"], "owners": ["document-batch"],
+  "required": [], "optional": [], "permissions": ["workspace.read", "workspace.write"],
+  "tool_directory": "tools", "tool_registration": "managed", "execution": "container",
+  "service": "ocr", "transport": "plugins.document-batch.transport:BatchTransport",
+  "task_provider": "plugins.document-batch.tasks:BatchTasks", "task_service": "ocr",
+  "services": {"ocr": {"port": 8300, "dockerfile": "runtime/Dockerfile", "memory_mb": 2048, "cpus": 2}}
+}

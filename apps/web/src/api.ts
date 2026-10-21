@@ -24,7 +24,13 @@ export type CapabilitySummary = {
   tools: string[]; error: string | null;
   lifecycle?: Record<string, {state: string; error: string; inflight: number; accepting: boolean}>;
   management?: 'managed' | 'legacy_adapter';
+  environment_required?: boolean;
+  environment?: {state: string; error?: string};
 };
+
+export function prepareCapability(identity: string): Promise<unknown> {
+  return requestJson(`/api/capabilities/${encodeURIComponent(identity)}/prepare`, {method:'POST'});
+}
 
 export function setCapability(identity: string, enabled: boolean): Promise<unknown> {
   return requestJson(`/api/capabilities/${encodeURIComponent(identity)}`, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({enabled})});

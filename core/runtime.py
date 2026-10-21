@@ -37,6 +37,7 @@ class RuntimeServices:
     capabilities: Any = None
     task_providers: Any = None
     artifact_providers: Any = None
+    container_packages: Any = None
 
     async def close(self) -> None:
         await self.router.close()

@@ -154,6 +154,8 @@ class ChatSessionService:
         self._workspace_root = config.WORKSPACE_PATH.resolve()
         self._workspace_root.mkdir(parents=True, exist_ok=True)
         self.workspaces = WorkspaceManager(self._store, self._workspace_root)
+        from harness.runtime.workspace_guards import check
+        self.workspaces.reconfiguration_checks.append(lambda snapshot: check(runtime, snapshot))
         self._snapshot = self.workspaces.snapshot()
         from core.run_manager import RunManager
         self.runs = RunManager(self._store)

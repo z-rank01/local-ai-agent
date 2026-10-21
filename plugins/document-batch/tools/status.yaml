@@ -1,0 +1,11 @@
+name: documents_batch_status
+display_name: 查看文档识别结果
+backend: document-batch
+tier: extended
+cloud: read
+description: 查询本工作区文档处理任务的实际进度、逐文件失败与已保存成果，返回原件和成果的 SHA256。未完成时可以稍后再查，不能把提交成功当作成果成功。
+parameters:
+  type: object
+  properties:
+    task_id: {type: string, description: 提交时返回的任务 id}
+  required: [task_id]

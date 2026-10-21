@@ -23,7 +23,7 @@ class TaskRegistry:
         return self.providers[namespace]
 
     @classmethod
-    def bundled(cls, packages):
+    def bundled(cls, packages, services=None):
         registry = cls()
         for manifest in sorted(packages.glob('*/plugin.json')):
             try:
@@ -39,7 +39,9 @@ class TaskRegistry:
                 module, name = contribution.split(':')
                 if not module.startswith('plugins.' + identity + '.'):
                     raise ValueError('任务提供者必须属于自身插件')
-                registry.register(getattr(importlib.import_module(module), name)())
+                factory = getattr(importlib.import_module(module), name)
+                service = metadata.get('task_service')
+                registry.register(factory((services or {}).get(identity)) if service else factory())
             except Exception as exc:
                 registry.errors[manifest.parent.name] = str(exc)
         return registry

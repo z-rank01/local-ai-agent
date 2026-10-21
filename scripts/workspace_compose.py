@@ -3,6 +3,7 @@ import copy
 import json
 import re
 import sys
+import logging
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -12,10 +13,13 @@ import yaml
 from core import config
 from core.conversation_store import ConversationStore
 from core.workspaces import WorkspaceManager, WorkspaceSnapshot, tool_token
+from harness.infrastructure.capability_store import CapabilityStore
+from harness.infrastructure.plugin_services import compose_service
 
 
 def generate(apply_workspace_id=None):
     manager = WorkspaceManager(ConversationStore(), config.WORKSPACE_PATH)
+    capabilities = CapabilityStore(manager.store._connect)
     if apply_workspace_id is not None and apply_workspace_id != "default" and not re.fullmatch("[a-f0-9]{12}", apply_workspace_id):
         raise ValueError("Invalid workspace id")
     manager.manifest(apply_workspace_id)
@@ -58,6 +62,17 @@ def generate(apply_workspace_id=None):
                 mounts.append(package_volume + ':/packages')
             service['volumes'] = mounts
             topology['services'][name] = service
+        for identity, binding in capabilities.list(record['id'], 'plugin_service').items():
+            try:
+                if identity != binding['plugin_id'] + ':' + binding['service_id']:
+                    raise ValueError('Plugin service binding identity mismatch')
+                name, service, networks = compose_service(root, snapshot, binding['plugin_id'],
+                    binding['service_id'], binding['port'], tool_token(record['id']))
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                logging.warning('Optional plugin service %s unavailable: %s', identity, exc)
+                continue
+            topology['services'][name] = service
+            topology['networks'].update(networks)
     destination = root / 'data/private/workspace-compose.json'
     temporary = destination.with_suffix('.tmp')
     temporary.write_text(json.dumps(topology, ensure_ascii=False, indent=2), encoding='utf-8')

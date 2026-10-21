@@ -92,6 +92,7 @@ function New-DailyServiceSupervisor([string]$ProjectRoot) {
         LogPath = Join-Path $ProjectRoot 'data/logs/service-controller.log'
         ErrorPath = Join-Path $ProjectRoot 'data/logs/service-controller.err.log'
         ShutdownRequested = $false
+        Preparations = @{}
     }
 }
 
@@ -174,7 +175,41 @@ function Send-DailyHttpResponse([System.Net.Sockets.NetworkStream]$Stream, [int]
     $Stream.Flush()
 }
 
-function Invoke-DailyDockerOperation($Context, [string]$Operation, [string]$WorkspaceId = "default") {
+function Read-DailyPluginPreparation($Context, [string]$Key, [switch]$Cancel) {
+    $entry = $Context.Preparations[$Key]
+    if (-not $entry) { return (@{ state = 'INTERRUPTED'; error = 'Launcher has no active preparation record' } | ConvertTo-Json -Compress) }
+    if ($entry.state -eq 'PREPARING') {
+        $expired = ((Get-Date) - $entry.started).TotalSeconds -gt 900
+        if (($Cancel -or $expired) -and -not $entry.process.HasExited) { $entry.process.Kill(); $entry.process.WaitForExit() }
+        if ($entry.process.HasExited) {
+            $stdout = $entry.stdout.GetAwaiter().GetResult()
+            $stderr = $entry.stderr.GetAwaiter().GetResult()
+            $entry.state = if ($Cancel -or $expired) { 'INTERRUPTED' } elseif ($entry.process.ExitCode -eq 0) { 'PREPARED' } else { 'PREPARE_FAILED' }
+            $entry.error = if ($entry.state -eq 'PREPARED') { '' } else { ($stderr + $stdout).Trim() }
+            if ($entry.error.Length -gt 1000) { $entry.error = $entry.error.Substring($entry.error.Length - 1000) }
+            Set-Content -LiteralPath (Join-Path $Context.Root "data/logs/plugin-$($Key.Replace(':','-'))-build.log") -Value ($stdout + $stderr) -Encoding UTF8
+            $entry.process.Dispose()
+        }
+    }
+    return (@{ state = $entry.state; error = $entry.error } | ConvertTo-Json -Compress)
+}
+
+function Invoke-DailyDockerOperation($Context, [string]$Operation, [string]$WorkspaceId = "default", [string]$PluginId = '', [string]$ServiceId = '') {
+    $registeredService = $null
+    if ($Operation -in @('plugin_prepare', 'plugin_prepare_status', 'plugin_start', 'plugin_stop', 'plugin_probe')) {
+        $resolveAction = if ($Operation -eq 'plugin_prepare_status') { 'probe' } else { $Operation.Substring(7) }
+        $registeredJson = & (Join-Path $Context.Root '.conda/python.exe') (Join-Path $Context.Root 'scripts/plugin_service.py') $resolveAction $PluginId $ServiceId $WorkspaceId
+        if ($LASTEXITCODE -ne 0) { throw '已登记插件服务核验失败' }
+        $registeredService = ($registeredJson -join "`n") | ConvertFrom-Json
+    }
+    $preparationKey = "$PluginId`:$ServiceId"
+    if ($Operation -eq 'plugin_prepare_status') { return (Read-DailyPluginPreparation $Context $preparationKey) }
+    if ($Operation -eq 'plugin_prepare' -and $Context.Preparations[$preparationKey] -and $Context.Preparations[$preparationKey].state -eq 'PREPARING') {
+        return (Read-DailyPluginPreparation $Context $preparationKey)
+    }
+    if ($Operation -eq 'stack_shutdown') {
+        foreach ($key in @($Context.Preparations.Keys)) { $null = Read-DailyPluginPreparation $Context $key -Cancel }
+    }
     if ($Operation -eq 'workspace_sync') {
         & (Join-Path $Context.Root '.conda/python.exe') (Join-Path $Context.Root 'scripts/workspace_compose.py') $WorkspaceId
         if ($LASTEXITCODE -ne 0) { throw '工作区容器配置生成失败' }
@@ -182,7 +217,11 @@ function Invoke-DailyDockerOperation($Context, [string]$Operation, [string]$Work
     $composeArgs = switch ($Operation) {
         'websearch_start' { @('compose', '--profile', 'websearch', 'up', '-d', 'searxng', 'skill-websearch') }
         'websearch_stop' { @('compose', '--profile', 'websearch', 'stop', 'searxng', 'skill-websearch') }
-        'stack_shutdown' { @('compose', '--profile', 'websearch', 'down', '--remove-orphans') }
+        'stack_shutdown' { @('compose', '--profile', '*', 'down', '--remove-orphans') }
+        'plugin_prepare' { @('compose', '--progress', 'plain', '--profile', 'plugin-services', 'build', [string]$registeredService.name) }
+        'plugin_start' { @('compose', '--profile', 'plugin-services', 'up', '-d', '--no-build', '--wait', [string]$registeredService.name) }
+        'plugin_stop' { @('compose', '--profile', 'plugin-services', 'stop', [string]$registeredService.name) }
+        'plugin_probe' { @('image', 'inspect', '--format', '{{json .Config.Labels}}', [string]$registeredService.image) }
         'workspace_sync' {
             if ($WorkspaceId -ne 'default' -and $WorkspaceId -notmatch '^[a-f0-9]{12}$') { throw 'Invalid workspace id' }
             $groupNames = if ($WorkspaceId -eq 'default') { @('skill-files', 'skill-runner') } else { @("ws-$WorkspaceId-files", "ws-$WorkspaceId-runner") }
@@ -191,7 +230,7 @@ function Invoke-DailyDockerOperation($Context, [string]$Operation, [string]$Work
         default { throw '不支持的容器操作' }
     }
     $workspaceCompose = Join-Path $Context.Root 'data/private/workspace-compose.json'
-    if (Test-Path -LiteralPath $workspaceCompose) {
+    if ($composeArgs[0] -eq 'compose' -and (Test-Path -LiteralPath $workspaceCompose)) {
         $composeArgs = @('compose', '--project-directory', $Context.Root, '-f', $workspaceCompose) + @($composeArgs | Select-Object -Skip 1)
     }
     $dockerCommand = Get-Command docker -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -209,11 +248,17 @@ function Invoke-DailyDockerOperation($Context, [string]$Operation, [string]$Work
     $process.StartInfo = $processInfo
     $oldErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Stop'
+    $detached = $false
     try {
         if (-not $process.Start()) { throw 'Docker CLI 无法启动' }
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
-        $timeout = if ($Operation -eq 'stack_shutdown') { 90000 } else { 150000 }
+        if ($Operation -eq 'plugin_prepare') {
+            $Context.Preparations[$preparationKey] = @{ process = $process; stdout = $stdoutTask; stderr = $stderrTask; started = (Get-Date); state = 'PREPARING'; error = '' }
+            $detached = $true
+            return (Read-DailyPluginPreparation $Context $preparationKey)
+        }
+        $timeout = if ($Operation -eq 'stack_shutdown') { 90000 } elseif ($Operation -eq 'plugin_prepare') { 900000 } else { 150000 }
         if (-not $process.WaitForExit($timeout)) {
             try { $process.Kill() } catch {}
             throw "docker compose $Operation 超时"
@@ -229,7 +274,7 @@ function Invoke-DailyDockerOperation($Context, [string]$Operation, [string]$Work
         return $stdout.Trim().Substring(0, [Math]::Min(1000, $stdout.Trim().Length))
     } finally {
         $ErrorActionPreference = $oldErrorActionPreference
-        $process.Dispose()
+        if (-not $detached) { $process.Dispose() }
     }
 }
 
@@ -361,8 +406,13 @@ function Invoke-DailyServiceSupervisorRequest($Context) {
             return
         }
         $operation = [string]$body.operation
-        if ($operation -notin @('websearch_start', 'websearch_stop', 'stock_start', 'stack_shutdown', 'workspace_sync')) {
+        if ($operation -notin @('websearch_start', 'websearch_stop', 'stock_start', 'stack_shutdown', 'workspace_sync',
+                              'plugin_prepare', 'plugin_prepare_status', 'plugin_start', 'plugin_stop', 'plugin_probe')) {
             Send-DailyHttpResponse $stream 400 @{ detail = 'unknown operation' }
+            return
+        }
+        if ($operation.StartsWith('plugin_') -and @($body.PSObject.Properties.Name | Where-Object { $_ -notin @('operation', 'workspace_id', 'plugin_id', 'service_id') }).Count -gt 0) {
+            Send-DailyHttpResponse $stream 400 @{ detail = 'plugin operations accept registered IDs only' }
             return
         }
 
@@ -373,7 +423,7 @@ function Invoke-DailyServiceSupervisorRequest($Context) {
                 Write-DailySupervisorLog $Context "completed $operation pid=$($result.pid)"
             } else {
                 $workspaceId = if ($body.workspace_id) { [string]$body.workspace_id } else { 'default' }
-                $output = Invoke-DailyDockerOperation $Context $operation $workspaceId
+                $output = Invoke-DailyDockerOperation $Context $operation $workspaceId ([string]$body.plugin_id) ([string]$body.service_id)
                 Send-DailyHttpResponse $stream 200 @{ ok = $true; operation = $operation; output = $output }
                 Write-DailySupervisorLog $Context "completed $operation"
             }
@@ -395,6 +445,7 @@ function Invoke-DailyServiceSupervisorRequest($Context) {
 
 function Wait-DailyServiceSupervisor($Context) {
     while (-not $Context.ShutdownRequested) {
+        foreach ($key in @($Context.Preparations.Keys)) { $null = Read-DailyPluginPreparation $Context $key }
         Invoke-DailyServiceSupervisorRequest $Context
         if (-not $Context.ShutdownRequested) { Start-Sleep -Milliseconds 100 }
     }

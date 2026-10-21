@@ -1,0 +1,1 @@
+"""Optional document processing environment."""
