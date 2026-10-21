@@ -5,6 +5,7 @@ Prompt Builder — assembles system prompt from modular text files.
 import logging
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Callable
 
 logger = logging.getLogger("core.prompt")
 
@@ -18,11 +19,18 @@ class PromptBuilder:
         self,
         modules_dir: str | Path | None = None,
         legacy_path: str | Path | None = None,
+        packages_dir: str | Path | None = None,
+        registered_tools: Callable[[], frozenset[str]] | None = None,
     ):
         self._modules_dir = Path(modules_dir) if modules_dir else None
         self._legacy_path = Path(legacy_path) if legacy_path else None
         self._modules: dict[str, str] = {}
         self._load_modules()
+        self._registered_tools = registered_tools or (lambda: frozenset())
+        from harness.capabilities.prompts import load_prompts
+        self._contributions, self.contribution_errors = load_prompts(Path(packages_dir)) if packages_dir else ([], {})
+        for identity, error in self.contribution_errors.items():
+            logger.warning('Plugin prompt %s unavailable: %s', identity, error)
 
     def _load_modules(self) -> None:
         if not self._modules_dir or not self._modules_dir.is_dir():
@@ -58,20 +66,23 @@ class PromptBuilder:
         *,
         exclude: set[str] | None = None,
         extra_sections: list[str] | None = None,
+        available_tools: frozenset[str] | None = None,
     ) -> str:
         runtime_context = (
             '本轮当前时间：' + datetime.now().astimezone().isoformat(timespec='seconds') + '。\n'
             '用户问“最近”或“今年”时以此定位；资料披露日、报告期和价格日仍须核对来源，'
             '当前时间不代表资料已更新。'
         )
-        if not self._modules:
-            return runtime_context + _SECTION_SEPARATOR + self._load_legacy()
-
         parts: list[str] = [runtime_context]
+        if not self._modules:
+            parts.append(self._load_legacy())
         for key in sorted(self._modules):
             if exclude and key in exclude:
                 continue
             parts.append(self._modules[key])
+
+        active_tools = self._registered_tools() if available_tools is None else available_tools
+        parts.extend(item.text for item in self._contributions if item.tools & active_tools)
 
         if extra_sections:
             parts.extend(s for s in extra_sections if s)

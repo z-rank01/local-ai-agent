@@ -97,6 +97,8 @@ def build_runtime() -> RuntimeServices:
     prompt_builder = PromptBuilder(
         modules_dir=config.PROMPTS_DIR / "modules",
         legacy_path=config.PROMPTS_DIR / "system.txt",
+        packages_dir=config._PROJECT_ROOT / 'plugins',
+        registered_tools=lambda: tool_registry.known_tools,
     )
     memory = MemoryManager(router, llm)
     agent = Agent(

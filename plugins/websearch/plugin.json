@@ -18,5 +18,14 @@
     "title": "联网搜索",
     "description": "联网检索并读取网页正文",
     "order": 10
-  }
+  },
+  "prompts": [
+    {
+      "path": "prompts/search.txt",
+      "when_tools": [
+        "web_search",
+        "web_fetch"
+      ]
+    }
+  ]
 }

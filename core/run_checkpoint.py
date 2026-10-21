@@ -10,6 +10,11 @@ def environment(spec, snapshot, method):
     review_prompt = config.PROMPTS_DIR/'research_review.txt'
     if review_prompt.is_file():
         prompts[review_prompt.name] = sha256(review_prompt.read_bytes()).hexdigest()
+    from harness.capabilities.prompts import load_prompts
+    contributions, errors = load_prompts(config._PROJECT_ROOT / 'plugins')
+    prompts.update({'plugin:' + item.identity: item.fingerprint for item in contributions})
+    prompts.update({'plugin-error:' + identity: sha256(error.encode()).hexdigest()
+                    for identity, error in errors.items()})
     return {'format': 1, 'model': {k: spec[k] for k in
             ('id','provider_id','model','base_url','options') if k in spec},
             'workspace_id': snapshot.id, 'workspace_version': snapshot.record['version'],

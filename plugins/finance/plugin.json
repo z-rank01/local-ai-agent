@@ -21,5 +21,31 @@
     "title": "股票后台",
     "description": "后台任务执行与每日简报",
     "order": 20
-  }
+  },
+  "prompts": [
+    {
+      "path": "prompts/methods.txt",
+      "when_tools": [
+        "research_begin",
+        "stock_report_read",
+        "stock_research_submit"
+      ]
+    },
+    {
+      "path": "prompts/tools.txt",
+      "when_tools": [
+        "research_begin",
+        "stock_report_read",
+        "stock_research_submit"
+      ]
+    },
+    {
+      "path": "prompts/research.txt",
+      "when_tools": [
+        "research_begin",
+        "stock_report_read",
+        "stock_research_submit"
+      ]
+    }
+  ]
 }

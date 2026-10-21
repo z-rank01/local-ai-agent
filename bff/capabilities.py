@@ -15,6 +15,9 @@ async def capabilities():
     rows = package_catalog(config._PROJECT_ROOT / 'plugins', runtime.tool_registry.ownership())
     manager = getattr(runtime, 'capabilities', None)
     for row in rows:
+        prompt_error = getattr(getattr(runtime, 'prompt_builder', None), 'contribution_errors', {}).get(row['id'])
+        if prompt_error:
+            row['error'] = row.get('error') or '能力提示不可用：' + prompt_error
         row['lifecycle'] = {owner: manager.status(owner) for owner in row.get('owners', [])
                             if manager and manager.manages(owner)}
     return {'api_version': 1, 'capabilities': rows}

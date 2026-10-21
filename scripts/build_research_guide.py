@@ -13,7 +13,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from core.research_session import RESEARCH_BLOCKED_TOOLS
-_method_prompt = (ROOT/'config/prompts/modules/05_skills.txt').read_text(encoding='utf-8')
+_method_prompt = (ROOT/'plugins/finance/prompts/methods.txt').read_text(encoding='utf-8')
 PACKAGE = ROOT / 'skills/runner/packages' / re.search(r'当前项目投研适配包 (harness-stock-research-v\d+)', _method_prompt).group(1)
 SCENARIOS = {
     '公司综合': ['company', 'finance', 'risk', 'delivery'],
