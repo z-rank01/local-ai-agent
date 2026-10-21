@@ -1395,7 +1395,10 @@ export default function App(): JSX.Element {
       {conflictConversationId && <div className="notice-bar" role="status"><button className="btn btn-quiet" onClick={() => void openConversation(conflictConversationId)}>查看正在执行的会话</button></div>}
       <Composer
         runStatus={(controlTarget||busy)&&<section className="conversation-run" aria-label="当前会话运行状态">
-          <span role="status">{controlTarget?runLabel(controlTarget.status)+' · '+(controlTarget.phase||'准备中'):'正在提交…'}{observation?' · '+observation:''}</span>
+          <span role="status">
+            {(!controlTarget||['RUNNING','PAUSING','STOPPING'].includes(controlTarget.status))&&<><span className="dots" aria-hidden="true"><i /><i /><i /></span>{' '}</>}
+            {controlTarget?runLabel(controlTarget.status)+' · '+(controlTarget.phase||'准备中'):'正在提交…'}{observation?' · '+observation:''}
+          </span>
           {controlTarget&&<RunControls run={controlTarget} onControl={controlExecution}/>}
         </section>}
         contextLoading={loading || conversationLoading}
