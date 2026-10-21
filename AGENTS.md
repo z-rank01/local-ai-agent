@@ -89,7 +89,7 @@ powershell Start-Process …（由聊天后端调用）
 - `core/runtime.py`：`build_runtime()` 组装工具注册表/路由/模型目录；技能开关通过替换 `tool_registry._tools` 与 `router._backend_urls` 动态生效（注意保持 registry 对象同一性，见 `stock_service.attach` 与 `skills_service.apply_to` 的注释）。
 - `bff/service.py`：`ChatSessionService` 是会话/工作区/流式门面；`exclusive_turn` 保证同工作区及目录重叠工作区串行执行，返回 409 与执行会话；不同目录的工作区可并行。技能切换期间聊天 409。目录配置每轮冻结，失败保留有效配置，用户明确检查应用后激活待生效配置。
 - 前端 `apps/web/src/` 为组件化结构：`app/`（App.tsx 编排层 + 顶栏/会话抽屉/输入胶囊/阅读栏/工作台 Sheet/设置/阅读器等区块）、`panels/`（工作区、技能、股票、打包任务）、`ui/`（Collapse/Panel/Popover 等基元）、`lib/`（storage/format/appearance/transcript/report/notify/confirm）；`styles.css` 是唯一令牌来源（Apple 设计系统，旧三栏紫系已废弃）。界面无常驻侧栏：顶栏细条 + 全屏阅读栏 + 底部悬浮输入胶囊；会话抽屉与工作台 Sheet 两级浮层默认收起；唯一"退出"按钮在会话抽屉底部。
-- 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。普通聊天的正式系统内容只维护 `prompts/modules/01..07`；`prompts/system.txt` 只是 modules 缺失时的兜底占位。自主研究的单独核对角色使用 `prompts/research_review.txt`，不作为普通聊天模块注入；它与原模块一起进入检查点兼容指纹。
+- 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。普通聊天的正式系统内容只维护 `prompts/modules/01..08`（`08_research.txt` 是公开投研的触发、正文结构与交付规则）；`prompts/system.txt` 只是 modules 缺失时的兜底占位。自主研究的单独核对角色使用 `prompts/research_review.txt`，不作为普通聊天模块注入；它与原模块一起进入检查点兼容指纹。
 
 聊天自主研究的evidence_requests由程序展开为原工具调用，不另起执行后端。evidence-index.json只登记实际收到的资料及模型标注；reviews保存同模型单独核对的候选稿/可见结果，不保存隐藏思维链、不进入正文。发布关联当前稿及证据指纹，不认证语义；核对UNKNOWN停止本轮且不重发。无进展收尾保留已有资料回读、改稿及核对，禁止新增联网需求；不能把阶段限制报成供应商额度不足。
 

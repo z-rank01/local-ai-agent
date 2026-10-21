@@ -87,34 +87,6 @@ class MemoryHooks(Protocol):
 # ── Utilities ───────────────────────────────────────────────────────────────
 
 
-def _format_tool_params(tool_name: str, params: dict) -> str:
-    """Format tool parameters into a brief human-readable string."""
-    if not params:
-        return ""
-    parts: list[str] = []
-    for key, val in params.items():
-        val_str = str(val)
-        if len(val_str) > 60:
-            val_str = val_str[:57] + "..."
-        if key in ("code", "content"):
-            parts.append(f"{key}: ({len(str(val))}字符)")
-        elif key == "packages" and isinstance(val, list):
-            parts.append(f"packages: [{', '.join(val)}]")
-        else:
-            parts.append(f"{key}: {val_str}")
-    return "→ " + ", ".join(parts)
-
-
-def _parse_tool_args(raw_args: Any) -> dict:
-    """Parse tool call arguments, handling both dict and JSON string."""
-    if isinstance(raw_args, str):
-        try:
-            return json.loads(raw_args)
-        except json.JSONDecodeError:
-            return {}
-    return raw_args if isinstance(raw_args, dict) else {}
-
-
 def _format_prefetch_content(fname: str, content: str, max_chars: int) -> str:
     """One prefetched file: its real content, and how to finish reading it.
 
