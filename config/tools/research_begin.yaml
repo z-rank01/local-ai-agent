@@ -4,12 +4,10 @@ backend: research-runtime
 tier: core
 cloud: write
 description: >-
-  开始当前对话的公开投研并保存范围、标的和计划。首次phase=准备；随后用同一工具报告获取、分析、核对阶段。
-  跟随本轮聊天模型，不调用专业任务、不因十分钟强制结束。返回当前工作区的产物目录。
-  通过 skill_list/skill_info 发现当前项目投研适配包，按需读取方法，使用实际搜索/原文/计算工具，最后 brief_publish。已登记的source_id和保存路径随阶段回执返回，不能猜文件名。
-  读取方法并核实证券后，用evidence_requests登记取证需求，程序会执行现有工具并返回原文目录/附件/字段回执。
-  公告研究先notices定位实际art_code，再notice读取原件；财务分析用finance取得目录和字段，随后把已选择的正式报告编号放入report_articles再读取原件，不能只用目录或字段替代财报。
-  需要价格作估值时用kind=quote及已核实symbol读取带行情时间的公开报价；程序同时返回原字段与引句。接口失败不能把猜测价格或数学常数当实际行情。
+  开始或推进当前对话的公开投研：先 phase=准备（scope/targets/plan），再用 evidence_requests 取公告目录、
+  公告原件、财报字段、公司概况或带时间行情，最后 phase=核对 并 brief_publish。返回本轮研究目录；
+  已登记的 source_id 与保存路径随回执返回，不能猜文件名。公告先 notices 定位 art_code 再 notice 读原件；
+  财报用 finance 取目录字段后把选中的正式报告放进 report_articles 读原件，不能只用目录代替财报。
 parameters:
   type: object
   properties:

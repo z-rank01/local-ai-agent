@@ -18,11 +18,23 @@ from .research_visuals import render_charts, validate_publication, validate_visu
 from .research_evidence import model_evidence
 
 PHASES = ('准备', '获取', '分析', '核对', '交付')
-RESEARCH_TOOLS = frozenset({
+# Research withholds only what can destroy data or change the harness. The old
+# positive allow-list hid most of the surface (no file_edit, no git, no package
+# inspection), which is part of why a natural question fell back to plain chat.
+RESEARCH_BLOCKED_TOOLS = frozenset({
+    'file_delete', 'file_rename',
+    'pip_install', 'package_cancel',
+    'skill_register', 'skill_unregister', 'skill_update', 'skill_run',
+    'conversation_read', 'conversation_search',
+})
+# Universe used when the router cannot enumerate registered tools (test doubles).
+RESEARCH_FALLBACK_TOOLS = frozenset({
     'research_begin', 'brief_publish', 'skill_list', 'skill_info', 'file_read',
-    'file_write', 'file_list', 'code_exec', 'shell_exec', 'web_search', 'web_fetch',
-    'context_evidence_read', 'stock_report_read', 'stock_public_evidence_find',
-    'stock_public_evidence_read', 'stock_research_find', 'stock_theme_research_find'})
+    'file_edit', 'file_write', 'file_list', 'file_convert', 'code_exec',
+    'shell_exec', 'web_search', 'web_fetch', 'git_status', 'git_commit',
+    'package_list', 'package_status', 'context_evidence_read', 'stock_report_read',
+    'stock_public_evidence_find', 'stock_public_evidence_read',
+    'stock_research_find', 'stock_theme_research_find'})
 METHOD_TOOLS = frozenset({'research_begin', 'skill_list', 'skill_info', 'file_list', 'file_read'})
 
 
@@ -117,9 +129,15 @@ class ResearchSession:
 
     @property
     def tool_names(self):
+        # Before a method is read only discovery/reading is useful; afterwards the
+        # whole registered surface is open except the destructive tools below.
         # Reuse the actual-read requirement already enforced at publication,
         # before collecting data or writing a draft instead of rejecting it late.
-        return RESEARCH_TOOLS if self.methods else METHOD_TOOLS
+        if not self.methods:
+            return METHOD_TOOLS
+        known = getattr(self.router, 'known_tools', None)
+        universe = frozenset(known) if known else RESEARCH_FALLBACK_TOOLS
+        return universe - RESEARCH_BLOCKED_TOOLS
 
     async def write(self, name, value, *, binary=False):
         result = await self.router.dispatch('file_write', {

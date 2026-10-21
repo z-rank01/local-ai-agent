@@ -12,7 +12,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from core.research_session import RESEARCH_TOOLS
+from core.research_session import RESEARCH_BLOCKED_TOOLS
 _method_prompt = (ROOT/'config/prompts/modules/05_skills.txt').read_text(encoding='utf-8')
 PACKAGE = ROOT / 'skills/runner/packages' / re.search(r'当前项目投研适配包 (harness-stock-research-v\d+)', _method_prompt).group(1)
 SCENARIOS = {
@@ -27,7 +27,8 @@ def inventory(workspace, additional_workspaces=()):
     tools = []
     for path in sorted((ROOT/'config/tools').glob('*.yaml')):
         tool = yaml.safe_load(path.read_text(encoding='utf-8'))
-        if tool['name'] in RESEARCH_TOOLS:
+        # The research surface is every registered tool except the blocked ones.
+        if tool['name'] not in RESEARCH_BLOCKED_TOOLS:
             tools.append({**tool, 'source_file': str(path.relative_to(ROOT))})
     methods = [{'name': p.stem, 'text': p.read_text(encoding='utf-8'),
                 'source_file': str(p.relative_to(ROOT))} for p in sorted((PACKAGE/'references').glob('*.md'))]

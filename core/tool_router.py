@@ -89,6 +89,11 @@ class ToolRouter:
         token = getattr(self, 'workspace_token', '')
         return {'X-Workspace-Token': token} if token and backend in {'skill-files', 'skill-runner'} else {}
 
+    @property
+    def known_tools(self) -> frozenset[str]:
+        """Names registered at startup; research derives its surface from this."""
+        return self._registry.known_tools
+
     async def authorize_publication(self, params):
         """The agent's separate review must cross the same publication boundary."""
         self._policy.check('brief_publish', params)
@@ -98,9 +103,9 @@ class ToolRouter:
     async def dispatch(self, tool: str, params: dict[str, Any], session_id: str = "default") -> Any:
         research = getattr(self, 'research', None)
         if research is not None and research.active:
-            from .research_session import RESEARCH_TOOLS
-            if tool not in RESEARCH_TOOLS:
-                raise PermissionError('当前聊天研究仅开放取证、计算与发布，不提交或恢复专业任务')
+            from .research_session import RESEARCH_BLOCKED_TOOLS
+            if tool in RESEARCH_BLOCKED_TOOLS:
+                raise PermissionError('当前聊天研究不开放删除、改名、安装依赖或注册技能；取证、计算、读写与发布工具均可用')
         if tool not in self._registry.known_tools:
             raise ValueError(f"Unknown tool: {tool!r}")
 

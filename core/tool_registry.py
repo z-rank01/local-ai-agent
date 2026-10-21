@@ -85,7 +85,7 @@ class ToolRegistry:
         newly added tool never becomes cloud-reachable by accident."""
         return self._tools.get(tool_name, {}).get("cloud", _DEFAULT_CLOUD_TIER)
 
-    def get_definitions(self, *, tier: str = "all", use_short_desc: bool = False,
+    def get_definitions(self, *, tier: str = "all", use_short_desc: bool = True,
                         allow_write: bool = True) -> list[dict[str, Any]]:
         """Return tool definitions in OpenAI function-calling format.
 

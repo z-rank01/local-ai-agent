@@ -363,7 +363,7 @@ class Agent:
             # once that second grant is on.  Local models are unrestricted.
             allow_write = bool(getattr(self, 'cloud_write_allowed', config.CLOUD_WRITE_ALLOWED))
             tool_defs = self.registry.get_definitions(
-                tier=self.tool_tier, use_short_desc=False,
+                tier=self.tool_tier, use_short_desc=True,
                 allow_write=(not cloud) or allow_write)
             if getattr(self.context_mgr, 'reader', None) is not None:
                 tool_defs.append({'type': 'function', 'function': {
