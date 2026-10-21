@@ -155,12 +155,12 @@ async def market_event_analysis(request: Request):
     from core.market_research import authorize, generate
     authorize(request)
     body = await request.json()
-    fields = {'provider', 'model', 'prompt', 'material'}
+    fields = {'provider', 'model', 'prompt', 'material','execution_profile'}
     if (not isinstance(body, dict) or set(body) not in (fields, fields | {'generation'}) or
             ('generation' in body and not isinstance(body['generation'], dict))):
         raise HTTPException(422, '分析请求字段无效')
     return await generate(get_runtime(), body['provider'], body['model'], body['prompt'], body['material'],
-                          generation=body.get('generation'))
+                          generation=body.get('generation'),execution_profile=body['execution_profile'])
 @app.post('/api/internal/stock-public-search', include_in_schema=False)
 async def stock_public_search(request: Request):
     from core.market_research import authorize, public_search
@@ -193,6 +193,15 @@ async def stock_service_action(request: Request):
         body = await request.json()
         if not isinstance(body, dict):
             raise ValueError('服务操作必须为对象')
+        if body.get('action')=='operator':
+            cid=body.get('conversation_id')
+            if not cid: raise ValueError('请先选择任务所属会话')
+            service=get_chat_service()
+            conversation=service._require_conversation(cid)
+            spec,_=service._execution_model(conversation)
+            workspace=service.workspaces.get(conversation.workspace_id)
+            from core.model_execution import freeze_profile
+            body['execution_profile']=freeze_profile(spec,cid,conversation.workspace_id,workspace['cloud_read'])
         return await stock_service.action(get_runtime(), body, lambda: bool(get_chat_service()._active_conversations))
     except (ValueError, OSError) as exc:
         raise HTTPException(409, str(exc) if isinstance(exc, ValueError) else '本地服务配置或凭据不可读') from exc

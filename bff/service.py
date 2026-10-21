@@ -1106,6 +1106,10 @@ class ChatSessionService:
             router.workspace_validate = lambda: self.workspaces.verify(record)
         router._policy._denied = list(router._policy._denied) + [p + "/.git" for p in self._snapshot.roots]
         agent.router = router
+        from core.model_execution import freeze_profile
+        router.execution_profile = freeze_profile(spec,conversation.id,self._snapshot.id,
+            workspace_allowed,run_id)
+        router.models_runtime = self._runtime
         from core.research_session import ResearchSession
         router.research = ResearchSession(router, conversation_id=conversation.id,
             model=spec['id'], allowed=not cloud or bool(workspace_allowed and cloud_write_allowed))
@@ -1197,6 +1201,7 @@ class ChatSessionService:
             stock_bridge.set_turn(conversation.id, request_id or run_id,
                 turn_query,
                 method_id=method_id,
+                execution_profile=router.execution_profile,
                 allow_report_body=bool(workspace_allowed))
         def emit(event, **kwargs):
             return UIStreamEvent(event=event, **base, **kwargs)

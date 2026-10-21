@@ -281,83 +281,13 @@ def public_material(material):
 
 
 def generation_parameters(provider, model, value):
-    """Explicit internal analysis profile; never accept arbitrary provider options."""
-    if value is None:
-        return {}
-    fields = {'enable_thinking', 'thinking_budget', 'temperature', 'max_tokens'}
-    if (provider != 'qwen' or model != 'qwen3.8-flash' or
-            not isinstance(value, dict) or set(value) != fields or
-            type(value['enable_thinking']) is not bool or value['enable_thinking'] is not True or
-            type(value['thinking_budget']) is not int or not 1 <= value['thinking_budget'] <= 262144 or
-            type(value['max_tokens']) is not int or not 1 <= value['max_tokens'] <= 131072 or
-            value['thinking_budget'] >= value['max_tokens'] or
-            type(value['temperature']) not in (float, int) or not 0 <= value['temperature'] <= 1.99):
-        raise HTTPException(422, '显式分析参数无效或所选模型不支持；不会忽略或替换参数')
-    return dict(value)
+    raise HTTPException(410,'独立分析参数已停用，模型参数继承所属会话')
 
 
-async def generate(runtime, provider, model, prompt, material, *, generation=None):
-    explicit = generation_parameters(provider, model, generation)
-    public_material(material)
-    if not isinstance(prompt, str) or not prompt or len(prompt) > 10000:
-        raise HTTPException(422, '分析提示词无效')
-    await runtime.models.catalog()
-    try:
-        spec, _ = runtime.models.resolve(provider, model)
-    except ValueError:
-        raise HTTPException(422, '所选分析模型不可用') from None
-    if not _cloud_text_model(spec):
-        raise HTTPException(422, '云端分析只接受已配置的文本模型')
-    key = read_key(spec.get('api_key_env', ''))
-    if not key:
-        raise HTTPException(422, '该云端模型未配置密钥')
-    payload = {'model': spec['model'], 'messages': [
-        {'role': 'system', 'content': prompt}, {'role': 'user', 'content': __import__('json').dumps(material, ensure_ascii=False)}],
-        'stream': False}
-    output_limit = spec.get('analysis_max_tokens')
-    if type(output_limit) is int and output_limit > 0:
-        payload['max_tokens'] = output_limit
-    if spec['provider_id'] == 'qwen' and re.match(r'^qwen3\.(?:7|8)-(?:max|flash)', spec['model']):
-        payload['response_format'] = {'type': 'json_schema', 'json_schema': {
-            'name': 'market_event', 'strict': True, 'schema': _event_schema()}}
-    elif spec['provider_id'] == 'qwen' and spec['model'] == 'qwen3.5-flash':
-        payload['response_format'] = {'type': 'json_object'}
-    if explicit:
-        payload.update(explicit, enable_search=False)
-    params = {'max_tokens': payload.get('max_tokens'),
-              'response_format': payload.get('response_format', {}).get('type')}
-    if explicit:
-        params.update(explicit, enable_search=False, provider=spec['provider_id'], model=spec['model'])
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(600 if explicit else 180, connect=10), trust_env=False) as client:
-            response = await client.post(spec['base_url'].rstrip('/') + '/chat/completions',
-                headers={'Authorization': 'Bearer ' + key}, json=payload)
-            if explicit and response.status_code in (400, 401, 403, 404, 422, 429):
-                return {'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
-                        'http_status': response.status_code, 'model_params': params,
-                        'text': '', 'usage': {}}
-            response.raise_for_status()
-            answer = response.json()
-        choice = answer['choices'][0]
-        content = choice['message']['content']
-        if not isinstance(content, str) or (not content and choice.get('finish_reason') != 'length'):
-            raise ValueError('empty content')
-        usage = answer.get('usage') if isinstance(answer.get('usage'), dict) else {}
-        if explicit and (choice.get('finish_reason') not in ('stop', 'length') or
-                         not isinstance(answer.get('model'), str) or not answer['model']):
-            raise ValueError('missing model or terminal finish metadata')
-        if explicit and answer['model'] != spec['model']:
-            return {'status': 'FAILED', 'error': 'RESPONSE_MODEL_MISMATCH',
-                    'model_params': params, 'text': '', 'response_model': answer['model'],
-                    'response_id': answer.get('id'), 'usage': {}}
-        return {'status': 'TRUNCATED' if choice.get('finish_reason') == 'length' else 'COMPLETE',
-                'text': content, 'finish_reason': choice.get('finish_reason'),
-                'model_params': params,
-                **({'response_model': answer['model'], 'response_id': answer.get('id')} if explicit else {}),
-                'usage': {k: usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens')
-                          if type(usage.get(k)) is int}}
-    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError):
-        if explicit:
-            return {'status': 'UNKNOWN', 'error': 'NO_VERIFIED_TERMINAL_RECEIPT',
-                    'model_params': params, 'text': '', 'usage': {}}
-        raise HTTPException(502, '云端分析调用失败或返回无效内容；不会自动改用其他模型') from None
+async def generate(runtime, provider, model, prompt, material, *, generation=None, execution_profile=None):
+    if execution_profile is None:
+        raise HTTPException(409,'独立简报模型已停用；请从所属会话创建任务')
+    from .model_execution import resolve_profile, invoke
+    spec,_=resolve_profile(runtime,execution_profile)
+    if spec['kind']=='cloud': public_material(material)
+    return await invoke(runtime,execution_profile,prompt,material)

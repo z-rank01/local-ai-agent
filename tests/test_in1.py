@@ -294,10 +294,12 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.models.clients[spec['id']]=Alternate()
         events=[e async for e in self.service.stream_chat(ChatRequest(message='one',model='qwen:qwen3.5-flash'))]
         cid=events[0].conversation_id
+        self.service.update_conversation(cid,model=spec['id'])
         second=[e async for e in self.service.stream_chat(ChatRequest(conversation_id=cid,message='two',provider_id='alternate',model='mock'))]
         self.assertEqual(self.service.get_conversation(cid).model,spec['id'])
         self.assertIn('hello',json.dumps(self.alternate_seen))
         user=[m for m in self.service.get_messages(cid) if m.role=='user'][-1]
+        self.service.update_conversation(cid,model='qwen:qwen3.5-flash')
         _=[e async for e in self.service.edit_message_and_regenerate(cid,message_id=user.id,content='edited',provider_id='qwen',model='qwen3.5-flash')]
         self.assertEqual(self.service.get_messages(cid)[-1].model,'qwen:qwen3.5-flash')
         self.assertIn('edited',json.dumps(self.seen[-1]))

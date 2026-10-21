@@ -5,8 +5,6 @@ import asyncio
 import json
 import httpx
 from fastapi import HTTPException
-from .market_research import generation_parameters, _cloud_text_model
-from .providers import read_key
 from .research_stream import ResearchStreamError
 
 DUTIES = {'C01', 'C02', 'C03', 'C04'}
@@ -122,111 +120,20 @@ async def generate(runtime, body):
 
 
 async def _generate(runtime, body):
-    required = {'duty', 'provider', 'model', 'generation', 'prompt', 'material', 'execution_hash'}
-    if not isinstance(body, dict) or not required <= set(body) or set(body) - required - {'transport'} or body['duty'] not in DUTIES:
-        raise HTTPException(422, '只读职责请求无效')
-    transport = body.get('transport')
-    if transport is not None and (not isinstance(transport, dict) or
-            set(transport) != {'stream', 'include_usage'} or transport['stream'] is not True or
-            transport['include_usage'] is not True):
-        raise HTTPException(422, '冻结传输配置不受支持')
-    import re
-    if not isinstance(body['execution_hash'], str) or not re.fullmatch('[0-9a-f]{64}', body['execution_hash']):
-        raise HTTPException(422, '冻结执行标识无效')
-    material = body['material']
-    if (not isinstance(material, dict) or set(material) - ROOT_FIELDS or
-            not isinstance(material.get('material'), dict) or not isinstance(material.get('evidence_ids'), list)):
-        raise HTTPException(422, '研究材料封装无效')
-    validate_public(material)
-    prompt = body['prompt']
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise HTTPException(422, '职责提示词为空')
-    params = generation_parameters(body['provider'], body['model'], body['generation'])
-    await runtime.models.catalog()
-    try:
-        spec, _ = runtime.models.resolve(body['provider'], body['model'])
-    except ValueError:
-        raise HTTPException(422, '冻结模型不可用') from None
-    if not _cloud_text_model(spec):
-        raise HTTPException(422, '本直连接口需要已配置的云端文本模型')
-    key = read_key(spec.get('api_key_env', ''))
-    if not key:
-        raise HTTPException(422, '冻结模型尚未配置密钥')
-    payload = {**params, 'model': spec['model'], 'enable_search': False, 'stream': False,
-               'response_format': {'type': 'json_object'},
-               'messages': [{'role': 'system', 'content': prompt},
-                            {'role': 'user', 'content': json.dumps(material, ensure_ascii=False, allow_nan=False)}]}
-    if transport is not None:
-        payload.update(stream=True, stream_options={'include_usage': True})
-    receipt = {'execution_hash': body['execution_hash'],
-        'input_chars': sum(len(message['content']) for message in payload['messages']), 'model_params': {
-        **params, 'provider': body['provider'], 'model': spec['model'],
-        'response_format': payload['response_format'], 'enable_search': False, 'stream': payload['stream'],
-        **({'stream_options': payload['stream_options']} if transport is not None else {})}}
-    import hashlib
-    input_hash = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True,
-                                          allow_nan=False).encode()).hexdigest()
-    ledger = runtime.models.budget
-    call_id = ledger.begin_research(body['provider'] + ':' + spec['model'],
-                                   body['execution_hash'], input_hash, receipt['model_params'])
-    finished = False
-    progress_receipt = {}
-    def progress(fields):
-        progress_receipt.update(fields)
-        ledger.finish_research(call_id, {**receipt, **progress_receipt, 'status': 'RUNNING'})
-    def finish(result):
-        nonlocal finished
-        ledger.finish_research(call_id, result)
-        finished = True
-        return {**result, 'ledger_call_id': call_id}
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(1800, connect=10), trust_env=False) as client:
-            url = spec['base_url'].rstrip('/') + '/chat/completions'
-            if transport is not None:
-                from .research_stream import read_completion
-                async with client.stream('POST', url, headers={'Authorization': 'Bearer ' + key}, json=payload) as response:
-                    if response.status_code in (400, 401, 403, 404, 422, 429):
-                        return finish({**receipt, 'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
-                            **await rejection_metadata(response), 'text': '', 'usage': {}})
-                    response.raise_for_status()
-                    answer = await read_completion(response, progress)
-            else:
-                response = await client.post(url, headers={'Authorization': 'Bearer ' + key}, json=payload)
-                if response.status_code in (400, 401, 403, 404, 422, 429):
-                    return finish({**receipt, 'status': 'FAILED', 'error': 'PROVIDER_REJECTED',
-                        **await rejection_metadata(response), 'text': '', 'usage': {}})
-                response.raise_for_status()
-                answer = response.json()
-        choice = answer['choices'][0]
-        reason, content = choice.get('finish_reason'), choice['message'].get('content')
-        if reason not in ('stop', 'length') or not isinstance(content, str) or not answer.get('model'):
-            raise ValueError('Missing terminal metadata')
-        if answer['model'] != spec['model']:
-            return finish({**receipt, 'status': 'FAILED', 'error': 'RESPONSE_MODEL_MISMATCH',
-                    'text': '', 'response_model': answer['model'], 'response_id': answer.get('id'), 'usage': {}})
-        usage = answer.get('usage') or {}
-        return finish({**receipt, 'status': 'TRUNCATED' if reason == 'length' else 'COMPLETE',
-                'text': content, 'finish_reason': reason, 'response_model': answer['model'],
-                'response_id': answer.get('id'), 'usage_status': 'REPORTED' if usage else 'NOT_REPORTED', 'usage': {k: usage[k] for k in
-                    ('prompt_tokens', 'completion_tokens', 'total_tokens') if type(usage.get(k)) is int}})
-    except asyncio.CancelledError:
-        return finish({**receipt, **progress_receipt, 'status': 'UNKNOWN', 'text': '',
-                       'error': 'REQUEST_CANCELLED', 'usage': {}, 'usage_status': 'NOT_REPORTED'})
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
-        if isinstance(exc, ResearchStreamError):
-            category = exc.category
-        elif isinstance(exc, httpx.TimeoutException):
-            category = 'TRANSPORT_TIMEOUT'
-        elif isinstance(exc, httpx.RemoteProtocolError):
-            category = 'TRANSPORT_PROTOCOL'
-        elif isinstance(exc, httpx.HTTPStatusError):
-            category = 'HTTP_UNCONFIRMED_FAILURE'
-        elif isinstance(exc, httpx.HTTPError):
-            category = 'TRANSPORT_FAILURE'
-        else:
-            category = 'RESPONSE_INVALID_STRUCTURE'
-        return finish({**receipt, **progress_receipt, 'status': 'UNKNOWN', 'text': '', 'usage': {},
-                'error': 'NO_VERIFIED_TERMINAL_RECEIPT', 'failure_category': category})
-    finally:
-        if not finished:
-            finish({**receipt, **progress_receipt, 'status': 'UNKNOWN', 'error': 'REQUEST_INTERRUPTED', 'usage': {}})
+    if isinstance(body,dict) and 'execution_profile' in body:
+        profile=body['execution_profile']
+        from .model_execution import resolve_profile, invoke
+        try:
+            spec,_=resolve_profile(runtime,profile)
+        except PermissionError as exc:
+            raise HTTPException(403,str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409,str(exc)) from exc
+        if spec['kind']=='cloud': validate_public(body['material'])
+        try:
+            answer=await invoke(runtime,profile,body['prompt'],body['material'])
+        except asyncio.CancelledError:
+            answer={'status':'UNKNOWN','text':'','usage':None,'usage_status':'NOT_REPORTED',
+                    'error':'REQUEST_CANCELLED'}
+        return {**answer,'execution_hash':body['execution_hash']}
+    raise HTTPException(409, '旧模型流程仅可查看，请从会话创建新研究')

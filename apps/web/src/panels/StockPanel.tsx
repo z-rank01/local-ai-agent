@@ -117,7 +117,9 @@ export function StockPanel({conversation, onChanged}: StockPanelProps): JSX.Elem
     setBusy(true);
     setError('');
     try {
-      const result = await stockServiceAction({action, ...extra});
+      const result = await stockServiceAction({action, ...extra,
+        ...(action==='operator'?{conversation_id:conversation?.id}:{}),
+      });
       if (result.challenge) {
         setChallenge(result.challenge);
       } else if (result.reply) {

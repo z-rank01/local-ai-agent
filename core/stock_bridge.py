@@ -203,7 +203,7 @@ class StockBridge:
         self._turns: dict[str, dict] = {}
 
     def set_turn(self, conversation_id: str, request_id: str | None, query: str = '',
-                 method_id: str = 'auto', *, allow_report_body: bool = False) -> None:
+                 method_id: str = 'auto', *, allow_report_body: bool = False, execution_profile=None) -> None:
         """Open the per-turn context. Call once per accepted user message.
 
         ``allow_report_body`` mirrors the workspace cloud grant: when the model may
@@ -214,6 +214,7 @@ class StockBridge:
             'request_id': request_id or f'turn:{uuid.uuid4().hex}',
             'query': (query or '（股票只读查询）')[:16000],
             'method_id': method_id,
+            'execution_profile': execution_profile,
             'allow_report_body': bool(allow_report_body),
             'ticket': None,
             'sequence': 0,
@@ -628,6 +629,7 @@ class StockBridge:
             'query': state['query'], 'actor': ACTOR, 'conversation': conversation_id,
             'request_id': state['request_id'], 'method_id': state['method_id'],
             'report_body_scope': 'cloud' if state.get('allow_report_body') else 'local',
+            **({'execution_profile':state['execution_profile']} if state.get('execution_profile') else {}),
         })
         state['ticket'] = resp['ticket']
 
