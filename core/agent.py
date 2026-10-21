@@ -337,6 +337,9 @@ class Agent:
             tool_defs = self.registry.get_definitions(
                 tier=self.tool_tier, use_short_desc=True,
                 allow_write=(not cloud) or allow_write)
+            if not hasattr(self.router,'models_runtime') or (
+                    not cloud and getattr(self.llm,'model','').split(':')[0].lower()=='gemma4'):
+                tool_defs=[d for d in tool_defs if d['function']['name']!='local_agent']
             if getattr(self.context_mgr, 'reader', None) is not None:
                 tool_defs.append({'type': 'function', 'function': {
                     'name': 'context_evidence_read',
@@ -390,6 +393,9 @@ class Agent:
             research_guidance_message = None
             closing_stagnation = None
             while (research is not None and research.active) or stock_deadline is not None or research_continuing or self.max_rounds <= 0 or round_number < self.max_rounds:
+                if getattr(self,'local_agent_unknown',False):
+                    yield AgentEvent('error',text='本地Gemma4调用终态未知，已保留成果；不自动重发或切换模型。')
+                    return
                 autonomous = research is not None and research.active
                 if autonomous and any(r.get('status') in ('STARTED','UNKNOWN','FAILED') for r in research.review_records.values()):
                     await research.incomplete()
@@ -1032,6 +1038,16 @@ class Agent:
                 result = None
                 if name == 'context_evidence_read':
                     result = self.context_mgr.read_evidence(**params)
+                elif name == 'local_agent':
+                    self.router._policy.check(name,params)
+                    if hasattr(self.router,'workspace_validate'): await self.router.workspace_validate()
+                    from .local_agent import delegate
+                    result=await delegate(self.router.models_runtime,self.router.execution_profile,params,
+                        self.context_mgr.read_evidence,
+                        lambda kind,data:self.audit.record(kind,{**data,'research_phase':'local_delegate'}))
+                    if result['status']=='UNKNOWN':
+                        self.local_agent_unknown=True
+                        if control: control.end_step(confirmed=False)
                 elif name == 'brief_publish' and research is not None:
                     if hasattr(self.router, 'authorize_publication'):
                         await self.router.authorize_publication(params)
@@ -1074,7 +1090,7 @@ class Agent:
                 status = 'error' if failed else 'ok'
                 if evidence_step is not None:
                     await research.complete_evidence(evidence_step, result, status)
-                if control:
+                if control and not getattr(self,'local_agent_unknown',False):
                     control.end_step()
             except Exception as exc:
                 if evidence_step is not None and research.pending_evidence and research.pending_evidence[0] is evidence_step:

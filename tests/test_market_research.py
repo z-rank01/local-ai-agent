@@ -238,6 +238,14 @@ class ShowClient:
 
 
 class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_independent_model_generation_is_retired(self):
+        with self.assertRaises(HTTPException) as result:
+            await generate(Runtime(), 'qwen', 'qwen3.8-max', 'prompt', PUBLIC)
+        self.assertEqual(result.exception.status_code,409)
+        with self.assertRaises(HTTPException) as result:
+            generation_parameters('qwen','qwen3.8-flash',{})
+        self.assertEqual(result.exception.status_code,410)
+
     def test_public_broker_original_and_failed_collection_projection(self):
         import json
         broker = {**PUBLIC[0], 'source': 'public_broker_review',
@@ -262,65 +270,9 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException):
                 public_material([{**broker, 'url': url}])
 
-    def test_explicit_generation_rejects_uncontrolled_or_invalid_parameters(self):
-        valid = dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536)
-        self.assertEqual(generation_parameters('qwen', 'qwen3.8-flash', valid), valid)
-        invalid = [dict(valid, enable_thinking=False), dict(valid, thinking_budget=True),
-                   dict(valid, thinking_budget=65536), dict(valid, max_tokens=131073),
-                   dict(valid, temperature=float('nan')), dict(valid, temperature=True),
-                   dict(valid, reasoning_effort='high'), dict(valid, enable_search=True), {}]
-        for value in invalid:
-            with self.subTest(value=value), self.assertRaises(HTTPException):
-                generation_parameters('qwen', 'qwen3.8-flash', value)
-        with self.assertRaises(HTTPException):
-            generation_parameters('qwen', 'qwen3.8-max', valid)
 
-    async def test_explicit_thinking_profile_sent_and_frozen_in_receipt(self):
-        calls = []
-        options = dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536)
-        runtime = Runtime()
-        spec = dict(Registry._static_specs[0], model='qwen3.8-flash', base_url='https://example.aliyuncs.com/v1')
-        with patch.object(runtime.models, 'resolve', return_value=(spec, None)), \
-             patch('core.market_research.read_key', return_value='configured-secret'), \
-             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)), \
-             patch.object(Response, 'json', return_value={
-                 'id': 'public-response-id', 'model': 'qwen3.8-flash',
-                 'choices': [{'message': {'content': '{"events":[]}', 'reasoning_content': 'private reasoning'},
-                              'finish_reason': 'stop'}], 'usage': {'total_tokens': 123}}):
-            result = await generate(runtime, 'qwen', 'qwen3.8-flash', '只输出 JSON', PUBLIC, generation=options)
-        payload = calls[0][2]
-        self.assertTrue(all(payload[k] == v for k, v in options.items()))
-        self.assertFalse(payload['enable_search'])
-        self.assertEqual(payload['response_format']['type'], 'json_schema')
-        self.assertTrue(all(result['model_params'][k] == v for k, v in options.items()))
-        self.assertEqual(result['response_model'], 'qwen3.8-flash')
-        self.assertNotIn('private reasoning', str(result))
-        self.assertEqual(len(calls), 1)
 
-    async def test_explicit_profile_requires_terminal_receipt(self):
-        calls = []
-        spec = dict(Registry._static_specs[0], model='qwen3.8-flash', base_url='https://example.aliyuncs.com/v1')
-        with patch.object(Runtime.models, 'resolve', return_value=(spec, None)), \
-             patch('core.market_research.read_key', return_value='configured-secret'), \
-             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)):
-            result = await generate(Runtime(), 'qwen', 'qwen3.8-flash', '只输出 JSON', PUBLIC,
-                                    generation=dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536))
-        self.assertEqual(result['status'], 'UNKNOWN')
-        self.assertEqual(len(calls), 1)
 
-    async def test_explicit_rejection_is_known_failure_and_never_retried(self):
-        calls = []
-        spec = dict(Registry._static_specs[0], model='qwen3.8-flash', base_url='https://example.aliyuncs.com/v1')
-        with patch.object(Runtime.models, 'resolve', return_value=(spec, None)), \
-             patch('core.market_research.read_key', return_value='configured-secret'), \
-             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)), \
-             patch.object(Response, 'status_code', 422):
-            result = await generate(Runtime(), 'qwen', 'qwen3.8-flash', '只输出 JSON', PUBLIC,
-                                    generation=dict(enable_thinking=True, thinking_budget=32768, temperature=0.3, max_tokens=65536))
-        self.assertEqual(result['status'], 'FAILED')
-        self.assertEqual(result['error'], 'PROVIDER_REJECTED')
-        self.assertEqual(result['model_params']['thinking_budget'], 32768)
-        self.assertEqual(len(calls), 1)
 
     def test_private_fields_and_unapproved_sources_rejected(self):
         with self.assertRaises(HTTPException):
@@ -329,18 +281,6 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
             public_material([{**PUBLIC[0], 'url': 'https://private.example/account'}])
         self.assertFalse(_event_schema()['additionalProperties'])
 
-    async def test_qwen_schema_uses_existing_key_and_no_chat_model_switch(self):
-        calls = []
-        with patch('core.market_research.read_key', return_value='configured-secret'), \
-             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)):
-            result = await generate(Runtime(), 'qwen', 'qwen3.8-max', '只输出 JSON', PUBLIC)
-        self.assertEqual(result['usage']['total_tokens'], 120)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][2]['response_format']['type'], 'json_schema')
-        self.assertEqual(calls[0][2]['model'], 'qwen3.8-max')
-        self.assertEqual(calls[0][2]['max_tokens'], 8192)
-        self.assertEqual(calls[0][1]['Authorization'], 'Bearer configured-secret')
-        self.assertNotIn('cash', str(calls[0][2]))
 
     async def test_discovered_text_models_are_selectable_but_specialized_models_are_not(self):
         with patch('core.market_research.read_key', return_value='configured-secret'), \
@@ -360,26 +300,7 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
             models = await available_models(Runtime())
         self.assertEqual({item['status'] for item in models}, {'missing_key'})
 
-    async def test_discovered_cloud_model_uses_prompt_json_without_unsupported_format(self):
-        calls = []
-        with patch('core.market_research.read_key', return_value='configured-secret'), \
-             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)):
-            result = await generate(Runtime(), 'qwen', 'stepfun/step-5-preview', '只输出 JSON', PUBLIC)
-        self.assertEqual(result['usage']['total_tokens'], 120)
-        self.assertEqual(calls[0][2]['model'], 'stepfun/step-5-preview')
-        self.assertNotIn('max_tokens', calls[0][2])
-        self.assertNotIn('response_format', calls[0][2])
 
-    async def test_provider_length_finish_preserves_partial_output_for_continuation(self):
-        calls = []
-        with patch('core.market_research.read_key', return_value='configured-secret'), \
-             patch('core.market_research.httpx.AsyncClient', return_value=Client(calls)), \
-             patch.object(Response, 'json', return_value={
-                 'choices': [{'message': {'content': '{"events":'}, 'finish_reason': 'length'}]}):
-            result = await generate(Runtime(), 'qwen', 'qwen3.8-max', '只输出 JSON', PUBLIC)
-        self.assertEqual(result['status'], 'TRUNCATED')
-        self.assertEqual(result['text'], '{"events":')
-        self.assertEqual(result['model_params']['max_tokens'], 8192)
 
 
 if __name__ == '__main__':

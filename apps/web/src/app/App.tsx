@@ -129,6 +129,7 @@ export default function App(): JSX.Element {
   const syncedRunSnapshots=useRef<Record<string,number>>({});
   const currentRun=conversationRun(runList.runs,conversationId);
   const modelSelectionRevision=useRef(0);
+  const modelSaving=useRef(false);
   const liveRun=currentRun&&RUN_LIVE.has(currentRun.status)?currentRun:undefined;
   const busy=turnPending||Boolean(liveRun);
   const refreshRuns=useCallback(async()=>{
@@ -136,9 +137,11 @@ export default function App(): JSX.Element {
   },[]);
 
   const chooseModel=async(model: string)=>{
+    if(modelSaving.current||conversationLoading||loading)return;
     const id=activeConversationIdRef.current;
     if(!id) {setSelectedModelId(model);return;}
     const revision=++modelSelectionRevision.current;
+    modelSaving.current=true;
     setVersionBusy(true);
     try {
       const summary=await updateConversationModel(id,model);
@@ -147,7 +150,11 @@ export default function App(): JSX.Element {
         setConversations(rows=>upsertConversation(rows,summary));
       }
     } catch(cause) {notify(formatBackendError(cause),'error');}
-    finally {if(revision===modelSelectionRevision.current)setVersionBusy(false);}
+    finally {
+      modelSaving.current=false;
+      ++modelSelectionRevision.current;
+      setVersionBusy(false);
+    }
   };
   const [versionBusy, setVersionBusy] = useState(false);
   const [conversationLoading, setConversationLoading] = useState(false);
@@ -684,6 +691,7 @@ export default function App(): JSX.Element {
     if(!conversationId)return;
     let mounted=true;
     const refresh=async()=>{
+      if(modelSaving.current)return;
       const revision=modelSelectionRevision.current;
       try {
         const summary=await fetchConversation(conversationId);
@@ -1393,6 +1401,7 @@ export default function App(): JSX.Element {
         onChangeModel={model=>{void chooseModel(model);}}
         onRefreshModels={refreshModels}
         modelsRefreshing={modelsRefreshing}
+        modelSelectionBusy={versionBusy||conversationLoading||loading}
         exportEnabled={Boolean(conversationId)}
         onExport={handleExportCurrent}
         onOpenModelSettings={() => openSettings('model')}

@@ -17,9 +17,10 @@ export function RunControls({run,onControl}:{run:RunSummary;onControl:(id:string
     try { await onControl(run.id,action); } catch(cause) { setError(formatBackendError(cause)); }
     finally { setPending(false); }
   };
-  const canPause=run.status==='RUNNING'||run.status==='QUEUED';
-  const canStop=RUN_LIVE.has(run.status)||run.status==='QUEUED'||(run.source==='stock'&&run.status==='INTERRUPTED');
-  const canResume=run.status==='PAUSED'||(!RUN_LIVE.has(run.status)&&run.resumable);
+  const allows=(action:string)=>!run.actions||run.actions.includes(action);
+  const canPause=allows('pause')&&(run.status==='RUNNING'||run.status==='QUEUED');
+  const canStop=allows('stop')&&(RUN_LIVE.has(run.status)||run.status==='QUEUED'||(run.source==='stock'&&run.status==='INTERRUPTED'));
+  const canResume=allows('resume')&&(run.status==='PAUSED'||(!RUN_LIVE.has(run.status)&&run.resumable));
   return <>
     <div className="run-actions">
       {canPause&&<button className="btn btn-quiet btn-sm" disabled={pending} onClick={()=>void act('pause')}>暂停</button>}

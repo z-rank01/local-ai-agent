@@ -14,6 +14,7 @@ export type TopBarProps = {
   onChangeModel: (modelId: string) => void;
   onRefreshModels: () => void | Promise<void>;
   modelsRefreshing: boolean;
+  modelSelectionBusy?: boolean;
   exportEnabled: boolean;
   onExport: (format: ExportFormat) => void;
   onOpenModelSettings: () => void;
@@ -41,6 +42,7 @@ export function TopBar({
   onChangeModel,
   onRefreshModels,
   modelsRefreshing,
+  modelSelectionBusy,
   exportEnabled,
   onExport,
   onOpenModelSettings,
@@ -85,6 +87,7 @@ export function TopBar({
             onChange={onChangeModel}
             onRefresh={onRefreshModels}
             refreshing={modelsRefreshing}
+            disabled={modelSelectionBusy}
             onOpenSettings={onOpenModelSettings}
           />
           <button

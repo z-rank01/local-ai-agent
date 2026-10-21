@@ -40,6 +40,10 @@ def resolve_profile(runtime, profile):
 async def invoke(runtime, profile, prompt, material, *, observe=None):
     """One call, no retry or fallback. Receipts exclude prose and reasoning."""
     spec, client = resolve_profile(runtime, profile)
+    if spec['kind']=='cloud':
+        from .providers import read_key
+        if not read_key(spec['api_key_env']):
+            raise ValueError('所选会话模型尚未配置密钥，未发起请求')
     messages = [{'role':'system','content':prompt}, {'role':'user','content':
         material if isinstance(material,str) else json.dumps(material,ensure_ascii=False,allow_nan=False)}]
     params = {'model':spec['id'], 'options':spec['options']}
@@ -104,6 +108,8 @@ async def invoke(runtime, profile, prompt, material, *, observe=None):
         raise
     except (httpx.HTTPError,RuntimeError,ValueError,KeyError,TypeError) as exc:
         result.update(error=type(exc).__name__,failure_category=native.get('failure_category'))
+        if isinstance(exc,(httpx.ConnectError,httpx.ConnectTimeout)):
+            result.update(status='FAILED',error='MODEL_UNAVAILABLE')
         if native.get('result_status') in ('COMPLETE','FAILED','TRUNCATED'):
             result['status']=native['result_status']
         if native.get('result_status')=='TRUNCATED':

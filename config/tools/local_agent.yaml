@@ -1,0 +1,17 @@
+name: local_agent
+display_name: 委派本地 Gemma4
+backend: local-agent
+tier: core
+cloud: read
+description: >-
+  将明确的材料整理、摘要或辅助分析子任务交给本地 Gemma4:26b。传入 task、可选 text，
+  以及当前会话已登记的 evidence_ids。子 Agent 不联网、不操作文件、不发布、不递归委派。
+  返回辅助意见，由你负责最终判断；它不是云端失败后的自动回退，也不认证事实。
+parameters:
+  type: object
+  properties:
+    task: {type: string, minLength: 1}
+    text: {type: string}
+    evidence_ids: {type: array, items: {type: string}}
+  required: [task]
+  additionalProperties: false
