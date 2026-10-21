@@ -16,6 +16,27 @@ from tests.test_file_paging import FileOps, PathGuard
 
 
 class ToolDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_skill_execution_uses_host_revision_and_disabled_skill_never_reaches_runner(self):
+        from harness.capabilities.skill_session import SkillSession
+        registry = ToolRegistry(config.TOOLS_DIR)
+        router = ToolRouter('http://files', 'http://runner', 'http://search', Mock(), Mock(), registry)
+        await router._client.aclose()
+        requests = []
+        def handle(request):
+            requests.append(request)
+            return httpx.Response(200, text=json.dumps({'event': 'result', 'result': {'exit_code': 0, 'result': 7}}) + '\n')
+        router._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        self.addAsyncCleanup(router._client.aclose)
+        router.skill_session = SkillSession(None, '', {}, {'versions': {
+            'calculator': {'kind': 'python', 'revision': 'a' * 64}}, 'invalid': []})
+        result = await router.dispatch('skill_run', {'skill_name': 'calculator', 'params': {'revision': 'model-selected'}})
+        self.assertEqual(result['result'], 7)
+        self.assertEqual(requests[0].headers['X-Skill-Revision'], 'a' * 64)
+        router.skill_session.snapshot['versions'].clear()
+        with self.assertRaisesRegex(ValueError, '已激活'):
+            await router.dispatch('skill_run', {'skill_name': 'calculator'})
+        self.assertEqual(len(requests), 1)
+
     async def test_spilled_results_can_be_read_in_each_workspace_without_crossing_roots(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(config, 'TOOL_RESULT_MAX_CHARS', 40):
             registries = ToolRegistry(config.TOOLS_DIR, enable_websearch=True)

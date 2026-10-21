@@ -75,8 +75,7 @@ class PracticalSkillsTests(unittest.TestCase):
             original = skills / 'demo.py'
             original.write_text('untouched', encoding='utf-8')
             with patch.object(skill_registry, '_SKILLS_DIR', skills), patch.object(
-                    skill_registry, '_REGISTRY_SKILLS_DIR', root / 'registry'), patch.object(
-                    skill_registry, 'run_argv') as execute:
+                    skill_registry, '_REGISTRY_SKILLS_DIR', root / 'registry'), patch('subprocess.Popen') as execute:
                 for name in ('../demo', '..\\demo', '/demo', 'a/b', 'C:demo', 'demo '):
                     for call in (lambda: skill_registry.skill_info(name),
                                  lambda: skill_registry.unregister_skill(name),

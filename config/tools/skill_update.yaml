@@ -5,7 +5,7 @@ tier: extended
 cloud: write
 short_description: "Update a skill."
 description: |
-  更新已注册技能的代码或元数据。可更新脚本代码、重新验证格式、重新安装依赖。
+  更新已注册技能的代码或元数据。仅兼容旧式 Python 技能。可更新脚本代码、重新验证格式，不安装依赖；新建技能使用标准目录。
 parameters:
   type: object
   properties:
@@ -15,8 +15,5 @@ parameters:
     code:
       type: string
       description: "可选：新的技能代码。若提供则覆盖 /workspace/skills/{skill_name}.py"
-    auto_install_deps:
-      type: boolean
-      description: "是否重新安装依赖（默认 true）"
   required:
     - skill_name

@@ -54,6 +54,7 @@ export function SkillManager({workspaceId}: {workspaceId: string}): JSX.Element 
       <summary>{row.id} · {row.missing ? '源目录缺失' : row.uninstalled ? '已移出目录' : !row.enabled ? '已停用' : row.active ? '已启用' : '待激活'}</summary>
       <p className="panel-hint">{(row.pending ?? row.active)?.description}</p>
       <p className="panel-hint">当前版本：{row.active?.version || '未标注'} · {row.active?.revision.slice(0, 12) ?? '无'}</p>
+      {(row.pending ?? row.active)?.kind === 'python' ? <p className="panel-hint">旧式 Python Skill · 固定源码版本执行；Python 环境依赖：{(row.pending ?? row.active)?.environment_dependencies?.join('、') || '无'}。目录检查与更新不会安装依赖。</p> : null}
       {row.blockers.map(message => <p className="panel-hint" key={message}>{message}</p>)}
       {row.pending ? <div className="field">
         <span className="field-label">待激活版本：{row.pending.revision.slice(0, 12)}</span>

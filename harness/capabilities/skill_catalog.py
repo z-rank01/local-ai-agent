@@ -9,7 +9,8 @@ class SkillCatalog:
 
     def blockers(self, entry):
         return ([f'缺少依赖：{name}' for name in entry.get('dependencies', []) if name not in self.available]
-                + [f'宿主未授权：{name}' for name in entry.get('permissions', []) if name not in self.permissions])
+                + [f'宿主未授权：{name}' for name in entry.get('permissions', []) if name not in self.permissions]
+                + list(entry.get('environment_errors', [])))
 
     def reconcile(self, snapshot):
         states = self.store.list(self.workspace_id)
@@ -19,12 +20,14 @@ class SkillCatalog:
             active = state['active']
             if not active or active['revision'] != entry['revision']:
                 prior = active or {}
-                expanded = any(set(entry.get(key, [])) - set(prior.get(key, [])) for key in ('permissions', 'dependencies'))
+                expanded = any(set(entry.get(key, [])) - set(prior.get(key, []))
+                               for key in ('permissions', 'dependencies', 'environment_dependencies'))
                 if state['follow_updates'] and not expanded and not self.blockers(entry):
                     self._activate(state, entry)
                 else:
                     state['pending'] = entry
             else:
+                state['active']['environment_errors'] = list(entry.get('environment_errors', []))
                 state['pending'] = None
             states[name] = state
             self.store.save(self.workspace_id, name, state)
@@ -41,7 +44,7 @@ class SkillCatalog:
             state['history'].append(previous)
         state.update(active=deepcopy(entry), pending=None)
 
-    def action(self, name, action, revision=None):
+    def action(self, name, action, revision=None, *, environment_errors=None):
         state = deepcopy(self.store.list(self.workspace_id).get(name))
         if state is None:
             raise ValueError('技能未登记，请先刷新目录')
@@ -53,6 +56,8 @@ class SkillCatalog:
             entry = next((row for row in candidates if row and row['revision'] == revision), None)
             if not entry:
                 raise ValueError('版本不在此技能的已登记历史中')
+            if environment_errors is not None:
+                entry['environment_errors'] = list(environment_errors)
             errors = self.blockers(entry)
             if errors:
                 raise ValueError('；'.join(errors))

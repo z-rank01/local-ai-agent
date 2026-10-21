@@ -41,7 +41,7 @@ export function fetchCapabilities(): Promise<{api_version: number; capabilities:
 }
 
 export type SkillRevision = {name: string; description: string; version?: string; revision: string;
-  permissions: string[]; dependencies: string[]; path: string};
+  permissions: string[]; dependencies: string[]; environment_dependencies?: string[]; kind?: string; path: string};
 export type ManagedSkill = {id: string; enabled: boolean; missing?: boolean; uninstalled?: boolean;
   active: SkillRevision | null; pending?: SkillRevision | null; history: SkillRevision[]; blockers: string[]};
 export type SkillDiff = {files: {path: string; change: string; before_bytes: number; after_bytes: number;

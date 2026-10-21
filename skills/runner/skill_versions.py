@@ -45,27 +45,41 @@ class SkillVersions:
 
     def capture(self, name: str) -> dict:
         source = checked_child(self.source, validate_name(name))
-        package, error = skill_md.parse_package(source, self.source)
-        if error:
-            raise ValueError(error)
-        contents = _contents(source)
+        legacy = checked_child(self.source, name + '.py')
+        if source.is_dir() and legacy.is_file():
+            raise ValueError('名称与旧式 Python Skill 冲突')
+        is_legacy = legacy.is_file()
+        if is_legacy:
+            from legacy_skill import read_package
+            read_package(legacy)
+            contents = {legacy.name: legacy.read_bytes()}
+        else:
+            package, error = skill_md.parse_package(source, self.source)
+            if error:
+                raise ValueError(error)
+            contents = _contents(source)
         revision = _digest(contents)
         self.storage.mkdir(parents=True, exist_ok=True)
         target = self.storage / revision
         if not target.exists():
             with tempfile.TemporaryDirectory(prefix='.capture-', dir=self.storage) as staging:
                 staged = Path(staging) / revision
-                copied = staged / 'skills' / name
+                copied = staged / 'skills' if is_legacy else staged / 'skills' / name
                 copied.mkdir(parents=True)
                 for relative, data in contents.items():
                     destination = copied / relative
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(data)
                 # Validate the captured bytes, not the still mutable source.
-                captured, error = skill_md.parse_package(copied, copied.parent)
-                if error:
-                    raise ValueError(error)
-                if _digest(_contents(source)) != revision:
+                if is_legacy:
+                    read_package(copied / legacy.name)
+                    current = {legacy.name: legacy.read_bytes()}
+                else:
+                    captured, error = skill_md.parse_package(copied, copied.parent)
+                    if error:
+                        raise ValueError(error)
+                    current = _contents(source)
+                if _digest(current) != revision:
                     raise ValueError('技能在读取期间发生变化，请重新检查')
                 _publish(staged, target)
         captured = self.read(name, revision)
@@ -79,6 +93,12 @@ class SkillVersions:
         version = checked_child(self.storage, revision)
         package_root = checked_child(version, 'skills')
         package_path = checked_child(package_root, name)
+        legacy = checked_child(package_root, name + '.py')
+        if legacy.is_file():
+            from legacy_skill import read_package
+            if _digest(_contents(package_root)) != revision:
+                raise ValueError('旧式技能版本缺失或内容已变化')
+            return read_package(legacy)
         if _digest(_contents(package_path)) != revision:
             raise ValueError('技能版本缺失或内容已变化，不能使用此版本')
         package, error = skill_md.parse_package(package_path, package_root)
@@ -89,9 +109,11 @@ class SkillVersions:
     def freeze(self) -> dict:
         entries, invalid = skill_md.discover_packages(self.source)
         versions = {}
-        for package in entries:
+        names = {package.name for package in entries}
+        names.update(path.stem for path in self.source.glob('*.py') if not path.name.startswith('_'))
+        for name in sorted(names):
             try:
-                versions[package.name] = self.capture(package.name)
-            except (ValueError, OSError) as exc:
-                invalid.append({'name': package.name, 'kind': 'skill_md', 'valid': False, 'error': str(exc)})
+                versions[name] = self.capture(name)
+            except (ValueError, OSError, SyntaxError) as exc:
+                invalid.append({'name': name, 'kind': 'skill', 'valid': False, 'error': str(exc)})
         return {'versions': versions, 'invalid': invalid}

@@ -10,18 +10,14 @@ Skills are executed safely via subprocess (same isolation as code_exec).
 Registration info is persisted to /workspace/.skill_registry/ for fast lookup.
 """
 
-import importlib.util
 import json
 import logging
 import os
 import shutil
-import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from functools import wraps
 
-from sandbox import run_argv
 
 import skill_md
 from skill_paths import validate_name, checked_child
@@ -136,20 +132,6 @@ def _save_skill_config(skill_name: str, config: dict):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _install_dependencies(deps: list[str], timeout: int = 120) -> dict:
-    """Install pip dependencies to /packages."""
-    if not deps:
-        return {"installed": [], "status": "no_deps"}
-    try:
-        from sandbox import run_pip_install
-        result = run_pip_install(deps, timeout=timeout)
-        if result.get("exit_code", 1) == 0:
-            return {"installed": deps, "status": "success"}
-        return {"installed": [], "status": "failed", "error": result.get("stderr", "")}
-    except Exception as exc:
-        return {"installed": [], "status": "failed", "error": str(exc)}
 
 
 def _validate_skill_file(skill_path: Path) -> tuple[dict | None, str]:
@@ -320,88 +302,17 @@ def list_skills() -> list[dict]:
 
 @_validated_identity
 def run_skill(skill_name: str, params: dict, timeout: int = _EXEC_TIMEOUT) -> dict:
-    """Execute a named skill file in an isolated subprocess."""
-
-    if _is_skill_package(skill_name):
-        return {
-            "error": (
-                f"技能 {skill_name!r} 是 SKILL.md 方法型技能包，没有可直接运行的 run() 函数。"
-                "请先用 skill_info 阅读其说明与 references/scripts 清单，"
-                "用 file_read 按需读取 references/ 下的资料，"
-                "需要执行其中脚本时通过 shell_exec / code_exec 运行 scripts/ 下的文件"
-                "（执行前请先审查脚本内容）。"
-            ),
-            "kind": "skill_md",
-        }
-
-    skill_path = _SKILLS_DIR / f"{skill_name}.py"
-
-    if not skill_path.exists():
-        return {"error": f"Skill {skill_name!r} not found in /workspace/skills/"}
-
-    # Auto-install dependencies if needed
-    config = _load_skill_config(skill_name)
-    if config and not config.get("dependencies_installed", False):
-        deps = config.get("dependencies", [])
-        if deps:
-            logger.info("Auto-installing deps for %s: %s", skill_name, deps)
-            install_result = _install_dependencies(deps)
-            if install_result["status"] == "success":
-                config["dependencies_installed"] = True
-                _save_skill_config(skill_name, config)
-            else:
-                logger.warning("Dep install failed for %s: %s", skill_name, install_result)
-
-    wrapper_code = _WRAPPER_TEMPLATE.format(skill_path=str(skill_path))
-    params_json = json.dumps(params, ensure_ascii=False)
-
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            suffix=".py", mode="w", encoding="utf-8", delete=False, dir="/tmp"
-        ) as f:
-            f.write(wrapper_code)
-            tmp_path = f.name
-
-        result = run_argv([sys.executable, tmp_path, params_json], timeout=timeout)
-
-        # Update run stats
-        if config:
-            config["last_run_at"] = _now_iso()
-            config["run_count"] = config.get("run_count", 0) + 1
-            _save_skill_config(skill_name, config)
-
-        if result.get("timed_out"):
-            return {"error": f"Skill {skill_name!r} timed out after {timeout}s; process group terminated"}
-
-        if result["exit_code"] != 0:
-            logger.warning("skill %s failed: %s", skill_name, result["stderr"][:200])
-            return {
-                "exit_code": result["exit_code"],
-                "error": result["stderr"].strip(),
-            }
-
-        stdout = result["stdout"].strip()
-        if not stdout:
-            return {"exit_code": 0, "result": None}
-
-        try:
-            return json.loads(stdout)
-        except json.JSONDecodeError:
-            return {"exit_code": 0, "output": stdout}
-
-    except Exception as exc:
-        return {"error": f"Skill execution error: {exc}"}
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    """Retained Python import name; execution belongs to the pinned stream adapter."""
+    return {'error': '旧式直接执行已停用；请通过宿主固定版本的 skill_run 调用'}
 
 
 # ── Public API: CRUD operations ──────────────────────────────────────────────
 
 @_validated_identity
-def register_skill(skill_name: str, code: str | None = None, auto_install_deps: bool = True) -> dict:
-    """Register a new skill: validate, save config, install dependencies."""
+def register_skill(skill_name: str, code: str | None = None, auto_install_deps: bool = False) -> dict:
+    """Register legacy metadata; dependency preparation is a separate action."""
+    if auto_install_deps:
+        return {"success": False, "error": "技能注册不安装依赖，请单独准备环境后检查版本"}
     _ensure_registry_dirs()
     if _skill_package_dir(skill_name).is_dir():
         return {"success": False, "error": f"名称 {skill_name!r} 已被 SKILL.md 技能包目录占用，请更换技能名"}
@@ -417,15 +328,10 @@ def register_skill(skill_name: str, code: str | None = None, auto_install_deps: 
     if error:
         return {"success": False, "error": error}
 
-    # Install dependencies
     deps = meta.get("dependencies", [])
-    deps_installed = False
-    install_info = {}
-    if deps and auto_install_deps:
-        install_info = _install_dependencies(deps)
-        deps_installed = install_info.get("status") == "success"
-    elif not deps:
-        deps_installed = True
+    from legacy_skill import dependency_errors
+    errors = dependency_errors(deps)
+    deps_installed = not errors
 
     # Create config
     now = _now_iso()
@@ -466,9 +372,8 @@ def register_skill(skill_name: str, code: str | None = None, auto_install_deps: 
         "dependencies": deps,
         "dependencies_installed": deps_installed,
         "script_path": str(skill_path),
+        "environment_errors": errors,
     }
-    if install_info and install_info.get("status") == "failed":
-        result["deps_warning"] = f"依赖安装失败: {install_info.get('error', 'unknown')}"
     return result
 
 
@@ -573,8 +478,10 @@ def skill_info(skill_name: str) -> dict:
 
 
 @_validated_identity
-def update_skill(skill_name: str, code: str | None = None, auto_install_deps: bool = True) -> dict:
+def update_skill(skill_name: str, code: str | None = None, auto_install_deps: bool = False) -> dict:
     """Update an existing skill's code and/or re-validate."""
+    if auto_install_deps:
+        return {"success": False, "error": "技能更新不安装依赖，请单独准备环境后检查版本"}
     if _skill_package_dir(skill_name).is_dir():
         return {"success": False, "error": f"{skill_name!r} 是 SKILL.md 技能包，请直接修改其 SKILL.md 文件"}
     skill_path = _SKILLS_DIR / f"{skill_name}.py"
@@ -596,17 +503,14 @@ def update_skill(skill_name: str, code: str | None = None, auto_install_deps: bo
     config = _load_skill_config(skill_name) or {}
     now = _now_iso()
 
-    # Install deps if needed
+    # Inspect environment metadata only; package installation is a separate action.
     deps = meta.get("dependencies", [])
     old_deps = config.get("dependencies", [])
     deps_changed = set(deps) != set(old_deps)
 
-    deps_installed = config.get("dependencies_installed", False)
-    if deps_changed and deps and auto_install_deps:
-        install_info = _install_dependencies(deps)
-        deps_installed = install_info.get("status") == "success"
-    elif not deps:
-        deps_installed = True
+    from legacy_skill import dependency_errors
+    errors = dependency_errors(deps)
+    deps_installed = not errors
 
     # Update config
     config.update({
@@ -644,6 +548,7 @@ def update_skill(skill_name: str, code: str | None = None, auto_install_deps: bo
         "dependencies": deps,
         "deps_changed": deps_changed,
         "dependencies_installed": deps_installed,
+        "environment_errors": errors,
     }
 
 

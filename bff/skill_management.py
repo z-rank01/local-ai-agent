@@ -105,8 +105,25 @@ async def change_skill(workspace_id: str, name: str, body: SkillAction, request:
     service = get_chat_service().for_workspace(workspace_id)
     lease = service.workspaces.acquire(service.workspaces.snapshot(workspace_id), '__skills__')
     try:
-        return catalog_for(get_runtime(), workspace_id).action(name, body.action, body.revision)
+        catalog = catalog_for(get_runtime(), workspace_id)
+        environment_errors = None
+        if body.action in ('activate', 'rollback'):
+            states = catalog.reconcile(await snapshot_for(workspace_id))
+            state = states.get(name, {})
+            if body.revision not in {row['revision'] for row in
+                    [state.get('active'), state.get('pending'), *state.get('history', [])] if row}:
+                raise ValueError('版本不在此技能的已登记历史中')
+            record = service.workspaces.get(workspace_id)
+            async with httpx.AsyncClient(trust_env=False, timeout=20) as client:
+                response = await client.post(f"http://127.0.0.1:{record['runner_port']}/capabilities/skills/read",
+                    headers={'X-Workspace-Token': tool_token(workspace_id)},
+                    json={'name': name, 'revision': body.revision})
+                response.raise_for_status()
+                environment_errors = response.json().get('environment_errors', [])
+        return catalog.action(name, body.action, body.revision, environment_errors=environment_errors)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, '技能环境核验失败，未切换版本') from exc
     finally:
         service.workspaces.active.pop(lease, None)

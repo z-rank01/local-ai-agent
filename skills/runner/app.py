@@ -29,7 +29,7 @@ from sandbox import run_python, run_shell, run_pip_install
 from bundled_methods import install_methods
 import package_jobs
 from skill_registry import (
-    list_skills, run_skill, register_skill, unregister_skill,
+    list_skills, register_skill, unregister_skill,
     skill_info, update_skill, init_registry,
 )
 from converter_registry import convert_file, list_converters
@@ -97,7 +97,7 @@ class SkillRunRequest(BaseModel):
 class SkillRegisterRequest(BaseModel):
     skill_name: str = Field(..., description="技能名（不含 .py 后缀）")
     code: str | None = Field(default=None, description="完整的技能 Python 代码")
-    auto_install_deps: bool = Field(default=True, description="是否自动安装依赖")
+    auto_install_deps: bool = Field(default=False, description="是否自动安装依赖")
 
 
 class SkillUnregisterRequest(BaseModel):
@@ -111,7 +111,7 @@ class SkillInfoRequest(BaseModel):
 class SkillUpdateRequest(BaseModel):
     skill_name: str = Field(..., description="技能名")
     code: str | None = Field(default=None, description="新的技能代码")
-    auto_install_deps: bool = Field(default=True, description="是否重新安装依赖")
+    auto_install_deps: bool = Field(default=False, description="是否重新安装依赖")
 
 
 class FileConvertRequest(BaseModel):
@@ -228,25 +228,29 @@ async def skill_list():
     return {"skills": list_skills()}
 
 
+def pinned_skill_path(req, request):
+    from skill_execution import resolve_execution
+    try:
+        return resolve_execution(req.skill_name, request.headers.get('X-Skill-Revision'))
+    except (ValueError, OSError, SyntaxError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @app.post("/tool/skill_run")
-async def skill_run_endpoint(req: SkillRunRequest):
-    """Execute a registered skill by name."""
-    if not req.skill_name.strip():
-        raise HTTPException(status_code=400, detail="skill_name must not be empty")
-
-    timeout = min(req.timeout, _PYTHON_TIMEOUT)
-    logger.info("skill_run: name=%r params=%s", req.skill_name, list(req.params.keys()))
-    result = run_skill(req.skill_name, req.params, timeout=timeout)
-
-    if "error" in result:
-        logger.warning("skill_run %r error: %s", req.skill_name, result["error"])
-
-    return result
+async def skill_run_endpoint(req: SkillRunRequest, request: Request):
+    from skill_execution import execute
+    path = pinned_skill_path(req, request)
+    async with aclosing(execute(req.skill_name, path, req.params, min(req.timeout, _PYTHON_TIMEOUT),
+                               execution_identity(request))) as stream:
+        async for item in stream:
+            if item.get('event') == 'result':
+                return item['result']
+    raise HTTPException(502, '技能执行未返回确认回执')
 
 
 @app.post("/tool/skill_register")
 async def skill_register_endpoint(req: SkillRegisterRequest):
-    """注册新技能：验证格式、创建配置、安装依赖。"""
+    """兼容旧式技能：验证格式并创建配置，不安装依赖。"""
     if not req.skill_name.strip():
         raise HTTPException(status_code=400, detail="skill_name must not be empty")
 
@@ -325,36 +329,12 @@ async def code_exec_stream(req: CodeExecRequest, request: Request):
 
 @app.post('/tool/skill_run/stream')
 async def skill_run_stream(req: SkillRunRequest, request: Request):
-    from skill_registry import _SKILLS_DIR, _WRAPPER_TEMPLATE, _load_skill_config, _save_skill_config, _now_iso
-    from skill_paths import validate_name, checked_child
-    try:
-        path = checked_child(_SKILLS_DIR, validate_name(req.skill_name) + '.py')
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    if not path.is_file() or not path.resolve().is_relative_to(_SKILLS_DIR.resolve()):
-        raise HTTPException(404, 'Skill not found')
-    cfg = _load_skill_config(req.skill_name)
-    if cfg and cfg.get('dependencies') and not cfg.get('dependencies_installed'):
-        raise HTTPException(409, '技能依赖未安装，请先安装依赖或重新注册')
+    from skill_execution import execute
+    path = pinned_skill_path(req, request)
     async def events():
-        async with aclosing(stream_python(_WRAPPER_TEMPLATE.format(skill_path=str(path)),
-            min(req.timeout, _PYTHON_TIMEOUT), [json.dumps(req.params)], execution_id=execution_identity(request))) as stream:
+        async with aclosing(execute(req.skill_name, path, req.params, min(req.timeout, _PYTHON_TIMEOUT),
+                                   execution_identity(request))) as stream:
             async for item in stream:
-                if item.get('event') == 'result':
-                    result = item['result']
-                    result['model_observation'] = {'exit_code':result['exit_code'],
-                        'error':'技能执行失败或输出不完整，原始输出保留在本地回执。'}
-                    if result['exit_code'] == 0:
-                        try:
-                            result['result'] = json.loads(result['stdout'].strip().splitlines()[-1])
-                            # Raw stdout can contain local-only result JSON; project the structured result only.
-                            result['model_observation'] = {'exit_code':0, 'result': result['result']}
-                        except (ValueError, IndexError):
-                            result['error'] = '技能返回结果不是完整 JSON，可能被截断；不把原始输出发送给模型'
-                    if cfg:
-                        cfg['run_count'] = cfg.get('run_count', 0) + 1
-                        cfg['last_run_at'] = _now_iso()
-                        _save_skill_config(req.skill_name, cfg)
                 yield json.dumps(item, ensure_ascii=False) + '\n'
     return StreamingResponse(events(), media_type='application/x-ndjson')
 

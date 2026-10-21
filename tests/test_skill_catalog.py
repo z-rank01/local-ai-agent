@@ -51,6 +51,24 @@ class SkillCatalogFlowTests(unittest.TestCase):
             self.assertTrue(reopened.list('one')['notes']['uninstalled'])
             self.assertTrue(reopened.list('one')['notes']['history'])
 
+    def test_legacy_environment_change_waits_for_review_and_checks_current_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            persistence = CapabilityStore(ConversationStore(Path(directory) / 'conversations.db')._connect)
+            catalog = SkillCatalog(persistence, 'one')
+            first = package('a', kind='python', environment_dependencies=[])
+            catalog.effective(snapshot(first))
+            update = package('b', kind='python', environment_dependencies=['example>=2'],
+                             environment_errors=['依赖缺失'])
+            catalog.reconcile(snapshot(update))
+            with self.assertRaisesRegex(ValueError, '依赖缺失'):
+                catalog.action('notes', 'activate', 'b')
+            self.assertEqual(persistence.list('one')['notes']['active']['revision'], 'a')
+            catalog.action('notes', 'activate', 'b', environment_errors=[])
+            unavailable = {**update, 'environment_errors': ['依赖已被移除']}
+            self.assertEqual(catalog.effective(snapshot(unavailable))['versions'], {})
+            with self.assertRaisesRegex(ValueError, '当前环境'):
+                catalog.action('notes', 'rollback', 'a', environment_errors=['当前环境不可用'])
+
     def test_incremental_upgrade_backs_up_without_losing_conversations(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'conversations.db'

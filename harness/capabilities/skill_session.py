@@ -24,15 +24,14 @@ class SkillSession:
     async def info(self, name):
         entry = self.snapshot['versions'].get(name)
         if entry is None:
-            return None  # Legacy Python skills continue through their adapter.
+            return None
         response = await self.client.post(self.base_url + '/capabilities/skills/read',
             headers=self.headers, json={'name': name, 'revision': entry['revision']})
         response.raise_for_status()
         return response.json()
 
     def listing(self, result):
-        legacy = [entry for entry in result.get('skills', []) if entry.get('kind') != 'skill_md']
-        return {'skills': legacy + list(self.snapshot['versions'].values()) + self.snapshot['invalid'],
+        return {'skills': list(self.snapshot['versions'].values()) + self.snapshot['invalid'],
                 **({'error': self.snapshot['error']} if self.snapshot.get('error') else {})}
 
     def discovery_context(self):
@@ -62,6 +61,11 @@ class SkillSession:
             pinned = await self.info(params.get('skill_name', ''))
             if pinned is not None:
                 return pinned
-            if result.get('kind') == 'skill_md':
-                return {'error': self.snapshot.get('error') or '此技能不在本轮版本清单中，下一轮重新核验后可用'}
+            return {'error': self.snapshot.get('error') or '此技能不在本轮版本清单中，下一轮重新核验后可用'}
         return result
+
+    def execution_revision(self, name):
+        entry = self.snapshot['versions'].get(name)
+        if not entry or entry.get('kind') != 'python':
+            raise ValueError('此旧式 Python Skill 不在本轮已激活版本中；方法包请读取正文与脚本')
+        return entry['revision']

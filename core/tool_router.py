@@ -261,10 +261,16 @@ class ToolRouter:
         if hasattr(self, 'workspace_validate'):
             await self.workspace_validate()
         execution_id=uuid.uuid4().hex
+        headers = {**self._headers(backend), 'X-Execution-ID': execution_id}
+        if tool == 'skill_run':
+            skill_session = getattr(self, 'skill_session', None)
+            if skill_session is None:
+                raise ValueError('本轮没有固定技能目录，不能执行可变版本')
+            headers['X-Skill-Revision'] = skill_session.execution_revision(params.get('skill_name', ''))
         completed=False
         try:
             async with self._client.stream('POST', self._backend_urls[backend] + f'/tool/{tool}/stream', json=params,
-                    headers={**self._headers(backend),'X-Execution-ID':execution_id}) as response:
+                    headers=headers) as response:
                 if response.status_code == 404:
                     raise RuntimeError('工具服务版本过旧，缺少流式执行接口。请沿唯一入口重建工具镜像。')
                 response.raise_for_status()
