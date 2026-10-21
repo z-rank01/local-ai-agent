@@ -62,10 +62,13 @@ def inventory(workspace, additional_workspaces=()):
             session = event.get('session_id')
             if session not in native or event.get('event') not in ('native_model_request', 'native_model_result'):
                 continue
-            attempt = native[session].setdefault(event['local_attempt_id'], {})
+            identifier=event.get('local_attempt_id') or event.get('call_id')
+            if not identifier:
+                continue  # Historical events without an ID cannot be paired.
+            attempt = native[session].setdefault(identifier, {})
             if event['event'] == 'native_model_request':
                 attempt.update(at=event.get('ts'), model=event.get('model'), input_chars=event.get('input_chars'),
-                               phase='单独核对' if event.get('research_phase') == 'review' else '研究')
+                               phase={'review':'单独核对','local_delegate':'本地委派'}.get(event.get('research_phase'),'研究'))
             else:
                 attempt.update({key: event.get(key) for key in
                     ('result_status', 'delivery_status', 'finish_reason', 'failure_category', 'elapsed_seconds', 'usage')})
@@ -76,6 +79,7 @@ def inventory(workspace, additional_workspaces=()):
     # calls as if each version made them all.
     database = ROOT/'data/conversations.db'
     managed = {}
+    delegations=[]
     if database.is_file():
         from contextlib import closing
         with closing(sqlite3.connect(database.resolve().as_uri()+'?mode=ro', uri=True)) as db:
@@ -86,10 +90,26 @@ def inventory(workspace, additional_workspaces=()):
                     if research.get('id'):
                         managed.setdefault(research['id'], []).append({'id':identifier, 'status':status,
                             'start':start, 'end':end})
+                scopes={'default' if root==ROOT/'data/workspace' else root.name
+                        for root in (workspace,*additional_workspaces)}
+                for run_id,model,scope,payload in db.execute(
+                        'SELECT r.id,r.model,r.workspace_id,e.payload FROM chat_run_events e '
+                        'JOIN chat_runs r ON r.id=e.run_id'):
+                    event=json.loads(payload); detail=event.get('data',{})
+                    if scope not in scopes or event.get('event')!='tool.completed' or detail.get('name')!='local_agent':
+                        continue
+                    try:
+                        result=json.loads(detail.get('result_preview',''))
+                    except ValueError:
+                        result={}
+                    delegations.append({'run_id':run_id,'main_model':model,
+                        'delegate_model':result.get('delegate_model','未记录具体模型'),
+                        'status':result.get('status',detail.get('status')),'elapsed':detail.get('elapsed'),
+                        'ledger_call_id':result.get('ledger_call_id','未记录')})
     for row in runs:
         row['executions'] = managed.get(row['id'], [])
         row['native_calls'], row['native_scope'] = scoped_calls(row['native_calls'], row['executions'])
-    return {'tools': tools, 'methods': methods, 'runs': runs, 'scenarios': SCENARIOS,
+    return {'tools': tools, 'methods': methods, 'runs': runs, 'scenarios': SCENARIOS,'delegations':delegations,
             'generated_at': datetime.now(timezone.utc).isoformat()}
 
 
@@ -114,8 +134,10 @@ body{overflow-wrap:anywhere;margin:0;background:#f3f5f1;color:#21332c;font:16px/
 <g fill="#e4eee8" stroke="#7b9788"><rect x="10" y="30" width="220" height="70" rx="10"/><rect x="270" y="30" width="220" height="70" rx="10"/><rect x="530" y="30" width="220" height="70" rx="10"/><rect x="790" y="30" width="200" height="70" rx="10"/></g>
 <g font-size="19" text-anchor="middle" fill="#21332c"><text x="120" y="60">问题 → 选择方法</text><text x="120" y="86">模型决策</text><text x="380" y="60">取证 → 计算 → 反证</text><text x="380" y="86">模型选需求、原工具执行</text><text x="640" y="60">单独核对 → 发布</text><text x="640" y="86">同模型核对、程序校验</text><text x="890" y="60">HTML → 报告卡</text><text x="890" y="86">原工作区 / 阅读器</text></g>
 <g stroke="#53645b" stroke-width="3"><path d="M230 65H270M490 65H530M750 65H790"/></g><text x="10" y="150" font-size="18">来源、字段、计算与模型判断分别保存；UNKNOWN 不自动重发。</text><text x="10" y="182" font-size="18">方法是笔记，不是事实。结构检查不是语义认证。</text></svg>
-<h3>实际方法文件</h3><div id="methods" class="grid"></div><h3>研究工具静态定义</h3><p>清单取自当前研究允许集合和对应YAML；开关、授权仍决定每轮实际可用工具。context_evidence_read由Agent按已登记证据动态提供，定义见core/agent.py。</p><div id="tools" class="grid"></div>
-<details><summary>业务模块与产物</summary><pre>core/research_session.py：会话研究记录、容器文件保存、发布
+<p><strong>模型归属：</strong>每个会话独立选模型；分析、写作、单独核对和关联股票任务使用运行开始时的快照。顶部切换只影响本会话后续运行。主模型可按需用 local_agent 委派本地 Gemma4:26b，子任务没有工具、发布或递归委派权限；结果由主模型判断，不作为云端失败回退。</p><h3>实际方法文件</h3><div id="methods" class="grid"></div><h3>研究工具静态定义</h3><p>清单取自当前研究允许集合和对应YAML；开关、授权仍决定每轮实际可用工具。context_evidence_read由Agent按已登记证据动态提供，定义见core/agent.py。</p><div id="tools" class="grid"></div>
+<details><summary>业务模块与产物</summary><pre>core/model_execution.py：冻结会话模型、供应商适配和原模型账本
+core/local_agent.py：本地 Gemma4 只读辅助委派
+core/research_session.py：会话研究记录、容器文件保存、发布
 core/research_visuals.py：发布输入核对、SVG
 core/research_evidence.py：模型选定的证据需求展开为原工具调用；引用片段实际回读
 core/research_review.py：候选稿指纹、独立核对输入与结果契约，不认证语义
@@ -132,17 +154,18 @@ evidence-index.json：实际证据、模型标注与需求结果；reviews/：�
 核对可按实际source_id、检索词和页码请求补读；未完成的选定补读不能冒充核对完成
 publication-attempts/N.json：每次实际发布输入；失败后复制工作稿定向修订，再传draft_path</pre></details></section>
 <section id="flow"><h2>场景流程</h2><span class="badge warn">可能路径 · 非执行证据</span><p><select id="scenario"></select></p><div id="scenario-body"></div></section>
-<section id="replay"><h2>真实运行回放</h2><p>读取所选工作区实际research.json，并关联现有日志中的模型诊断字段。保存状态不是实时运行状态；终态未记录不能当成功或失败。只统计已记录调用，不补猜旧调用或未知用量。隐藏思维链、正文、密钥和完整请求均不展示。</p><select id="run"></select><div id="run-body"></div></section>
-<section id="gaps"><h2>能力与缺口</h2><ul><li>已实现：方法安装、来源分页、容器算术、研究记录和HTML发布。</li><li>实测范围：以本页真实回放和验证记录为准，不能以工具存在推定成功。</li><li>扫描PDF需OCR；当前明确报错，不认证空文本。</li><li>来源冲突和业务因果由模型核查，程序不认证语义；权限、停止及错误需结合验收记录。</li><li>四场景、命名工作区、停止和中断尚未全部完成验收。</li></ul><p>验证记录：docs/记录/2026-10-20-正式财报读取与核对去自证.md；历史记录：docs/记录/2026-10-20-取证需求与单独核对.md。当前进度：股票 docs/计划.md。</p></section></main>
+<section id="replay"><h2>真实运行回放</h2><p>读取所选工作区实际research.json，并关联现有日志中的模型诊断字段。保存状态不是实时运行状态；终态未记录不能当成功或失败。只统计已记录调用，不补猜旧调用或未知用量。隐藏思维链、正文、密钥和完整请求均不展示。</p><select id="run"></select><div id="run-body"></div><h3>本地委派实际记录</h3><p>取自所选工作区的运行事件；不展示子任务正文或隐藏推理。未记录的字段保持未知。</p><div id="delegations"></div></section>
+<section id="gaps"><h2>能力与缺口</h2><ul><li>已实现：方法安装、来源分页、容器算术、研究记录和HTML发布。</li><li>实测范围：以本页真实回放和验证记录为准，不能以工具存在推定成功。</li><li>扫描PDF需OCR；当前明确报错，不认证空文本。</li><li>来源冲突和业务因果由模型核查，程序不认证语义；权限、停止及错误需结合验收记录。</li><li>四场景、命名工作区、停止和中断尚未全部完成验收。</li></ul><p>验证记录：docs/记录/2026-10-21-会话模型统一与本地委派.md；取证历史：docs/记录/2026-10-20-正式财报读取与核对去自证.md；历史记录：docs/记录/2026-10-20-取证需求与单独核对.md。当前进度：股票 docs/计划.md。</p></section></main>
 <script>const data=PAYLOAD;
 const el=id=>document.getElementById(id);const text=(tag,s)=>{const n=document.createElement(tag);n.textContent=s;return n};
 el('stamp').textContent='生成于 '+data.generated_at+'；重新生成可刷新实际定义和回放。';
 for(const m of data.methods){const d=document.createElement('details');d.append(text('summary',m.name),text('small',m.source_file),text('pre',m.text));el('methods').append(d)}
 for(const t of data.tools){const d=document.createElement('details');d.append(text('summary',t.name+' · '+t.backend),text('p',t.description),text('small',t.source_file),text('pre',JSON.stringify(t.parameters,null,2)));el('tools').append(d)}
 for(const k of Object.keys(data.scenarios)){const o=text('option',k);o.value=k;el('scenario').append(o)}
-function scenario(){const box=el('scenario-body');box.replaceChildren(text('p','准备：research_begin → 读取 '+data.scenarios[el('scenario').value].join('、')),text('p','获取：模型登记evidence_requests，原工具执行目录、原件、字段读取；搜索摘要只作线索。'),text('p','分析：容器计算、比较与反证；出现冲突则补查原文，资料不足则收窄结论。'),text('p','核对与交付：当前稿及实际证据 → 同模型单独核对 → 修订或补查 → 程序检查、HTML和报告卡。核对不认证事实，UNKNOWN不重发。'))}el('scenario').onchange=scenario;scenario();
+function scenario(){const box=el('scenario-body');box.replaceChildren(text('p','准备：research_begin → 读取 '+data.scenarios[el('scenario').value].join('、')),text('p','获取：模型登记evidence_requests，原工具执行目录、原件、字段读取；搜索摘要只作线索。'),text('p','分析：容器计算、比较与反证；出现冲突则补查原文，资料不足则收窄结论。'),text('p','核对与交付：当前稿及实际证据 → 同模型单独核对 → 建议旁文件与文末待核项 → 程序检查、HTML和报告卡。默认意见不阻断发布；核对调用未完成不冒充完成，UNKNOWN不重发。'))}el('scenario').onchange=scenario;scenario();
 for(const [i,r] of data.runs.entries()){const o=text('option',r.scope+' · '+r.id.slice(0,8));o.value=i;el('run').append(o)}
 function table(box,head,rows){const t=document.createElement('table');const h=document.createElement('tr');for(const v of head)h.append(text('th',v));t.append(h);for(const row of rows){const tr=document.createElement('tr');for(const v of row)tr.append(text('td',v));t.append(tr)}const wrap=document.createElement('div');wrap.className='scroll';wrap.append(t);box.append(wrap)}
+table(el('delegations'),['运行','主模型','辅助模型','状态','耗时/秒','账本调用'],data.delegations.map(d=>[d.run_id,d.main_model,d.delegate_model,d.status,d.elapsed??'未知',d.ledger_call_id]));
 function replay(){const box=el('run-body');box.replaceChildren();const r=data.runs[el('run').value];if(!r){box.append(text('p','当前没有实际运行记录。'));return}box.append(text('p','模型：'+r.model+'；保存阶段：'+r.phase+'；保存状态：'+r.status),text('p','工作区：'+r.workspace+'；产物：'+r.directory),text('pre','实际读取方法：\n'+(r.methods||[]).join('\n')));if(r.report_url){const a=text('a','打开该版本HTML报告');a.href=r.report_url;a.target='_blank';a.rel='noopener';box.append(a)}box.append(text('p',r.native_scope),text('p','关联运行：'+(r.executions||[]).map(x=>x.id+' / '+x.status).join('；')));box.append(text('h3','工具步骤'));table(box,['阶段','工具','状态','耗时','位置'],(r.trace||[]).map(row=>[row.phase,row.tool,row.status,row.elapsed+'秒',row.path||row.source_id||'']));box.append(text('h3','已记录模型调用（'+r.native_calls.length+'）'));table(box,['阶段','请求时间','输入字符','供应商 / 本地交付','耗时','实际用量'],r.native_calls.map(n=>[n.phase||'历史未区分',n.at||'未记录',n.input_chars??'未知',(n.result_status||'终态未记录')+' / '+(n.delivery_status||'未知')+(n.failure_category?' · '+n.failure_category:''),n.elapsed_seconds==null?'未知':n.elapsed_seconds+'秒',n.usage==null?'未知':JSON.stringify(n.usage)]))}function reviews(){const r=data.runs[el('run').value];if(!r)return;const box=el('run-body');box.append(text('h3','单独核对（不构成事实认证）'));box.append(text('p','实际独立核对调用：'+r.native_calls.filter(n=>n.phase==='单独核对').length));table(box,['候选稿指纹','状态','核对意见','请求补读 / 登记步骤','本地调用关联'],(r.reviews||[]).map(v=>[v.candidate,v.status,v.issues,(v.read_requests||0)+' / '+(v.read_steps||0),v.native_call_id||'未记录']))}el('run').onchange=()=>{replay();reviews()};replay();reviews();</script></html>'''.replace('PAYLOAD', payload)
 
 
