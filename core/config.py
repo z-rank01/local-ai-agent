@@ -95,27 +95,56 @@ HEARTBEAT_TIMEOUT_SECONDS = _env_float("HEARTBEAT_TIMEOUT_SECONDS", 15.0)
 # ── Context management ───────────────────────────────────────────────────
 
 CONTEXT_WINDOW = _env_int("CONTEXT_WINDOW", 32768)
-COMPACT_THRESHOLD = _env_float("COMPACT_THRESHOLD", 0.6)
+# Compaction is a fallback for a full window, not a routine budget. Raised so a
+# long research turn is not summarized away while the model still has room.
+COMPACT_THRESHOLD = _env_float("COMPACT_THRESHOLD", 0.9)
+
+# ── Output limits (0 = unlimited) ────────────────────────────────────────
+# These bound what the model may see or emit. 0 means "no cap"; the harness must
+# not silently shorten provider output, tool results or drafts.
+
+# Per-tool result characters handed back to the model. 0 = full result.
+TOOL_RESULT_MAX_CHARS = _env_int("TOOL_RESULT_MAX_CHARS", 0)
+# When a result does exceed the cap, the untouched payload is written here so no
+# text is lost; the shortened message names the file.
+TOOL_RESULT_SPILL_DIR = Path(_env("TOOL_RESULT_SPILL_DIR",
+                                  str(_PROJECT_ROOT / "data" / "private" / "tool-results")))
+# Sent as the provider's max_tokens. 0 = let the provider decide.
+MODEL_MAX_OUTPUT_TOKENS = _env_int("MODEL_MAX_OUTPUT_TOKENS", 0)
 
 # ── Tool tier ────────────────────────────────────────────────────────────
 
 TOOL_TIER = _env("TOOL_TIER", "all")
 
 # Tool-call rounds per request before the agent is asked to wrap up.
-AGENT_MAX_ROUNDS = _env_int("AGENT_MAX_ROUNDS", 12)
+# 0 = unlimited; research turns already continue while evidence is pending.
+AGENT_MAX_ROUNDS = _env_int("AGENT_MAX_ROUNDS", 0)
 
-# Shared character budget for files auto-injected into one turn's context.  This
-# is a quality/cost knob, not a security limit: prefetched text sits in a user
-# message that compaction never rewrites, so it stays in history for the session.
-PREFETCH_MAX_CHARS = _env_int("PREFETCH_MAX_CHARS", 60000)
+# Time window for one stock/research tool loop, seconds. 0 = unlimited.
+STOCK_WINDOW_SECONDS = _env_int("STOCK_WINDOW_SECONDS", 600)
+
+# Shared character budget for files auto-injected into one turn's context.
+# 0 = no prefetch cap; disable prefetch entirely with PREFETCH_ENABLED=false.
+PREFETCH_MAX_CHARS = _env_int("PREFETCH_MAX_CHARS", 0)
+PREFETCH_ENABLED = _env_bool("PREFETCH_ENABLED", True)
 
 # Optional stock read-only bridge; stock tools are only registered when a URL is set.
 STOCK_BRIDGE_URL = _env("STOCK_BRIDGE_URL", "")
 STOCK_BRIDGE_TOKEN = _env("STOCK_BRIDGE_TOKEN", "")
 
 # Web search/fetch call budgets per user message (fresh allowance each turn).
-WEB_SEARCH_BUDGET = _env_int("WEB_SEARCH_BUDGET", 2)
-WEB_FETCH_BUDGET = _env_int("WEB_FETCH_BUDGET", 2)
+# 0 = unlimited.
+WEB_SEARCH_BUDGET = _env_int("WEB_SEARCH_BUDGET", 0)
+WEB_FETCH_BUDGET = _env_int("WEB_FETCH_BUDGET", 0)
+
+# ── Publication gate ─────────────────────────────────────────────────────
+# The independent review still runs and is still saved; this only decides
+# whether its findings, or a mechanical check, can block publishing.
+PUBLISH_REVIEW_ENFORCE = _env_bool("PUBLISH_REVIEW_ENFORCE", False)
+# Quote provenance: every published quote/number must appear in text the tools
+# actually returned. Kept on by default because it is the anti-fabrication root;
+# set false to publish without that check.
+PUBLISH_QUOTE_CHECK = _env_bool("PUBLISH_QUOTE_CHECK", True)
 
 # Only explicitly designated workspaces may supply tool results to cloud models.
 WORKSPACE_CLOUD_ALLOWED = _env_bool("WORKSPACE_CLOUD_ALLOWED", False)

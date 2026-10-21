@@ -11,6 +11,8 @@ from typing import Any
 
 import yaml
 
+from . import config
+
 logger = logging.getLogger("core.tool_registry")
 
 _WEBSEARCH_BACKEND = "skill-websearch"
@@ -122,8 +124,17 @@ class ToolRegistry:
         return defs
 
     def get_max_result_chars(self, tool_name: str) -> int:
-        tool = self._tools.get(tool_name, {})
-        return tool.get(
-            "max_result_chars",
-            _DEFAULT_MAX_RESULT_CHARS.get(tool_name, 0),
-        )
+        """Result characters handed back to the model; 0 means unlimited.
+
+        A per-tool ``max_result_chars`` in YAML wins so one tool can be bounded
+        deliberately. Otherwise the harness-wide ``config.TOOL_RESULT_MAX_CHARS``
+        applies, and 0 there disables capping entirely — the historical per-tool
+        defaults must not survive a global "unlimited" setting.
+        """
+        override = self._tools.get(tool_name, {}).get("max_result_chars")
+        if override is not None:
+            return int(override)
+        global_cap = config.TOOL_RESULT_MAX_CHARS
+        if global_cap <= 0:
+            return 0
+        return min(global_cap, _DEFAULT_MAX_RESULT_CHARS.get(tool_name, global_cap))

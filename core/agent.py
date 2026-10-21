@@ -141,11 +141,23 @@ def _format_prefetch_content(fname: str, content: str, max_chars: int) -> str:
 # message, which compaction never rewrites.  Raise PREFETCH_MAX_CHARS if your
 # documents are routinely larger.
 _MAX_PREFETCH_FILES = 3
+# Sentinel for "no character cap" so the shared-budget loop stays finite.
+_PREFETCH_UNLIMITED = 10 ** 9
 
 
 def _prefetch_budget() -> int:
+    """Characters of workspace files auto-injected into this turn.
+
+    ``PREFETCH_MAX_CHARS = 0`` means unlimited, but the injection loop needs a
+    finite running total, so an effectively unbounded sentinel is returned
+    instead of 0 (0 would inject nothing at all). Turn prefetch off explicitly
+    with ``PREFETCH_ENABLED=false``.
+    """
     from . import config
-    return max(0, getattr(config, "PREFETCH_MAX_CHARS", 60_000))
+    if not getattr(config, "PREFETCH_ENABLED", True):
+        return 0
+    value = getattr(config, "PREFETCH_MAX_CHARS", 0)
+    return _PREFETCH_UNLIMITED if value is None or value <= 0 else value
 
 
 def _format_tool_result_preview(result: Any, max_chars: int = 1600) -> str:
@@ -203,9 +215,8 @@ class Agent:
     tool_tier : str
         ``"core"`` or ``"all"``; the default mirrors ``config.TOOL_TIER``.
     max_rounds : int
-        Maximum tool-call rounds per request; the default mirrors
-        ``config.AGENT_MAX_ROUNDS`` (12) so direct construction matches the
-        runtime used by the BFF and TUI.
+        Maximum tool-call rounds per request; 0 (the default, mirroring
+        ``config.AGENT_MAX_ROUNDS``) means no round cap.
     """
 
     def __init__(
@@ -219,7 +230,7 @@ class Agent:
         prompt_builder: PromptBuilder,
         memory: MemoryHooks | None = None,
         tool_tier: str = "all",
-        max_rounds: int = 12,
+        max_rounds: int = 0,
     ) -> None:
         self.llm = llm
         self.router = router
@@ -406,7 +417,7 @@ class Agent:
             research_view = ResearchMaterialView()
             research_guidance_message = None
             closing_stagnation = None
-            while (research is not None and research.active) or stock_deadline is not None or research_continuing or round_number < self.max_rounds:
+            while (research is not None and research.active) or stock_deadline is not None or research_continuing or self.max_rounds <= 0 or round_number < self.max_rounds:
                 autonomous = research is not None and research.active
                 if autonomous and any(r.get('status') in ('STARTED','UNKNOWN') for r in research.review_records.values()):
                     await research.incomplete()
@@ -447,7 +458,8 @@ class Agent:
                     active = [d for d in active if d['function']['name'] in {
                         'research_begin','brief_publish','file_read','file_write','code_exec','shell_exec','context_evidence_read'}]
                     no_progress_closed = not active
-                generic_final_round = not autonomous and stock_deadline is None and not research_continuing and round_number == self.max_rounds - 1
+                generic_final_round = (not autonomous and stock_deadline is None and not research_continuing
+                                       and self.max_rounds > 0 and round_number == self.max_rounds - 1)
                 handoff_round = (quality_research and stock_window_closed and not no_progress_closed
                     and not handoff_attempted and not background_submitted
                     and any(d['function']['name'] in handoff_tools for d in active))
@@ -832,7 +844,8 @@ class Agent:
                     if (not stock_window_closed and tool_defs and self.allow_tools and
                             unfinished_execution(reply, user_request)):
                         if (execution_retries >= 2 or not active or
-                                (not autonomous and stock_deadline is None and round_number >= self.max_rounds - 1)):
+                                (not autonomous and stock_deadline is None and self.max_rounds > 0
+                                 and round_number >= self.max_rounds - 1)):
                             raise RuntimeError('模型只给出了待执行代码，没有完成所述操作。已有工具结果保留；代码未自动运行，任务尚未完成。')
                         execution_retries += 1
                         messages.append({'role': 'system', 'content': '执行检查：你刚才说要继续操作，却只输出了代码，代码块不会被执行。请根据用户原任务及只读/讨论等限制判断：若仍需且已获授权执行，使用实际工具调用继续；若用户只需要示例或存在阻碍，明确说明未执行及原因。不新增用户未授权的操作，不把代码示例当作已完成结果。'})
@@ -862,15 +875,22 @@ class Agent:
                                      '本轮未执行的步骤仍列为缺口。')
                     return
                 allowed = {d['function']['name'] for d in active}
-                if (public_research_deadline is None and quality_research and getattr(self, 'stock_loop_enabled', False)
-                        and any(d['function']['name'] in handoff_tools for d in tool_defs)
-                        and any(call['function']['name'] in ('web_search', 'web_fetch')
-                                and call['function']['name'] in allowed for call in calls)):
-                    public_research_deadline = time.monotonic() + getattr(self, 'stock_window_seconds', 600)
-                if (stock_deadline is None and getattr(self, 'stock_loop_enabled', False) and
-                        any(call['function']['name'].startswith('stock_') and
-                            call['function']['name'] in allowed for call in calls)):
-                    stock_deadline = time.monotonic() + getattr(self, 'stock_window_seconds', 600)
+                # A 0 window means no deadline: the loop ends only on delivery,
+                # an explicit stop, or the stagnation guard below.
+                window_seconds = getattr(self, 'stock_window_seconds', None)
+                if window_seconds is None:
+                    from . import config as _config
+                    window_seconds = _config.STOCK_WINDOW_SECONDS
+                if window_seconds and window_seconds > 0:
+                    if (public_research_deadline is None and quality_research and getattr(self, 'stock_loop_enabled', False)
+                            and any(d['function']['name'] in handoff_tools for d in tool_defs)
+                            and any(call['function']['name'] in ('web_search', 'web_fetch')
+                                    and call['function']['name'] in allowed for call in calls)):
+                        public_research_deadline = time.monotonic() + window_seconds
+                    if (stock_deadline is None and getattr(self, 'stock_loop_enabled', False) and
+                            any(call['function']['name'].startswith('stock_') and
+                                call['function']['name'] in allowed for call in calls)):
+                        stock_deadline = time.monotonic() + window_seconds
                 stock_boundary = False
                 fresh_observation = False
                 verified_scope_reply = None

@@ -121,9 +121,16 @@ class PrefetchBudgetTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(len(out), 1_500 + 600)
         self.assertIn('尚未读完', out)
 
-    async def test_zero_budget_injects_nothing(self):
+    async def test_zero_budget_means_unlimited(self):
+        # 0 is "no cap"; an empty budget is expressed with PREFETCH_ENABLED.
         agent = self.agent()
         with patch.object(config, 'PREFETCH_MAX_CHARS', 0):
+            out = await self._run_prefetch(agent, f'看一下 {FILE_NAME}')
+        self.assertIsNotNone(out)
+
+    async def test_disabled_prefetch_injects_nothing(self):
+        agent = self.agent()
+        with patch.object(config, 'PREFETCH_ENABLED', False):
             out = await self._run_prefetch(agent, f'看一下 {FILE_NAME}')
         self.assertIsNone(out)
 

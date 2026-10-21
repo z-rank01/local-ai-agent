@@ -3,22 +3,44 @@ Tool router — dispatches tool calls to skill microservices via HTTP.
 """
 
 import json
+import hashlib
 import os
 import asyncio
 import time
 import uuid
 from contextlib import suppress, aclosing
 import logging
+from pathlib import Path
 from typing import Any
 
 import httpx
 
+from . import config
 from .audit_logger import AuditLogger
 from .conversation_store import ConversationStore
 from .policy_engine import PolicyEngine
 from .tool_registry import ToolRegistry
 
 logger = logging.getLogger("core.router")
+
+
+def _spill_result(tool: str, value: str) -> str | None:
+    """Write an over-cap result to disk so truncation never loses text.
+
+    Returns the workspace path of the stored payload, or None when it could not
+    be written (truncation still happens, but the message says no copy exists).
+    """
+    try:
+        root = config.TOOL_RESULT_SPILL_DIR
+        root.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:24]
+        target = root / f"{tool}-{digest}.txt"
+        if not target.exists():
+            target.write_text(value, encoding="utf-8")
+        return str(target)
+    except OSError as exc:
+        logger.warning("Could not spill %s result: %s", tool, exc)
+        return None
 
 
 class ToolRouter:
@@ -144,16 +166,21 @@ class ToolRouter:
             else:
                 result.pop('_source_file', None)
 
-        # Truncate large string values
+        # Truncate only when a cap is configured (0 = unlimited). The untouched
+        # payload is spilled to disk first, so a shortened message never becomes
+        # the only copy of what the tool returned.
         max_chars = self._registry.get_max_result_chars(tool)
         if max_chars and isinstance(result, dict):
             for key in ("content", "stdout", "stderr", "output", "text"):
                 val = result.get(key)
                 if isinstance(val, str) and len(val) > max_chars:
                     result = dict(result)
+                    spill = _spill_result(tool, val)
                     result[key] = (
                         val[:max_chars]
                         + f"\n...[已截断，仅显示前 {max_chars} 字符，共 {len(val)} 字符]"
+                        + (f"\n...[完整结果已保存: {spill}，可用 file_read 分页读取]"
+                           if spill else "\n...[完整结果未能保存到磁盘]")
                     )
 
         # Auto-chain: file_read → file_convert for unsupported binary files

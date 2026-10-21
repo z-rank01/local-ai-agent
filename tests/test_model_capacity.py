@@ -8,10 +8,17 @@ class ModelCapacityTests(unittest.TestCase):
         with patch('core.model_capacity.config.CONTEXT_WINDOW', 32768):
             self.assertEqual(context_capacity({'context_length': 131072}), (131072, 'model_catalog'))
 
-    def test_unknown_capacity_is_explicit_and_matches_runtime_fallback(self):
+    def test_unknown_capacity_uses_the_configured_window(self):
+        # The fallback follows CONTEXT_WINDOW. Capping it at 32768 used to
+        # silently floor every model that did not declare a window, even when the
+        # environment asked for a larger one.
         with patch('core.model_capacity.config.CONTEXT_WINDOW', 262144):
             for spec in ({}, {'context_window': True}, {'context_length': '131072'}):
-                self.assertEqual(context_capacity(spec), (32768, 'conservative_fallback'))
+                self.assertEqual(context_capacity(spec), (262144, 'conservative_fallback'))
+
+    def test_unknown_capacity_without_a_configured_window_stays_conservative(self):
+        with patch('core.model_capacity.config.CONTEXT_WINDOW', 0):
+            self.assertEqual(context_capacity({}), (32768, 'conservative_fallback'))
 
 
 class DeclaredResearchContextTests(unittest.IsolatedAsyncioTestCase):

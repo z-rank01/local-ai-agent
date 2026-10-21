@@ -212,6 +212,12 @@ class CompatibleClient:
             clean.append(item)
         payload = dict(self.spec.get('options', {}))
         payload.update(model=self.model, messages=clean, stream=True)
+        # Ask for the largest output the model is known to accept. A provider
+        # default cap silently truncates long tool-call arguments (publish drafts
+        # are 15-24 KB of JSON), which surfaces as malformed tool input.
+        output_limit = self.spec.get('max_output_tokens') or config.MODEL_MAX_OUTPUT_TOKENS
+        if type(output_limit) is int and output_limit > 0:
+            payload['max_tokens'] = output_limit
         if tools:
             payload['tools'] = tools
         if selected_source_tool:
