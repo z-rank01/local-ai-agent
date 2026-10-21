@@ -14,8 +14,11 @@ router = APIRouter()
 
 
 def catalog_for(runtime, workspace_id, *, allow_write=True):
+    manager = getattr(runtime, 'capabilities', None)
     available = [row['id'] for row in package_catalog(config._PROJECT_ROOT / 'plugins',
-                 runtime.tool_registry.ownership()) if row['registration'] == 'registered']
+                 runtime.tool_registry.ownership()) if row['registration'] == 'registered' and
+                 all(not manager or not manager.manages(owner) or manager.status(owner)['accepting']
+                     for owner in row.get('owners', []))]
     permissions = ['workspace.read'] + (['workspace.write', 'scripts.execute'] if allow_write else [])
     return SkillCatalog(CapabilityStore(runtime.store._connect), workspace_id, available, permissions)
 

@@ -28,7 +28,7 @@ export type CapabilitySummary = {
 };
 
 export function setCapability(identity: string, enabled: boolean): Promise<unknown> {
-  return requestJson(`/api/capabilities/${encodeURIComponent(identity)}`, {method:'POST', body:JSON.stringify({enabled})});
+  return requestJson(`/api/capabilities/${encodeURIComponent(identity)}`, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({enabled})});
 }
 
 export function fetchCapabilities(): Promise<{api_version: number; capabilities: CapabilitySummary[]}> {
@@ -49,11 +49,11 @@ export function fetchManagedSkills(workspaceId: string): Promise<{skills: Manage
 }
 export function changeManagedSkill(workspaceId: string, name: string, action: string, revision?: string): Promise<ManagedSkill> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills/${encodeURIComponent(name)}`,
-    {method: 'POST', body: JSON.stringify({action, revision})});
+    {method: 'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({action, revision})});
 }
 export function importManagedSkill(workspaceId: string, path: string): Promise<{name: string}> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills-import`,
-    {method: 'POST', body: JSON.stringify({path})});
+    {method: 'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({path})});
 }
 
 // Same-origin by default (BFF serves the production build); the Vite dev
