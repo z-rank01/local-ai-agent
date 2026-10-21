@@ -1143,6 +1143,8 @@ class ChatSessionService:
             from core.memory_manager import MemoryManager
             agent.memory = MemoryManager(router, llm)
         agent.extra_system_sections = ["当前工作区：" + record["name"] + "。所有文件路径必须属于以下已挂载根目录：\n" + "\n".join(self._snapshot.roots) + "\n默认执行目录：" + self._snapshot.cwd + "。可以读写所有这些目录；目录之间使用完整路径。"]
+        if getattr(router, 'skill_session', None) is not None:
+            agent.extra_system_sections.append(router.skill_session.discovery_context())
         method_id = conversation.research_method
         if method_id != 'auto' and not answer_only:
             from core.stock_service import stock_service

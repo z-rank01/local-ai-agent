@@ -27,7 +27,9 @@ EXPECTED_WRITE = {
 class DeclarationTests(unittest.TestCase):
     def _tools(self):
         out = {}
-        for path in sorted(Path(config.TOOLS_DIR).glob('*.yaml')):
+        paths = [*Path(config.TOOLS_DIR).glob('*.yaml'),
+                 *(config._PROJECT_ROOT / 'plugins').glob('*/tools/*.yaml')]
+        for path in sorted(paths):
             tool = yaml.safe_load(path.read_text(encoding='utf-8'))
             out[tool['name']] = tool
         return out

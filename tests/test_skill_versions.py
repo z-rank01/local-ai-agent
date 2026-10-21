@@ -31,6 +31,8 @@ class SkillVersionFlowTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(skill_version_api, 'storage', return_value=store):
                 async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://runner') as client:
                     first = await SkillSession.prepare(client, 'http://runner', {})
+                    self.assertIn('整理会议', first.discovery_context())
+                    self.assertNotIn('旧方法', first.discovery_context())
                     mark.write_text(prefix + '新方法', encoding='utf-8')
                     self.assertEqual((await first.info('meeting'))['body'], '旧方法')
                     second = await SkillSession.prepare(client, 'http://runner', {})
@@ -49,6 +51,7 @@ class SkillVersionFlowTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual((await resumed.info('meeting'))['body'], '旧方法')
                     third = await SkillSession.prepare(client, 'http://runner', {})
                     self.assertEqual(third.snapshot['versions'], {})
+                    self.assertEqual(third.discovery_context(), '')
                     self.assertIn('error', await third.adapt('skill_info', {'skill_name': 'meeting'}, {'kind': 'skill_md'}))
                     retained = Path(first.snapshot['versions']['meeting']['path']) / 'SKILL.md'
                     retained.write_text(prefix + '被改写', encoding='utf-8')

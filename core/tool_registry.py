@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 from harness.capabilities.tools import OwnedTools
+from harness.capabilities.tool_sources import tool_sources
 
 from . import config
 
@@ -39,7 +40,7 @@ class ToolRegistry:
         if not tools_path.is_dir():
             logger.warning("tools_dir %r does not exist — no tools loaded", tools_dir)
             return
-        for yaml_file in sorted(tools_path.glob("*.yaml")):
+        for yaml_file in self._sources(tools_path):
             try:
                 with open(yaml_file, encoding="utf-8") as f:
                     tool = yaml.safe_load(f)
@@ -74,11 +75,16 @@ class ToolRegistry:
     def load_backend(self, tools_dir: str | Path, backend: str) -> None:
         """Compatibility adapter for existing YAML tool packages."""
         definitions = []
-        for path in sorted(Path(tools_dir).glob('*.yaml')):
+        for path in self._sources(Path(tools_dir)):
             tool = yaml.safe_load(path.read_text(encoding='utf-8'))
             if isinstance(tool, dict) and tool.get('backend') == backend:
                 definitions.append(tool)
         self.replace_owner(backend, definitions)
+
+    @staticmethod
+    def _sources(directory):
+        packages = config._PROJECT_ROOT / 'plugins' if directory.resolve() == Path(config.TOOLS_DIR).resolve() else None
+        return tool_sources(directory, packages)
 
     def ownership(self) -> dict[str, str]:
         return self._owned.owners()
