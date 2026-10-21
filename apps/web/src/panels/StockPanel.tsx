@@ -329,6 +329,7 @@ export function StockPanel({conversation, onChanged}: StockPanelProps): JSX.Elem
         <Accordion open={Boolean(openGroups.model)} onToggle={() => toggleGroup('model')}
           head="会话模型" meta={conversation?.model || '请先选择会话'}>
           <p className="panel-hint">跟随本会话模型：{conversation?.model || '尚未关联会话'}。新后台任务继承提交时模型，运行中保持不变；顶部切换只影响本会话后续任务。</p>
+          {status?.worker?.model&&<p className="panel-hint">后台领取运行快照：{status.worker.model} · 所属会话 {status.worker.conversation_id}。暂停后重新启动才采用新选择。</p>}
         </Accordion>
       ) : null}
 

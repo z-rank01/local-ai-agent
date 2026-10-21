@@ -57,20 +57,12 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, '聊天'):
             await self.service.action(None, {'action': 'start'}, lambda: True)
 
-    async def test_market_model_accepts_discovered_text_and_rejects_missing_key(self):
-        catalog = [{'provider': 'qwen', 'model': 'stepfun/step-5-preview', 'status': 'configured'},
-                   {'provider': 'qwen', 'model': 'qwen3.5-flash', 'status': 'missing_key'}]
-        self.service.request = AsyncMock(return_value={})
-        self.service.status = AsyncMock(return_value={'online': True})
-        with patch('core.market_research.available_models', AsyncMock(return_value=catalog)):
-            await self.service.action(None, {'action': 'market_model_configure',
-                                             'model': {'provider': 'qwen', 'model': 'stepfun/step-5-preview'}})
-            self.service.request.assert_any_await('/api/control/action', {
-                'action': 'market_model_configure',
-                'model': {'provider': 'qwen', 'model': 'stepfun/step-5-preview'}})
-            with self.assertRaisesRegex(ValueError, '未安装或未配置密钥'):
-                await self.service.action(None, {'action': 'market_model_configure',
-                                                 'model': {'provider': 'qwen', 'model': 'qwen3.5-flash'}})
+    async def test_independent_model_settings_are_deprecated_without_side_effects(self):
+        self.service.request=AsyncMock()
+        for action in ('market_model_configure','research_model_configure'):
+            with self.assertRaisesRegex(ValueError,'已停用'):
+                await self.service.action(None,{'action':action,'model':{'provider':'qwen','model':'qwen3.8-flash'}})
+        self.service.request.assert_not_awaited()
 
     async def test_stop_waits_for_delayed_exit_and_returns_offline(self):
         server = await asyncio.start_server(lambda r, w: w.close(), '127.0.0.1', 0)
