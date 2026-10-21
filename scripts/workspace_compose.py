@@ -14,7 +14,7 @@ from core import config
 from core.conversation_store import ConversationStore
 from core.workspaces import WorkspaceManager, WorkspaceSnapshot, tool_token
 from harness.infrastructure.capability_store import CapabilityStore
-from harness.infrastructure.plugin_services import compose_service
+from harness.infrastructure.plugin_services import compose_service, compose_gateway
 
 
 def generate(apply_workspace_id=None):
@@ -72,6 +72,9 @@ def generate(apply_workspace_id=None):
                 logging.warning('Optional plugin service %s unavailable: %s', identity, exc)
                 continue
             topology['services'][name] = service
+            topology['networks'].update(networks)
+            gateway_name, gateway, networks = compose_gateway(root, name, service, binding['port'])
+            topology['services'][gateway_name] = gateway
             topology['networks'].update(networks)
     destination = root / 'data/private/workspace-compose.json'
     temporary = destination.with_suffix('.tmp')

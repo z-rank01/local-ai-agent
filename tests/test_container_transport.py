@@ -5,6 +5,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
+import httpx
 from harness.contracts.tool_provider import ExecutionContext
 from core.workspaces import WorkspaceSnapshot
 
@@ -12,6 +13,23 @@ Transport = importlib.import_module('plugins.document-batch.transport').BatchTra
 
 
 class ContainerTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_prepared_but_unstarted_workspace_does_not_hide_running_workspace(self):
+        tasks = importlib.import_module('plugins.document-batch.tasks').BatchTasks
+        async def health(workspace):
+            if workspace == 'default':
+                raise httpx.ConnectError('not started')
+        record = {'id': 'a' * 64, 'files': [], 'request': {'context': {'conversation_id': 'c'}},
+                  'state': 'RUNNING', 'created_at': '2026-10-21T00:00:00Z'}
+        client = SimpleNamespace(identity='document-batch:ocr', health=health,
+            workspaces=SimpleNamespace(records=lambda: [{'id': 'default'}, {'id': '1' * 12}]),
+            store=SimpleNamespace(list=lambda *_: {'document-batch:ocr': {}}),
+            request=AsyncMock(return_value={'tasks': [record]}))
+        result = await tasks(client).list(None)
+        self.assertEqual(len(result['runs']), 1)
+        self.assertEqual(result['runs'][0]['workspace_id'], '1' * 12)
+        self.assertTrue(result['status']['online'])
+        self.assertIn('default', result['status']['message'])
+
     async def test_host_context_idempotency_and_readonly_denial(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

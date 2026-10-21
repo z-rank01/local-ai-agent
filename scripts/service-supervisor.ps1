@@ -219,8 +219,8 @@ function Invoke-DailyDockerOperation($Context, [string]$Operation, [string]$Work
         'websearch_stop' { @('compose', '--profile', 'websearch', 'stop', 'searxng', 'skill-websearch') }
         'stack_shutdown' { @('compose', '--profile', '*', 'down', '--remove-orphans') }
         'plugin_prepare' { @('compose', '--progress', 'plain', '--profile', 'plugin-services', 'build', [string]$registeredService.name) }
-        'plugin_start' { @('compose', '--profile', 'plugin-services', 'up', '-d', '--no-build', '--wait', [string]$registeredService.name) }
-        'plugin_stop' { @('compose', '--profile', 'plugin-services', 'stop', [string]$registeredService.name) }
+        'plugin_start' { @('compose', '--profile', 'plugin-services', 'up', '-d', '--no-build', '--wait', [string]$registeredService.name, ($registeredService.name + '-gateway')) }
+        'plugin_stop' { @('compose', '--profile', 'plugin-services', 'stop', [string]$registeredService.name, ($registeredService.name + '-gateway')) }
         'plugin_probe' { @('image', 'inspect', '--format', '{{json .Config.Labels}}', [string]$registeredService.image) }
         'workspace_sync' {
             if ($WorkspaceId -ne 'default' -and $WorkspaceId -notmatch '^[a-f0-9]{12}$') { throw 'Invalid workspace id' }

@@ -33,7 +33,15 @@ class PluginServiceTopologyTests(unittest.TestCase):
                 topology = json.loads((root / 'data/private/workspace-compose.json').read_text())
                 service = topology['services'][first['name']]
                 self.assertEqual(service['profiles'], ['plugin-services'])
-                self.assertEqual(service['ports'], [f'127.0.0.1:{first["port"]}:8300'])
+                self.assertNotIn('ports', service)
+                gateway = topology['services'][first['name'] + '-gateway']
+                self.assertEqual(gateway['ports'], [f'127.0.0.1:{first["port"]}:8300'])
+                self.assertEqual(gateway['environment']['UPSTREAM_HOST'], first['name'])
+                self.assertEqual(gateway['environment']['UPSTREAM_PORT'], '8300')
+                self.assertEqual(len(gateway['volumes']), 1)
+                self.assertEqual(gateway['volumes'][0]['target'], '/service_proxy.py')
+                self.assertTrue(gateway['volumes'][0]['read_only'])
+                self.assertNotIn('WORKSPACE_TOOL_TOKEN', gateway['environment'])
                 self.assertEqual(service['environment']['WORKSPACE_ID'], 'default')
                 self.assertEqual(service['cap_drop'], ['ALL'])
                 self.assertTrue(topology['networks'][service['networks'][0]]['internal'])

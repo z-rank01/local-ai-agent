@@ -1,5 +1,6 @@
 """Task projections read the workspace service's original records."""
 import re
+import httpx
 from harness.contracts.tasks import TaskUnavailable
 
 
@@ -29,18 +30,25 @@ class BatchTasks:
     async def list(self, workspace_id):
         if self.client is None:
             raise TaskUnavailable('插件未加载')
-        rows = []
+        rows, unavailable, online = [], [], False
         for workspace in self.client.workspaces.records():
             identity = workspace['id']
             if workspace_id and workspace_id != identity:
                 continue
             if self.client.identity not in self.client.store.list(identity, 'plugin_service'):
                 continue
-            await self.client.health(identity)
-            rows.extend(self.present(identity, row) for row in
-                        (await self.client.request(identity, 'GET', '/tasks'))['tasks'])
-        return {'runs': rows, 'status': {'online': bool(rows or self.client.started), 'title': '批量文档处理',
-                                        'details': ['原件保留；可选环境按需运行']}}
+            try:
+                await self.client.health(identity)
+                tasks = await self.client.request(identity, 'GET', '/tasks')
+                rows.extend(self.present(identity, row) for row in tasks['tasks'])
+                online = True
+            except httpx.ConnectError:
+                # Preparation records a binding without starting a container.
+                # One offline workspace must not hide another workspace's live jobs.
+                unavailable.append(identity)
+        return {'runs': rows, 'status': {'online': online, 'title': '批量文档处理',
+            'details': ['原件保留；可选环境按需运行'],
+            'message': '未启动的工作区：' + '、'.join(unavailable) if unavailable else ''}}
 
     def split(self, run_id):
         match = re.fullmatch(r'documents:(default|[a-f0-9]{12}):([a-f0-9]{64})', run_id)

@@ -67,7 +67,7 @@ def compose_service(project, snapshot, plugin_id, service_id, port, token):
     service = {'container_name': name, 'image': spec['image'], 'profiles': ['plugin-services'],
         'build': {'context': str(project.resolve()), 'dockerfile': spec['dockerfile'],
                   'labels': {'local-ai-agent.revision': spec['revision']}},
-        'ports': [f'127.0.0.1:{port}:{spec["port"]}'], 'networks': [network],
+        'networks': [network], 'expose': [str(spec['port'])],
         'environment': {'WORKSPACE_TOOL_TOKEN': token, 'WORKSPACE_ID': snapshot.id,
             'WORKSPACE_VERSION': str(snapshot.version), 'WORKSPACE_ROOTS': json.dumps(list(snapshot.roots)),
             'WORKSPACE_ROOT': '/workspace'},
@@ -78,3 +78,19 @@ def compose_service(project, snapshot, plugin_id, service_id, port, token):
         'healthcheck': {'test': ['CMD', 'python', '-c', health], 'interval': '5s',
             'timeout': '4s', 'retries': 12, 'start_period': '10s'}, 'stop_grace_period': '40s'}
     return name, service, {network: {'driver': 'bridge', 'internal': True}}
+
+
+def compose_gateway(project, name, service, port):
+    """Only this fixed relay has a host port; the processing container stays internal."""
+    network = name + '-gateway-net'
+    gateway = {'container_name': name + '-gateway', 'image': service['image'],
+        'profiles': ['plugin-services'], 'command': ['python', '/service_proxy.py'],
+        'ports': [f'127.0.0.1:{port}:8300'],
+        'networks': [*service['networks'], network],
+        'environment': {'UPSTREAM_HOST': name, 'UPSTREAM_PORT': service['expose'][0],
+                        'PYTHONDONTWRITEBYTECODE': '1'},
+        'volumes': [{'type': 'bind', 'source': str((project / 'harness/infrastructure/service_proxy.py').resolve()),
+                    'target': '/service_proxy.py', 'read_only': True, 'bind': {'create_host_path': False}}],
+        'read_only': True, 'cap_drop': ['ALL'], 'security_opt': ['no-new-privileges:true'],
+        'mem_limit': '64m', 'cpus': 0.25, 'labels': service['labels']}
+    return name + '-gateway', gateway, {network: {'driver': 'bridge'}}
