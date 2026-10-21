@@ -394,10 +394,11 @@ class ResearchSession:
                 raise ValueError('发布草稿未能读取')
             span = page.get('range') or {}
             start, end = span.get('start'), span.get('end')
-            if type(start) is not int or type(end) is not int or start != offset:
-                # No ranged read available: take the returned content as the file.
-                parts.append(page['content'])
-                break
+            if not span and offset == 0 and page.get('next_offset') is None and page.get('total_chars') == len(page['content']):
+                return json.loads(page['content'])
+            if (type(start) is not int or type(end) is not int or start != offset
+                    or not offset < end <= offset + len(page['content'])):
+                raise ValueError('文件工具未提供有效字符范围或明确完整文件，不能将缺损页当发布JSON')
             if digest is not None and page.get('sha256') != digest:
                 raise ValueError('发布草稿在分页读取期间发生变化，请完成编辑后再提交')
             chunk = page['content'][:max(0, end - start)]
@@ -407,9 +408,11 @@ class ResearchSession:
             parts.append(chunk)
             following = page.get('next_offset')
             if following is None:
+                if span.get('total', page.get('total_chars', end)) != end:
+                    raise ValueError('发布草稿读取缺少尾页')
                 break
-            if type(following) is not int or following <= offset:
-                raise ValueError('发布草稿读取游标未前进')
+            if type(following) is not int or following != end:
+                raise ValueError('发布草稿读取游标与当前页不连续')
             offset = following
         return json.loads(''.join(parts))
 

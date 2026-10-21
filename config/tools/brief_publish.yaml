@@ -12,7 +12,7 @@ description: >-
 parameters:
   type: object
   properties:
-    draft_path: {type: string, description: 本轮research_begin返回目录内的完整发布JSON。使用此项时不要再传其他字段；文件包含下列正文、引用、计算、图表与核对项。}
+    draft_path: {type: string, description: 本轮research_begin返回目录内的完整发布JSON；可搭配内联字段覆盖文件同名字段。}
     title: {type: string}
     markdown: {type: string, description: 面向读者的研究正文，不含编制过程或订正清单；来源和计算由程序附在末尾}
     editorial_notes:
@@ -47,7 +47,7 @@ parameters:
                 unit: {type: string}
                 period: {type: string}
                 source: {type: string, description: 实际source_id；前项结果使用calculation:零起始索引；数学常数使用constant:含义且period为不适用}
-              required: [unit, period, source]
+              required: [period, source]
         required: [operation, inputs, unit]
     charts:
       type: array
@@ -69,7 +69,7 @@ parameters:
                 calculation: {type: integer, description: calculations零起始索引}
               required: [label]
         required: [title, unit, period, items]
-    visual_limitations: {type: string, description: 无图时必须说明为何不适合绘制；保存于证据而非正文，不替代研究资料限制}
+    visual_limitations: {type: string, description: 可选的图示限制说明，保存于证据而非正文，不替代研究资料限制}
     review:
       type: object
       properties:

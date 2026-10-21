@@ -33,6 +33,35 @@ def literal_text(text):
     return re.sub(r'\s+', ' ', text).strip()
 
 
+_MONEY_UNITS = {'元': Decimal(1), '万元': Decimal(10000), '亿元': Decimal(100000000)}
+
+
+def convert_unit(value, source, target):
+    """Convert supported display units; never relabel an unchanged quantity."""
+    value = number(value)
+    if source == target:
+        return value
+    if source not in _MONEY_UNITS or target not in _MONEY_UNITS:
+        raise ValueError(f'不能换算单位 {source} → {target}；请使用相同单位或明确换算算式')
+    with localcontext() as ctx:
+        ctx.prec = 40
+        return value * _MONEY_UNITS[source] / _MONEY_UNITS[target]
+
+
+def normalize_publication(params):
+    params = deepcopy(params)
+    review = params.setdefault('review', {})
+    review.setdefault('checks', [])
+    review.setdefault('limitations', '未单独说明资料限制，请结合来源范围阅读。')
+    review.setdefault('conflicts', [])
+    params.setdefault('calculations', [])
+    params.setdefault('charts', [])
+    for item in params.get('sources', []):
+        if not item.get('locator'):
+            item['locator'] = '未记录具体位置'
+    return params
+
+
 def validate_visual_plan(params):
     """Charts are optional.
 
@@ -45,7 +74,7 @@ def validate_visual_plan(params):
 
 def validate_publication(params, sources, read_text):
     # Complete derived fields in a copy; the model's submitted draft stays intact.
-    params = deepcopy(params)
+    params = normalize_publication(params)
     for key in ('title', 'markdown', 'as_of', 'stance'):
         if not isinstance(params.get(key), str) or not params[key].strip():
             raise ValueError(f'发布缺少 {key}')
@@ -70,7 +99,7 @@ def validate_publication(params, sources, read_text):
         raise ValueError('简报没有实际原文引用')
     calculations = params.get('calculations', [])
     for index, calc in enumerate(calculations):
-        if not calc['inputs'] or any(not row['period'] or not row['unit'] for row in calc['inputs']):
+        if not calc['inputs'] or any(not row['period'] for row in calc['inputs']):
             raise ValueError('计算输入缺少来源、期间或单位')
         for input_index, row in enumerate(calc['inputs']):
             if row['source'].startswith('calculation:'):
@@ -78,12 +107,14 @@ def validate_publication(params, sources, read_text):
                 if not reference.isdecimal() or not 0 <= int(reference) < index:
                     raise ValueError('计算依赖只能引用此前已核对的 calculation:零起始索引')
                 previous = calculations[int(reference)]
-                row.setdefault('value', previous['result'])
-                # The value must still match the referenced calculation; a
-                # differing unit is an explicit conversion and is allowed.
-                if number(row['value']) != number(previous['result']):
-                    raise ValueError(f'calculations[{index}].inputs[{input_index}] 的原值与前项calculation:{reference}不一致；换算需另列算式')
+                row.setdefault('unit', previous['unit'])
+                expected = convert_unit(previous['result'], previous['unit'], row['unit'])
+                row.setdefault('value', str(expected))
+                if number(row['value']) != expected:
+                    raise ValueError(f'calculations[{index}].inputs[{input_index}] 的原值与前项calculation:{reference}换算后不一致')
                 continue
+            if not row.get('unit'):
+                raise ValueError('计算输入缺少单位')
             if row['source'].startswith('constant:') and row['period'] == '不适用':
                 continue
             if row['source'] not in cited or not quoted_number(row['value'], cited[row['source']]['quote']):
@@ -92,9 +123,8 @@ def validate_publication(params, sources, read_text):
         with localcontext() as ctx:
             ctx.prec = 40
             operation = calc['operation']
-            # Mixed units in a +/- chain used to be rejected outright. The inputs
-            # are what the model declared, each already traced to a quote, so
-            # requiring one unit for the whole chain only blocked conversions.
+            if operation in ('sum', 'subtract'):
+                values = [convert_unit(row['value'], row['unit'], calc['unit']) for row in calc['inputs']]
             if operation == 'sum':
                 value = sum(values, Decimal(0))
             elif len(values) == 2 and operation in ('subtract', 'multiply', 'divide'):
@@ -113,10 +143,11 @@ def validate_publication(params, sources, read_text):
                 index = item['calculation']
                 if type(index) is not int or not 0 <= index < len(calculations):
                     raise ValueError('图表计算索引无效')
-                item.setdefault('value', calculations[index]['result'])
+                expected = convert_unit(calculations[index]['result'], calculations[index]['unit'], chart['unit'])
+                item.setdefault('value', str(expected))
                 value = number(item['value'])
-                if value != number(calculations[index]['result']):
-                    raise ValueError('图表值与计算不一致')
+                if value != expected:
+                    raise ValueError('图表值与计算换算后不一致')
             else:
                 number(item['value'])
                 source = cited.get(item.get('source'))

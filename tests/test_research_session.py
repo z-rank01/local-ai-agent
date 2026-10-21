@@ -430,11 +430,57 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             changed['calculations'][1]['inputs'][0][key] = bad
             with self.assertRaises(ValueError):
                 validate_publication(changed, run.sources, run.read_text)
-        # A different unit on a calculation reference is an explicit conversion
-        # now; the value must still match the referenced result.
+        # A different unit must change the quantity's numeric representation.
         converted = copy.deepcopy(params)
         converted['calculations'][1]['inputs'][0]['unit'] = '亿元'
-        validate_publication(converted, run.sources, run.read_text)
+        with self.assertRaises(ValueError):
+            validate_publication(converted, run.sources, run.read_text)
+        del converted['calculations'][1]['inputs'][0]['value']
+        checked = validate_publication(converted, run.sources, run.read_text)
+        self.assertEqual(checked['calculations'][1]['inputs'][0]['value'], '0.000001')
+        self.assertEqual(checked['calculations'][1]['result'], '0.02')
+
+    async def test_mixed_money_units_and_chart_conversion_preserve_quantity(self):
+        _, run, params = await self.prepare()
+        source = params['sources'][0]['id']
+        text = '营业收入100元，其他收入1万元'
+        run.read_text[source] = [text]
+        params['sources'][0]['quote'] = text
+        params['calculations'] = [{'operation':'sum', 'unit':'元', 'inputs':[
+            {'value':'100','unit':'元','period':'2025','source':source},
+            {'value':'1','unit':'万元','period':'2025','source':source}]}]
+        params['charts'][0].update(unit='万元', items=[{'label':'合计','calculation':0}])
+        checked = validate_publication(params, run.sources, run.read_text)
+        self.assertEqual(checked['calculations'][0]['result'], '10100')
+        self.assertEqual(checked['charts'][0]['items'][0]['value'], '1.01')
+        self.assertEqual(validate_publication(checked, run.sources, run.read_text), checked)
+        params['charts'][0]['unit'] = '%'
+        with self.assertRaisesRegex(ValueError, '不能换算单位'):
+            validate_publication(params, run.sources, run.read_text)
+
+    async def test_optional_publication_metadata_does_not_crash_renderer(self):
+        files, run, params = await self.prepare()
+        del params['review']
+        del params['sources'][0]['locator']
+        params['charts'] = []
+        result = await run.publish(params)
+        html = files.files[result['path']]
+        self.assertIn('未记录具体位置', html)
+        self.assertIn('未单独说明资料限制', html)
+
+    async def test_legacy_complete_json_requires_explicit_size_and_no_next_page(self):
+        files, run, params = await self.prepare()
+        text = json.dumps(params)
+        from unittest.mock import AsyncMock
+        run.router = type('Reader', (), {'dispatch': AsyncMock(return_value={
+            'content':text,'total_chars':len(text),'next_offset':None})})()
+        self.assertEqual(await run.read_json('unused'), params)
+        for result in ({'content':text}, {'content':text,'total_chars':len(text)+1},
+                       {'content':text,'total_chars':len(text),'next_offset':len(text)},
+                       {'content':text,'range':{'start':0,'end':len(text),'total':len(text)+1},'next_offset':None}):
+            run.router.dispatch.return_value = result
+            with self.assertRaises(ValueError):
+                await run.read_json('unused')
 
     async def test_chart_accepts_explicit_table_header_unit(self):
         _, run, params = await self.prepare()
