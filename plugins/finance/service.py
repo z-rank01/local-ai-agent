@@ -137,7 +137,8 @@ class StockService:
             if bridge:
                 await bridge.close()
             raise
-        runtime.stock_bridge = runtime.router._stock_bridge = bridge
+        runtime.router.bind_provider('stock-bridge', bridge)
+        runtime.stock_bridge = bridge
         if previous:
             await previous.close()
 

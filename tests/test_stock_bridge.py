@@ -585,7 +585,7 @@ class RouterDelegationTests(unittest.IsolatedAsyncioTestCase):
             bridge.call_tool = call_tool
             router = ToolRouter(config.SKILL_FILES_URL, config.SKILL_RUNNER_URL, config.SKILL_WEBSEARCH_URL,
                                 PolicyEngine(config.POLICY_PATH), AuditLogger(Path(tmp)/'audit.jsonl'),
-                                registry, stock_bridge=bridge)
+                                registry, providers={'stock-bridge': bridge})
             self.addAsyncCleanup(router.close)
             result = await router.dispatch('stock_account_view', {}, 'conv-9')
             self.assertEqual(result['model_observation'], {'ok': True})
@@ -663,7 +663,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://x')
         self.runtime.stock_bridge = stub
         self.runtime.tool_registry = registry
-        self.runtime.router._stock_bridge = stub
+        self.runtime.router.bind_provider('stock-bridge', stub)
         self.runtime.router._registry = registry
         return stub
 
@@ -760,7 +760,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([row[2] for row in stub.turns if row[0] == 'set'],
                          ['find-evidence', 'read-next'])
 
-    async def test_interrupt_finishes_bridge_session_without_events(self):
+    async def test_disconnect_keeps_execution_then_explicit_stop_finishes_bridge(self):
         stub = self.install_bridge(['X'])
         parent = self
         ref = 'a' * 64
@@ -785,6 +785,12 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
                 break
         await stream.aclose()
         self.assertFalse(any(e.event == 'tool.local_result' for e in collected))
+        # Closing an observer must not cancel the backend-owned execution.
+        self.assertFalse(any(t[0] == 'finish' for t in stub.turns))
+        run_id = next(e.run_id for e in collected if e.run_id)
+        self.assertIn(run_id, self.service.runs.live)
+        stopped = await self.service.control_run(run_id, 'stop')
+        self.assertEqual(stopped['status'], 'STOPPED')
         self.assertTrue(any(t[0] == 'finish' for t in stub.turns))
         # Attachment harvested to storage silently, not streamed.
         cid = next(t[1] for t in stub.turns if t[0] == 'set')
@@ -811,7 +817,7 @@ class StockPrivacyTests(unittest.IsolatedAsyncioTestCase):
             async def close(self): pass
         stub = StubBridge()
         self.runtime.stock_bridge = stub
-        self.runtime.router._stock_bridge = stub
+        self.runtime.router.bind_provider('stock-bridge', stub)
         registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://x')
         self.runtime.tool_registry = registry
         self.runtime.router._registry = registry

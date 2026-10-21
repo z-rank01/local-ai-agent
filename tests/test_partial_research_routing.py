@@ -18,7 +18,7 @@ class PartialResearchRoutingTests(unittest.TestCase):
 
     def test_tool_exposes_optional_stage_without_new_entry(self):
         definition = yaml.safe_load((Path(__file__).resolve().parents[1] /
-            'config/tools/stock_research_resume.yaml').read_text(encoding='utf-8'))
+            'plugins/finance/tools/stock_research_resume.yaml').read_text(encoding='utf-8'))
         self.assertEqual(definition['name'], 'stock_research_resume')
         self.assertEqual(definition['parameters']['required'], ['reference'])
         self.assertEqual(definition['parameters']['properties']['continuation_stage']['enum'],

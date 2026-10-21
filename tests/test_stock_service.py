@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 from core.stock_service import StockService
@@ -32,9 +32,9 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         state = self.root / 'simulation'; state.mkdir()
         (state / '.paper-master-token').write_text('test-token')
         registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='')
-        runtime = SimpleNamespace(stock_bridge=None, router=SimpleNamespace(_stock_bridge=None), tool_registry=registry)
+        runtime = SimpleNamespace(stock_bridge=None, router=SimpleNamespace(bind_provider=Mock()), tool_registry=registry)
         await self.service.attach(runtime, True)
-        self.assertIs(runtime.stock_bridge, runtime.router._stock_bridge)
+        runtime.router.bind_provider.assert_called_with('stock-bridge', runtime.stock_bridge)
         self.assertIn('stock_research_submit', registry.known_tools)
         self.assertIn('stock_candidate_screen', registry.known_tools)
         self.assertIn('stock_candidate_find', registry.known_tools)
@@ -42,7 +42,7 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('stock_research_submit', registry.known_tools)
         self.assertNotIn('stock_candidate_screen', registry.known_tools)
         self.assertNotIn('stock_candidate_find', registry.known_tools)
-        self.assertIsNone(runtime.router._stock_bridge)
+        runtime.router.bind_provider.assert_called_with('stock-bridge', None)
 
     async def test_busy_stop_keeps_bridge_and_settings(self):
         self.service.settings['enabled'] = True
@@ -69,13 +69,13 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         registry.replace_owner('another-plugin', [
             {'name': 'stock_research_submit', 'backend': 'another-plugin'}])
         previous, candidate = SimpleNamespace(close=AsyncMock()), SimpleNamespace(close=AsyncMock())
-        runtime = SimpleNamespace(stock_bridge=previous, router=SimpleNamespace(_stock_bridge=previous),
+        runtime = SimpleNamespace(stock_bridge=previous, router=SimpleNamespace(bind_provider=Mock()),
                                   tool_registry=registry)
         with patch('plugins.finance.service.StockBridge', return_value=candidate):
             with self.assertRaisesRegex(ValueError, 'already registered'):
                 await self.service.attach(runtime, True)
         self.assertIs(runtime.stock_bridge, previous)
-        self.assertIs(runtime.router._stock_bridge, previous)
+        runtime.router.bind_provider.assert_not_called()
         previous.close.assert_not_awaited()
         candidate.close.assert_awaited_once()
         self.assertEqual(registry.ownership()['stock_research_submit'], 'another-plugin')

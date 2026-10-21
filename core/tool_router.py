@@ -18,6 +18,7 @@ from .audit_logger import AuditLogger
 from .conversation_store import ConversationStore
 from .policy_engine import PolicyEngine
 from .tool_registry import ToolRegistry
+from harness.contracts.tool_provider import ToolTransport
 
 logger = logging.getLogger("core.router")
 
@@ -34,7 +35,7 @@ class ToolRouter:
         store: ConversationStore | None = None,
         *,
         enable_websearch: bool = False,
-        stock_bridge=None,
+        providers: dict[str, ToolTransport] | None = None,
     ):
         self._backend_urls = {
             "skill-files": skill_files_url.rstrip("/"),
@@ -46,7 +47,7 @@ class ToolRouter:
         self._audit = audit
         self._registry = registry
         self._store = store
-        self._stock_bridge = stock_bridge
+        self._providers = dict(providers or {})
         self._client = httpx.AsyncClient(timeout=300.0, trust_env=False)
         if os.environ.get("DAILY_SERVICES") == "1":
             from .workspaces import tool_token
@@ -58,6 +59,13 @@ class ToolRouter:
             self._backend_urls.pop(backend, None)
         else:
             self._backend_urls[backend] = url.rstrip('/')
+
+    def bind_provider(self, backend: str, provider: ToolTransport | None) -> None:
+        """Bind an installed provider through the public transport boundary."""
+        if provider is None:
+            self._providers.pop(backend, None)
+        else:
+            self._providers[backend] = provider
 
     def _workspace_params(self, tool, params):
         snapshot = getattr(self, 'workspace_snapshot', None)
@@ -153,14 +161,14 @@ class ToolRouter:
             result = self._dispatch_local(tool, params)
             self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
             return result
-        if backend == "stock-bridge":
-            if self._stock_bridge is None:
-                raise RuntimeError("股票能力未配置（缺少 STOCK_BRIDGE_URL）。")
-            result = await self._stock_bridge.call_tool(tool, params, session_id)
-            self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
-            return result
         if hasattr(self, "workspace_validate"):
             await self.workspace_validate()
+        if backend in self._providers:
+            result = await self._providers[backend].call_tool(tool, params, session_id)
+            self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
+            return result
+        if backend not in self._backend_urls:
+            raise RuntimeError(f"能力传输未配置：{backend}")
         base_url = self._backend_urls[backend]
 
         if tool == 'web_fetch':

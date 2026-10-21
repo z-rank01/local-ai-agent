@@ -86,7 +86,7 @@ def build_runtime() -> RuntimeServices:
         tool_registry,
         store=store,
         enable_websearch=enable_websearch,
-        stock_bridge=stock_bridge,
+        providers={'stock-bridge': stock_bridge} if stock_bridge else {},
     )
     llm = LLMClient(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
     context_mgr = ContextManager(

@@ -14,3 +14,8 @@ class ExecutionContext:
 class ToolProvider(Protocol):
     def invoke(self, tool: str, arguments: dict, context: ExecutionContext) -> dict:
         """Return an actual receipt; failures must not be represented as success."""
+
+
+class ToolTransport(Protocol):
+    async def call_tool(self, tool: str, arguments: dict, session_id: str) -> dict:
+        """Adapt an installed service; identity and grants remain host-owned."""
