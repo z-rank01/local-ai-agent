@@ -458,6 +458,22 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, '不能换算单位'):
             validate_publication(params, run.sources, run.read_text)
 
+    async def test_all_bad_raw_calculation_inputs_return_together(self):
+        _, run, params = await self.prepare()
+        key = params['sources'][0]['id']
+        params['calculations'] = [{'operation':'sum','unit':'元','inputs':[
+            {'value':'200','period':'2025','source':key},
+            {'value':'300','unit':'元','period':'2025','source':key}]}]
+        with self.assertRaises(ValueError) as error:
+            validate_publication(params,run.sources,run.read_text)
+        self.assertIn('计算输入缺少单位',str(error.exception))
+        self.assertIn('inputs[0]',str(error.exception))
+        self.assertIn('inputs[1]',str(error.exception))
+        self.assertIn('300',str(error.exception))
+        params['calculations'][0]['inputs'] = [{'value':'2','unit':'元','period':'2025','source':'constant:不能伪造期间'}]
+        with self.assertRaises(ValueError):
+            validate_publication(params,run.sources,run.read_text)
+
     async def test_optional_publication_metadata_does_not_crash_renderer(self):
         files, run, params = await self.prepare()
         del params['review']

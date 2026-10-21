@@ -3,7 +3,7 @@ name: file_read
 backend: skill-files
 tier: core
 cloud: read
-short_description: "Read a file."
+short_description: "分页读取工作区文件；按next_offset续读，sha256核对快照。已验证source_excerpts的位置可用于简报引用，文件存在不等于已读。"
 description: >-
   读取工作区内文件的内容，Excel 与 PDF 会自动转成文本。
   文件超过返回上限时分页交付：返回里带 total_chars 与 next_offset，

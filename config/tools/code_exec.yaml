@@ -3,7 +3,7 @@ name: code_exec
 backend: skill-runner
 tier: core
 cloud: write
-short_description: "Run Python code."
+short_description: "在工作区容器运行Python计算或摘录。已有草稿优先用file_edit/file_write或发布内联覆盖修改，避免跨容器文件属主导致脚本覆写失败。"
 description: "在工具容器执行Python源码，参数名是code，不是command。适合计算、解析和临时核对；Shell命令用shell_exec.command。优先使用json、decimal、urllib等标准库；第三方库先用importlib.util.find_spec核实，不假设requests等已安装。"
 parameters:
   type: object

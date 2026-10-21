@@ -16,7 +16,7 @@ class AdvisoryPublicationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_default_reviews_canonical_draft_once_and_publishes_with_advice(self):
         issue = {'section':'结论','claim':'原结论待核','reason':'<待补证>',
-                 'evidence':'已有来源','action':'核对适用期间','severity':'blocking'}
+                 'evidence':'已有来源','action':'核对适用期间<待补证>','severity':'blocking'}
         with patch.object(config,'PUBLISH_REVIEW_ENFORCE',False):
             files,run,draft,agent,calls = await reviews.ReviewTests().setup_review([
                 {'issues':[issue],'checks':['已检查期间'],'read_requests':[

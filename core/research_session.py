@@ -440,6 +440,8 @@ class ResearchSession:
             value = await self.read_json(path)
             if not isinstance(value, dict):
                 raise ValueError('发布草稿须为包含正文、引用、计算和图表的 JSON 对象')
+            if 'draft_path' in value:
+                raise ValueError('草稿JSON内不能嵌套draft_path；请直接保存正文和资料字段')
             params = {**value, **{key:item for key,item in params.items() if key != 'draft_path'}}
         params = normalize_publication(params)
         for item in params.get('sources', []):
@@ -513,7 +515,7 @@ class ResearchSession:
         if review.get('issues'):
             notes = '<section class="references"><details><summary>待核事项（模型核对建议，非事实认证）</summary><ul>'
             for issue in review['issues']:
-                notes += '<li>' + escape(issue['section']+'：'+issue['claim']+'；'+issue['reason']) + '</li>'
+                notes += '<li>' + escape(issue['section']+'：'+issue['action']) + '</li>'
             notes += '</ul></details></section>'
         return render_document(params['markdown']+self.references(params), title=params['title'],
             generated_at=datetime.now(timezone.utc).isoformat(), model=self.model,

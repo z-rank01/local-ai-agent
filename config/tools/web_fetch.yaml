@@ -3,7 +3,7 @@ name: web_fetch
 backend: skill-websearch
 tier: extended
 cloud: read
-short_description: "Fetch a web page."
+short_description: "读取网页或PDF并登记source_id/saved_source；附件document_links只是线索，须继续读取；分页按next_offset和source_hash续读。财务接口也须先登记来源。"
 description: >
   获取指定网页的正文内容。用于在 web_search 搜索到结果后，深入阅读某个页面的详细内容。
   会自动提取网页或PDF原文，PDF保留页码。next_offset非空时可续读，传回sha256作为source_hash以拒绝快照混合。

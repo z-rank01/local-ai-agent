@@ -53,7 +53,7 @@ parameters:
               type: object
               properties:
                 value: {type: string, description: 原文或常数原值；source引用前项计算时可省略，由程序取值}
-                unit: {type: string}
+                unit: {type: string, description: 原文原值必须填实际单位；仅source为calculation引用时可省略并继承前项单位}
                 period: {type: string}
                 source: {type: string, description: 实际source_id；前项结果使用calculation:零起始索引；数学常数使用constant:含义且period为不适用}
               required: [period, source]
@@ -85,4 +85,3 @@ parameters:
         checks: {type: array, items: {type: string}, description: 已实际做的核对，非思维链}
         limitations: {type: string}
         conflicts: {type: array, items: {type: string}}
-      required: [checks, limitations, conflicts]

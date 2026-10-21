@@ -98,6 +98,17 @@ def validate_publication(params, sources, read_text):
     if not cited:
         raise ValueError('简报没有实际原文引用')
     calculations = params.get('calculations', [])
+    errors = []
+    for index, calc in enumerate(calculations):
+        for input_index, row in enumerate(calc['inputs']):
+            if row['source'].startswith('calculation:') or (row['source'].startswith('constant:') and row.get('period') == '不适用'):
+                continue
+            if not row.get('unit'):
+                errors.append(f'calculations[{index}].inputs[{input_index}] 计算输入缺少单位；原文原值需填单位，只有前项计算引用可以继承单位')
+            if row['source'] not in cited or not quoted_number(row['value'], cited[row['source']]['quote']):
+                errors.append(f"calculations[{index}].inputs[{input_index}] 的 {row['value']} 未在来源 {row['source']} 引句中定位；换算或中间结果须引用前项计算，数学常数须标明含义")
+    if errors:
+        raise ValueError('\n'.join(errors))
     for index, calc in enumerate(calculations):
         if not calc['inputs'] or any(not row['period'] for row in calc['inputs']):
             raise ValueError('计算输入缺少来源、期间或单位')
@@ -117,8 +128,6 @@ def validate_publication(params, sources, read_text):
                 raise ValueError('计算输入缺少单位')
             if row['source'].startswith('constant:') and row['period'] == '不适用':
                 continue
-            if row['source'] not in cited or not quoted_number(row['value'], cited[row['source']]['quote']):
-                raise ValueError(f"calculations[{index}].inputs[{input_index}] 的 {row['value']} 未在来源 {row['source']} 引句中定位；换算或中间结果须引用前项计算，数学常数须标明含义")
         values = [number(row['value']) for row in calc['inputs']]
         with localcontext() as ctx:
             ctx.prec = 40
