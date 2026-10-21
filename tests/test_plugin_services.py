@@ -1,5 +1,6 @@
 """Registered service preparation generates isolated, optional launcher topology."""
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ from unittest.mock import patch
 
 from core import config
 from harness.infrastructure.plugin_services import service_spec
+from harness.contracts.package_revision import package_revision
 from scripts import plugin_service, workspace_compose
 
 
@@ -49,6 +51,13 @@ class PluginServiceTopologyTests(unittest.TestCase):
                 self.assertEqual([mount['source'] for mount in service['volumes'] if 'source' in mount],
                                  [str(root / 'workspace')])
                 self.assertEqual(service['build']['labels']['local-ai-agent.revision'], first['revision'])
+                # Container Linux and Windows hosts must hash mixed-case paths identically.
+                (package / 'runtime/app.py').write_text('pass\n', encoding='utf-8')
+                expected = hashlib.sha256()
+                for relative in ['plugin.json', 'runtime/Dockerfile', 'runtime/app.py']:
+                    name, data = relative.encode(), (package / relative).read_bytes()
+                    expected.update(len(name).to_bytes(8, 'big') + name + len(data).to_bytes(8, 'big') + data)
+                self.assertEqual(package_revision(package), expected.hexdigest())
                 (package / 'runtime/requirements.txt').write_text('package==1\n', encoding='utf-8')
                 self.assertNotEqual(first['revision'], service_spec(root, 'documents', 'ocr')['revision'])
                 with self.assertRaises(ValueError): service_spec(root, '../documents', 'ocr')

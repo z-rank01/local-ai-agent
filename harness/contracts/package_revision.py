@@ -7,7 +7,9 @@ def package_revision(root):
     paths = [root / 'plugin.json', *root.glob('tools/*.yaml'),
              *(p for p in root.glob('runtime/**/*') if p.is_file() and
                '__pycache__' not in p.parts and p.suffix != '.pyc')]
-    for path in sorted(paths):
+    # WindowsPath sorts case-insensitively; Linux containers do not. Hash the
+    # portable manifest order, so identical Dockerfile/app.py bytes agree.
+    for path in sorted(paths, key=lambda item: item.relative_to(root).as_posix()):
         if not path.resolve().is_relative_to(root.resolve()):
             raise ValueError('插件资源越界')
         name = path.relative_to(root).as_posix().encode('utf-8')

@@ -858,6 +858,9 @@ class Agent:
                         await research.incomplete()
                         yield AgentEvent('error', text='连续12个工具步骤未增加原文读取、方法或阶段成果，研究未完成交付；已保存来源与计算，不会自动重跑。')
                         return
+                    if no_progress_closed and not background_submitted:
+                        yield AgentEvent('error', text='连续工具步骤未取得新结果，本轮未完成；已有结果和失败回执已保留，未执行的步骤不会自动补跑。')
+                        return
                     yield AgentEvent('done', text='已取得的结果保留在会话中。已提交的后台研究可继续查询；'
                                      '本轮未执行的步骤仍列为缺口。')
                     return

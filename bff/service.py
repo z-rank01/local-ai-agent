@@ -1223,6 +1223,7 @@ class ChatSessionService:
         brief_comparison = (BriefComparison() if stock_bridge is not None and not answer_only
                             and brief_comparison_requested(turn_query) else None)
         brief_failed = False
+        last_assistant_content = None
         if brief_comparison is not None:
             # The verified renderer only needs version lookup and report pages.
             # Withhold tools unrelated to this verified metadata comparison.
@@ -1290,12 +1291,18 @@ class ChatSessionService:
                         save('protocol', metadata={**meta, 'message': protocol})
                         if message['role'] == 'assistant' and not event.data.get('internal'):
                             final_text = message.get('content') or text
+                            last_assistant_content = final_text
                             if brief_comparison is None and (final_text or reasoning):
                                 saved = save('assistant', final_text, thinking=reasoning, metadata=meta)
                                 yield emit('assistant.completed', block_id=block, message_id=saved.id,
                                     data={'text': final_text, 'model': spec['id']})
                             text, reasoning = '', ''
                             block, thinking_block = uuid.uuid4().hex, uuid.uuid4().hex
+                    elif event.kind == 'done' and event.text and event.text != last_assistant_content and brief_comparison is None:
+                        saved = save('assistant', event.text, metadata=meta)
+                        last_assistant_content = event.text
+                        yield emit('assistant.completed', block_id=block, message_id=saved.id,
+                            data={'text': event.text, 'model': spec['id']})
                     elif event.kind == 'tool_start':
                         cid = event.data['call_id']
                         active_tools[cid] = event.data
