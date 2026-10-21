@@ -143,6 +143,10 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         events=[e async for e in agent.run([{'role':'user','content':'原问题'}])]
         self.assertEqual(len(actual),1)
         self.assertTrue(any(e.kind=='tool_start' and e.data['name']=='web_fetch' for e in events))
+        expansion = next(e for e in events if e.kind == 'message' and e.data.get('internal'))
+        self.assertTrue(expansion.data['message']['tool_calls'])
+        self.assertIn('程序执行已登记证据需求', expansion.data['message']['content'])
+        self.assertTrue(next(e for e in events if e.kind == 'tool_start').data['purpose'])
         self.assertIn('AN123',json.dumps(captured))
         self.assertFalse(run.pending_evidence)
 

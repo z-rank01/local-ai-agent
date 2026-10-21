@@ -257,10 +257,24 @@ class ChatSessionService:
     def get_messages(self, conversation_id: str) -> list[MessageRecord]:
         self._require_conversation(conversation_id)
         version_counts = self._response_version_counts(conversation_id)
-        return [
-            self._message_record(message, version_count=version_counts.get(message.response_to_message_id, 1))
-            for message in self._store.get_messages(conversation_id) if message.role != "protocol"
-        ]
+        visible, previous = [], None
+        for message in self._store.get_messages(conversation_id):
+            # Old program expansions were also saved as answers. Hide only the
+            # exact duplicate immediately paired with its tool-call protocol;
+            # raw history and ordinary model prose remain untouched.
+            duplicate = (message.role == 'assistant' and previous is not None
+                and previous.role == 'protocol'
+                and message.content.startswith('程序执行已登记证据需求：'))
+            if duplicate:
+                protocol = json.loads(previous.metadata or '{}').get('message', {})
+                duplicate = (protocol.get('role') == 'assistant'
+                    and bool(protocol.get('tool_calls'))
+                    and protocol.get('content') == message.content)
+            if message.role != 'protocol' and not duplicate:
+                visible.append(self._message_record(message,
+                    version_count=version_counts.get(message.response_to_message_id, 1)))
+            previous = message
+        return visible
 
     def prepare_brief_material(self, conversation_id: str, references: list[str]) -> dict:
         """Local preparation for the writing pipeline, not a model/tool endpoint.
@@ -1197,7 +1211,7 @@ class ChatSessionService:
                                     if brief_comparison is not None and message['role'] == 'assistant'
                                     else message)
                         save('protocol', metadata={**meta, 'message': protocol})
-                        if message['role'] == 'assistant':
+                        if message['role'] == 'assistant' and not event.data.get('internal'):
                             final_text = message.get('content') or text
                             if brief_comparison is None and (final_text or reasoning):
                                 saved = save('assistant', final_text, thinking=reasoning, metadata=meta)
@@ -1209,7 +1223,8 @@ class ChatSessionService:
                         cid = event.data['call_id']
                         active_tools[cid] = event.data
                         yield emit('tool.started', block_id=cid, data={**event.data,
-                            'params': _redact_params(event.data.get('params', {})), 'summary': event.data['name']})
+                            'params': _redact_params(event.data.get('params', {})),
+                            'summary': event.data.get('purpose') or event.data['name']})
                     elif event.kind == 'tool_progress':
                         running = active_tools.get(event.data['call_id'])
                         if running is not None and event.data.get('event') == 'output':
@@ -1222,8 +1237,10 @@ class ChatSessionService:
                         if brief_comparison is not None:
                             brief_comparison.accept(data)
                         display_params = _redact_params(data.get('params', {}))
-                        saved = save('tool', '[' + data['status'] + '] ' + data['name'] + (' 已完成' if data['status']=='ok' else ' 执行失败') + '\n' + data.get('result_preview',''), tool_name=data['name'],
-                            tool_result=data.get('result'), metadata={**meta, 'params': display_params, 'status': data['status']})
+                        saved = save('tool', '[' + data['status'] + '] ' + data['name'] + (' 已完成' if data['status']=='ok' else ' 执行失败')
+                            + (' · ' + data['purpose'] if data.get('purpose') else '') + '\n' + data.get('result_preview',''), tool_name=data['name'],
+                            tool_result=data.get('result'), metadata={**meta, 'params': display_params,
+                                'purpose': data.get('purpose', ''), 'status': data['status']})
                         active_tools.pop(data['call_id'], None)
                         if stock_bridge is not None:
                             stock_tool_rows[data['call_id']] = saved.id
@@ -1233,7 +1250,8 @@ class ChatSessionService:
                                 if isinstance(sequence, int):
                                     stock_pending_local[sequence] = data['call_id']
                         yield emit('tool.completed', block_id=data['call_id'], message_id=saved.id,
-                            data={**data, 'params': display_params, 'detail': data.get('result_preview',''), 'headline': event.text})
+                            data={**data, 'params': display_params, 'detail': data.get('result_preview',''),
+                                'summary': data.get('purpose') or event.text, 'headline': event.text})
                     elif event.kind == 'error':
                         if getattr(agent, 'pending_source_review', ''):
                             text += agent.pending_source_review

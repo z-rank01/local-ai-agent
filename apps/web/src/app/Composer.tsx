@@ -9,7 +9,6 @@ export type ComposerProps = {
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
-  onStop: () => void;
   busy: boolean;
   versionBusy: boolean;
   editing: boolean;
@@ -27,14 +26,13 @@ const baseName = (path: string): string => path.split('/').filter(Boolean).pop()
 
 /* 底部输入胶囊：附件 chip 行 + 文本域 + 工具条。
    Enter 发送（Shift+Enter 换行），中文输入法组字中的 Enter 不发送；
-   生成中只把发送切成停止，文本域照常可继续起草。 */
+   运行状态与控制集中在上沿，文本域照常可继续起草。 */
 export function Composer({
   runStatus,
   contextLoading = false,
   value,
   onChange,
   onSend,
-  onStop,
   busy,
   versionBusy,
   editing,
@@ -82,8 +80,8 @@ export function Composer({
 
   return (
     <footer className="composer-wrap">
-      {runStatus}
       <div className="composer">
+        {runStatus}
         {attachments.length > 0 ? (
           <div className="attach-row">
             {attachments.map((path) => (
@@ -114,11 +112,6 @@ export function Composer({
         />
         <div className="composer-bar">
           <span className="composer-hint">
-            {busy ? (
-              <>
-                <span className="dots" aria-hidden="true"><i /><i /><i /></span>{' '}
-              </>
-            ) : null}
             {statusText}
           </span>
           <button
@@ -152,13 +145,13 @@ export function Composer({
           ) : null}
           <button
             type="button"
-            className={busy ? 'send-btn stop' : 'send-btn'}
-            title={busy ? '停止生成' : editing ? '保存并重试' : '发送'}
-            aria-label={busy ? '停止生成' : editing ? '保存并重试' : '发送'}
-            disabled={!busy && sendDisabled}
-            onClick={busy ? onStop : submit}
+            className="send-btn"
+            title={editing ? '保存并重试' : '发送'}
+            aria-label={editing ? '保存并重试' : '发送'}
+            disabled={busy || sendDisabled}
+            onClick={submit}
           >
-            <Icon name={busy ? 'i-stop' : 'i-send'} />
+            <Icon name="i-send" />
           </button>
         </div>
       </div>

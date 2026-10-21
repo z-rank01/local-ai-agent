@@ -2,7 +2,6 @@ import {formatTime} from '../lib/format';
 import type {ReadingReport} from '../lib/report';
 import type {TranscriptViewItem} from '../lib/transcript';
 import {statusLabel} from '../statusLabels';
-import {runLabel} from '../lib/runs';
 import type {TranscriptBlock} from '../types';
 import {Icon} from '../ui/Icon';
 import {AssistantTurn} from './AssistantTurn';
@@ -238,7 +237,6 @@ export function Transcript({
                 />
               )
           ))}
-          {busy ? (runStatus==='PAUSED'?<p className="loading" role="status">已暂停，等待继续。</p>:<LoadingLine label={runStatus?runLabel(runStatus)+'…':'正在生成…'} />) : null}
         </div>
       </main>
       {error ? (

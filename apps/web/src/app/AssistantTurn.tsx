@@ -30,14 +30,6 @@ function withoutVersionBadge(step: AssistantTimelineEntry): AssistantTimelineEnt
   return {...step, badges: step.badges.filter((badge) => !badge.startsWith('版本'))};
 }
 
-function LoadingLine({label}: {label: string}): JSX.Element {
-  return (
-    <p className="loading">
-      <span className="dots" aria-hidden="true"><i /> <i /> <i /></span>{label}
-    </p>
-  );
-}
-
 export function AssistantTurn({
   runStatus,
   item,
@@ -54,7 +46,6 @@ export function AssistantTurn({
   const status = assistantGroupStatus(ordered);
   const isRunning = status === 'running' || Boolean(runStatus&&RUN_LIVE.has(runStatus));
   const createdAt = ordered.find((block) => block.createdAt)?.createdAt;
-  const hasAnswer = ordered.some((block) => block.kind === 'assistant');
   const answerBlock = [...ordered].reverse().find((block) => block.kind === 'assistant') ?? null;
   const answerText = ordered.filter((block) => block.kind === 'assistant').map((block) => block.text).join('\n\n');
   const answerMessageId = answerBlock?.messageId ?? null;
@@ -70,7 +61,7 @@ export function AssistantTurn({
     <article className="msg msg-ai" data-turn={item.id}>
       <header className="msg-head">
         <span className="msg-who">{fileDelivery ? '简报交付' : '助手'}</span>
-        {status ? <span className="msg-status" data-tone={isRunning?'running':statusTone(status)}>{runStatus?runLabel(runStatus):statusLabel(status)}</span> : null}
+        {status && !isRunning ? <span className="msg-status" data-tone={statusTone(status)}>{runStatus?runLabel(runStatus):statusLabel(status)}</span> : null}
         {modelLabel ? <span className="meta">{modelLabel}</span> : null}
         {createdAt ? <span className="meta">· {formatTime(createdAt)}</span> : null}
       </header>
@@ -96,13 +87,10 @@ export function AssistantTurn({
           if (!block.text && block.status !== 'running') {
             return null;
           }
-          return block.text
-            ? <Markdown key={block.id} content={block.text} />
-            : <LoadingLine key={block.id} label="正在组织回答…" />;
+          return block.text ? <Markdown key={block.id} content={block.text} /> : null;
         }
         return block.text ? <Markdown key={block.id} content={block.text} /> : null;
       })}
-      {!hasAnswer && isRunning ? <LoadingLine label="正在等待模型输出…" /> : null}
       <div className="msg-acts">
         {canSwitchVersion && answerMessageId ? (
           <span className="version-pill" aria-label="回答版本">

@@ -120,13 +120,15 @@ export default function App(): JSX.Element {
   const [readingReport, setReadingReport] = useState<ReadingReport | null>(null);
   const [readerZoomed, setReaderZoomed] = useState(false);
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadAppearanceSettings());
-  const [busy, setBusy] = useState(false);
+  const [turnPending, setTurnPending] = useState(false);
   const [runList,setRunList]=useState<RunList>({runs:[],stock_service:{online:false}});
   const [runError,setRunError]=useState('');
   const [observation,setObservation]=useState('');
   const runCursors=useRef<Record<string,number>>({});
   const syncedRunSnapshots=useRef<Record<string,number>>({});
   const currentRun=conversationRun(runList.runs,conversationId);
+  const liveRun=currentRun&&RUN_LIVE.has(currentRun.status)?currentRun:undefined;
+  const busy=turnPending||Boolean(liveRun);
   const refreshRuns=useCallback(async()=>{
     const next=await fetchRuns(); setRunList(next); setRunError(''); return next;
   },[]);
@@ -270,7 +272,7 @@ export default function App(): JSX.Element {
     abortRef.current=null; runIdentityRef.current=null;
     previous?.abort(); flushDeltaBuffer();
     pendingPromptRef.current='';pendingUserBlockIdRef.current=null;pendingAssistantBlockIdRef.current=null;
-    setBusy(false);setObservation('');
+    setTurnPending(false);setObservation('');
   },[flushDeltaBuffer]);
 
   const openConversation = useCallback(async (targetId: string) => {
@@ -666,7 +668,7 @@ export default function App(): JSX.Element {
     if(!shouldObserveRun(run,syncedRunSnapshots.current)||abortRef.current||conversationLoading) return;
     const controller=new AbortController(); abortRef.current=controller;
     runIdentityRef.current={conversationId:run.conversation_id,runId:run.id};
-    setBusy(RUN_LIVE.has(run.status));setObservation(run.status==='PAUSED'?'':'正在同步运行记录…');
+    setTurnPending(RUN_LIVE.has(run.status));setObservation(run.status==='PAUSED'?'':'正在同步运行记录…');
     void (async()=>{
       try {
         await observeRun(run.id,runCursors.current[run.id]??0,event=>{
@@ -687,7 +689,7 @@ export default function App(): JSX.Element {
       } catch(cause) {
         if(abortRef.current===controller&&!controller.signal.aborted) setObservation('连接中断，正在重新连接；'+formatBackendError(cause));
       } finally {
-        if(abortRef.current===controller) {abortRef.current=null;runIdentityRef.current=null;setBusy(false);}
+        if(abortRef.current===controller) {abortRef.current=null;runIdentityRef.current=null;setTurnPending(false);}
       }
     })();
   },[runList,conversationId,conversationLoading,applyEvent,flushDeltaBuffer]);
@@ -717,7 +719,7 @@ export default function App(): JSX.Element {
     setEditText('');
     setAttachedPaths([]);
     setEditingMessage(null);
-    setBusy(true);
+    setTurnPending(true);
     setError('');
     stickToBottomRef.current = true;
     if (activeEdit?.messageId) {
@@ -829,7 +831,7 @@ export default function App(): JSX.Element {
           if (activeConversationIdRef.current === completedId && abortRef.current === controller) setBlocks(buildBlocksFromMessages(messages));
         } catch (err) { setError(formatBackendError(err)); }
       }
-      abortRef.current = null; setBusy(false);
+      abortRef.current = null; setTurnPending(false);
       void refreshRuns().catch(cause=>setRunError(formatBackendError(cause)));
       void refreshConversations().catch(() => {});
       void refreshWorkspaces().catch(() => {});
@@ -839,11 +841,6 @@ export default function App(): JSX.Element {
   const controlExecution=useCallback(async(id:string,action:'pause'|'resume'|'stop')=>{
     await controlRun(id,action); await refreshRuns();
   },[refreshRuns]);
-  const stopGeneration = () => {
-    const id=runIdentityRef.current?.runId??currentRun?.id;
-    if(id) void controlExecution(id,'stop').catch(cause=>setError(formatBackendError(cause)));
-    else setError('运行尚在登记，请稍后从任务列表核对；不会仅断开浏览器连接来假报停止。');
-  };
 
   const renameConversation = async (item: ConversationSummary) => {
     const values = await askForm({
@@ -949,7 +946,7 @@ export default function App(): JSX.Element {
     abortRef.current = controller;
     runIdentityRef.current = {conversationId};
     streamFailureRef.current = null; streamCompletedRef.current = false;
-    setBusy(true);
+    setTurnPending(true);
     setError('');
     try {
       await streamRegenerate(
@@ -985,7 +982,7 @@ export default function App(): JSX.Element {
     } finally {
       if(abortRef.current!==controller) return;
       flushDeltaBuffer();
-      setBusy(false);
+      setTurnPending(false);
       abortRef.current = null;
       void refreshRuns().catch(cause=>setRunError(formatBackendError(cause)));
       runIdentityRef.current = null;
@@ -1337,15 +1334,15 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [closeReportReader, drawerOpen, pendingDialog, readingReport, settingsOpen, sheetOpen, sheetView]);
 
-  const composerStatus = busy
-    ? (currentRun ? runLabel(currentRun.status) : '正在提交…')
-    : versionBusy
+  const composerStatus = versionBusy
       ? '正在切换版本…'
       : uploading || workspaceFilesBusy
         ? '正在处理工作区文件…'
       : selectedModel
         ? `${selectedModel.provider_name} · ${selectedModel.name}`
         : '未选择模型';
+
+  const controlTarget=liveRun??(!busy&&currentRun?.resumable?currentRun:undefined);
 
   return (
     <WorkspaceContext.Provider value={workspaceId}>
@@ -1397,15 +1394,14 @@ export default function App(): JSX.Element {
       />
       {conflictConversationId && <div className="notice-bar" role="status"><button className="btn btn-quiet" onClick={() => void openConversation(conflictConversationId)}>查看正在执行的会话</button></div>}
       <Composer
-        runStatus={currentRun&&<section className="conversation-run" aria-label="当前会话运行状态">
-          <span role="status">{runLabel(currentRun.status)} · {currentRun.phase||'准备中'}{observation?' · '+observation:''}</span>
-          <RunControls run={currentRun} onControl={controlExecution}/>
+        runStatus={(controlTarget||busy)&&<section className="conversation-run" aria-label="当前会话运行状态">
+          <span role="status">{controlTarget?runLabel(controlTarget.status)+' · '+(controlTarget.phase||'准备中'):'正在提交…'}{observation?' · '+observation:''}</span>
+          {controlTarget&&<RunControls run={controlTarget} onControl={controlExecution}/>}
         </section>}
         contextLoading={loading || conversationLoading}
         value={editingMessage ? editText : input}
         onChange={editingMessage ? setEditText : setInput}
         onSend={() => { void sendMessage(); }}
-        onStop={stopGeneration}
         busy={busy}
         versionBusy={versionBusy || uploading || workspaceFilesBusy || conversationLoading || loading}
         editing={editingMessage !== null}

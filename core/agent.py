@@ -410,7 +410,8 @@ class Agent:
                     protocol = {'role': 'assistant', 'content': '程序执行已登记证据需求：' + step['purpose'],
                                 'reasoning_content': '', 'tool_calls': [call]}
                     messages.append(protocol)
-                    yield AgentEvent('message', data={'message': {k:v for k,v in protocol.items() if k != 'reasoning_content'}})
+                    yield AgentEvent('message', data={'internal': True,
+                        'message': {k:v for k,v in protocol.items() if k != 'reasoning_content'}})
                     async with aclosing(self._execute_tools([call], session_id, messages,
                             allowed=research.tool_names, evidence_step=step)) as events:
                         async for event in events:
@@ -1026,7 +1027,8 @@ class Agent:
                     raise ValueError(f'当前步骤未开放 {name}；本步骤未执行，不代表供应商额度用完。')
                 if control:
                     control.begin_step('工具：'+name)
-                yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id']})
+                purpose = evidence_step.get('purpose', '') if evidence_step else ''
+                yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id'], 'purpose': purpose})
                 result = None
                 if name == 'context_evidence_read':
                     result = self.context_mgr.read_evidence(**params)
@@ -1104,6 +1106,7 @@ class Agent:
                           if name == 'research_begin' and status == 'ok' and isinstance(result, dict) and 'phase' in result else None)
             yield AgentEvent('tool_end', text=stage_text or ('安装已提交，后台运行中' if pending_install else '已完成' if status == 'ok' else '执行失败'), data={
                 'name': name, 'call_id': tc['id'], 'params': params, 'status': status,
+                'purpose': evidence_step.get('purpose', '') if evidence_step else '',
                 'elapsed': time.monotonic() - start, 'result': result, 'result_preview': _format_tool_result_preview(result)})
             self.audit.record('tool_loop', {'session_id': session_id, 'name': name, 'status': status})
             if (name.startswith('stock_') and isinstance(result, dict) and
