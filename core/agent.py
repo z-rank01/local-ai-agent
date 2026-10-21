@@ -1123,10 +1123,10 @@ class Agent:
             message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
             messages.append(message)
             yield AgentEvent('message', data={'message': message})
-            pending_install = isinstance(result, dict) and result.get('job_id') and result.get('status') in ('queued', 'running')
+            from harness.runtime.receipts import call_summary
             stage_text = ('研究阶段：' + str(result['phase'])
                           if name == 'research_begin' and status == 'ok' and isinstance(result, dict) and 'phase' in result else None)
-            yield AgentEvent('tool_end', text=stage_text or ('安装已提交，后台运行中' if pending_install else '已完成' if status == 'ok' else '执行失败'), data={
+            yield AgentEvent('tool_end', text=stage_text or call_summary(result, status), data={
                 'name': name, 'call_id': tc['id'], 'params': params, 'status': status,
                 'purpose': evidence_step.get('purpose', '') if evidence_step else '',
                 'elapsed': time.monotonic() - start, 'result': result, 'result_preview': _format_tool_result_preview(result)})

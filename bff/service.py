@@ -1321,7 +1321,7 @@ class ChatSessionService:
                         if brief_comparison is not None:
                             brief_comparison.accept(data)
                         display_params = _redact_params(data.get('params', {}))
-                        saved = save('tool', '[' + data['status'] + '] ' + data['name'] + (' 已完成' if data['status']=='ok' else ' 执行失败')
+                        saved = save('tool', '[' + data['status'] + '] ' + data['name'] + ' ' + event.text
                             + (' · ' + data['purpose'] if data.get('purpose') else '') + '\n' + data.get('result_preview',''), tool_name=data['name'],
                             tool_result=data.get('result'), metadata={**meta, 'params': display_params,
                                 'purpose': data.get('purpose', ''), 'status': data['status']})

@@ -5,11 +5,27 @@ from unittest.mock import patch
 from core.agent import Agent, AgentEvent
 from bff.schemas import ChatRequest
 from tests import test_in1
+from harness.runtime.receipts import call_summary
 
 
 class CompletionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await test_in1.ServiceTests.asyncSetUp(self)
+
+    async def test_queued_receipt_stays_queued_in_events_and_saved_history(self):
+        async def run(*args, **kwargs):
+            result = {'id': 'example', 'state': 'QUEUED'}
+            yield AgentEvent('tool_end', text=call_summary(result, 'ok'), data={
+                'name': 'example_task', 'call_id': 'call', 'status': 'ok',
+                'result': result, 'result_preview': 'QUEUED'})
+            yield AgentEvent('done', text='任务已提交，尚未取得完成回执。')
+        with patch.object(Agent, 'run', run):
+            events = [e async for e in self.service.stream_chat(ChatRequest(message='处理材料', model='qwen:qwen3.5-flash'))]
+        receipt = next(e for e in events if e.event == 'tool.completed')
+        self.assertEqual(receipt.data['headline'], '任务已排队')
+        saved = next(m for m in self.service.get_messages(events[0].conversation_id) if m.role == 'tool')
+        self.assertIn('任务已排队', saved.content)
+        self.assertNotIn('已完成', saved.content)
 
     async def test_done_only_summary_is_saved_once_and_message_done_is_not_duplicated(self):
         for with_message in (False, True):
