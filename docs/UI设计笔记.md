@@ -171,3 +171,9 @@
 内部 stock_report_read 回执只进入执行轨迹，不自动渲染用户报告卡。brief_delivery 消息独立成组，不继承上一轮失败或工具轨迹，不提供模型重新生成；工作区 HTML 链接使用单一“阅读简报”按钮。原材料按会话所属工作区保存，禁止用当前界面工作区替代会话归属。
 
 独立段落的工作区 HTML 链接使用通用 ArtifactCard（复用 report-card 令牌与响应式布局）；行内引用仍为链接。组件只呈现元数据和动作，类型识别、会话工作区授权、内容隔离由调用方保留。ReportCard 为原接口包装；新增内容类型应先实现实际预览和权限，再复用卡片，不能仅凭扩展名执行内容。
+
+## 插件贡献的施工边界
+
+搜索与金融设置由各自 plugin.json 的 ui.settings 声明，代码归 apps/web/src/plugins/<id>/；宿主 SkillsPanel 只消费构建生成的登记项。CapabilityPanelProps 提供会话只读快照与变更通知，不暴露 App 状态对象。基础卡片仍使用原 skill / Collapse / Switch 与主题令牌。复杂插件面板独立资源包按需载入，局部渲染异常仅显示该插件错误。
+
+npm run build / typecheck / dev 自动生成 extensions/generated.ts；不能手工修改生成文件。登记功能检查：node --test apps/web/scripts/test-extensions.mjs。外部包自动安装及通用 schema 表单仍未完成，不能把源码构建贡献描述为运行中任意 UI 热插拔。

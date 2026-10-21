@@ -1,12 +1,13 @@
 import {useEffect, useRef, useState} from 'react';
 import type {ReactNode} from 'react';
-import {fetchStockService, stockServiceAction} from '../api';
-import type {ConversationSummary, StockServiceStatus} from '../types';
-import {notify} from '../lib/notify';
-import {Accordion} from '../ui/Accordion';
-import {Collapse} from '../ui/Collapse';
-import {Icon} from '../ui/Icon';
-import {Markdown} from '../ui/Markdown';
+import {fetchStockService, stockServiceAction} from './api';
+import type {ConversationSummary} from '../../types';
+import type {StockServiceStatus} from './types';
+import {notify} from '../../lib/notify';
+import {Accordion} from '../../ui/Accordion';
+import {Collapse} from '../../ui/Collapse';
+import {Icon} from '../../ui/Icon';
+import {Markdown} from '../../ui/Markdown';
 
 export type StockPanelProps = {conversation?: ConversationSummary; onChanged?: () => void};
 

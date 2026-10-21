@@ -1,3 +1,4 @@
+import {DEFAULT_BASE_URL, ApiError, apiFetch, readJson, requestJson} from './extensions/http';
 import type {
   AppStatus,
   Workspace,
@@ -7,8 +8,6 @@ import type {
   ModelInfo,
   PackageJob,
   ProviderInfo,
-  StockModel,
-  StockServiceResponse,
   UIStreamEvent,
   WorkspaceDeleteResponse,
   WorkspaceFilePreview,
@@ -58,44 +57,8 @@ export function importManagedSkill(workspaceId: string, path: string): Promise<{
 
 // Same-origin by default (BFF serves the production build); the Vite dev
 // server on 5173 still talks to the BFF on 9510 unless overridden.
-export const DEFAULT_BASE_URL =
-  import.meta.env.VITE_LOCAL_AI_AGENT_API_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:9510' : '');
-
-const SESSION_STORAGE_KEY = 'local-ai-agent.web-session';
-function sessionCredential(): string {
-  const token = new URLSearchParams(window.location.hash.slice(1)).get('session');
-  try {
-    if (token) { window.localStorage.setItem(SESSION_STORAGE_KEY, token); window.history.replaceState(null, '', window.location.pathname + window.location.search); }
-    return token ?? window.localStorage.getItem(SESSION_STORAGE_KEY) ?? '';
-  } catch { return token ?? ''; }
-}
-const sessionToken = sessionCredential();
-async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers);
-  if (sessionToken) headers.set('X-Harness-Session', sessionToken);
-  return fetch(input, {...init, headers, credentials: 'include'});
-}
+export {DEFAULT_BASE_URL, ApiError} from './extensions/http';
 export async function ensureBrowserSession(): Promise<void> { await requestJson('/api/status'); }
-
-export class ApiError extends Error {
-  constructor(message: string, public status: number, public conversationId?: string, public code?: string) { super(message); }
-}
-async function readJson<T>(response: Response): Promise<T> {
-  const raw = await response.text();
-  let value: unknown;
-  try { value = raw ? JSON.parse(raw) : null; } catch {
-    throw new ApiError('后端返回了非预期内容，请确认服务是否正常运行。', response.status);
-  }
-  if (!response.ok) {
-    const detail = (value as {detail?: unknown})?.detail;
-    const structured = detail as {message?: string; conversation_id?: string; code?: string} | null;
-    throw new ApiError(typeof detail === 'string' ? detail : structured?.message ?? `操作失败（HTTP ${response.status}）`, response.status, structured?.conversation_id, structured?.code);
-  }
-  return value as T;
-}
-async function requestJson<T>(path: string, init?: RequestInit, baseUrl = DEFAULT_BASE_URL): Promise<T> {
-  return readJson<T>(await apiFetch(`${baseUrl}${path}`, init));
-}
 export function fetchWorkspaces(): Promise<Workspace[]> { return requestJson('/api/workspaces'); }
 
 export function fetchRuns(): Promise<import('./types').RunList> { return requestJson('/api/runs'); }
@@ -228,34 +191,6 @@ export async function shutdownStack(baseUrl = DEFAULT_BASE_URL): Promise<{stoppi
 
 export function sendHeartbeat(baseUrl = DEFAULT_BASE_URL): Promise<{ok: boolean; auto_exit: boolean}> {
   return requestJson<{ok: boolean; auto_exit: boolean}>('/api/heartbeat', {method: 'POST'}, baseUrl);
-}
-
-export type SkillsStatus = {websearch: {enabled: boolean; active: boolean; url: string}};
-
-export type ResearchMethod = {id: string; title: string; roles: string[]; source: string; source_version: string; version: string};
-
-export function fetchResearchMethods(baseUrl = DEFAULT_BASE_URL): Promise<{methods: ResearchMethod[]}> {
-  return requestJson<{methods: ResearchMethod[]}>('/api/research-methods', undefined, baseUrl);
-}
-
-export function updateResearchMethod(conversationId: string, methodId: string,
-  baseUrl = DEFAULT_BASE_URL): Promise<ConversationSummary> {
-  return requestJson<ConversationSummary>(`/api/conversations/${conversationId}/research-method`, {
-    method: 'PUT', headers: {'content-type': 'application/json'},
-    body: JSON.stringify({method_id: methodId}),
-  }, baseUrl);
-}
-
-export function fetchSkills(baseUrl = DEFAULT_BASE_URL): Promise<SkillsStatus> {
-  return requestJson<SkillsStatus>('/api/admin/skills', undefined, baseUrl);
-}
-
-export async function setWebsearch(enabled: boolean, baseUrl = DEFAULT_BASE_URL): Promise<SkillsStatus> {
-  return requestJson<SkillsStatus>('/api/admin/skills', {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify({websearch: enabled}),
-  }, baseUrl);
 }
 
 export function fetchConversations(
@@ -463,59 +398,6 @@ export function cancelPackageJob(jobId: string, baseUrl = DEFAULT_BASE_URL, work
     {method: 'POST'},
     baseUrl,
   );
-}
-
-// Stock-service replies are read from the raw body: a failed call carries its
-// reason in `detail`, and a successful action may return only `challenge`
-// (one-off confirmation) or `reply` (operator answer) instead of a status
-// payload — those must be passed through untouched.
-async function readStockServiceResponse(response: Response): Promise<StockServiceResponse> {
-  const raw = await response.text();
-  let value: unknown;
-  try {
-    value = raw ? JSON.parse(raw) : null;
-  } catch {
-    value = {detail: raw};
-  }
-  if (!response.ok) {
-    const detail = typeof value === 'object' && value !== null && 'detail' in value && typeof value.detail === 'string'
-      ? value.detail
-      : `服务操作失败（HTTP ${response.status}）`;
-    throw new Error(detail);
-  }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('股票服务返回了无效响应');
-  }
-  return value as StockServiceResponse;
-}
-
-export async function fetchStockService(baseUrl = DEFAULT_BASE_URL): Promise<StockServiceResponse> {
-  const response = await apiFetch(`${baseUrl}/api/admin/stock-service`);
-  return readStockServiceResponse(response);
-}
-
-export async function stockServiceAction(
-  body: Record<string, unknown>,
-  baseUrl = DEFAULT_BASE_URL,
-): Promise<StockServiceResponse> {
-  const response = await apiFetch(`${baseUrl}/api/admin/stock-service`, {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify(body),
-  });
-  return readStockServiceResponse(response);
-}
-
-export async function fetchStockModels(refresh = false, baseUrl = DEFAULT_BASE_URL): Promise<StockModel[]> {
-  const response = await apiFetch(`${baseUrl}/api/admin/stock-models${refresh ? '?refresh=1' : ''}`);
-  if (!response.ok) {
-    throw new Error(`/api/admin/stock-models failed: ${response.status}`);
-  }
-  const value: unknown = await response.json();
-  if (!Array.isArray(value)) {
-    throw new Error('简报分析模型列表格式无效');
-  }
-  return value as StockModel[];
 }
 
 // Signature order is deliberate: streamChat(request, onEvent, options) takes

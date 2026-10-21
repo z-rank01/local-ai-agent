@@ -32,3 +32,6 @@ config/searxng/uwsgi.ini
 *.swo
 .DS_Store
 Thumbs.db
+
+# Build-generated plugin UI registry
+apps/web/src/extensions/generated.ts

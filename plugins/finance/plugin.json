@@ -1,6 +1,25 @@
 {
-  "id": "finance", "version": "1.0.0", "harness_api": 1,
-  "title": "金融研究", "description": "研究任务、公开证据与报告；账户操作遵循原业务确认规则",
-  "backends": ["stock-bridge"], "tool_directory": "tools", "task_provider": "plugins.finance.tasks:FinanceTasks",
-  "required": [], "optional": ["websearch"], "permissions": ["finance_service"]
+  "id": "finance",
+  "version": "1.0.0",
+  "harness_api": 1,
+  "title": "金融研究",
+  "description": "研究任务、公开证据与报告；账户操作遵循原业务确认规则",
+  "backends": [
+    "stock-bridge"
+  ],
+  "tool_directory": "tools",
+  "task_provider": "plugins.finance.tasks:FinanceTasks",
+  "required": [],
+  "optional": [
+    "websearch"
+  ],
+  "permissions": [
+    "finance_service"
+  ],
+  "ui": {
+    "settings": "apps/web/src/plugins/finance/index.tsx",
+    "title": "股票后台",
+    "description": "后台任务执行与每日简报",
+    "order": 20
+  }
 }
