@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from skill_paths import validate_name
 
 PACKAGE_MARK = "SKILL.md"
 RESOURCE_DIRS = ("references", "scripts", "assets")
@@ -78,13 +79,24 @@ def parse_package(skill_dir: Path, skills_root: Path | None = None) -> tuple[Ski
     reported, never silently dropped.
     """
     try:
+        validate_name(skill_dir.name)
+        if skill_dir.is_symlink():
+            return None, '技能目录不能是链接'
         skill_dir = skill_dir.resolve()
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return None, f"技能目录不可读: {exc}"
     if skills_root is not None:
         root = Path(skills_root).resolve()
         if skill_dir.parent != root:
             return None, "技能目录必须直接位于 skills 根目录下"
+    # Resources become executable/readable after discovery. Reject links
+    # only after checking the root, before advertising package resources.
+    try:
+        for child in skill_dir.rglob('*'):
+            if child.is_symlink() or not child.resolve().is_relative_to(skill_dir):
+                return None, f'技能包含越界路径或链接: {child.name}'
+    except OSError as exc:
+        return None, f'技能资源不可读: {exc}'
 
     name = skill_dir.name
     if not name or name.startswith("_") or name.startswith("."):

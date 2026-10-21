@@ -19,10 +19,12 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from functools import wraps
 
 from sandbox import run_argv
 
 import skill_md
+from skill_paths import validate_name, checked_child
 
 logger = logging.getLogger("skill-runner.registry")
 
@@ -32,6 +34,20 @@ _REGISTRY_SKILLS_DIR = _REGISTRY_DIR / "skills"
 _REGISTRY_INDEX = _REGISTRY_DIR / "registry.json"
 _EXEC_TIMEOUT = int(os.environ.get("PYTHON_EXEC_TIMEOUT", "30"))
 _INFO_BODY_LIMIT = 20000
+
+
+def _validated_identity(operation):
+    @wraps(operation)
+    def invoke(skill_name, *args, **kwargs):
+        try:
+            validate_name(skill_name)
+            checked_child(_SKILLS_DIR, skill_name)
+            checked_child(_SKILLS_DIR, skill_name + '.py')
+            checked_child(_REGISTRY_SKILLS_DIR, skill_name + '.json')
+        except ValueError as exc:
+            return {'success': False, 'error': str(exc)}
+        return operation(skill_name, *args, **kwargs)
+    return invoke
 
 _WRAPPER_TEMPLATE = """\
 import json, sys, importlib.util
@@ -302,9 +318,9 @@ def list_skills() -> list[dict]:
     return skills
 
 
+@_validated_identity
 def run_skill(skill_name: str, params: dict, timeout: int = _EXEC_TIMEOUT) -> dict:
     """Execute a named skill file in an isolated subprocess."""
-    skill_name = skill_name.replace("/", "").replace("..", "")
 
     if _is_skill_package(skill_name):
         return {
@@ -383,10 +399,10 @@ def run_skill(skill_name: str, params: dict, timeout: int = _EXEC_TIMEOUT) -> di
 
 # ── Public API: CRUD operations ──────────────────────────────────────────────
 
+@_validated_identity
 def register_skill(skill_name: str, code: str | None = None, auto_install_deps: bool = True) -> dict:
     """Register a new skill: validate, save config, install dependencies."""
     _ensure_registry_dirs()
-    skill_name = skill_name.replace("/", "").replace("..", "").replace(" ", "_")
     if _skill_package_dir(skill_name).is_dir():
         return {"success": False, "error": f"名称 {skill_name!r} 已被 SKILL.md 技能包目录占用，请更换技能名"}
     skill_path = _SKILLS_DIR / f"{skill_name}.py"
@@ -456,9 +472,9 @@ def register_skill(skill_name: str, code: str | None = None, auto_install_deps: 
     return result
 
 
+@_validated_identity
 def unregister_skill(skill_name: str) -> dict:
     """Remove a skill: delete its script file or package directory."""
-    skill_name = skill_name.replace("/", "").replace("..", "")
     skill_path = _SKILLS_DIR / f"{skill_name}.py"
     package_dir = _skill_package_dir(skill_name)
     config_path = _REGISTRY_SKILLS_DIR / f"{skill_name}.json"
@@ -487,9 +503,9 @@ def unregister_skill(skill_name: str) -> dict:
     return {"success": True, "skill_name": skill_name, "removed_files": removed}
 
 
+@_validated_identity
 def skill_info(skill_name: str) -> dict:
     """Get detailed information about a registered skill."""
-    skill_name = skill_name.replace("/", "").replace("..", "")
 
     if _is_skill_package(skill_name):
         package, error = _load_package(skill_name)
@@ -556,9 +572,9 @@ def skill_info(skill_name: str) -> dict:
     return info
 
 
+@_validated_identity
 def update_skill(skill_name: str, code: str | None = None, auto_install_deps: bool = True) -> dict:
     """Update an existing skill's code and/or re-validate."""
-    skill_name = skill_name.replace("/", "").replace("..", "")
     if _skill_package_dir(skill_name).is_dir():
         return {"success": False, "error": f"{skill_name!r} 是 SKILL.md 技能包，请直接修改其 SKILL.md 文件"}
     skill_path = _SKILLS_DIR / f"{skill_name}.py"

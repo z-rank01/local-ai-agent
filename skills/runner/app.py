@@ -324,9 +324,11 @@ async def code_exec_stream(req: CodeExecRequest, request: Request):
 @app.post('/tool/skill_run/stream')
 async def skill_run_stream(req: SkillRunRequest, request: Request):
     from skill_registry import _SKILLS_DIR, _WRAPPER_TEMPLATE, _load_skill_config, _save_skill_config, _now_iso
-    if not _re.fullmatch(r'[\w-]+', req.skill_name):
-        raise HTTPException(422, 'Invalid skill name')
-    path = _SKILLS_DIR / (req.skill_name + '.py')
+    from skill_paths import validate_name, checked_child
+    try:
+        path = checked_child(_SKILLS_DIR, validate_name(req.skill_name) + '.py')
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     if not path.is_file() or not path.resolve().is_relative_to(_SKILLS_DIR.resolve()):
         raise HTTPException(404, 'Skill not found')
     cfg = _load_skill_config(req.skill_name)

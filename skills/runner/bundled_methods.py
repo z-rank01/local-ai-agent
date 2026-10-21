@@ -3,6 +3,20 @@
 from pathlib import Path
 import shutil
 import tempfile
+import time
+
+
+def _publish(copied: Path, target: Path) -> None:
+    # Windows indexers may briefly hold newly copied files. Keep publication
+    # atomic; bounded retries do not overwrite an existing installation.
+    for attempt in range(4):
+        try:
+            copied.rename(target)
+            return
+        except PermissionError as exc:
+            if getattr(exc, 'winerror', None) not in (5, 32, 33) or attempt == 3:
+                raise
+            time.sleep(0.05 * (2 ** attempt))
 
 
 def install_methods(workspace: Path = Path('/workspace'), packages: Path | None = None) -> list[str]:
@@ -22,6 +36,6 @@ def install_methods(workspace: Path = Path('/workspace'), packages: Path | None 
         with tempfile.TemporaryDirectory(prefix='.install-', dir=root) as staging:
             copied = Path(staging) / source.name
             shutil.copytree(source, copied, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-            copied.rename(target)
+            _publish(copied, target)
         installed.append(source.name)
     return installed
