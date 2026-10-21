@@ -375,6 +375,14 @@ async def read_report_page(conversation_id: str, request: ReportPageRequest):
         section=request.section, revision=request.revision)
 
 
+@app.get('/api/conversations/{conversation_id}/artifacts/{message_id}')
+async def read_saved_artifact(conversation_id: str, message_id: str, revision: str | None = None):
+    saved = get_chat_service().saved_artifact(conversation_id, message_id)
+    if revision is not None and revision != saved.revision:
+        raise HTTPException(409, {'code': 'ARTIFACT_UPDATED', 'message': '保存的成果版本不同，请重新载入'})
+    return saved.public()
+
+
 @app.post('/api/conversations/{conversation_id}/brief-delivery', response_model=MessageRecord)
 async def deliver_brief(conversation_id: str, payload: BriefDeliveryRequest, request: Request):
     require_local_control(request)

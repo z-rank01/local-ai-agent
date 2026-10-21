@@ -359,34 +359,40 @@ class ChatSessionService:
         finally:
             self.workspaces.active.pop(lease, None)
 
-    async def read_report_page(self, conversation_id: str, message_id: str,
-                               page: int, request_id: str, *, section: str | None = None,
-                               revision: str | None = None) -> dict:
+    def saved_artifact(self, conversation_id: str, message_id: str):
+        from harness.contracts.artifacts import SavedArtifact
         self._require_conversation(conversation_id)
         message = self._store.get_message(message_id)
         if not message or message.conversation_id != conversation_id or not message.active:
-            raise HTTPException(404, '本会话中没有这份报告记录')
+            raise HTTPException(404, '本会话中没有这份成果记录')
         result = self._parse_tool_result(message)
-        if (message.role != 'tool' or message.tool_name != 'stock_report_read'
-                or not isinstance(result, dict) or not isinstance(result.get('local_result'), str)):
-            raise HTTPException(422, '这条记录不是已保存的股票报告')
+        if message.role != 'tool' or not isinstance(result, dict) or not isinstance(result.get('local_result'), str):
+            raise HTTPException(422, '这条记录没有已保存的成果正文')
+        content = result['local_result']
         try:
-            reference = json.loads(message.metadata or '{}').get('params', {}).get('reference')
-        except (ValueError, AttributeError):
-            reference = None
-        if not isinstance(reference, str) or not re.fullmatch(r'[0-9a-f]{64}', reference):
-            raise HTTPException(409, '这份历史报告缺少可核对的读取引用，仍可阅读已保存页面')
-        bridge = self._runtime.stock_bridge
-        if bridge is None:
-            raise HTTPException(503, '股票技能未连接，已保存页面仍可阅读；连接后可重试翻页')
+            metadata = json.loads(message.metadata or '{}')
+        except ValueError:
+            metadata = {}
+        return SavedArtifact(conversation_id, message_id, message.tool_name,
+            hashlib.sha256(content.encode('utf-8')).hexdigest(), content,
+            metadata if isinstance(metadata, dict) else {})
+
+    async def read_report_page(self, conversation_id: str, message_id: str,
+                               page: int, request_id: str, *, section: str | None = None,
+                               revision: str | None = None) -> dict:
+        from harness.contracts.artifacts import ArtifactPage, ArtifactError
+        from harness.runtime.artifacts import ArtifactRegistry
+        saved = self.saved_artifact(conversation_id, message_id)
+        if getattr(self._runtime, 'artifact_providers', None) is None:
+            self._runtime.artifact_providers = ArtifactRegistry.bundled(
+                config._PROJECT_ROOT / 'plugins', self._runtime.router.provider_for)
+        provider = self._runtime.artifact_providers.providers.get(saved.tool)
+        if provider is None:
+            raise HTTPException(422, '成果提供者不可用，仍可阅读已保存正文')
         try:
-            return await bridge.read_report_page(conversation_id, reference, page, request_id,
-                **({'section': section, 'revision': revision} if section is not None else {}))
-        except ValueError as exc:
-            from core.stock_bridge import ReportUpdated
-            if isinstance(exc, ReportUpdated):
-                raise HTTPException(409, {'message': str(exc), 'code': 'REPORT_UPDATED'}) from exc
-            raise HTTPException(503, str(exc)) from exc
+            return await provider.read_page(saved, ArtifactPage(page, request_id, section, revision))
+        except ArtifactError as exc:
+            raise HTTPException(exc.status, exc.detail) from exc
 
     def import_local_paths(self, text: str) -> WorkspaceImportResponse:
         from core.input_utils import detect_file_paths

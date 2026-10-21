@@ -47,5 +47,12 @@
         "stock_research_submit"
       ]
     }
-  ]
+  ],
+  "artifacts": {
+    "provider": "plugins.finance.artifacts:FinanceArtifacts",
+    "owner": "stock-bridge",
+    "tools": [
+      "stock_report_read"
+    ]
+  }
 }

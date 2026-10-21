@@ -18,6 +18,9 @@ async def capabilities():
         prompt_error = getattr(getattr(runtime, 'prompt_builder', None), 'contribution_errors', {}).get(row['id'])
         if prompt_error:
             row['error'] = row.get('error') or '能力提示不可用：' + prompt_error
+        artifact_error = getattr(getattr(runtime, 'artifact_providers', None), 'errors', {}).get(row['id'])
+        if artifact_error:
+            row['error'] = row.get('error') or '成果提供者不可用：' + artifact_error
         row['lifecycle'] = {owner: manager.status(owner) for owner in row.get('owners', [])
                             if manager and manager.manages(owner)}
     return {'api_version': 1, 'capabilities': rows}

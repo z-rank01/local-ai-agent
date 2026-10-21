@@ -67,6 +67,10 @@ class ToolRouter:
         else:
             self._providers[backend] = provider
 
+    def provider_for(self, backend: str) -> ToolTransport | None:
+        """Trusted host extensions resolve an already bound transport by owner."""
+        return self._providers.get(backend)
+
     def _workspace_params(self, tool, params):
         snapshot = getattr(self, 'workspace_snapshot', None)
         if snapshot is None or self._registry.get_backend(tool) not in {'skill-files', 'skill-runner'}:

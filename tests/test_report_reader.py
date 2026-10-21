@@ -66,6 +66,7 @@ class ReportReaderAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         self.service._store=SimpleNamespace(get_conversation=lambda cid: SimpleNamespace(id=cid),
                                            get_message=lambda mid:self.message if mid=='report' else None)
         self.service._runtime=SimpleNamespace(stock_bridge=self.bridge)
+        self.service._runtime.router = SimpleNamespace(provider_for=lambda owner: self.service._runtime.stock_bridge)
 
     async def test_saved_record_supplies_reference_without_history_mutation(self):
         before=vars(self.message).copy()
@@ -94,6 +95,44 @@ class ReportReaderAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             await self.service.read_report_page('c','report',1,'read')
         self.assertEqual(exc.exception.status_code,503)
         self.assertEqual(json.loads(self.message.tool_result)['local_result'],'旧页')
+
+    async def test_saved_artifact_fallback_is_versioned_local_and_provider_independent(self):
+        self.service._runtime.stock_bridge = None
+        with patch('bff.app.get_chat_service', return_value=self.service):
+            client = TestClient(app)
+            try:
+                first = client.get('/api/conversations/c/artifacts/report')
+                self.assertEqual(first.status_code, 200)
+                artifact = first.json()
+                self.assertEqual(artifact['content'], '旧页')
+                self.assertEqual(artifact['completeness'], 'UNKNOWN')
+                self.assertEqual(artifact['visibility'], 'conversation-local-ui')
+                self.assertNotIn('metadata', artifact)
+                self.assertEqual(client.get('/api/conversations/other/artifacts/report').status_code, 404)
+                stable = client.get('/api/conversations/c/artifacts/report', params={'revision': artifact['revision']})
+                self.assertEqual(stable.status_code, 200)
+                self.message.tool_result = json.dumps({'local_result': '后续实际取得的正文'})
+                changed = client.get('/api/conversations/c/artifacts/report', params={'revision': artifact['revision']})
+                self.assertEqual(changed.status_code, 409)
+                self.assertEqual(changed.json()['detail']['code'], 'ARTIFACT_UPDATED')
+            finally:
+                client.close()
+        self.bridge.read_report_page.assert_not_awaited()
+
+    async def test_another_provider_uses_same_route_without_finance_branch(self):
+        from harness.runtime.artifacts import ArtifactRegistry
+        provider = SimpleNamespace(read_page=AsyncMock(return_value={'content': 'OCR page', 'page': 1, 'page_count': 2}))
+        registry = ArtifactRegistry()
+        registry.register(['document_batch_read'], provider)
+        self.service._runtime.artifact_providers = registry
+        self.message.tool_name = 'document_batch_read'
+        result = await self.service.read_report_page('c', 'report', 1, 'document-read')
+        self.assertEqual(result['content'], 'OCR page')
+        saved, request = provider.read_page.await_args.args
+        self.assertEqual(saved.conversation_id, 'c')
+        self.assertEqual(saved.content, '旧页')
+        self.assertEqual(request.request_id, 'document-read')
+        self.bridge.read_report_page.assert_not_awaited()
 
     async def test_endpoint_rejects_untrusted_task_and_invalid_page(self):
         # No lifespan: this isolated HTTP test must not build the daily runtime.

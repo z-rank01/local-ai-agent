@@ -85,3 +85,10 @@ receipt = await gateway.generate(ModelRequest(
 文件必须位于自身包内且为 UTF-8 文本，最多 128 KiB。任一声明工具已登记时装配提示；停用全部相关工具后不再加入。该条件只表示能力存在，不能扩大模型或工作区权限。加载失败隔离到对应包并记录错误。当前外部包导入仍不授予系统提示权限。
 
 运行时启动时读取提示；更新使用原入口部署。文件内容与适用工具声明加入检查点指纹，不静默继续规则不同的历史运行。公开研究工具尚在通用宿主，因此金融提示在该工具存在时仍可加载；这不代表金融执行逻辑已经完全迁出。
+
+
+## 已保存成果与提供者分页
+
+工具回执中的 `local_result` 仍保存在原消息记录。宿主先核验会话归属和有效记录，再构造 `SavedArtifact`。`GET /api/conversations/{id}/artifacts/{message_id}` 返回已保存正文、内容哈希修订号和 `conversation-local-ui` 可见范围；不把内部参数返回页面，也不把片段完整度猜成 COMPLETE。传入旧 `revision` 时返回 409，不替换为另一个版本。
+
+插件声明 `artifacts: {provider, owner, tools}`，实现 `ArtifactProvider.read_page(saved, request)`。提供者只取得已授权记录和自身声明的已登记传输；金融包负责原任务引用、分页与业务修订冲突。旧 report-page 页面接口沿通用提供者路由，保存正文的读取不依赖插件在线。完整成果类型、历史全部修订保留以及前端自定义成果渲染贡献仍待继续；不能将这一步等同于全部 ArtifactProvider 验收。
