@@ -52,6 +52,13 @@ class ToolRouter:
             from .workspaces import tool_token
             self.workspace_token = tool_token("default")
 
+    def set_backend(self, backend: str, url: str | None) -> None:
+        """Update a transport binding without exposing the routing table."""
+        if url is None:
+            self._backend_urls.pop(backend, None)
+        else:
+            self._backend_urls[backend] = url.rstrip('/')
+
     def _workspace_params(self, tool, params):
         snapshot = getattr(self, 'workspace_snapshot', None)
         if snapshot is None or self._registry.get_backend(tool) not in {'skill-files', 'skill-runner'}:

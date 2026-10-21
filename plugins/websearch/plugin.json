@@ -1,0 +1,6 @@
+{
+  "id": "websearch", "version": "1.0.0", "harness_api": 1,
+  "title": "联网搜索", "description": "检索公开网页并读取来源正文",
+  "backends": ["skill-websearch"],
+  "required": [], "optional": [], "permissions": ["public_network"]
+}

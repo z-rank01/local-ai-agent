@@ -11,12 +11,15 @@ from unittest.mock import patch
 from core import config
 from core.skills_service import SkillSwitches
 from core.tool_registry import ToolRegistry
+from core.tool_router import ToolRouter
+from types import MethodType
 
 
 def fake_runtime(enabled: bool = False):
     registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=enabled, stock_bridge_url='')
     router = SimpleNamespace(_backend_urls={'skill-files': 'http://x', 'skill-runner': 'http://y'},
                              _stock_bridge=None)
+    router.set_backend = MethodType(ToolRouter.set_backend, router)
     return SimpleNamespace(tool_registry=registry, router=router)
 
 
@@ -73,6 +76,7 @@ class SkillSwitchesTests(unittest.TestCase):
         runtime = fake_runtime(enabled=False)
         bridge = SimpleNamespace(_base_url='http://127.0.0.1:8765')
         runtime.router._stock_bridge = bridge
+        runtime.tool_registry.load_backend(config.TOOLS_DIR, 'stock-bridge')
         svc = self.make_service(saved=None, env_flag=True)
         svc.apply_to(runtime, False)
         self.assertNotIn('web_search', runtime.tool_registry.known_tools)

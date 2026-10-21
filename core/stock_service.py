@@ -12,7 +12,6 @@ import httpx
 
 from . import config
 from .stock_bridge import StockBridge
-from .tool_registry import ToolRegistry
 
 # Pid of the stock backend that scripts/start-daily.ps1 started. It is recorded for
 # diagnostics; liveness is judged by the control API, never by "something is listening
@@ -129,14 +128,12 @@ class StockService:
         if enabled:
             _, state = self.paths()
             bridge = StockBridge(self.url, (state / '.paper-master-token').read_text(encoding='utf-8').strip())
+        # Keep registry identity and every unrelated capability registration.
+        if enabled:
+            runtime.tool_registry.load_backend(config.TOOLS_DIR, 'stock-bridge')
+        else:
+            runtime.tool_registry.unregister_owner('stock-bridge')
         runtime.stock_bridge = runtime.router._stock_bridge = bridge
-        # Preserve the live search switch. Re-seeding from ENABLE_WEBSEARCH here
-        # would re-enable tools after the user explicitly switched them off.
-        websearch_enabled = 'web_search' in runtime.tool_registry.known_tools
-        # Keep registry identity: existing agents and prompt builders share it.
-        registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=websearch_enabled,
-                                stock_bridge_url=self.url if enabled else '')
-        runtime.tool_registry._tools = registry._tools
 
     async def start(self, runtime):
         root, state = self.paths()

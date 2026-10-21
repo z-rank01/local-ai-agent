@@ -18,7 +18,6 @@ import httpx
 
 from . import config
 from .service_supervisor import run_operation
-from .tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -81,15 +80,12 @@ class SkillSwitches:
 
     def apply_to(self, runtime, enabled: bool) -> None:
         """Flip the live registry and router so web tools appear/vanish for the model."""
-        bridge = getattr(runtime.router, '_stock_bridge', None)
-        bridge_url = getattr(bridge, '_base_url', '') if bridge else ''
-        registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=enabled,
-                                stock_bridge_url=bridge_url)
-        runtime.tool_registry._tools = registry._tools
         if enabled:
-            runtime.router._backend_urls['skill-websearch'] = config.SKILL_WEBSEARCH_URL.rstrip('/')
+            runtime.tool_registry.load_backend(config.TOOLS_DIR, 'skill-websearch')
+            runtime.router.set_backend('skill-websearch', config.SKILL_WEBSEARCH_URL)
         else:
-            runtime.router._backend_urls.pop('skill-websearch', None)
+            runtime.tool_registry.unregister_owner('skill-websearch')
+            runtime.router.set_backend('skill-websearch', None)
 
     async def set_websearch(self, runtime, enabled: bool, active_check=None) -> dict:
         async with self.lock:

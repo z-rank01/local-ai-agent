@@ -18,6 +18,17 @@ import type {
   WorkspaceUploadResponse,
 } from './types';
 
+export type CapabilitySummary = {
+  id: string; kind: 'plugin'; title?: string; description?: string; version?: string;
+  registration: 'registered' | 'unregistered' | 'invalid';
+  required?: string[]; optional?: string[]; permissions?: string[];
+  tools: string[]; error: string | null;
+};
+
+export function fetchCapabilities(): Promise<{api_version: number; capabilities: CapabilitySummary[]}> {
+  return requestJson('/api/capabilities');
+}
+
 // Same-origin by default (BFF serves the production build); the Vite dev
 // server on 5173 still talks to the BFF on 9510 unless overridden.
 export const DEFAULT_BASE_URL =

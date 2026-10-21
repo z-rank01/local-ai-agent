@@ -17,6 +17,7 @@ import {Dropdown} from '../ui/Dropdown';
 import {Icon} from '../ui/Icon';
 import {Switch} from '../ui/Switch';
 import {StockPanel} from './StockPanel';
+import {CapabilityCatalog} from './CapabilityCatalog';
 
 export type SkillsPanelProps = {
   conversation?: ConversationSummary;
@@ -278,6 +279,7 @@ export function SkillsPanel({
         {visible.length === 0 ? <p className="ws-empty">没有匹配的技能</p> : null}
       </div>
       <p className="panel-hint">开关即时生效；点卡片就地展开设置。</p>
+      <CapabilityCatalog />
     </>
   );
 }

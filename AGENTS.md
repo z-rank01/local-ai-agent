@@ -86,7 +86,7 @@ powershell Start-Process …（由聊天后端调用）
 - `core/workspaces.py`：工作区持久化、稳定目录映射、配置快照与执行锁；文件读写受主机进程权限限制时，通过对应工作区工具容器完成，不可另起本机命令执行后端。每组使用独立网络与私密工具凭据，健康核验同时检查 ID、版本及鉴权；主机预检覆盖 NTFS junction。配置切换只阻止相关目录的任务。
 - `core/ui_session.py`：唯一启动器创建页面会话凭据，通过 URL fragment 交给页面并换取 HttpOnly cookie；BFF API 不接受无凭据的容器侧请求。凭据文件只在 data/private，不可挂载给工具或返回状态 API；启动器就绪探测也须携带凭据。
 - `bff/app.py`：HTTP 层（聊天、会话、工作区、模型、技能开关、股票服务管理、心跳、退出）。退出语义：**停止新运行 → 聊天与股票收尾落盘 → 唯一启动器确认停容器 → BFF退出**；失败保留服务和错误。
-- `core/runtime.py`：`build_runtime()` 组装工具注册表/路由/模型目录；技能开关通过替换 `tool_registry._tools` 与 `router._backend_urls` 动态生效（注意保持 registry 对象同一性，见 `stock_service.attach` 与 `skills_service.apply_to` 的注释）。
+- `core/runtime.py`：`build_runtime()` 组装工具注册表/路由/模型目录；技能开关通过公开的 `load_backend` / `unregister_owner` 与 `set_backend` 更新自身贡献，保留其他提供者的工具及 registry 对象同一性。禁止重建整张注册表覆盖其他能力。当前仍有旧业务接线，不能将此适配步骤视为完整插件迁移。
 - `bff/service.py`：`ChatSessionService` 是会话/工作区/流式门面；`exclusive_turn` 保证同工作区及目录重叠工作区串行执行，返回 409 与执行会话；不同目录的工作区可并行。技能切换期间聊天 409。目录配置每轮冻结，失败保留有效配置，用户明确检查应用后激活待生效配置。
 - 前端 `apps/web/src/` 为组件化结构：`app/`（App.tsx 编排层 + 顶栏/会话抽屉/输入胶囊/阅读栏/工作台 Sheet/设置/阅读器等区块）、`panels/`（工作区、技能、股票、打包任务）、`ui/`（Collapse/Panel/Popover 等基元）、`lib/`（storage/format/appearance/transcript/report/notify/confirm）；`styles.css` 是唯一令牌来源（Apple 设计系统，旧三栏紫系已废弃）。界面无常驻侧栏：顶栏细条 + 全屏阅读栏 + 底部悬浮输入胶囊；会话抽屉与工作台 Sheet 两级浮层默认收起；唯一"退出"按钮在会话抽屉底部。
 - 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。普通聊天的正式系统内容只维护 `prompts/modules/01..08`（`08_research.txt` 是公开投研的触发、正文结构与交付规则）；`prompts/system.txt` 只是 modules 缺失时的兜底占位。自主研究的单独核对角色使用 `prompts/research_review.txt`，不作为普通聊天模块注入；它与原模块一起进入检查点兼容指纹。

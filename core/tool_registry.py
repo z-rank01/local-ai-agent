@@ -6,10 +6,12 @@ Adding a new static tool requires only a new YAML file; no Python changes needed
 
 import json
 import logging
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import yaml
+from harness.capabilities.tools import OwnedTools
 
 from . import config
 
@@ -25,6 +27,7 @@ class ToolRegistry:
 
     def __init__(self, tools_dir: str | Path, *, enable_websearch: bool = False, stock_bridge_url: str = "") -> None:
         self._tools: dict[str, dict[str, Any]] = {}
+        self._owned = OwnedTools()
         self._load(str(tools_dir), enable_websearch, bool(stock_bridge_url))
         core_count = sum(1 for t in self._tools.values() if t.get("tier", "core") == "core")
         logger.info("ToolRegistry loaded %d tools (%d core, %d extended) from %s (websearch=%s, stock=%s)",
@@ -54,6 +57,31 @@ class ToolRegistry:
                 self._tools[name] = tool
             except Exception as exc:
                 logger.warning("Failed to load %s: %s", yaml_file.name, exc)
+        by_backend: dict[str, list[dict]] = {}
+        for tool in self._tools.values():
+            by_backend.setdefault(tool['backend'], []).append(tool)
+        for owner, definitions in by_backend.items():
+            self._owned.replace(owner, definitions)
+
+    def replace_owner(self, owner: str, definitions) -> None:
+        """Replace one contribution atomically; unrelated owners remain registered."""
+        self._owned.replace(owner, definitions)
+        self._tools = self._owned.snapshot()
+
+    def unregister_owner(self, owner: str) -> None:
+        self.replace_owner(owner, ())
+
+    def load_backend(self, tools_dir: str | Path, backend: str) -> None:
+        """Compatibility adapter for existing YAML tool packages."""
+        definitions = []
+        for path in sorted(Path(tools_dir).glob('*.yaml')):
+            tool = yaml.safe_load(path.read_text(encoding='utf-8'))
+            if isinstance(tool, dict) and tool.get('backend') == backend:
+                definitions.append(tool)
+        self.replace_owner(backend, definitions)
+
+    def ownership(self) -> dict[str, str]:
+        return self._owned.owners()
 
     @property
     def known_tools(self) -> frozenset[str]:
@@ -83,7 +111,7 @@ class ToolRegistry:
             if not allow_write and self.get_cloud_tier(tool["name"]) != "read":
                 continue
 
-            params = tool.get("parameters", {"type": "object", "properties": {}})
+            params = deepcopy(tool.get("parameters", {"type": "object", "properties": {}}))
             if isinstance(params.get("required"), str):
                 try:
                     params["required"] = json.loads(params["required"])

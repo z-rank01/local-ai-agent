@@ -92,6 +92,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+from .capabilities import router as capabilities_router
+app.include_router(capabilities_router)
 async def _stream_ndjson(
     events: AsyncGenerator[UIStreamEvent, None],
     *,
