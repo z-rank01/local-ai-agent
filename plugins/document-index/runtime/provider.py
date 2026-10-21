@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import math
 from pathlib import Path
 
 MAX_FILE_BYTES = 64 * 1024 * 1024
@@ -11,6 +12,16 @@ MAX_FILES = 2000
 SCHEMA = '''CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, sha TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS passages(path TEXT NOT NULL, location TEXT NOT NULL, text TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS by_path ON passages(path);'''
+
+
+def query_terms(query):
+    words, groups = [], []
+    for token in re.findall(r'[\u3400-\u9fff]+|[^\W_]+', query.casefold()):
+        if re.fullmatch(r'[\u3400-\u9fff]+', token):
+            groups.extend(token[i:i + 2] for i in range(max(1, len(token) - 1)))
+        else:
+            words.append(token)
+    return list(dict.fromkeys(words)), list(dict.fromkeys(groups))
 
 
 def segments(path, raw):
@@ -104,11 +115,16 @@ class Provider:
     def find(self, directory, cache, context, query, limit):
         if not cache.exists():
             return {'status': 'NOT_INDEXED', 'matches': [], 'message': '请先建立资料索引'}
-        terms = [x.casefold() for x in query.split()]
+        words, groups = query_terms(query)
+        if not words and not groups:
+            raise ValueError('关键词至少包含文字或数字')
         matches, stale, verified = [], set(), {}
         with closing(sqlite3.connect(cache.as_uri() + '?mode=ro', uri=True)) as db:
             for path, sha, location, text in db.execute('SELECT p.path,f.sha,p.location,p.text FROM passages p JOIN files f ON p.path=f.path'):
-                if not Path(path).is_relative_to(directory) or not all(term in text.casefold() for term in terms):
+                folded = text.casefold()
+                matched = [term for term in groups if term in folded]
+                if (not Path(path).is_relative_to(directory) or not all(term in folded for term in words)
+                        or groups and len(matched) < math.ceil(len(groups) / 2)):
                     continue
                 if path not in verified:
                     try:
@@ -118,12 +134,14 @@ class Provider:
                 if not verified[path]:
                     stale.add(path)
                     continue
-                offset = text.casefold().find(terms[0])
+                terms = words + matched
+                offset = min(folded.find(term) for term in terms)
                 start = max(0, offset - 200)
                 matches.append({'path': path, 'source_version': sha, **json.loads(location),
                                 'text': text[start:start + 1600], 'excerpt_offset': start,
-                                'truncated': start > 0 or len(text) > 1600})
-                if len(matches) >= limit:
-                    break
-        return {'status': 'STALE' if stale else 'COMPLETE', 'matches': matches,
+                                'truncated': start > 0 or len(text) > 1600,
+                                'matched_terms': terms, 'match_score': len(terms) / (len(words) + len(groups))})
+        matches.sort(key=lambda row: (-row['match_score'], row['path'], row.get('page', row.get('paragraph', 0))))
+        return {'status': 'STALE' if stale else 'COMPLETE', 'matches': matches[:limit],
+                'total_matches': len(matches), 'match_mode': 'words_and_chinese_bigrams',
                 'stale_files': sorted(stale), 'limit': limit, 'query': query}

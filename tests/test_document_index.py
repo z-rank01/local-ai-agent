@@ -24,7 +24,7 @@ class DocumentIndexFlowTests(unittest.TestCase):
             root = Path(directory)
             docs = root / 'docs'; docs.mkdir()
             source = docs / '纪要.md'
-            source.write_text('第一段：会议安排\n\n第二段：搜索插件按权限启停。', encoding='utf-8')
+            source.write_text('第一段：会议安排\n\n第二段：搜索插件按权限启停，新权限不自动放开。', encoding='utf-8')
             original = source.read_bytes()
             host = PluginHost(ROOT / 'plugins', ExecutionContext('test', root, PathGuard(str(root)).resolve))
             args = {'directory': str(docs)}
@@ -36,6 +36,10 @@ class DocumentIndexFlowTests(unittest.TestCase):
             self.assertEqual(matches[0]['paragraph'], 2)
             self.assertEqual(matches[0]['path'], str(source))
             self.assertEqual(source.read_bytes(), original)
+            paraphrase = host.invoke('documents_find', {**args, 'query': '新权限不能自动放开'})
+            self.assertEqual(paraphrase['matches'][0]['paragraph'], 2)
+            self.assertIn('权限', paraphrase['matches'][0]['matched_terms'])
+            self.assertLess(paraphrase['matches'][0]['match_score'], 1)
             source.write_text('新版：权限按工作区隔离。', encoding='utf-8')
             stale = host.invoke('documents_find', {**args, 'query': '权限'})
             self.assertEqual(stale['status'], 'STALE')

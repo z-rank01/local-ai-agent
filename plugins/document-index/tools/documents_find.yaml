@@ -3,7 +3,7 @@ display_name: 查找资料段落
 backend: skill-files
 tier: extended
 cloud: read
-description: 在已有资料索引中查找关键词，返回原文件、段落或 PDF 页码、源文件 SHA256 和实际摘录。未索引先更新索引；源文件变更时明确提示过期，不将旧内容当新证据。
+description: 在已有资料索引中查找关键词，按英文词和中文字组匹配，返回匹配依据、原文件、段落或 PDF 页码、源文件 SHA256 和实际摘录。字面匹配不证明语义相同，须核对摘录；未索引先更新索引；源文件变更时明确提示过期，不将旧内容当新证据。
 parameters:
   type: object
   properties:
