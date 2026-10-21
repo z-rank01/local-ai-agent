@@ -26,10 +26,12 @@ def package_catalog(root: Path, ownership: dict[str, str]) -> list[dict]:
                     raise ValueError(f'无效清单字段：{field}')
             descriptor = CapabilityDescriptor(package_id, value['version'], 'plugin', value['title'],
                 value['description'], tuple(value['required']), tuple(value['optional']), tuple(value['permissions']))
-            tools = sorted(name for name, owner in ownership.items() if owner in value['backends'])
+            owners = value.get('owners', value['backends'])
+            tools = sorted(name for name, owner in ownership.items() if owner in owners)
             rows.append({**asdict(descriptor), 'api_version': 1, 'tools': tools,
+                'backends': value['backends'], 'owners': owners,
                 'registration': 'registered' if tools else 'unregistered',
-                'management': 'legacy_adapter', 'error': None})
+                'management': 'managed' if value.get('tool_registration') == 'managed' else 'legacy_adapter', 'error': None})
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             rows.append({'id': package_id, 'kind': 'plugin', 'registration': 'invalid',
                 'error': str(exc) if isinstance(exc, ValueError) else '清单不可读或格式无效', 'tools': []})

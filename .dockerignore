@@ -1,0 +1,17 @@
+**
+!skills/
+!skills/files/
+!skills/files/**
+!plugins/
+!plugins/*/
+!plugins/*/plugin.json
+!plugins/*/tools/
+!plugins/*/tools/**
+!plugins/*/runtime/
+!plugins/*/runtime/**
+!harness/
+!harness/__init__.py
+!harness/contracts/
+!harness/contracts/**
+**/__pycache__/**
+**/*.pyc

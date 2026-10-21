@@ -15,6 +15,8 @@ def tool_sources(directory: Path, packages: Path | None = None):
             metadata = json.loads(manifest.read_text(encoding='utf-8'))
             if metadata.get('harness_api') != 1 or metadata.get('id') != package.name:
                 continue
+            if metadata.get('tool_registration') == 'managed':
+                continue  # Explicit activation owns registration; importing metadata does not activate it.
             relative = metadata.get('tool_directory')
             if not isinstance(relative, str):
                 continue

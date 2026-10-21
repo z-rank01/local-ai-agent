@@ -23,7 +23,13 @@ export type CapabilitySummary = {
   registration: 'registered' | 'unregistered' | 'invalid';
   required?: string[]; optional?: string[]; permissions?: string[];
   tools: string[]; error: string | null;
+  lifecycle?: Record<string, {state: string; error: string; inflight: number; accepting: boolean}>;
+  management?: 'managed' | 'legacy_adapter';
 };
+
+export function setCapability(identity: string, enabled: boolean): Promise<unknown> {
+  return requestJson(`/api/capabilities/${encodeURIComponent(identity)}`, {method:'POST', body:JSON.stringify({enabled})});
+}
 
 export function fetchCapabilities(): Promise<{api_version: number; capabilities: CapabilitySummary[]}> {
   return requestJson('/api/capabilities');

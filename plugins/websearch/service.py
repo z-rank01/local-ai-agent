@@ -87,9 +87,20 @@ class SkillSwitches:
             runtime.tool_registry.unregister_owner('skill-websearch')
             runtime.router.set_backend('skill-websearch', None)
 
+    def lifecycle(self, runtime):
+        from harness.runtime.lifecycle import LifecycleManager
+        from .lifecycle import SearchLifecycle
+        if getattr(runtime, 'capabilities', None) is None:
+            runtime.capabilities = LifecycleManager()
+        manager = runtime.capabilities
+        if not manager.manages('skill-websearch'):
+            manager.register('skill-websearch', SearchLifecycle(self, runtime))
+        runtime.router.capabilities = manager
+        return manager
+
     async def set_websearch(self, runtime, enabled: bool, active_check=None) -> dict:
         async with self.lock:
-            if active_check and active_check():
+            if enabled and active_check and active_check():
                 raise ValueError('聊天正在执行，请等待本轮结束后再切换技能')
             already = ('web_search' in runtime.tool_registry.known_tools)
             # Idempotent by contract: repeating the current state does nothing.  The
@@ -97,27 +108,30 @@ class SkillSwitches:
             # registers them only after _wait_websearch succeeds, and disable stops
             # the containers before unregistering.  Stale containers left by a crash
             # are reconciled once in restore(), not on every click.
-            if enabled == self.websearch_enabled and already == enabled:
+            manager = self.lifecycle(runtime)
+            if enabled == self.websearch_enabled and already == enabled and (
+                    not enabled or manager.status('skill-websearch')['accepting']):
                 return self.status(runtime)
             if enabled:
-                await self._compose('up', '-d')
-                await self._wait_websearch()
-                self.apply_to(runtime, True)
+                await manager.activate('skill-websearch')
             else:
-                await self._compose('stop')
-                self.apply_to(runtime, False)
+                await manager.deactivate('skill-websearch', reconcile=already)
             self.websearch_enabled = enabled
             self.save()
             return self.status(runtime)
 
     def status(self, runtime) -> dict:
+        manager = getattr(runtime, 'capabilities', None)
+        lifecycle = manager.status('skill-websearch') if manager and manager.manages('skill-websearch') else None
         return {'websearch': {
             'enabled': self.websearch_enabled,
-            'active': 'web_search' in runtime.tool_registry.known_tools,
+            'active': 'web_search' in runtime.tool_registry.known_tools and (lifecycle is None or lifecycle['accepting']),
             'url': config.SKILL_WEBSEARCH_URL,
+            'lifecycle': lifecycle,
         }}
 
     async def restore(self, runtime) -> None:
+        manager = self.lifecycle(runtime)
         if not self.websearch_enabled:
             # build_runtime() may have seeded the registry from ENABLE_WEBSEARCH;
             # a saved page-level OFF switch must override that initial value.
@@ -130,18 +144,8 @@ class SkillSwitches:
                 logger.exception('Web search containers could not be stopped during restore')
             return
         try:
-            if await self._websearch_healthy():
-                # Containers survived (or were already started); only the tool
-                # registry needs to catch up with the saved switch.
-                self.apply_to(runtime, True)
-                return
-            # Do not go through set_websearch here: its no-op shortcut only
-            # looks at the registry, which the env flag may already have
-            # seeded, and would skip actually starting the containers.
             async with self.lock:
-                await self._compose('up', '-d')
-                await self._wait_websearch()
-                self.apply_to(runtime, True)
+                await manager.activate('skill-websearch')
                 self.save()
         except Exception:
             # Fail closed when containers could not be restored. Keep the saved

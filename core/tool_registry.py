@@ -96,6 +96,9 @@ class ToolRegistry:
     def get_backend(self, tool_name: str) -> str:
         return self._tools[tool_name]["backend"]
 
+    def get_owner(self, tool_name: str) -> str:
+        return self._owned.owners()[tool_name]
+
     def get_cloud_tier(self, tool_name: str) -> str:
         """``read`` or ``write``.  Undeclared tools are treated as ``write`` so a
         newly added tool never becomes cloud-reachable by accident."""

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from core import config
 from core.skills_service import SkillSwitches
@@ -34,7 +34,9 @@ class SkillSwitchesTests(unittest.TestCase):
             self.settings.write_text(json.dumps(saved), encoding='utf-8')
         with patch.dict(os.environ, {'SKILL_SWITCHES': str(self.settings)}), \
                 patch.object(config, 'ENABLE_WEBSEARCH', env_flag):
-            return SkillSwitches()
+            service = SkillSwitches()
+            service._websearch_healthy = AsyncMock(return_value=False)
+            return service
 
     def test_env_flag_seeds_default_when_no_saved_setting(self):
         svc = self.make_service(saved=None, env_flag=True)

@@ -15,10 +15,12 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY skills/files/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY skills/files/ .
+COPY harness/ /app/harness/
+COPY plugins/ /opt/harness-plugins/
 
 # Unprivileged user for defence-in-depth. The image default stays root for
 # the legacy deployment; compose.in1.yml opts into this user explicitly.

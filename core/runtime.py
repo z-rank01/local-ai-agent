@@ -34,6 +34,7 @@ class RuntimeServices:
     agent: Agent
     models: ModelRegistry
     stock_bridge: Any = None
+    capabilities: Any = None
 
     async def close(self) -> None:
         await self.router.close()

@@ -1,0 +1,7 @@
+{
+  "id": "document-index", "version": "1.0.0", "harness_api": 1,
+  "title": "资料索引", "description": "增量索引工作区文本与 PDF，定位原文件段落和页码",
+  "backends": ["skill-files"], "owners": ["document-index"],
+  "required": [], "optional": [], "permissions": ["workspace.read", "workspace.write"],
+  "tool_directory": "tools", "tool_registration": "managed", "execution": "files"
+}

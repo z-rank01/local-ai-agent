@@ -114,6 +114,15 @@ class ToolRouter:
         return result
 
     async def dispatch(self, tool: str, params: dict[str, Any], session_id: str = "default") -> Any:
+        lifecycle = getattr(self, 'capabilities', None)
+        if lifecycle is not None and tool in self._registry.known_tools:
+            owner = self._registry.get_owner(tool)
+            if lifecycle.manages(owner):
+                async with lifecycle.call(owner):
+                    return await self._dispatch(tool, params, session_id)
+        return await self._dispatch(tool, params, session_id)
+
+    async def _dispatch(self, tool: str, params: dict[str, Any], session_id: str = "default") -> Any:
         self._check_research_tool(tool)
         if tool not in self._registry.known_tools:
             raise ValueError(f"Unknown tool: {tool!r}")

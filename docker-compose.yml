@@ -35,7 +35,8 @@ services:
 
   skill-files:
     build:
-      context: ./skills/files
+      context: .
+      dockerfile: skills/files/Dockerfile
     container_name: skill-files
     restart: unless-stopped
     ports:

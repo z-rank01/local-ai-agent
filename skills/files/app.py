@@ -338,3 +338,27 @@ async def create_directory(req: DeleteRequest):
         raise HTTPException(409, '目录已存在') from exc
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
+
+
+# Image-packaged providers use the same workspace token middleware and path guard.
+from plugin_host import PluginHost
+from harness.contracts.tool_provider import ExecutionContext
+_plugin_host = PluginHost('/opt/harness-plugins', ExecutionContext(
+    os.environ.get('WORKSPACE_ID', 'default'), Path(_WORKSPACE), _guard.resolve))
+
+
+@app.get('/capabilities/plugins')
+def packaged_plugins():
+    return {'versions': _plugin_host.versions, 'revisions': _plugin_host.revisions, 'errors': _plugin_host.errors}
+
+
+@app.post('/tool/{tool_name}')
+def plugin_tool(tool_name: str, arguments: dict):
+    try:
+        return _plugin_host.invoke(tool_name, arguments)
+    except KeyError as exc:
+        raise HTTPException(404, '未安装此工具提供者') from exc
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except (ValueError, OSError, RuntimeError) as exc:
+        raise HTTPException(409, str(exc)) from exc

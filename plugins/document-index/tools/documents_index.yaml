@@ -1,0 +1,11 @@
+name: documents_index
+display_name: 更新资料索引
+backend: skill-files
+tier: extended
+cloud: write
+description: 增量索引指定工作区目录内的 Markdown、文本和 PDF，返回实际成功和失败文件数。只写可重建索引，不修改原件。资料更新后重新索引。
+parameters:
+  type: object
+  properties:
+    directory: {type: string, description: 要索引的资料目录}
+  required: [directory]
