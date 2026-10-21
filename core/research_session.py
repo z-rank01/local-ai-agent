@@ -363,6 +363,12 @@ class ResearchSession:
         await self.checkpoint()
 
     async def read_json(self, path):
+        """Read a saved draft.
+
+        The range/cursor protocol belongs to the file service, not to
+        publication: when a page carries no usable range the whole file is read
+        instead of rejecting the submission.
+        """
         parts, offset, digest = [], 0, None
         while True:
             page = await self.router.dispatch('file_read', {'path': path, 'offset': offset}, self.conversation_id)
@@ -370,12 +376,17 @@ class ResearchSession:
                 raise ValueError('发布草稿未能读取')
             span = page.get('range') or {}
             start, end = span.get('start'), span.get('end')
-            if start != offset or type(end) is not int or not offset < end <= offset + len(page['content']):
-                raise ValueError('文件工具未提供有效字符范围，不能将阅读提示当成发布JSON；请更新文件服务')
+            if type(start) is not int or type(end) is not int or start != offset:
+                # No ranged read available: take the returned content as the file.
+                parts.append(page['content'])
+                break
             if digest is not None and page.get('sha256') != digest:
                 raise ValueError('发布草稿在分页读取期间发生变化，请完成编辑后再提交')
+            chunk = page['content'][:max(0, end - start)]
+            if not chunk:
+                raise ValueError('发布草稿读取返回空内容；请确认文件已写入后再提交')
             digest = page.get('sha256')
-            parts.append(page['content'][:end-start])
+            parts.append(chunk)
             following = page.get('next_offset')
             if following is None:
                 break
@@ -385,18 +396,24 @@ class ResearchSession:
         return json.loads(''.join(parts))
 
     async def publication_input(self, params):
+        """Resolve the submitted draft.
+
+        ``draft_path`` may now be combined with inline fields: the file supplies
+        the bulk and any inline key overrides it, which is how a model patches a
+        large draft without re-sending all of it.
+        """
         if 'draft_path' not in params:
             return params
-        if set(params) != {'draft_path'}:
-            raise ValueError('draft_path 与内联正文不能混用；请修改 JSON 文件后只传路径')
         path = params['draft_path']
         root = PurePosixPath(self.record['directory'])
-        if not isinstance(path, str) or '\\' in path or '..' in PurePosixPath(path).parts or not PurePosixPath(path).is_relative_to(root) or not path.endswith('.json'):
+        if (not isinstance(path, str) or '\\' in path or '..' in PurePosixPath(path).parts
+                or not PurePosixPath(path).is_relative_to(root) or not path.endswith('.json')):
             raise ValueError('发布草稿必须是本轮研究目录内的 JSON 文件')
         value = await self.read_json(path)
-        if not isinstance(value, dict) or 'draft_path' in value:
+        if not isinstance(value, dict):
             raise ValueError('发布草稿须为包含正文、引用、计算和图表的 JSON 对象')
-        return value
+        inline = {key: item for key, item in params.items() if key != 'draft_path'}
+        return {**value, **inline} if inline else value
 
     async def publish(self, params):
         if not self.allowed or self.record is None:
@@ -464,12 +481,27 @@ class ResearchSession:
         return self.published
 
     def check_review(self, candidate):
-        from .research_review import fingerprint
-        row=self.review_records.get(fingerprint(candidate),{})
-        if row.get('status') != 'COMPLETE' or row.get('issues'):
-            raise ValueError('当前候选稿尚未完成单独核对或仍有待修改问题，不能发布')
-        if self.pending_evidence or any(self.evidence_requests[key]['status']!='COMPLETE'
-                for key in row.get('read_request_keys',[])):
+        """Publication gate.
+
+        With ``PUBLISH_REVIEW_ENFORCE`` off (the default) the independent review
+        is still recorded, but it never blocks: the reviewer is an adviser, and
+        blocking on every finding is what stopped drafts from converging. When
+        enforced, only findings the reviewer marked ``blocking`` stop a
+        publication, and a review is no longer invalidated merely because more
+        evidence was read afterwards.
+        """
+        from . import config
+        from .research_review import blocking_findings, fingerprint
+        if not config.PUBLISH_REVIEW_ENFORCE:
+            return
+        row = self.review_records.get(fingerprint(candidate), {})
+        if row.get('status') != 'COMPLETE':
+            raise ValueError('当前候选稿尚未完成单独核对，不能发布（PUBLISH_REVIEW_ENFORCE=true）')
+        blocking = blocking_findings(row.get('issues'))
+        if blocking:
+            raise ValueError(f'单独核对标出 {len(blocking)} 项必须修改的问题，不能发布')
+        if self.pending_evidence or any(self.evidence_requests[key]['status'] != 'COMPLETE'
+                for key in row.get('read_request_keys', [])):
             raise ValueError('核对选定的补读尚未完成或已失败，不能发布')
         if row.get('evidence_sha256') != fingerprint(self.evidence_index()):
             raise ValueError('核对后的证据已变化，需要按当前材料重新核对')

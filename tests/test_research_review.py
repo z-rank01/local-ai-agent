@@ -2,12 +2,32 @@ import copy
 import json
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
+from core import config
 from core.agent import Agent
 from core.research_review import fingerprint, parse_review, review_messages
 from core.research_evidence import model_evidence
 from core.research_session import ResearchSession
 from tests import test_research_session as session_tests
+
+_enforcement = None
+
+
+def setUpModule():
+    """This module exercises the enforced review gate.
+
+    Publication no longer blocks on review findings by default; these tests
+    cover the opt-in ``PUBLISH_REVIEW_ENFORCE=true`` behaviour, so they pin it
+    for the module rather than weakening the assertions.
+    """
+    global _enforcement
+    _enforcement = patch.object(config, 'PUBLISH_REVIEW_ENFORCE', True)
+    _enforcement.start()
+
+
+def tearDownModule():
+    _enforcement.stop()
 
 
 class ReviewTests(unittest.IsolatedAsyncioTestCase):
@@ -63,7 +83,7 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_issues_revision_and_changed_evidence_require_new_review(self):
         issue={'section':'理由','claim':'2025亏损所以当前仍亏损','reason':'缺当前期间',
-               'evidence':'只有2025原文','action':'补查或限定历史期间'}
+               'evidence':'只有2025原文','action':'补查或限定历史期间','severity':'blocking'}
         files,run,draft,agent,calls=await self.setup_review([
             {'issues':[issue],'checks':['发现期间越界']}, {'issues':[],'checks':['已限定历史期间']}])
         await self.review(agent,draft)
@@ -77,6 +97,16 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,'证据已变化'):run.check_review(revised)
         self.assertEqual(len(calls),2)
         self.assertEqual(sum(p.endswith('-candidate.json') for p in files.files),2)
+
+    async def test_advisory_finding_does_not_block_publication(self):
+        # A finding without severity is advice: it is recorded but the draft
+        # still publishes, which is what lets a candidate converge.
+        issue={'section':'措辞','claim':'标题可更简短','reason':'表达偏好',
+               'evidence':'S','action':'可选修改'}
+        _,run,draft,agent,calls=await self.setup_review([{'issues':[issue],'checks':['仅措辞问题']}])
+        await self.review(agent,draft)
+        result=await run.publish(draft)
+        self.assertIn('path', result)
 
     async def test_unknown_does_not_publish_or_restart_with_changed_prose(self):
         files,run,draft,agent,calls=await self.setup_review([RuntimeError('timeout')])

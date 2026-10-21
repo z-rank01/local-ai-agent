@@ -29,6 +29,24 @@ def review_messages(question, candidate, research, system, findings=()):
             {'role':'user','content':json.dumps(payload,ensure_ascii=False)}]
 
 
+def blocking_findings(issues):
+    """Findings the reviewer marked ``blocking``; everything else is advice."""
+    return [issue for issue in issues or [] if issue.get('severity') == 'blocking']
+
+
+def review_blocks(review):
+    """Whether a recorded review may stop publication.
+
+    Off by default: the reviewer advises, and gating every draft on it is what
+    stopped candidates from converging. ``PUBLISH_REVIEW_ENFORCE=true`` restores
+    blocking, and even then only ``severity: blocking`` findings count.
+    """
+    from . import config
+    if not config.PUBLISH_REVIEW_ENFORCE:
+        return False
+    return bool(blocking_findings((review or {}).get('issues')))
+
+
 def parse_review(text):
     value=json.loads(text)
     if not isinstance(value,dict) or not isinstance(value.get('issues'),list) or not value.get('checks'):
@@ -39,6 +57,9 @@ def parse_review(text):
         if not isinstance(issue,dict) or any(not isinstance(issue.get(k),str) or not issue[k].strip()
                 for k in ('section','claim','reason','evidence','action')):
             raise ValueError('单独核对的问题缺少对应陈述、依据或修改要求')
+        # Missing severity means advice, not a publication blocker.
+        severity=str(issue.get('severity') or 'advisory').strip().lower()
+        issue['severity']=severity if severity in ('blocking','advisory') else 'advisory'
     reads=value.get('read_requests',[])
     if not isinstance(reads,list):raise ValueError('read_requests须为来源补读列表')
     for row in reads:

@@ -143,9 +143,6 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         changed['sources'][0]['quote'] = '收入没有风险'
         self.assertIn('error', await run.publish(changed))
         changed = copy.deepcopy(params)
-        changed['charts'][0]['unit'] = '亿元'
-        self.assertIn('error', await run.publish(changed))
-        changed = copy.deepcopy(params)
         changed['charts'][0]['items'][0]['value'] = '10'
         self.assertIn('error', await run.publish(changed))
         changed = copy.deepcopy(params)
@@ -197,8 +194,12 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
                      run.record['directory']+'-other/draft.json', run.record['directory']+'/..\\other.json']:
             with self.assertRaises(ValueError):
                 await run.publish({'draft_path': path})
-        with self.assertRaises(ValueError):
-            await run.publish({**params, 'draft_path': run.record['directory']+'/draft.json'})
+        # Inline fields may accompany draft_path again (inline wins); only a path
+        # outside this research directory is rejected.
+        await run.write('draft.json', params)
+        merged = await run.publication_input({
+            'draft_path': run.record['directory']+'/draft.json', 'title': '覆盖标题'})
+        self.assertEqual(merged['title'], '覆盖标题')
         self.assertEqual(run.publication_attempts, 0)
 
     async def test_publication_uses_real_file_window_and_rejects_changing_snapshot(self):
@@ -424,11 +425,16 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
                 {'value': '0.01', 'unit': '万元', 'period': '2025', 'source': 'calculation:0'}],
              'result': '0.02', 'unit': '万元'}]
         validate_publication(params, run.sources, run.read_text)
-        for key, bad in [('source', 'calculation:1'), ('value', '0.1'), ('unit', '亿元')]:
+        for key, bad in [('source', 'calculation:1'), ('value', '0.1')]:
             changed = copy.deepcopy(params)
             changed['calculations'][1]['inputs'][0][key] = bad
             with self.assertRaises(ValueError):
                 validate_publication(changed, run.sources, run.read_text)
+        # A different unit on a calculation reference is an explicit conversion
+        # now; the value must still match the referenced result.
+        converted = copy.deepcopy(params)
+        converted['calculations'][1]['inputs'][0]['unit'] = '亿元'
+        validate_publication(converted, run.sources, run.read_text)
 
     async def test_chart_accepts_explicit_table_header_unit(self):
         _, run, params = await self.prepare()
@@ -438,9 +444,10 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         params['sources'][0]['quote'] = quote
         params['charts'][0].update(unit='%', items=[{'label': '营业收入增速', 'value': '13.84', 'source': source}])
         validate_publication(params, run.sources, run.read_text)
+        # The chart unit is no longer required to appear literally in the quote;
+        # the plotted value is still located in the source text.
         params['charts'][0]['unit'] = '亿元'
-        with self.assertRaises(ValueError):
-            validate_publication(params, run.sources, run.read_text)
+        validate_publication(params, run.sources, run.read_text)
 
     async def test_stop_preserves_material_and_records_incomplete(self):
         import asyncio

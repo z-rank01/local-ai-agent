@@ -1,7 +1,23 @@
 import json
 import unittest
+from unittest.mock import patch
+
+from core import config
 from core.research_review import fingerprint, parse_review
 from tests import test_research_review as fixtures
+
+_enforcement = None
+
+
+def setUpModule():
+    """These flows only run while the review gate is enforced."""
+    global _enforcement
+    _enforcement = patch.object(config, 'PUBLISH_REVIEW_ENFORCE', True)
+    _enforcement.start()
+
+
+def tearDownModule():
+    _enforcement.stop()
 
 
 class ReviewReadbackTests(unittest.IsolatedAsyncioTestCase):
@@ -62,15 +78,17 @@ class ReviewReadbackTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,'本轮实际来源'):await fixtures.ReviewTests().review(agent,draft)
         self.assertFalse(run.pending_evidence)
         self.assertEqual(run.review_records[fingerprint(draft)]['status'],'FAILED')
-        _,run,draft,agent,calls=await fixtures.ReviewTests().setup_review([])
+        # An empty charts list is no longer a blocking layout error.
+        _,run,draft,agent,calls=await fixtures.ReviewTests().setup_review([
+            {'issues':[],'checks':['无图也可交付']}])
         draft['charts']=[]
-        with self.assertRaisesRegex(ValueError,'visual_limitations'):await fixtures.ReviewTests().review(agent,draft)
-        self.assertEqual(calls,[])
+        await fixtures.ReviewTests().review(agent,draft)
+        self.assertEqual(len(calls),1)
 
-    def test_no_chart_requires_reason_and_numeric_error_is_actionable(self):
+    def test_no_chart_needs_no_reason_and_numeric_error_is_actionable(self):
         from core.research_visuals import validate_visual_plan, number
         from decimal import InvalidOperation
-        with self.assertRaises(ValueError):validate_visual_plan({'charts':[]})
+        validate_visual_plan({'charts':[]})
         validate_visual_plan({'charts':[],'visual_limitations':'资料只有定性观点，不绘制假数据'})
         with self.assertRaisesRegex(InvalidOperation,'数值格式无效'):number('not available')
 

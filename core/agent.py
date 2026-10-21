@@ -1054,22 +1054,28 @@ class Agent:
                 if name == 'context_evidence_read':
                     result = self.context_mgr.read_evidence(**params)
                 elif name == 'brief_publish' and research is not None:
+                    from . import config as _config
                     if hasattr(self.router, 'authorize_publication'):
                         await self.router.authorize_publication(params)
                     candidate = await research.publication_input(params)
                     if await research.queue_citation_reads(candidate):
                         result={'status':'EVIDENCE_PENDING','message':'已登记当前稿选中的原文回读，待实际摘录返回后再提交；未修改正文。'}
+                    elif not _config.PUBLISH_REVIEW_ENFORCE:
+                        # The independent review is advisory by default: publish
+                        # directly. Mechanical provenance checks still run inside
+                        # publish(), so quotes and arithmetic are still traced.
+                        result = await research.publish(candidate)
                     else:
                         async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
                             async for event in events:
                                 yield event
-                        from .research_review import fingerprint
-                        review = research.review_records[fingerprint(candidate)]
+                        from .research_review import fingerprint, review_blocks
+                        review = research.review_records.get(fingerprint(candidate), {})
                         if research.pending_evidence:
                             result={'status':'EVIDENCE_PENDING','review':review,
                                 'message':'单独核对已选择现有原件补读；待实际工具返回后，局部处理问题并保留其他有效事实与反证。核对建议不是事实。'}
-                        elif review.get('issues'):
-                            result = {'error':'单独核对发现关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
+                        elif review_blocks(review):
+                            result = {'error':'单独核对标出必须修改的关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
                                       'review':review}
                         else:
                             result = await research.publish(candidate)

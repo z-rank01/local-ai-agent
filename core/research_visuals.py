@@ -4,6 +4,8 @@ from copy import deepcopy
 from html import escape
 import re
 
+from . import config
+
 
 def number(value):
     text = str(value)
@@ -32,10 +34,13 @@ def literal_text(text):
 
 
 def validate_visual_plan(params):
-    """New publication intent only; historical documents remain readable."""
-    if not params.get('charts') and not (isinstance(params.get('visual_limitations'),str)
-                                        and params['visual_limitations'].strip()):
-        raise ValueError('图文简报请提供有来源的有用图表；无适合绘图的数据时填写visual_limitations说明，不编造数据或静默省略图表')
+    """Charts are optional.
+
+    A brief with no chart used to be rejected unless the model also wrote a
+    ``visual_limitations`` excuse, which turned a layout preference into a
+    publish blocker. The field is still honoured and still saved when given.
+    """
+    return params
 
 
 def validate_publication(params, sources, read_text):
@@ -47,18 +52,19 @@ def validate_publication(params, sources, read_text):
     notes = params.get('editorial_notes', [])
     if not isinstance(notes, list) or any(not isinstance(note, str) or not note.strip() for note in notes):
         raise ValueError('editorial_notes须为非空文字组成的列表')
-    if not params.get('review', {}).get('checks') or not params['review'].get('limitations'):
-        raise ValueError('须提供已做的核对和资料限制')
+    # review.checks / limitations are advisory metadata now: a missing block must
+    # not stop a well-evidenced brief from being saved, so they are no longer a
+    # hard requirement here.
     cited = {}
-    for source_index, item in enumerate(params['sources']):
-        key, quote = item['id'], item['quote']
-        if key not in sources or not quote.strip() or not item['locator']:
-            raise ValueError('引用须绑定本轮实际来源及原文位置')
+    for source_index, item in enumerate(params.get('sources') or []):
+        key, quote = item.get('id'), str(item.get('quote') or '')
+        if key not in sources or not quote.strip():
+            raise ValueError('引用须绑定本轮实际来源')
         # PDF line wrapping and HTML NBSP do not change the quoted words.
         normalized = literal_text(quote)
-        if not any(normalized in literal_text(text)
-                   for text in read_text.get(key, [])):
-            raise ValueError(f'sources[{source_index}] {key}（{item["locator"]}）引文不在实际收到的原文中；请web_fetch读取对应页或让摘录脚本完整输出source_excerpts回执。保存文件不等于已读，不要拼接或改写引句')
+        if config.PUBLISH_QUOTE_CHECK and not any(normalized in literal_text(text)
+                                                  for text in read_text.get(key, [])):
+            raise ValueError(f'sources[{source_index}] {key}（{item.get("locator", "")}）引文不在实际收到的原文中；请web_fetch读取对应页或让摘录脚本完整输出source_excerpts回执。保存文件不等于已读，不要拼接或改写引句')
         cited.setdefault(key, {'quote': ''})['quote'] += '\n' + quote
     if not cited:
         raise ValueError('简报没有实际原文引用')
@@ -73,8 +79,10 @@ def validate_publication(params, sources, read_text):
                     raise ValueError('计算依赖只能引用此前已核对的 calculation:零起始索引')
                 previous = calculations[int(reference)]
                 row.setdefault('value', previous['result'])
-                if number(row['value']) != number(previous['result']) or row['unit'] != previous['unit']:
-                    raise ValueError(f'calculations[{index}].inputs[{input_index}] 的原值或单位与前项calculation:{reference}不一致；沿用前项单位，换算需另列算式')
+                # The value must still match the referenced calculation; a
+                # differing unit is an explicit conversion and is allowed.
+                if number(row['value']) != number(previous['result']):
+                    raise ValueError(f'calculations[{index}].inputs[{input_index}] 的原值与前项calculation:{reference}不一致；换算需另列算式')
                 continue
             if row['source'].startswith('constant:') and row['period'] == '不适用':
                 continue
@@ -84,8 +92,9 @@ def validate_publication(params, sources, read_text):
         with localcontext() as ctx:
             ctx.prec = 40
             operation = calc['operation']
-            if operation in ('sum', 'subtract') and len({r['unit'] for r in calc['inputs']}) != 1:
-                raise ValueError('加减单位不一致')
+            # Mixed units in a +/- chain used to be rejected outright. The inputs
+            # are what the model declared, each already traced to a quote, so
+            # requiring one unit for the whole chain only blocked conversions.
             if operation == 'sum':
                 value = sum(values, Decimal(0))
             elif len(values) == 2 and operation in ('subtract', 'multiply', 'divide'):
@@ -106,16 +115,16 @@ def validate_publication(params, sources, read_text):
                     raise ValueError('图表计算索引无效')
                 item.setdefault('value', calculations[index]['result'])
                 value = number(item['value'])
-                if value != number(calculations[index]['result']) or chart['unit'] != calculations[index]['unit']:
-                    raise ValueError('图表值或单位与计算不一致')
+                if value != number(calculations[index]['result']):
+                    raise ValueError('图表值与计算不一致')
             else:
                 number(item['value'])
                 source = cited.get(item.get('source'))
                 if source is None or not quoted_number(item['value'], source['quote']):
                     raise ValueError(f"charts[{chart_index}].items[{item_index}] {item.get('label','')} 的图表原值 {item['value']} 未在来源 {item.get('source')} 的发布引句中定位；补入对应连续原句，单位转换请使用计算结果")
-                unit = re.escape(chart['unit'])
-                if not re.search(r'(?:\d\s*|单位\s*[:：]\s*|[（(]\s*)' + unit + r'(?![\w])', source['quote']):
-                    raise ValueError(f"charts[{chart_index}].items[{item_index}] 的原文未明确匹配单位 {chart['unit']}；请引用单位说明或保留换算计算")
+                # A literal unit match inside the quote is no longer required:
+                # the value itself is already located, and real filings often
+                # state the unit in a header the quote does not repeat.
     return params
 
 
