@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from core.model_execution import freeze_profile, invoke
 from core.local_agent import delegate
 from core.providers import CompatibleClient, CallBudget
-from core.research_generation import generate
+from plugins.finance.generation import generate
 from tests import test_in1
 
 
@@ -56,10 +56,22 @@ class ModelExecutionTests(unittest.IsolatedAsyncioTestCase):
             seen.append(request)
             return httpx.Response(200,text='data: {"choices":[{"delta":{"content":"partial"}}]}\n\n')
         await self.cloud(respond)
+        from harness.infrastructure.model_ledger import RecordedRequest
+        profile = self.profile()
         with patch('core.providers.read_key',return_value='fixture-key'):
-            result=await invoke(self.runtime,self.profile(),'test','public')
+            result=await invoke(self.runtime,profile,'test','public',request_id='stable-attempt')
+            # A new gateway/ledger object after a restart must still refuse replay.
+            self.runtime.models.budget = CallBudget(self.runtime.models.budget.path)
+            with self.assertRaises(RecordedRequest) as repeated:
+                await invoke(self.runtime,profile,'test','public',request_id='stable-attempt')
+            self.assertEqual(repeated.exception.status, 'UNKNOWN')
+            self.assertFalse(repeated.exception.conflict)
+            with self.assertRaises(RecordedRequest) as changed:
+                await invoke(self.runtime,profile,'test','changed input',request_id='stable-attempt')
+            self.assertTrue(changed.exception.conflict)
         self.assertEqual(result['status'],'UNKNOWN');self.assertEqual(len(seen),1)
         self.assertIsNone(result['usage'])
+        self.assertEqual(self.runtime.models.budget.status()['used'], 1)
 
     async def test_private_material_does_not_reach_cloud(self):
         with self.assertRaises(HTTPException) as raised:
@@ -140,7 +152,7 @@ class ModelExecutionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute('SELECT status FROM research_receipts').fetchone()[0],'UNKNOWN')
 
     async def test_stock_node_stop_cancels_actual_call_without_outbound_ids(self):
-        from core.research_generation import stop_job
+        from plugins.finance.generation import stop_job
         entered=asyncio.Event()
         class Waiting(httpx.AsyncByteStream):
             async def __aiter__(self):

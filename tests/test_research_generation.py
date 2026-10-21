@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 from fastapi import HTTPException
-from core.research_generation import generate, validate_public
+from plugins.finance.generation import generate, validate_public
 from core.public_address import public_url
 from core.providers import CallBudget
 from pathlib import Path

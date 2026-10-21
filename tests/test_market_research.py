@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
-from core.market_research import _event_schema, available_models, generate, generation_parameters, public_material, public_search
+from plugins.finance.market import _event_schema, available_models, generate, generation_parameters, public_material, public_search
 
 
 PUBLIC = [{'event_id': 'E1', 'title': '公开政策', 'published': '2026-09-26',
@@ -283,10 +283,10 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_discovered_text_models_are_selectable_but_specialized_models_are_not(self):
-        with patch('core.market_research.read_key', return_value='configured-secret'), \
-             patch('core.market_research._probe_ollama_models', new_callable=AsyncMock,
+        with patch('plugins.finance.market.read_key', return_value='configured-secret'), \
+             patch('plugins.finance.market._probe_ollama_models', new_callable=AsyncMock,
                    return_value=['bge-m3:latest', 'gemma4:26b']), \
-             patch('core.market_research.httpx.AsyncClient', return_value=ShowClient()):
+             patch('plugins.finance.market.httpx.AsyncClient', return_value=ShowClient()):
             models = await available_models(Runtime())
         self.assertEqual({item['id'] for item in models},
                          {'ollama:gemma4:26b', 'qwen:qwen3.8-max',
@@ -294,8 +294,8 @@ class MarketResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(item['status'] == 'configured' for item in models))
 
     async def test_missing_key_is_visible_but_disabled(self):
-        with patch('core.market_research.read_key', return_value=''), \
-             patch('core.market_research._probe_ollama_models', new_callable=AsyncMock,
+        with patch('plugins.finance.market.read_key', return_value=''), \
+             patch('plugins.finance.market._probe_ollama_models', new_callable=AsyncMock,
                    return_value=[]):
             models = await available_models(Runtime())
         self.assertEqual({item['status'] for item in models}, {'missing_key'})

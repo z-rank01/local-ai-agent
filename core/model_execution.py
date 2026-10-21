@@ -37,7 +37,7 @@ def resolve_profile(runtime, profile):
     return spec, client
 
 
-async def invoke(runtime, profile, prompt, material, *, observe=None):
+async def invoke(runtime, profile, prompt, material, *, observe=None, request_id=None):
     """One call, no retry or fallback. Receipts exclude prose and reasoning."""
     spec, client = resolve_profile(runtime, profile)
     if spec['kind']=='cloud':
@@ -49,7 +49,12 @@ async def invoke(runtime, profile, prompt, material, *, observe=None):
     params = {'model':spec['id'], 'options':spec['options']}
     digest = lambda v: hashlib.sha256(json.dumps(v,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     ledger = runtime.models.budget
-    call_id = ledger.begin_research(spec['id'],digest(profile),digest(messages),params)
+    request_key = None
+    if request_id is not None:
+        if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 400:
+            raise ValueError('模型请求标识须为 1–400 字符')
+        request_key = digest({'conversation_id': profile['conversation_id'], 'request_id': request_id})
+    call_id = ledger.begin_research(spec['id'],digest(profile),digest(messages),params, request_key=request_key)
     native = {}
     def event(name, data):
         if name == 'native_model_result': native.update(data)
@@ -61,7 +66,7 @@ async def invoke(runtime, profile, prompt, material, *, observe=None):
         runtime.audit.record(name,safe)
         if observe: observe(name,safe)
     result = {'status':'UNKNOWN', 'text':'', 'model_params':params, 'ledger_call_id':call_id,
-              'execution_hash':digest(profile), 'usage':None, 'usage_status':'NOT_REPORTED'}
+              'execution_hash':digest(profile), 'request_id':request_id, 'usage':None, 'usage_status':'NOT_REPORTED'}
     try:
         response = None
         if spec['kind'] == 'local':

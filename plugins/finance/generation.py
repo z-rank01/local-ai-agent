@@ -5,7 +5,7 @@ import asyncio
 import json
 import httpx
 from fastapi import HTTPException
-from .research_stream import ResearchStreamError
+from core.research_stream import ResearchStreamError
 
 DUTIES = {'C01', 'C02', 'C03', 'C04'}
 PRIVATE_KEYS = {'account', 'account_id', 'cash', 'lots', 'holdings', 'orders', 'fills',
@@ -16,7 +16,7 @@ ROOT_FIELDS = {'as_of', 'material', 'evidence_ids', 'analysis_contract', 'valida
 
 async def rejection_metadata(response):
     """Classify an explicit rejection without retaining provider text or echoed input."""
-    from .research_errors import classify_rejection
+    from core.research_errors import classify_rejection
     body = None
     try:
         await response.aread()
@@ -111,7 +111,8 @@ async def generate(runtime, body):
     key = (association['job_id'], association['request_id'])
     if key in _active_nodes or key[0] in _stopped_jobs:
         raise HTTPException(409, '任务已停止或节点仍在执行，不自动重发')
-    task = asyncio.create_task(_generate(runtime, {k:v for k,v in body.items() if k != 'node'}))
+    task = asyncio.create_task(_generate(runtime, {k:v for k,v in body.items() if k != 'node'},
+                                        request_id='finance:' + json.dumps(key, separators=(',', ':'))))
     _active_nodes[key] = task
     try:
         return await task
@@ -119,10 +120,14 @@ async def generate(runtime, body):
         _active_nodes.pop(key, None)
 
 
-async def _generate(runtime, body):
+async def _generate(runtime, body, *, request_id=None):
     if isinstance(body,dict) and 'execution_profile' in body:
         profile=body['execution_profile']
-        from .model_execution import resolve_profile, invoke
+        from core.model_execution import resolve_profile
+        from harness.contracts.models import ModelRequest
+        from harness.runtime.model_gateway import ConversationModelGateway
+        from harness.infrastructure.model_ledger import RecordedRequest
+        import uuid
         try:
             spec,_=resolve_profile(runtime,profile)
         except PermissionError as exc:
@@ -131,7 +136,12 @@ async def _generate(runtime, body):
             raise HTTPException(409,str(exc)) from exc
         if spec['kind']=='cloud': validate_public(body['material'])
         try:
-            answer=await invoke(runtime,profile,body['prompt'],body['material'])
+            answer=await ConversationModelGateway(runtime, profile).generate(ModelRequest(
+                request_id or uuid.uuid4().hex, body['prompt'], body['material']))
+        except RecordedRequest as exc:
+            raise HTTPException(409, {'message': str(exc), 'code': 'MODEL_REQUEST_RECORDED',
+                                     'ledger_call_id': exc.call_id, 'recorded_status': exc.status,
+                                     'input_conflict': exc.conflict}) from exc
         except asyncio.CancelledError:
             answer={'status':'UNKNOWN','text':'','usage':None,'usage_status':'NOT_REPORTED',
                     'error':'REQUEST_CANCELLED'}

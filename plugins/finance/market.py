@@ -10,9 +10,9 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import HTTPException, Request
 
-from . import config
-from .providers import _NON_CHAT_MODEL, _probe_ollama_models, read_key
-from .stock_service import stock_service
+from core import config
+from core.providers import _NON_CHAT_MODEL, _probe_ollama_models, read_key
+from .service import stock_service
 
 PUBLIC_HOSTS = {'www.csrc.gov.cn', 'www.ndrc.gov.cn', 'pdf.dfcfw.com', 'data.eastmoney.com'}
 LOOKUP_HOSTS = {'csrc': 'www.csrc.gov.cn', 'ndrc': 'www.ndrc.gov.cn',
@@ -134,7 +134,7 @@ async def public_search(runtime, body):
         if (parsed and parsed.scheme == 'https' and (not host or parsed.hostname == host) and
                 not parsed.username and not parsed.password and url not in urls):
             if not host:
-                from .public_address import public_url
+                from core.public_address import public_url
                 try:
                     public_url(url)
                 except ValueError:
@@ -287,7 +287,7 @@ def generation_parameters(provider, model, value):
 async def generate(runtime, provider, model, prompt, material, *, generation=None, execution_profile=None):
     if execution_profile is None:
         raise HTTPException(409,'独立简报模型已停用；请从所属会话创建任务')
-    from .model_execution import resolve_profile, invoke
+    from core.model_execution import resolve_profile, invoke
     spec,_=resolve_profile(runtime,execution_profile)
     if spec['kind']=='cloud': public_material(material)
     return await invoke(runtime,execution_profile,prompt,material)

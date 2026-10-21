@@ -154,11 +154,11 @@ async def stock_service_status(request: Request):
 async def stock_analysis_models(request: Request, refresh: int = 0):
     if not _is_loopback_host(request.client.host if request.client else None):
         raise HTTPException(403, '仅允许本机查看分析模型')
-    from core.market_research import available_models
+    from plugins.finance.market import available_models
     return await available_models(get_runtime(), refresh=bool(refresh))
 @app.post('/api/internal/market-event-analysis', include_in_schema=False)
 async def market_event_analysis(request: Request):
-    from core.market_research import authorize, generate
+    from plugins.finance.market import authorize, generate
     authorize(request)
     body = await request.json()
     fields = {'provider', 'model', 'prompt', 'material','execution_profile'}
@@ -169,21 +169,21 @@ async def market_event_analysis(request: Request):
                           generation=body.get('generation'),execution_profile=body['execution_profile'])
 @app.post('/api/internal/stock-public-search', include_in_schema=False)
 async def stock_public_search(request: Request):
-    from core.market_research import authorize, public_search
+    from plugins.finance.market import authorize, public_search
     authorize(request)
     return await public_search(get_runtime(), await request.json())
 
 @app.post('/api/internal/research-generation', include_in_schema=False)
 async def research_generation(request: Request):
-    from core.market_research import authorize
-    from core.research_generation import generate
+    from plugins.finance.market import authorize
+    from plugins.finance.generation import generate
     authorize(request)
     return await generate(get_runtime(), await request.json())
 
 @app.post('/api/internal/research-generation/stop', include_in_schema=False)
 async def stop_research_generation(request: Request):
-    from core.market_research import authorize
-    from core.research_generation import stop_job
+    from plugins.finance.market import authorize
+    from plugins.finance.generation import stop_job
     authorize(request)
     body = await request.json()
     if not isinstance(body, dict) or set(body) != {'job_id'} or not isinstance(body['job_id'], str):
