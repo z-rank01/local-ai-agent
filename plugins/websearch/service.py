@@ -94,7 +94,7 @@ class SkillSwitches:
             runtime.capabilities = LifecycleManager()
         manager = runtime.capabilities
         if not manager.manages('skill-websearch'):
-            manager.register('skill-websearch', SearchLifecycle(self, runtime))
+            manager.register('websearch', SearchLifecycle(self, runtime), aliases=('skill-websearch',))
         runtime.router.capabilities = manager
         return manager
 

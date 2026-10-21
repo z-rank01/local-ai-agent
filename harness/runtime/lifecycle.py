@@ -21,22 +21,28 @@ class Instance:
 class LifecycleManager:
     def __init__(self):
         self._instances: dict[str, Instance] = {}
+        self._aliases: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
-    def register(self, identity: str, provider: Lifecycle, *, required=()):
-        if identity in self._instances:
-            raise ValueError(f'能力已登记：{identity}')
-        if identity in required:
+    def register(self, identity: str, provider: Lifecycle, *, required=(), aliases=()):
+        names = (identity, *aliases)
+        if len(set(names)) != len(names) or any(not name or self.manages(name) for name in names):
+            raise ValueError(f'能力名称或别名已登记/无效：{identity}')
+        if set(names).intersection(required):
             raise ValueError('能力不能依赖自身')
         self._instances[identity] = Instance(provider, tuple(required))
+        self._aliases.update({alias: identity for alias in aliases})
+
+    def _identity(self, identity):
+        return self._aliases.get(identity, identity)
 
     def status(self, identity):
-        instance = self._instances[identity]
+        instance = self._instances[self._identity(identity)]
         return {'state': instance.state, 'error': instance.error, 'inflight': instance.calls,
                 'required': list(instance.required), 'accepting': instance.state == 'ACTIVE'}
 
     def manages(self, identity):
-        return identity in self._instances
+        return self._identity(identity) in self._instances
 
     async def activate(self, identity):
         async with self._lock:
@@ -44,6 +50,7 @@ class LifecycleManager:
         return self.status(identity)
 
     async def _activate(self, identity, ancestors):
+        identity = self._identity(identity)
         if identity in ancestors:
             raise ValueError('能力依赖形成循环：' + ' → '.join((*ancestors, identity)))
         if identity not in self._instances:
@@ -65,7 +72,7 @@ class LifecycleManager:
 
     @asynccontextmanager
     async def call(self, identity):
-        instance = self._instances[identity]
+        instance = self._instances[self._identity(identity)]
         if instance.state != 'ACTIVE':
             raise RuntimeError(f'能力不接收新调用：{identity} ({instance.state})')
         # No await between admission and increment, so deactivation cannot interleave.
@@ -79,12 +86,14 @@ class LifecycleManager:
                 instance.idle.set()
 
     async def deactivate(self, identity, *, timeout=30, reconcile=False):
+        identity = self._identity(identity)
         async with self._lock:
             instance = self._instances[identity]
             if instance.state == 'INACTIVE' and not reconcile:
                 return self.status(identity)
             dependents = [name for name, other in self._instances.items()
-                          if identity in other.required and other.state in ('ACTIVE', 'DRAINING', 'STOP_FAILED')]
+                          if any(self._identity(dependency) == identity for dependency in other.required)
+                          and other.state in ('ACTIVE', 'DRAINING', 'STOP_FAILED')]
             if dependents:
                 raise ValueError('请先停用依赖此能力的插件：' + ', '.join(dependents))
             instance.state, instance.error = 'DRAINING', ''

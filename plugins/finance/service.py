@@ -190,7 +190,7 @@ class StockService:
             runtime.capabilities = LifecycleManager()
         runtime.router.capabilities = runtime.capabilities
         if not runtime.capabilities.manages('stock-bridge'):
-            runtime.capabilities.register('stock-bridge', FinanceLifecycle(self, runtime))
+            runtime.capabilities.register('finance', FinanceLifecycle(self, runtime), aliases=('stock-bridge',))
         return runtime.capabilities
 
     async def restore(self, runtime):

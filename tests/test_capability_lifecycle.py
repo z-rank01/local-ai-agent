@@ -19,6 +19,34 @@ class Provider:
 
 
 class LifecycleFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manifest_dependencies_and_legacy_owners_share_one_lifecycle(self):
+        events = []
+        manager = LifecycleManager()
+        manager.register('search', Provider('search', events), aliases=('legacy-search',))
+        manager.register('comparison', Provider('comparison', events), required=('search',))
+        await manager.activate('comparison')
+        async with manager.call('legacy-search'):
+            self.assertEqual(manager.status('search')['inflight'], 1)
+            self.assertEqual(manager.status('legacy-search'), manager.status('search'))
+            with self.assertRaisesRegex(ValueError, '先停用'):
+                await manager.deactivate('legacy-search')
+        await manager.deactivate('comparison')
+        await manager.deactivate('legacy-search')
+        self.assertEqual(events, ['start:search', 'start:comparison', 'stop:comparison', 'stop:search'])
+        with self.assertRaises(ValueError):
+            manager.register('legacy-search', Provider('collision', events))
+        self.assertFalse(manager.manages('collision'))
+
+    async def test_alias_dependency_cycles_fail_without_starting_resources(self):
+        events = []
+        manager = LifecycleManager()
+        manager.register('a', Provider('a', events), aliases=('old-a',), required=('old-b',))
+        manager.register('b', Provider('b', events), aliases=('old-b',), required=('old-a',))
+        with self.assertRaisesRegex(ValueError, '循环'):
+            await manager.activate('a')
+        self.assertEqual(events, [])
+        self.assertEqual(manager.status('b')['state'], 'START_FAILED')
+
     async def test_dependency_order_and_stop_drains_inflight_and_refuses_new_calls(self):
         events = []
         manager = LifecycleManager()
