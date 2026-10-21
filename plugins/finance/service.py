@@ -183,6 +183,39 @@ class StockService:
         self.settings['enabled'] = True
         self.save()
 
+    def lifecycle(self, runtime):
+        from harness.runtime.lifecycle import LifecycleManager
+        from .lifecycle import FinanceLifecycle
+        if getattr(runtime, 'capabilities', None) is None:
+            runtime.capabilities = LifecycleManager()
+        runtime.router.capabilities = runtime.capabilities
+        if not runtime.capabilities.manages('stock-bridge'):
+            runtime.capabilities.register('stock-bridge', FinanceLifecycle(self, runtime))
+        return runtime.capabilities
+
+    async def restore(self, runtime):
+        await self.attach(runtime, False)
+        manager = self.lifecycle(runtime)
+        if self.settings['enabled']:
+            await manager.activate('stock-bridge')
+
+    async def stop(self, runtime):
+        try:
+            await self.request('/api/control/status')  # Verify identity before mutation.
+        except httpx.ConnectError:
+            pass  # Already stopped: repeated close is safe.
+        else:
+            await self.request('/api/control/action', {'action': 'shutdown'})
+            # Shutdown is acknowledged before the backend actually exits.
+            # Do not report success while its listener is still alive.
+            try:
+                await asyncio.wait_for(self.wait_until_stopped(), timeout=10)
+            except asyncio.TimeoutError:
+                raise ValueError('股票后台尚未退出，请稍后刷新状态') from None
+        await self.attach(runtime, False)
+        self.settings['enabled'] = False
+        self.save()
+
     async def action(self, runtime, body, active_check=None):
         async with self.lock:
             if active_check and active_check():
@@ -206,23 +239,14 @@ class StockService:
                 self.save()
                 self.configuration_error = ''
             elif action == 'start':
-                await self.start(runtime)
+                manager = self.lifecycle(runtime)
+                if manager.status('stock-bridge')['state'] == 'ACTIVE' and not (await self.status())['online']:
+                    # A dead service is not healthy merely because registration survived.
+                    # Reconcile identity and old resources before a fresh activation.
+                    await manager.deactivate('stock-bridge', reconcile=True)
+                await manager.activate('stock-bridge')
             elif action == 'stop':
-                try:
-                    await self.request('/api/control/status')  # Verify identity before mutation.
-                except httpx.ConnectError:
-                    pass  # Already stopped: repeated close is safe.
-                else:
-                    await self.request('/api/control/action', {'action': 'shutdown'})
-                    # Shutdown is acknowledged before the backend actually exits.
-                    # Do not report success while its listener is still alive.
-                    try:
-                        await asyncio.wait_for(self.wait_until_stopped(), timeout=10)
-                    except asyncio.TimeoutError:
-                        raise ValueError('股票后台尚未退出，请稍后刷新状态') from None
-                await self.attach(runtime, False)
-                self.settings['enabled'] = False
-                self.save()
+                await self.lifecycle(runtime).deactivate('stock-bridge', reconcile=True)
                 return {'settings': self.settings.copy(), 'online': False, 'url': self.url,
                         'message': '股票后台已关闭，聊天可继续使用'}
             elif action in ('worker_start', 'worker_pause', 'recover', 'prepare_resume', 'confirm_resume', 'operator', 'market_model_configure', 'research_model_configure'):

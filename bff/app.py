@@ -59,14 +59,11 @@ async def lifespan(_: FastAPI):
     runtime = get_runtime()
     if os.environ.get('DAILY_SERVICES') == '1':
         from core.stock_service import stock_service
-        await stock_service.attach(runtime, False)
-        if stock_service.settings['enabled']:
-            try:
-                await stock_service.start(runtime)
-            except Exception:
-                # An optional backend must not prevent the chat/control UI starting.
-                import logging
-                logging.getLogger(__name__).exception('Stock service startup failed')
+        try:
+            await stock_service.restore(runtime)
+        except Exception:
+            # The lifecycle retains the exact error; optional finance cannot block chat.
+            logging.getLogger(__name__).exception('Stock service startup failed')
     app.state.auto_exit = AutoExitState(
         enabled=config.AUTO_EXIT_ON_CLOSE,
         timeout_seconds=config.HEARTBEAT_TIMEOUT_SECONDS,

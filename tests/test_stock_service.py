@@ -18,6 +18,7 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         self.root = Path(self.tmp.name)
         (self.root / 'scripts').mkdir()
         (self.root / 'scripts/run_paper.py').write_text('')
+        self.runtime = SimpleNamespace(capabilities=None, router=SimpleNamespace())
         self.service = StockService()
         self.service.settings_path = self.root / 'settings.json'
         self.service.settings = {'root': str(self.root), 'state_dir': 'simulation', 'port': 18765, 'enabled': False, 'worker': False}
@@ -49,9 +50,10 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         self.service.request = AsyncMock(side_effect=[{}, ValueError('正在收尾')])
         self.service.attach = AsyncMock()
         with self.assertRaisesRegex(ValueError, '收尾'):
-            await self.service.action(None, {'action': 'stop'})
+            await self.service.action(self.runtime, {'action': 'stop'})
         self.assertTrue(self.service.settings['enabled'])
         self.service.attach.assert_not_awaited()
+        self.assertEqual(self.runtime.capabilities.status('stock-bridge')['state'], 'STOP_FAILED')
 
     async def test_recovery_never_persists_normal_worker_restart_even_when_reply_is_unknown(self):
         self.service.settings['worker'] = True
@@ -84,6 +86,17 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, '聊天'):
             await self.service.action(None, {'action': 'start'}, lambda: True)
 
+    async def test_reenable_after_service_loss_reconciles_before_start(self):
+        self.service.start = AsyncMock()
+        self.service.stop = AsyncMock()
+        self.service.status = AsyncMock(return_value={'online': False})
+        manager = self.service.lifecycle(self.runtime)
+        await manager.activate('stock-bridge')
+        await self.service.action(self.runtime, {'action': 'start'})
+        self.service.stop.assert_awaited_once_with(self.runtime)
+        self.assertEqual(self.service.start.await_count, 2)
+        self.assertEqual(manager.status('stock-bridge')['state'], 'ACTIVE')
+
     async def test_independent_model_settings_are_deprecated_without_side_effects(self):
         self.service.request=AsyncMock()
         for action in ('market_model_configure','research_model_configure'):
@@ -96,7 +109,7 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         self.service.settings.update(port=server.sockets[0].getsockname()[1], enabled=True)
         self.service.request = AsyncMock(side_effect=[{}, {'status': 'shutting_down'}])
         self.service.attach = AsyncMock()
-        closing = asyncio.create_task(self.service.action(None, {'action': 'stop'}))
+        closing = asyncio.create_task(self.service.action(self.runtime, {'action': 'stop'}))
         try:
             await asyncio.sleep(0.2)
             self.assertFalse(closing.done(), 'Must wait beyond the shutdown acknowledgement')
@@ -106,7 +119,8 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
             result = await asyncio.wait_for(closing, 8)
             self.assertFalse(result['online'])
             self.assertFalse(self.service.read_settings()['enabled'])
-            self.service.attach.assert_awaited_once_with(None, False)
+            self.service.attach.assert_awaited_once_with(self.runtime, False)
+            self.assertEqual(self.runtime.capabilities.status('stock-bridge')['state'], 'INACTIVE')
         finally:
             server.close()
             await server.wait_closed()
@@ -119,7 +133,7 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         self.service.request = AsyncMock(side_effect=httpx.ConnectError('refused'))
         self.service.attach = AsyncMock()
         for _ in range(2):
-            result = await self.service.action(None, {'action': 'stop'})
+            result = await self.service.action(self.runtime, {'action': 'stop'})
             self.assertFalse(result['online'])
             self.assertFalse(result['settings']['enabled'])
 
@@ -129,7 +143,7 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
             self.service.request = AsyncMock(side_effect=error)
             self.service.attach = AsyncMock()
             with self.assertRaises(type(error)):
-                await self.service.action(None, {'action': 'stop'})
+                await self.service.action(self.runtime, {'action': 'stop'})
             self.service.attach.assert_not_awaited()
             self.assertTrue(self.service.settings['enabled'])
 
@@ -139,7 +153,7 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         self.service.wait_until_stopped = AsyncMock(side_effect=asyncio.TimeoutError)
         self.service.attach = AsyncMock()
         with self.assertRaisesRegex(ValueError, '尚未退出'):
-            await self.service.action(None, {'action': 'stop'})
+            await self.service.action(self.runtime, {'action': 'stop'})
         self.service.attach.assert_not_awaited()
         self.assertTrue(self.service.settings['enabled'])
 
