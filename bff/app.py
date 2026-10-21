@@ -93,7 +93,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 from .capabilities import router as capabilities_router
+from .skill_management import router as skill_management_router
 app.include_router(capabilities_router)
+app.include_router(skill_management_router)
 async def _stream_ndjson(
     events: AsyncGenerator[UIStreamEvent, None],
     *,

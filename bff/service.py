@@ -1119,6 +1119,10 @@ class ChatSessionService:
             router.skill_session = await SkillSession.prepare(router._client,
                 router._backend_urls['skill-runner'], router._headers('skill-runner'),
                 (resume or {}).get('skill_versions'))
+            if not resume and not router.skill_session.snapshot.get('error'):
+                from .skill_management import catalog_for
+                router.skill_session.snapshot = catalog_for(self._runtime, self._snapshot.id,
+                    allow_write=not cloud or cloud_write_allowed).effective(router.skill_session.snapshot)
         if resume:
             from core.run_checkpoint import load_message, continuation_messages, restore_research
             load = lambda evidence_id: load_message(self._store,conversation.id,evidence_scope,evidence_id)

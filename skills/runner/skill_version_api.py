@@ -16,6 +16,19 @@ class VersionRequest(BaseModel):
     revision: str
 
 
+class ImportRequest(BaseModel):
+    path: str
+
+
+@router.post('/capabilities/skills/import')
+def import_skill(request: ImportRequest):
+    from skill_import import import_directory
+    try:
+        return import_directory(request.path)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @router.post('/capabilities/skills/freeze')
 def freeze():
     return storage().freeze()

@@ -151,7 +151,7 @@ export function StockPanel({conversation, onChanged}: StockPanelProps): JSX.Elem
   const problems = status?.recovery?.problems ?? [];
   const humanTasks = status?.recovery?.human_tasks ?? [];
   const worker = status?.worker;
-  const workerState = worker?.draining ? '正在收尾' : worker?.enabled ? '已开启' : '已暂停';
+  const workerState = worker?.draining ? '正在收尾' : worker?.enabled ? (worker.recovery_only ? '仅核对恢复记录' : '已开启') : '已暂停';
   const reviewsAvailable = Array.isArray(status?.position_reviews);
   const positionReviews: PositionReview[] = status?.position_reviews ?? [];
   const openReviews =
@@ -245,6 +245,7 @@ export function StockPanel({conversation, onChanged}: StockPanelProps): JSX.Elem
           meta={`${completed}/${steps.length} 已核对 · ${label(status?.recovery?.batch?.status ?? '无恢复批次')}`}
         >
           <p className="panel-hint">历史数据标为事后取得，离线期间未实时监控；恢复不自动重发模型请求。</p>
+          <p className="panel-hint">补跑仅核对恢复记录，保留只读研究设置，不领取日常账户任务。完成或遇到阻断后自动暂停，再由你核对结果。</p>
           {problems.map((problem) => (
             <div key={problem} className="panel-ok" role="status">
               <Icon name="i-alert" className="ico-sm" />

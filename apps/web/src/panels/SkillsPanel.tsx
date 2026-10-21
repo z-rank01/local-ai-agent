@@ -18,6 +18,7 @@ import {Icon} from '../ui/Icon';
 import {Switch} from '../ui/Switch';
 import {StockPanel} from './StockPanel';
 import {CapabilityCatalog} from './CapabilityCatalog';
+import {SkillManager} from './SkillManager';
 
 export type SkillsPanelProps = {
   conversation?: ConversationSummary;
@@ -280,6 +281,7 @@ export function SkillsPanel({
       </div>
       <p className="panel-hint">开关即时生效；点卡片就地展开设置。</p>
       <CapabilityCatalog />
+      <SkillManager key={conversation?.workspace_id ?? 'default'} workspaceId={conversation?.workspace_id ?? 'default'} />
     </>
   );
 }

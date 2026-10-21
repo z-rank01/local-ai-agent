@@ -218,7 +218,7 @@ export type StockServiceStatus = {
   market_model?: {provider: string; model: string};
   research_model?: {enabled: boolean; provider: string; model: string; duties: string[]};
   settings: {root: string; state_dir: string; port: number; enabled: boolean; worker: boolean};
-  worker?: {enabled: boolean; draining: boolean; busy: boolean; research_only?: boolean; conversation_id?: string; model?: string};
+  worker?: {enabled: boolean; draining: boolean; busy: boolean; research_only?: boolean; recovery_only?: boolean; conversation_id?: string; model?: string};
   runtime?: {mode: string; reason: string; last_completed_day: string | null};
   recovery?: {
     batch: {status: string; from_day: string; to_day: string} | null;

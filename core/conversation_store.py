@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -109,6 +109,10 @@ _MIGRATIONS: list[str] = [
         run_id TEXT NOT NULL REFERENCES chat_runs(id) ON DELETE CASCADE,
         seq INTEGER NOT NULL, payload TEXT NOT NULL,
         PRIMARY KEY(run_id,seq));""",
+    """CREATE TABLE capability_installs (
+        workspace_id TEXT NOT NULL, capability_id TEXT NOT NULL, kind TEXT NOT NULL,
+        state TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY(workspace_id,capability_id,kind));""",
 ]
 
 
@@ -128,7 +132,7 @@ class ConversationStore:
         if 0 < current < target:
             backup_path = Path(self._db_path).with_suffix(f'.before-v{target}.sqlite')
             if not backup_path.exists():
-                with sqlite3.connect(str(backup_path)) as backup:
+                with closing(sqlite3.connect(str(backup_path))) as backup:
                     conn.backup(backup)
         for index in range(current, target):
             if index == 1:

@@ -29,6 +29,22 @@ export function fetchCapabilities(): Promise<{api_version: number; capabilities:
   return requestJson('/api/capabilities');
 }
 
+export type SkillRevision = {name: string; description: string; version?: string; revision: string;
+  permissions: string[]; dependencies: string[]; path: string};
+export type ManagedSkill = {id: string; enabled: boolean; missing?: boolean; uninstalled?: boolean;
+  active: SkillRevision | null; pending?: SkillRevision | null; history: SkillRevision[]; blockers: string[]};
+export function fetchManagedSkills(workspaceId: string): Promise<{skills: ManagedSkill[]; invalid: {name: string; error: string}[]}> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills`);
+}
+export function changeManagedSkill(workspaceId: string, name: string, action: string, revision?: string): Promise<ManagedSkill> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills/${encodeURIComponent(name)}`,
+    {method: 'POST', body: JSON.stringify({action, revision})});
+}
+export function importManagedSkill(workspaceId: string, path: string): Promise<{name: string}> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills-import`,
+    {method: 'POST', body: JSON.stringify({path})});
+}
+
 // Same-origin by default (BFF serves the production build); the Vite dev
 // server on 5173 still talks to the BFF on 9510 unless overridden.
 export const DEFAULT_BASE_URL =

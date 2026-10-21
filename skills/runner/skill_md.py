@@ -34,6 +34,8 @@ class SkillPackage:
     assets: list[str] = field(default_factory=list)
     version: str = ""
     path: str = ""
+    permissions: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
 
     def listing_entry(self) -> dict:
         """Compact metadata for skill_list (progressive disclosure level 1)."""
@@ -44,6 +46,8 @@ class SkillPackage:
         }
         if self.version:
             entry["version"] = self.version
+        entry['permissions'] = self.permissions
+        entry['dependencies'] = self.dependencies
         if self.references:
             entry["references_count"] = len(self.references)
         if self.scripts:
@@ -131,6 +135,10 @@ def parse_package(skill_dir: Path, skills_root: Path | None = None) -> tuple[Ski
         return None, "frontmatter 缺少必填字段 description"
     if "/" in fm_name or "\\" in fm_name or ".." in fm_name:
         return None, "name 字段不允许包含路径分隔符"
+    for key in ('permissions', 'dependencies'):
+        values = data.get(key, [])
+        if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+            return None, f'{key} 必须是非空字符串列表'
 
     package = SkillPackage(
         name=name,
@@ -138,6 +146,8 @@ def parse_package(skill_dir: Path, skills_root: Path | None = None) -> tuple[Ski
         body=body.strip(),
         version=str(data.get("version", "") or ""),
         path=str(skill_dir),
+        permissions=data.get('permissions', []),
+        dependencies=data.get('dependencies', []),
     )
     for resource_dir in RESOURCE_DIRS:
         directory = skill_dir / resource_dir

@@ -12,9 +12,28 @@ sys.path.insert(0, str(RUNNER))
 from bundled_methods import install_methods
 from skill_md import parse_package
 import skill_registry
+from skill_import import import_directory
 
 
 class PracticalSkillsTests(unittest.TestCase):
+    def test_import_normalizes_marker_without_executing_or_overwriting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'download'
+            source.mkdir()
+            (source / 'skill.md').write_text('---\nname: Meeting\ndescription: 整理\n---\n正文', encoding='utf-8')
+            (source / 'scripts').mkdir()
+            (source / 'scripts/run.py').write_text('raise RuntimeError("must not execute")', encoding='utf-8')
+            with patch('sandbox._WORKSPACE_ROOT', str(root)):
+                result = import_directory(str(source), root / 'skills')
+                self.assertEqual(result['name'], 'meeting')
+                self.assertTrue((root / 'skills/meeting/SKILL.md').is_file())
+                with self.assertRaisesRegex(ValueError, '同名'):
+                    import_directory(str(source), root / 'skills')
+                with self.assertRaises(ValueError):
+                    import_directory(str(root.parent), root / 'skills')
+            self.assertTrue((source / 'skill.md').is_file())
+
     def test_import_and_reconcile_without_altering_originals(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
