@@ -71,7 +71,7 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         previous, candidate = SimpleNamespace(close=AsyncMock()), SimpleNamespace(close=AsyncMock())
         runtime = SimpleNamespace(stock_bridge=previous, router=SimpleNamespace(_stock_bridge=previous),
                                   tool_registry=registry)
-        with patch('core.stock_service.StockBridge', return_value=candidate):
+        with patch('plugins.finance.service.StockBridge', return_value=candidate):
             with self.assertRaisesRegex(ValueError, 'already registered'):
                 await self.service.attach(runtime, True)
         self.assertIs(runtime.stock_bridge, previous)

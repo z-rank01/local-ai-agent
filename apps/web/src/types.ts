@@ -167,7 +167,7 @@ export type UIStreamEvent = {
 };
 
 export type RunSummary = {
-  id: string; source?: 'stock'; kind: string; conversation_id: string | null; workspace_id: string;
+  id: string; source?: string; source_label?: string; kind: string; conversation_id: string | null; workspace_id: string;
   request_id: string; title: string; model: string; status: string; phase: string;
   created_at: string; updated_at: string; last_seq: number; error?: string | null;
   resumable: boolean; resume_blocker: string; checkpoint_available: boolean;
@@ -175,7 +175,10 @@ export type RunSummary = {
   research_status?: string; publication_status?: string;
   artifacts?: {path:string;title:string;sha256:string}[];
 };
-export type RunList = {runs: RunSummary[]; shutdown_error?: string; page_connections?: number; stock_service: {online: boolean; message?: string;
+export type RunList = {runs: RunSummary[]; shutdown_error?: string; page_connections?: number;
+  providers?: Record<string, {online: boolean; title?: string; details?: string[]; message?: string}>;
+  provider_errors?: Record<string, string>;
+  stock_service?: {online: boolean; message?: string;
   worker?: {enabled: boolean; busy: boolean; research_only: boolean}}};
 
 export type TranscriptKind = 'user' | 'assistant' | 'reasoning' | 'tool' | 'meta' | 'error';

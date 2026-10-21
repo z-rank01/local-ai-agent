@@ -35,6 +35,7 @@ class RuntimeServices:
     models: ModelRegistry
     stock_bridge: Any = None
     capabilities: Any = None
+    task_providers: Any = None
 
     async def close(self) -> None:
         await self.router.close()

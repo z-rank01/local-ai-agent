@@ -19,7 +19,7 @@ export function RunControls({run,onControl}:{run:RunSummary;onControl:(id:string
   };
   const allows=(action:string)=>!run.actions||run.actions.includes(action);
   const canPause=allows('pause')&&(run.status==='RUNNING'||run.status==='QUEUED');
-  const canStop=allows('stop')&&(RUN_LIVE.has(run.status)||run.status==='QUEUED'||(run.source==='stock'&&run.status==='INTERRUPTED'));
+  const canStop=run.actions ? run.actions.includes('stop') : RUN_LIVE.has(run.status)||run.status==='QUEUED';
   const canResume=allows('resume')&&(run.status==='PAUSED'||(!RUN_LIVE.has(run.status)&&run.resumable));
   return <>
     <div className="run-actions">
@@ -37,11 +37,13 @@ export function RunsPanel({data,error,onOpen,onControl}:{data:RunList;error:stri
   onControl:(id:string,action:'pause'|'resume'|'stop')=>Promise<void>}) {
   const live=data.runs.filter(r=>RUN_LIVE.has(r.status)||r.status==='QUEUED');
   const recent=data.runs.filter(r=>!live.includes(r));
-  const stock=data.stock_service;
   return <section className="runs-panel" aria-label="全部工作区任务">
     <p className="run-note">切换会话只切换观察对象。暂停会等待当前步骤结束；停止会保留已有成果。</p>
-    <p className="run-note">股票服务：{stock.online?'在线':'离线'} · 领取任务：{stock.worker?.enabled?'开启':'暂停'} · 实际执行：{stock.worker?.busy?'有任务':'空闲'}</p>
-    {stock.message&&<p className="run-error">{stock.message}</p>}
+    {Object.entries(data.providers ?? {}).map(([id, provider]) => <div key={id}>
+      <p className="run-note">{provider.title ?? id}：{provider.online ? '在线' : '离线'}{provider.details?.length ? ' · ' + provider.details.join(' · ') : ''}</p>
+      {provider.message ? <p className="run-error">{provider.message}</p> : null}
+    </div>)}
+    {Object.entries(data.provider_errors ?? {}).map(([id, message]) => <p key={id} className="run-error">{id}：{message}</p>)}
     {error&&<p className="run-error" role="alert">任务状态暂不可确认：{error}</p>}
     {data.shutdown_error&&<p className="run-error" role="alert">整栈退出未完成：{data.shutdown_error}。服务保留，请处理后重试退出。</p>}
     {[['当前任务',live],['近期结束',recent]] .map(([title,rows])=><div key={String(title)}>
@@ -50,9 +52,9 @@ export function RunsPanel({data,error,onOpen,onControl}:{data:RunList;error:stri
       {(rows as RunSummary[]).map(run=><article key={run.id} className="run-row">
         <div className="run-heading"><strong>{run.title}</strong><span className={'run-status '+run.status.toLowerCase()}>{runLabel(run.status)}</span></div>
         <p>{run.phase||'正在准备'}{run.error?' · '+run.error:''}</p>
-        <p className="run-note">{run.source==='stock'?'股票专业任务':run.workspace_id} · {run.model||'模型待确定'}</p>
+        <p className="run-note">{run.source_label || run.workspace_id} · {run.model||'模型待确定'}</p>
         <p className="run-note">耗时 {elapsed(run)} · 开始 {time(run.created_at)} · 最近活动 {time(run.updated_at)}</p>
-        {run.business_status&&<p className="run-note">研究状态：{run.business_status}</p>}
+        {run.business_status&&<p className="run-note">业务状态：{run.business_status}</p>}
         {run.publication_status&&<p className="run-note">HTML：{run.publication_status==='PUBLISHED'?'已发布，可进入会话阅读':'尚未发布'}；执行结束不代表研究完整。</p>}
         {run.conversation_id&&<button className="btn btn-quiet btn-sm" onClick={()=>onOpen(run.conversation_id!)}>进入会话</button>}
         <RunControls run={run} onControl={onControl}/>

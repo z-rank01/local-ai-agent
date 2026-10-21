@@ -1,6 +1,6 @@
 {
   "id": "finance", "version": "1.0.0", "harness_api": 1,
   "title": "金融研究", "description": "研究任务、公开证据与报告；账户操作遵循原业务确认规则",
-  "backends": ["stock-bridge"],
+  "backends": ["stock-bridge"], "tool_directory": "tools", "task_provider": "plugins.finance.tasks:FinanceTasks",
   "required": [], "optional": ["websearch"], "permissions": ["finance_service"]
 }

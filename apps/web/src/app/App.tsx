@@ -122,7 +122,7 @@ export default function App(): JSX.Element {
   const [readerZoomed, setReaderZoomed] = useState(false);
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadAppearanceSettings());
   const [turnPending, setTurnPending] = useState(false);
-  const [runList,setRunList]=useState<RunList>({runs:[],stock_service:{online:false}});
+  const [runList,setRunList]=useState<RunList>({runs:[],providers:{}});
   const [runError,setRunError]=useState('');
   const [observation,setObservation]=useState('');
   const runCursors=useRef<Record<string,number>>({});

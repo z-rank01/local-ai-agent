@@ -97,8 +97,10 @@ app.add_middleware(
 )
 from .capabilities import router as capabilities_router
 from .skill_management import router as skill_management_router
+from .runs import router as runs_router
 app.include_router(capabilities_router)
 app.include_router(skill_management_router)
+app.include_router(runs_router)
 async def _stream_ndjson(
     events: AsyncGenerator[UIStreamEvent, None],
     *,
@@ -589,76 +591,6 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         conversation_id=request.conversation_id,
     )
 
-@app.get('/api/runs')
-async def list_runs(workspace_id: str | None = None):
-    service = get_chat_service()
-    if workspace_id:
-        service.workspaces.get(workspace_id)
-    from core.stock_service import stock_service
-    stock = await stock_service.status()
-    rows = [service.run_summary(row) for row in service.runs.store.list(workspace_id)]
-    if stock['online']:
-        try:
-            if not workspace_id or workspace_id == 'stock':
-                rows.extend(await stock_service.request('/api/control/runs'))
-        except (ValueError, httpx.HTTPError, OSError) as exc:
-            stock['message'] = str(exc) if isinstance(exc, ValueError) else '股票任务列表暂时不可读'
-    return {'runs': rows, 'stock_service': {k:stock.get(k) for k in ('online','worker','message')},
-            'shutdown_error':getattr(app.state,'shutdown_error',''),
-            'page_connections':len(getattr(getattr(app.state,'auto_exit',None),'pages',()))}
-
-@app.get('/api/runs/{run_id}')
-async def get_run(run_id: str):
-    if run_id.startswith('stock:'):
-        from core.stock_service import stock_service
-        if not (await stock_service.status())['online']:
-            raise HTTPException(409, '股票服务离线，无法确认任务当前状态')
-        rows = await stock_service.request('/api/control/runs')
-        row = next((r for r in rows if r['id'] == run_id), None)
-        if row is None:
-            raise HTTPException(404, '股票任务不存在')
-        return row
-    return get_chat_service().run_summary(get_chat_service().runs.store.get(run_id))
-
-@app.get('/api/runs/{run_id}/events')
-async def run_events(run_id: str, after_seq: int = Query(0, ge=0)):
-    if run_id.startswith('stock:'):
-        # Stock owns its status and checkpoint. Observe snapshots; don't copy its scheduler into C.
-        async def stock_events():
-            last = None
-            while True:
-                row = await get_run(run_id)
-                if row != last:
-                    yield UIStreamEvent(event='run.updated', run_id=run_id, data={'run': row})
-                    last = row
-                if row['status'] in ('SUCCEEDED','FAILED','STOPPED','INTERRUPTED','PAUSED','QUEUED'):
-                    return
-                await asyncio.sleep(1)
-        return await _stream_ndjson(stock_events(), conversation_id=None)
-    service = get_chat_service()
-    service.runs.public(service.runs.store.get(run_id))
-    async def events():
-        async for event in service.runs.subscribe(run_id, after_seq):
-            yield UIStreamEvent.model_validate(event)
-    return await _stream_ndjson(events(), conversation_id=None)
-
-@app.post('/api/runs/{run_id}/control')
-async def control_run(run_id: str, request: Request):
-    require_local_control(request)
-    body = await request.json()
-    if not isinstance(body, dict) or set(body) != {'action'}:
-        raise HTTPException(422, '操作须为pause、resume或stop')
-    if body['action'] not in ('pause', 'resume', 'stop'):
-        raise HTTPException(422, '未知运行操作')
-    if run_id.startswith('stock:'):
-        from core.stock_service import stock_service
-        if not (await stock_service.status())['online']:
-            raise HTTPException(409, '股票服务离线；请通过唯一入口开启后操作')
-        try:
-            return await stock_service.request('/api/control/jobs/'+quote(run_id[6:],safe=''), body, timeout=40)
-        except ValueError as exc:
-            raise HTTPException(409, str(exc)) from exc
-    return await get_chat_service().control_run(run_id, body['action'])
 @app.post("/api/conversations/{conversation_id}/messages/{message_id}/activate-version", response_model=list[MessageRecord])
 async def activate_message_version(
     conversation_id: str,

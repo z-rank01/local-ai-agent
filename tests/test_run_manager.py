@@ -176,7 +176,7 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
                                   run_summary=self.manager.public)
         run = self.start(self.producer)
         await self.entered.wait()
-        with patch('bff.app.get_chat_service', return_value=service):
+        with patch('bff.runs.get_chat_service', return_value=service):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                     base_url='http://127.0.0.1:9510') as client:
                 snapshot = await client.get('/api/runs/'+run)
