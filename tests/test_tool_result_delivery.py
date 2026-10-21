@@ -69,5 +69,15 @@ class ToolDeliveryTests(unittest.IsolatedAsyncioTestCase):
         run.methods.add('read-method')
         for name in ('file_edit','file_convert','package_list','stock_report_read'):
             self.assertIn(name,run.tool_names)
-        for name in ('git_commit','stock_research_submit','stock_research_resume','stock_research_cancel','stock_theme_research_submit','stock_track_follow'):
+        for name in ('git_commit','stock_research_submit','stock_research_resume','stock_research_cancel','stock_theme_research_submit','stock_track_follow','stock_track_ignore'):
             self.assertNotIn(name,run.tool_names)
+
+    async def test_stream_and_dispatch_share_research_control_boundary(self):
+        registry = ToolRegistry(config.TOOLS_DIR)
+        router = ToolRouter('http://unused','http://unused','http://unused',Mock(),Mock(),registry)
+        self.addAsyncCleanup(router._client.aclose)
+        router.research = SimpleNamespace(active=True)
+        with self.assertRaises(PermissionError):
+            await router.dispatch('skill_run',{'skill_name':'unused'})
+        with self.assertRaises(PermissionError):
+            _ = [e async for e in router.dispatch_stream('skill_run',{'skill_name':'unused'})]

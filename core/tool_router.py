@@ -73,6 +73,12 @@ class ToolRouter:
         """Names registered at startup; research derives its surface from this."""
         return self._registry.known_tools
 
+    def _check_research_tool(self, tool):
+        from .research_session import RESEARCH_BLOCKED_TOOLS
+        research = getattr(self, 'research', None)
+        if research is not None and research.active and tool in RESEARCH_BLOCKED_TOOLS:
+            raise PermissionError(f'当前聊天研究不开放此工具：{tool}；取证、计算、资料编辑与发布保持可用')
+
     async def authorize_publication(self, params):
         """The agent's separate review must cross the same publication boundary."""
         self._policy.check('brief_publish', params)
@@ -101,11 +107,7 @@ class ToolRouter:
         return result
 
     async def dispatch(self, tool: str, params: dict[str, Any], session_id: str = "default") -> Any:
-        research = getattr(self, 'research', None)
-        if research is not None and research.active:
-            from .research_session import RESEARCH_BLOCKED_TOOLS
-            if tool in RESEARCH_BLOCKED_TOOLS:
-                raise PermissionError('当前聊天研究不开放删除、改名、安装依赖或注册技能；取证、计算、读写与发布工具均可用')
+        self._check_research_tool(tool)
         if tool not in self._registry.known_tools:
             raise ValueError(f"Unknown tool: {tool!r}")
 
@@ -197,6 +199,7 @@ class ToolRouter:
         return result
 
     async def dispatch_stream(self, tool, params, session_id='default'):
+        self._check_research_tool(tool)
         if tool not in ('shell_exec', 'code_exec', 'skill_run'):
             started = time.monotonic()
             pending = asyncio.create_task(self.dispatch(tool, params, session_id))
