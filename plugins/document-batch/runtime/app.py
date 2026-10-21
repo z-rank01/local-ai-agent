@@ -86,7 +86,10 @@ async def get_task(identity: str):
 
 @app.post('/tasks/{identity}/cancel')
 async def cancel_task(identity: str):
-    return await jobs.cancel(identity)
+    try:
+        return await jobs.cancel(identity)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, '任务不存在') from exc
 
 
 @app.post('/drain')

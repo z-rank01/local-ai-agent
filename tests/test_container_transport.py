@@ -35,7 +35,7 @@ class ContainerTransportTests(unittest.IsolatedAsyncioTestCase):
             root = Path(directory)
             snapshot = WorkspaceSnapshot({'id': 'default', 'version': 1, 'roots': []}, root)
             (root / 'scan.pdf').write_bytes(b'original')
-            request = AsyncMock(return_value={'state': 'QUEUED'})
+            request = AsyncMock(return_value={'id': 'a' * 64, 'state': 'QUEUED'})
             client = SimpleNamespace(request=request, workspaces=SimpleNamespace(snapshot=lambda _: snapshot))
             factory = Transport(client)
             context = ExecutionContext('default', root, snapshot.resolve, 'conversation', 'run', 'chosen-model',
@@ -43,7 +43,10 @@ class ContainerTransportTests(unittest.IsolatedAsyncioTestCase):
             bound = factory.bind(context)
             self.assertIsNone(factory.context)
             for _ in range(2):
-                await bound.call_tool('documents_batch', {'paths': ['scan.pdf']}, 'conversation')
+                receipt = await bound.call_tool('documents_batch', {'paths': ['scan.pdf']}, 'conversation')
+                self.assertEqual(receipt['id'], 'a' * 64)
+                self.assertEqual(receipt['model_observation']['task_id'], 'a' * 16)
+                self.assertNotIn('id', receipt['model_observation'])
             first, second = request.await_args_list
             self.assertEqual(first.args[3]['request_id'], second.args[3]['request_id'])
             self.assertEqual(first.args[3]['arguments']['paths'], ['/workspace/scan.pdf'])

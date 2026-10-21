@@ -7,5 +7,5 @@ description: 查询本工作区文档处理任务的实际进度、逐文件失�
 parameters:
   type: object
   properties:
-    task_id: {type: string, description: 提交时返回的任务 id}
+    task_id: {type: string, description: 提交回执中的 task_id 短引用（16 位）；也兼容完整任务 ID}
   required: [task_id]

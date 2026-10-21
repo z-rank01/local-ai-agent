@@ -36,7 +36,19 @@ class Records:
         temporary.replace(path)
 
     def get(self, identity):
-        return json.loads(self.path(identity).read_text(encoding='utf-8'))
+        return json.loads(self.path(self.resolve(identity)).read_text(encoding='utf-8'))
+
+    def resolve(self, identity):
+        if isinstance(identity, str) and re.fullmatch('[a-f0-9]{16}', identity):
+            matches = [path.stem for path in self.directory.glob(identity + '*.json')
+                       if re.fullmatch('[a-f0-9]{64}', path.stem)]
+            if not matches:
+                raise FileNotFoundError('Task reference not found')
+            if len(matches) != 1:
+                raise ValueError('任务短引用不唯一，请使用完整任务 ID')
+            return matches[0]
+        self.path(identity)  # Full identities keep the same validation and storage.
+        return identity
 
     def all(self):
         return [json.loads(path.read_text(encoding='utf-8')) for path in sorted(self.directory.glob('*.json'))]

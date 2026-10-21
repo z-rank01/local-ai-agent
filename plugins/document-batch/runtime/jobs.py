@@ -85,6 +85,7 @@ class Jobs:
                 self.records.save(record)
 
     async def cancel(self, identity):
+        identity = self.records.resolve(identity)
         current = self.pending.get(identity)
         if current:
             current[1].set()

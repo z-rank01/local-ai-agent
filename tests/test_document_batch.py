@@ -37,6 +37,7 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first['state'], 'QUEUED')
         await jobs.pending[first['id']][0]
         result = jobs.records.get(first['id'])
+        self.assertEqual(jobs.records.get(first['id'][:16]), result)
         self.assertEqual(result['state'], 'PARTIAL')
         self.assertEqual([row['state'] for row in result['files']], ['SUCCEEDED', 'FAILED'])
         self.assertEqual((self.root / result['files'][0]['text']).read_text(), 'fixture readable text')
@@ -47,6 +48,11 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, ['one.pdf', 'two.png'])
         with self.assertRaises(ValueError): restarted.submit('a' * 64, ['one.pdf'], 'eng', context)
         with self.assertRaises(PermissionError): restarted.submit('b' * 64, ['../outside.pdf'], 'eng', context)
+        collision = {**result, 'id': 'a' * 16 + 'b' * 48}
+        restarted.records.save(collision)
+        with self.assertRaisesRegex(ValueError, '不唯一'):
+            restarted.records.get('a' * 16)
+        self.assertEqual(restarted.records.get(first['id']), result)
         result['state'] = 'RUNNING'
         result['files'][1]['state'] = 'RUNNING'
         jobs.records.save(result)
