@@ -1114,6 +1114,11 @@ class ChatSessionService:
         router.research = ResearchSession(router, conversation_id=conversation.id,
             model=spec['id'], allowed=not cloud or bool(workspace_allowed and cloud_write_allowed))
         resume = getattr(self, '_resume_checkpoint', None)
+        if os.environ.get('DAILY_SERVICES') == '1' and not answer_only and (not cloud or workspace_allowed):
+            from harness.capabilities.skill_session import SkillSession
+            router.skill_session = await SkillSession.prepare(router._client,
+                router._backend_urls['skill-runner'], router._headers('skill-runner'),
+                (resume or {}).get('skill_versions'))
         if resume:
             from core.run_checkpoint import load_message, continuation_messages, restore_research
             load = lambda evidence_id: load_message(self._store,conversation.id,evidence_scope,evidence_id)
@@ -1184,6 +1189,8 @@ class ChatSessionService:
             frozen = environment(getattr(llm,'spec',spec),self._snapshot,method_id)
             def checkpoint(history):
                 value = capture(agent,history,frozen,response_to_message_id,agent.context_mgr.archive)
+                if getattr(router, 'skill_session', None) is not None:
+                    value['skill_versions'] = router.skill_session.snapshot
                 import hashlib
                 value['response_fingerprint'] = hashlib.sha256(self._store.get_message(response_to_message_id).content.encode()).hexdigest()
                 value['answer_only'] = answer_only

@@ -44,6 +44,8 @@ _PYTHON_TIMEOUT = int(os.environ.get("PYTHON_EXEC_TIMEOUT", "30"))
 _SHELL_TIMEOUT = int(os.environ.get("SHELL_EXEC_TIMEOUT", "15"))
 
 app = FastAPI(title="Skill: Runner")
+from skill_version_api import router as skill_version_router
+app.include_router(skill_version_router)
 
 def execution_identity(request: Request):
     value=request.headers.get('X-Execution-ID')

@@ -122,18 +122,24 @@ class StockService:
         return result
 
     async def attach(self, runtime, enabled):
-        if runtime.stock_bridge:
-            await runtime.stock_bridge.close()
+        previous = runtime.stock_bridge
         bridge = None
         if enabled:
             _, state = self.paths()
             bridge = StockBridge(self.url, (state / '.paper-master-token').read_text(encoding='utf-8').strip())
         # Keep registry identity and every unrelated capability registration.
-        if enabled:
-            runtime.tool_registry.load_backend(config.TOOLS_DIR, 'stock-bridge')
-        else:
-            runtime.tool_registry.unregister_owner('stock-bridge')
+        try:
+            if enabled:
+                runtime.tool_registry.load_backend(config.TOOLS_DIR, 'stock-bridge')
+            else:
+                runtime.tool_registry.unregister_owner('stock-bridge')
+        except Exception:
+            if bridge:
+                await bridge.close()
+            raise
         runtime.stock_bridge = runtime.router._stock_bridge = bridge
+        if previous:
+            await previous.close()
 
     async def start(self, runtime):
         root, state = self.paths()

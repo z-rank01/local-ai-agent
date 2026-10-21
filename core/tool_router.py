@@ -176,6 +176,9 @@ class ToolRouter:
             )
 
         result = resp.json()
+        skill_session = getattr(self, 'skill_session', None)
+        if skill_session is not None and tool in {'skill_list', 'skill_info'}:
+            result = await skill_session.adapt(tool, params, result)
         if tool == 'web_fetch' and isinstance(result, dict):
             research = getattr(self, 'research', None)
             if research and research.active:

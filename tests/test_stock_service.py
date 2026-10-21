@@ -53,6 +53,25 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.service.settings['enabled'])
         self.service.attach.assert_not_awaited()
 
+    async def test_registration_conflict_keeps_previous_connection(self):
+        state = self.root / 'simulation'
+        state.mkdir()
+        (state / '.paper-master-token').write_text('test-token')
+        registry = ToolRegistry(config.TOOLS_DIR)
+        registry.replace_owner('another-plugin', [
+            {'name': 'stock_research_submit', 'backend': 'another-plugin'}])
+        previous, candidate = SimpleNamespace(close=AsyncMock()), SimpleNamespace(close=AsyncMock())
+        runtime = SimpleNamespace(stock_bridge=previous, router=SimpleNamespace(_stock_bridge=previous),
+                                  tool_registry=registry)
+        with patch('core.stock_service.StockBridge', return_value=candidate):
+            with self.assertRaisesRegex(ValueError, 'already registered'):
+                await self.service.attach(runtime, True)
+        self.assertIs(runtime.stock_bridge, previous)
+        self.assertIs(runtime.router._stock_bridge, previous)
+        previous.close.assert_not_awaited()
+        candidate.close.assert_awaited_once()
+        self.assertEqual(registry.ownership()['stock_research_submit'], 'another-plugin')
+
     async def test_active_chat_prevents_mutation(self):
         with self.assertRaisesRegex(ValueError, '聊天'):
             await self.service.action(None, {'action': 'start'}, lambda: True)
