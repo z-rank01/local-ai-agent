@@ -110,6 +110,9 @@ class SupervisorClientTests(unittest.IsolatedAsyncioTestCase):
 
         def factory(*args, **kwargs):
             captured.update(kwargs)
+            def unavailable(request):
+                raise httpx.ConnectError('fixture: controller unavailable', request=request)
+            kwargs['transport'] = httpx.MockTransport(unavailable)
             return real_client(*args, **kwargs)
 
         with patch.object(service_supervisor.httpx, 'AsyncClient', side_effect=factory):

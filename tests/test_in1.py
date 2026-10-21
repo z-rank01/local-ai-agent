@@ -230,6 +230,17 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         for p in self.patches: p.start(); self.addCleanup(p.stop)
         self.runtime = build_runtime()
         self.addAsyncCleanup(self.runtime.close)
+        # This fixture owns an empty temporary workspace. Report-word prefetch
+        # must not inspect the developer's running file service.
+        unexpected = []
+        def workspace_request(request):
+            if request.method == 'POST' and request.url.path == '/tool/file_list':
+                return httpx.Response(200, json={'entries': []})
+            unexpected.append((request.method, request.url.path))
+            raise AssertionError('Unexpected workspace fixture request')
+        await self.runtime.router._client.aclose()
+        self.runtime.router._client = httpx.AsyncClient(transport=httpx.MockTransport(workspace_request))
+        self.addCleanup(lambda: self.assertEqual(unexpected, []))
         self.service = ChatSessionService(self.runtime)
         self.addAsyncCleanup(self.service.runs.close)
         self.seen = []
