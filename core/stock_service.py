@@ -228,9 +228,13 @@ class StockService:
                 if action in ('market_model_configure','research_model_configure'):
                     raise ValueError('独立模型设置已停用；请在所属会话顶部选择模型')
                 await self.request('/api/control/status')
+                if action == 'recover':
+                    # Recovery is a one-shot scope, never an intent to start normal intake on reboot.
+                    self.settings['worker'] = False
+                    self.save()
                 result = await self.request('/api/control/action', body)
-                if action in ('worker_start', 'worker_pause', 'recover'):
-                    self.settings['worker'] = action != 'worker_pause'
+                if action in ('worker_start', 'worker_pause'):
+                    self.settings['worker'] = action == 'worker_start'
                     self.save()
                 if action in ('prepare_resume', 'operator'):
                     return result

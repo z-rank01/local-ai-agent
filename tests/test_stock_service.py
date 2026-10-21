@@ -53,6 +53,14 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.service.settings['enabled'])
         self.service.attach.assert_not_awaited()
 
+    async def test_recovery_never_persists_normal_worker_restart_even_when_reply_is_unknown(self):
+        self.service.settings['worker'] = True
+        self.service.request = AsyncMock(side_effect=[{}, httpx.ReadTimeout('reply unknown')])
+        with self.assertRaises(httpx.ReadTimeout):
+            await self.service.action(None, {'action': 'recover'})
+        self.assertFalse(self.service.read_settings()['worker'])
+        self.assertEqual(self.service.request.await_count, 2)
+
     async def test_registration_conflict_keeps_previous_connection(self):
         state = self.root / 'simulation'
         state.mkdir()
