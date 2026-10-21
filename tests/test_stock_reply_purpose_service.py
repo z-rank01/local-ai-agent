@@ -8,7 +8,7 @@ from tests.test_stock_reply_purpose import history, REF
 
 class PurposeProtocolServiceTests(test_in1.ServiceTests):
     async def test_choice_protocol_saved_locally_without_rendering_as_assistant_answer(self):
-        conv=self.runtime.store.create_conversation()
+        conv=self.runtime.store.create_conversation(model='qwen:qwen3.5-flash')
         for row in history()[:-1]:
             if row['role']=='system':continue
             if row['role']=='user':self.runtime.store.add_message(conv.id,role='user',content=row['content'])

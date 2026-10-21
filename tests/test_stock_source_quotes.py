@@ -346,7 +346,7 @@ class SourceQuoteServiceTests(ServiceTests):
         local=self.runtime.store.messages_as_dicts(conv.id,cloud=False)
         self.assertTrue(any('确定的局部修复' in m.get('content','') for m in local))
     async def install_review_history(self):
-        conv=self.runtime.store.create_conversation()
+        conv=self.runtime.store.create_conversation(model='qwen:qwen3.5-flash')
         self.runtime.store.add_message(conv.id,role='protocol',metadata={'cloud_safe':True,'message':{
             'role':'assistant','content':'','tool_calls':[{'id':'saved','type':'function','function':{
                 'name':'stock_report_read','arguments':'{}'}}]}})
@@ -395,9 +395,10 @@ class SourceQuoteServiceTests(ServiceTests):
                 raise asyncio.CancelledError()
             async def close(self):pass
         self.runtime.models.clients['qwen:qwen3.5-flash']=Model()
-        with self.assertRaises(asyncio.CancelledError):
-            _=[e async for e in self.service.stream_chat(ChatRequest(conversation_id=conv.id,
-                message='解释已保存报告',provider_id='qwen',model='qwen3.5-flash'))]
+        events=[e async for e in self.service.stream_chat(ChatRequest(conversation_id=conv.id,
+            message='解释已保存报告',provider_id='qwen',model='qwen3.5-flash'))]
+        run_id = next(e.run_id for e in events if e.run_id)
+        self.assertEqual(self.service.runs.store.get(run_id)['status'], 'STOPPED')
         rows=self.runtime.store.get_messages(conv.id)
         partial=next(r for r in rows if r.role=='assistant')
         self.assertIn('原始部分输出',partial.content)

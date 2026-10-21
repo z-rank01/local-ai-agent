@@ -126,7 +126,9 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
         await run.observe({'name': 'code_exec', 'status': 'ok', 'params': {},
                            'result': {'stdout': json.dumps(receipt)}})
         from core.research_review import fingerprint
-        run.review_records[fingerprint(params)]={'status':'COMPLETE','issues':[],
+        from core.research_visuals import validate_publication
+        checked = validate_publication(params, run.sources, run.read_text)
+        run.review_records[fingerprint(checked)]={'status':'COMPLETE','issues':[],
             'evidence_sha256':fingerprint(run.evidence_index()),'semantic_certification':False}
         published = await run.publish(params)
         self.assertEqual(published['status'], 'PUBLISHED')

@@ -109,3 +109,6 @@ class DeclaredReviewRoleTests(unittest.TestCase):
     def test_unrecognised_json_does_not_expand_role_exemption(self):
         text=json.dumps({'reason':'原文：“没有核验的句子”','confidence':90},ensure_ascii=False)
         self.assertTrue(unverified_quotes(text,[]))
+        nested='原文："他说“没有核验的句子”"'
+        self.assertEqual([row['quote'] for row in unverified_quotes(nested, [])],
+                         ['他说“没有核验的句子”'])

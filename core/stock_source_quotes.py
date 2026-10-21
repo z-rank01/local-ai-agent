@@ -50,6 +50,15 @@ def _set_review_text(payload, path, text):
 
 _LABEL = re.compile(r'原文|原句|原话|(?:逐字|准确)(?:引文|引用)|条款(?:位置|原文|定位|为)|关键条款')
 _QUOTES = re.compile(r'“([^”\n]+)”|"([^"\n]+)"')
+
+
+def _quote_matches(text):
+    # JSON's ASCII string delimiter must not hide an introduced Chinese quote.
+    # Keep the outer literal too: nested punctuation is not an exemption.
+    matches = {match.start(): match for match in _QUOTES.finditer(text)}
+    for match in re.finditer(r'“[^”\n]+”', text):
+        matches.setdefault(match.start(), _QUOTES.match(text, match.start()))
+    return (matches[position] for position in sorted(matches))
 _PARAPHRASE = re.compile(r'转述|概括|释义|意译|不是原文|非逐字')
 _SEARCH_LABEL = re.compile(r'检索词|搜索词|关键词|检索示例|未找到|未出现|等字样')
 _ABSENCE = re.compile(r'(?:文件|通知|原文|公告|文中|条款)[^\n。；，|]*?(?:未(?:明确)?(?:规定|披露|公布|提供|出现|提及|找到|见)|没有|不存在|无(?!法|从)[“"\w\u4e00-\u9fff])')
@@ -338,7 +347,7 @@ _INLINE_LITERAL = re.compile(r'(?:原文|原句|原话|准确引文|逐字引文
 
 
 def _introduced_quotes(text):
-    quotes = list(_QUOTES.finditer(text))
+    quotes = list(_quote_matches(text))
     postposed = set()
     following = None
     for quote in reversed(quotes):
@@ -419,7 +428,7 @@ def unverified_quotes(reply, originals):
                         continue
                     literal = bool(_LITERAL_COLUMNS.fullmatch(header) or row_label)
                     introduced = {quote.start() for quote in _introduced_quotes(cell)}
-                    for quote in _QUOTES.finditer(cell):
+                    for quote in _quote_matches(cell):
                         text = quote[1] if quote[1] is not None else quote[2]
                         if (literal or quote.start() in introduced) and not any(
                                 text in original for original in originals):
@@ -448,7 +457,7 @@ def unverified_quotes(reply, originals):
             if not (labelled or section_depth is not None or introduced) or _PARAPHRASE.search(line) or _SEARCH_LABEL.search(line):
                 continue
             quotes = [quote[1] if quote[1] is not None else quote[2]
-                      for quote in _QUOTES.finditer(line)
+                      for quote in _quote_matches(line)
                       if labelled or section_depth is not None or quote.start() in introduced]
             if line.lstrip().startswith('>') and not quotes:
                 text = re.sub(r'^\s*>\s?', '', line)

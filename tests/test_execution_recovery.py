@@ -45,7 +45,7 @@ class ToolWaitTests(unittest.IsolatedAsyncioTestCase):
         async def dispatch(*args):
             await asyncio.sleep(2.1)
             return {'exit_code':0}
-        packets=[p async for p in ToolRouter.dispatch_stream(SimpleNamespace(dispatch=dispatch),'pip_install',{})]
+        packets=[p async for p in ToolRouter.dispatch_stream(SimpleNamespace(dispatch=dispatch, _check_research_tool=lambda _: None),'pip_install',{})]
         self.assertEqual(packets[0]['event'],'heartbeat')
         self.assertTrue(any(p.get('elapsed',0)>=2 for p in packets))
         self.assertEqual(packets[-1],{'event':'result','result':{'exit_code':0}})
@@ -58,7 +58,7 @@ class ToolWaitTests(unittest.IsolatedAsyncioTestCase):
         async def dispatch(*args):
             try: await asyncio.sleep(100)
             finally: cancelled.set()
-        stream=ToolRouter.dispatch_stream(SimpleNamespace(dispatch=dispatch),'pip_install',{})
+        stream=ToolRouter.dispatch_stream(SimpleNamespace(dispatch=dispatch, _check_research_tool=lambda _: None),'pip_install',{})
         await anext(stream)
         await asyncio.sleep(0)
         await stream.aclose()

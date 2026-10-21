@@ -29,7 +29,7 @@ class WorkspaceTests(unittest.IsolatedAsyncioTestCase):
         for key, value in [('WORKSPACE_PATH', self.managed), ('PROJECT_ROOT', self.base)]:
             p = patch.object(config, key, value); p.start(); self.addCleanup(p.stop)
         self.store = ConversationStore(self.base / 'conversations.db')
-        self.service = ChatSessionService(SimpleNamespace(store=self.store, models=SimpleNamespace(default='test')))
+        self.service = ChatSessionService(SimpleNamespace(store=self.store, models=SimpleNamespace(default='test', resolve=lambda *args, **kwargs: ({'id': 'test', 'kind': 'local', 'model': 'test', 'provider_id': 'test'}, SimpleNamespace()))))
         self.manager = self.service.workspaces
 
     def workspace(self, name='资料', roots=None):
