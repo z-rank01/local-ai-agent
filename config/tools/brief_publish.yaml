@@ -8,7 +8,8 @@ description: >-
   本轮研究目录再只传 draft_path；也可直接传内联字段，draft_path 与内联字段可混用（内联优先）。
   quote 必须是原文连续片段（只允许排版空白差异），发布的数字必须能在该引文里找到；calculations 只需给
   操作与有来源/期间/单位的输入，result 由程序计算。返回已保存文件路径，回复中用该路径的 Markdown 链接展示报告卡。
-  核对发现问题时返回 review 与已保存的 draft_path，可定向修改后再提交。
+  程序自动进入核对阶段，实际调用本轮同一模型单独核对。默认意见只作建议，报告末尾折叠显示待核事项；
+  调用失败或UNKNOWN时保存未完成草稿，不自动重发，也不标为正式发布。
 parameters:
   type: object
   properties:
@@ -29,7 +30,15 @@ parameters:
           id: {type: string, description: 实际source_id}
           locator: {type: string, description: 页码或章节位置}
           quote: {type: string, description: 连续原文，允许换行或空白排版差异，不删词或拼接改写}
-        required: [id, locator, quote]
+          excerpt:
+            type: object
+            description: 可选；从本轮已验证source_excerpts回执复制页码及字符范围，程序补入原句。不能引用仅下载未实际返回的内容；与quote同时给出时须一致。
+            properties:
+              page: {type: integer}
+              start: {type: integer}
+              end: {type: integer}
+            required: [page, start, end]
+        required: [id]
     calculations:
       type: array
       items:

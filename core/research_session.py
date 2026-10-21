@@ -11,6 +11,7 @@ import re
 from uuid import uuid4
 from pathlib import PurePosixPath
 from decimal import DecimalException
+from html import escape
 import httpx
 
 from .brief_document import render_document
@@ -68,6 +69,7 @@ class ResearchSession:
         self.evidence_notes = {}
         self.method_text = {}
         self.review_records = {}
+        self.excerpts = {}
 
     def progress(self, kind, value):
         key = (kind, sha256(encoded(value).encode()).hexdigest())
@@ -126,6 +128,10 @@ class ResearchSession:
             if (page is not None and type(row.get('page')) is int and type(start) is int and type(end) is int and
                     0 <= start < end <= len(page) and isinstance(quote, str) and page[start:end] == quote):
                 self.received_text(key, quote)
+                excerpt = {k:row[k] for k in ('page','start','end','quote','sha256')}
+                rows = self.excerpts.setdefault(key, [])
+                if excerpt not in rows:
+                    rows.append(excerpt)
 
     @property
     def active(self):
@@ -154,12 +160,14 @@ class ResearchSession:
     async def checkpoint(self):
         await self.write('research.json', {**self.record, 'sources': self.sources,
             'methods': sorted(self.methods), 'trace': self.trace,
-            'evidence_requests': self.evidence_requests, 'reviews': self.review_records})
+            'evidence_requests': self.evidence_requests, 'reviews': self.review_records, 'excerpts':self.excerpts})
         await self.write('evidence-index.json', self.evidence_index())
 
     def evidence_index(self):
         return {'sources': {key: {**row, 'annotation': self.evidence_notes.get(key, {}),
-                    'received': self.read_text.get(key, [])} for key, row in self.sources.items()},
+                    'received': self.read_text.get(key, []),
+                    'excerpts':[{k:v for k,v in excerpt.items() if k != 'quote'}
+                                for excerpt in self.excerpts.get(key, [])]} for key, row in self.sources.items()},
                 'requests': self.evidence_requests,
                 'reading': 'received只包含实际工具返回内容；目录不是全文；模型标注不构成语义认证'}
 
@@ -421,112 +429,123 @@ class ResearchSession:
         return json.loads(''.join(parts))
 
     async def publication_input(self, params):
-        """Resolve the submitted draft.
-
-        ``draft_path`` may now be combined with inline fields: the file supplies
-        the bulk and any inline key overrides it, which is how a model patches a
-        large draft without re-sending all of it.
-        """
-        if 'draft_path' not in params:
-            return params
-        path = params['draft_path']
-        root = PurePosixPath(self.record['directory'])
-        if (not isinstance(path, str) or '\\' in path or '..' in PurePosixPath(path).parts
-                or not PurePosixPath(path).is_relative_to(root) or not path.endswith('.json')):
-            raise ValueError('发布草稿必须是本轮研究目录内的 JSON 文件')
-        value = await self.read_json(path)
-        if not isinstance(value, dict):
-            raise ValueError('发布草稿须为包含正文、引用、计算和图表的 JSON 对象')
-        inline = {key: item for key, item in params.items() if key != 'draft_path'}
-        return {**value, **inline} if inline else value
+        """Resolve the workspace draft, inline overrides and actually read excerpts."""
+        from .research_visuals import normalize_publication, literal_text
+        if 'draft_path' in params:
+            path = params['draft_path']
+            root = PurePosixPath(self.record['directory'])
+            if (not isinstance(path, str) or chr(92) in path or '..' in PurePosixPath(path).parts
+                    or not PurePosixPath(path).is_relative_to(root) or not path.endswith('.json')):
+                raise ValueError('发布草稿必须是本轮研究目录内的 JSON 文件')
+            value = await self.read_json(path)
+            if not isinstance(value, dict):
+                raise ValueError('发布草稿须为包含正文、引用、计算和图表的 JSON 对象')
+            params = {**value, **{key:item for key,item in params.items() if key != 'draft_path'}}
+        params = normalize_publication(params)
+        for item in params.get('sources', []):
+            if 'excerpt' not in item:
+                continue
+            key, selection = item.get('id'), item['excerpt']
+            match = next((row for row in self.excerpts.get(key, [])
+                          if isinstance(selection, dict) and set(selection) == {'page','start','end'}
+                          and all(type(selection[k]) is int and selection[k] == row[k] for k in selection)
+                          and row['sha256'] == self.sources[key]['sha256']), None)
+            if match is None:
+                raise ValueError('excerpt须引用本轮实际返回并验证过的页码及字符范围；下载不等于已读')
+            if item.get('quote') and literal_text(item['quote']) != literal_text(match['quote']):
+                raise ValueError('quote与已读excerpt冲突，请保留原文')
+            item['quote'] = match['quote']
+            if item['locator'] == '未记录具体位置':
+                item['locator'] = f"第{match['page']}页，字符{match['start']}—{match['end']}"
+        return params
 
     async def publish(self, params):
         if not self.allowed or self.record is None:
             raise PermissionError('请先通过 research_begin 建立有权限的本轮研究')
         params = await self.publication_input(params)
-        digest = sha256(encoded(params).encode()).hexdigest()
+        if not self.methods or not self.sources:
+            raise ValueError('尚未实际读取方法或本轮公开原文；请补齐后再发布')
+        from .research_review import fingerprint
         if self.published:
-            if self.published['sha256'] != digest:
+            checked = validate_publication(params, self.sources, self.read_text)
+            if self.published['sha256'] != fingerprint(checked):
                 raise ValueError('本轮已经交付；不同内容须作为新的修订研究保存')
             return self.published
-        missing = []
-        if self.record['phase'] != '核对':
-            missing.append(f"当前阶段为{self.record['phase']}，请research_begin进入核对")
-        if not self.methods:
-            missing.append('尚未实际读取方法，请file_read读取本轮适用的方法笔记')
-        if not self.sources:
-            missing.append('尚无本轮公开来源，请web_fetch取得并读取关键原文')
-        if missing:
-            raise ValueError('发布前置条件未满足：'+'；'.join(missing))
-        # Keep every submitted draft, including rejected inputs. The model can
-        # edit a working copy in the executor without re-sending the full payload.
         self.publication_attempts += 1
         attempt = f'publication-attempts/{self.publication_attempts}.json'
         await self.write(attempt, params)
         try:
-            validate_visual_plan(params)
             checked = validate_publication(params, self.sources, self.read_text)
-            charts = render_charts(checked.get('charts', []))
+            render_charts(checked.get('charts', []))
         except (ValueError, KeyError, TypeError, DecimalException) as exc:
             return {'error': str(exc), 'draft_path': self.record['directory'] + '/' + attempt,
-                'next': '原提交已保存。复制为本轮目录内的工作草稿，用容器脚本定向修正；brief_publish仅传draft_path可重新核对。原文、算式及单位仍须配套，不能删除有效反证来通过。'}
-        self.check_review(params)
-        from .research_review import fingerprint
-        publication_review=self.review_records.get(fingerprint(params),{})
-        params = checked
+                'next': '原提交已保存。可修改本轮草稿JSON后传draft_path，或用内联字段覆盖。请定向修正，不删除有效反证。'}
+        self.check_review(checked)
+        digest = fingerprint(checked)
+        publication_review = self.review_records.get(digest, {})
+        document = self.render_candidate(checked, digest, publication_review)
+        await self.write('model-original.md', checked['markdown'])
+        await self.write('report.md', checked['markdown'] + self.references(checked))
+        await self.write('evidence.json', {**checked, 'actual_sources': self.sources, 'model': self.model,
+                                          'separate_review':publication_review})
+        if checked.get('editorial_notes'):
+            await self.write('editorial-notes.json', {'model':self.model, 'notes':checked['editorial_notes'],
+                'purpose':'编制记录，不构成独立事实核验'})
+        await self.write('report.html', document)
+        self.record.update(phase='交付', status='PUBLISHED')
+        await self.checkpoint()
+        self.published = {'status':'PUBLISHED', 'sha256':digest,
+            'path':self.record['directory']+'/report.html', 'title':checked['title'],
+            'message':'模型生成简报已保存；请用该工作区路径的Markdown链接展示报告卡。单独核对仅提供建议，不认证事实。'}
+        return self.published
+
+    def references(self, params):
         references = '\n\n## 论证与参考\n'
         for item in params['sources']:
             source = self.sources[item['id']]
             references += f"\n- [{item['id']}]({source['url']})：{item['locator']}。原文：{item['quote']}\n"
         for calc in params.get('calculations', []):
             references += '\n- 计算：' + json.dumps(calc, ensure_ascii=False) + '\n'
-        references += '\n资料限制：' + params['review']['limitations']
-        original = params['markdown']
-        document = render_document(original + references, title=params['title'],
+        return references + '\n资料限制：' + params['review']['limitations']
+
+    def render_candidate(self, params, digest, review, *, draft=False):
+        notes = ''
+        if review.get('issues'):
+            notes = '<section class="references"><details><summary>待核事项（模型核对建议，非事实认证）</summary><ul>'
+            for issue in review['issues']:
+                notes += '<li>' + escape(issue['section']+'：'+issue['claim']+'；'+issue['reason']) + '</li>'
+            notes += '</ul></details></section>'
+        return render_document(params['markdown']+self.references(params), title=params['title'],
             generated_at=datetime.now(timezone.utc).isoformat(), model=self.model,
             material_sha256=digest, as_of=params['as_of'], stance=params['stance'],
-            scope_label=self.record['scope'], charts_html=charts,
-            provenance='聊天自主研究 · 模型生成',
-            material_note='本轮使用公开来源；资料时点见各来源。算术结果由程序按输入计算；模型承担分析与自查，程序核对不等于事实认证。')
-        # HTML is the last publication file. Failure never returns a report card.
-        await self.write('model-original.md', original)
-        await self.write('report.md', original + references)
-        await self.write('evidence.json', {**params, 'actual_sources': self.sources, 'model': self.model,
-                                         'separate_review':publication_review})
-        if params.get('editorial_notes'):
-            await self.write('editorial-notes.json', {
-                'model': self.model, 'notes': params['editorial_notes'],
-                'purpose': '编制记录，不构成独立事实核验'})
-        await self.write('report.html', document)
-        self.record.update(phase='交付', status='PUBLISHED')
+            scope_label=self.record['scope'], charts_html=render_charts(params.get('charts', [])), review_html=notes,
+            provenance='草稿 · 单独核对未完成' if draft else '聊天自主研究 · 模型生成',
+            material_note=('草稿：单独核对未完成，本轮尚未正式发布。已有正文及来源保留，不自动重发未确认请求。' if draft else
+                           '本轮使用公开来源；资料时点见来源。单独核对仅提供建议，不认证事实；待核事项见文末折叠区。'))
+
+    async def save_review_draft(self, candidate):
+        from .research_review import fingerprint
+        digest = fingerprint(candidate)
+        path = 'drafts/review-incomplete-' + digest[:16] + '.html'
+        await self.write(path, self.render_candidate(candidate, digest, self.review_records.get(digest, {}), draft=True))
+        draft = {'path':self.record['directory']+'/'+path, 'title':'草稿 · '+candidate['title'], 'sha256':digest}
+        self.record.update(status='DELIVERY_INCOMPLETE', draft=draft)
         await self.checkpoint()
-        self.published = {'status': 'PUBLISHED', 'sha256': digest,
-            'path': self.record['directory'] + '/report.html', 'title': params['title'],
-            'message': '模型生成简报已保存；请在回复中使用此工作区路径的 Markdown 链接展示报告卡。'}
-        return self.published
+        return draft
 
     def check_review(self, candidate):
-        """Publication gate.
-
-        With ``PUBLISH_REVIEW_ENFORCE`` off (the default) the independent review
-        is still recorded, but it never blocks: the reviewer is an adviser, and
-        blocking on every finding is what stopped drafts from converging. When
-        enforced, only findings the reviewer marked ``blocking`` stop a
-        publication, and a review is no longer invalidated merely because more
-        evidence was read afterwards.
-        """
+        """Completion is required; findings are advisory unless explicitly enforced."""
         from . import config
         from .research_review import blocking_findings, fingerprint
-        if not config.PUBLISH_REVIEW_ENFORCE:
-            return
         row = self.review_records.get(fingerprint(candidate), {})
         if row.get('status') != 'COMPLETE':
-            raise ValueError('当前候选稿尚未完成单独核对，不能发布（PUBLISH_REVIEW_ENFORCE=true）')
-        blocking = blocking_findings(row.get('issues'))
-        if blocking:
-            raise ValueError(f'单独核对标出 {len(blocking)} 项必须修改的问题，不能发布')
-        if self.pending_evidence or any(self.evidence_requests[key]['status'] != 'COMPLETE'
-                for key in row.get('read_request_keys', [])):
-            raise ValueError('核对选定的补读尚未完成或已失败，不能发布')
+            raise ValueError('当前候选稿尚未完成单独核对，不能正式发布')
+        if config.PUBLISH_REVIEW_ENFORCE:
+            blocking = blocking_findings(row.get('issues'))
+            if blocking:
+                raise ValueError(f'单独核对标出 {len(blocking)} 项必须修改的问题，不能发布')
+            if self.pending_evidence or any(self.evidence_requests[key]['status'] != 'COMPLETE'
+                    for key in row.get('read_request_keys', [])):
+                raise ValueError('核对选定的补读尚未完成或已失败，不能发布')
         if row.get('evidence_sha256') != fingerprint(self.evidence_index()):
             raise ValueError('核对后的证据已变化，需要按当前材料重新核对')

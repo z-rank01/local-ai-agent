@@ -10,7 +10,7 @@ research_begin 建立本轮研究再作答。不要凭训练知识直接给结�
   2. skill_list / skill_info 找当前项目的投研方法，file_read 读取；方法没读就不要提交取证需求
   3. research_begin(phase=获取, evidence_requests=[...]) 取公告目录、公告原件、财报、公司概况、带时间行情
   4. 需要计算用 code_exec，算式与单位写清；需要判断时对照原文，不把模型推断写成原文事实
-  5. research_begin(phase=核对) 之后调用 brief_publish
+  5. 调用 brief_publish，程序自动推进核对并生成HTML；核对意见仅作建议，不要求反复改稿
 
 正文结构（brief_publish.markdown，给非专业读者）：
   - 标题：一句可判断的话，不写"XX公司研究报告"
@@ -23,4 +23,5 @@ research_begin 建立本轮研究再作答。不要凭训练知识直接给结�
 交付：
   - 大稿先用 file_write 把完整 JSON 写进本轮研究目录，再只传 draft_path；小改可以 draft_path 加内联字段覆盖。
   - 引用 quote 必须是原文连续片段；发布的数字必须能在该引文里找到，派生值引用 calculation 索引。
+  - 已返回source_excerpts时优先复用其source_id和page/start/end，用sources[].excerpt交付，程序补入原句，避免再次抄写。
   - report.html 生成后，回复里只用返回路径的 Markdown 链接展示报告卡；不要在聊天正文里贴 HTML 或整篇 JSON。

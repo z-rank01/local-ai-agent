@@ -30,7 +30,7 @@ def capture(agent, messages, frozen, response_id, archive):
         state['milestones'] = sorted(research._milestones)
         state['steps_without_progress'] = research.steps_without_progress
         state.update({key:getattr(research,key) for key in
-                      ('pending_evidence','evidence_requests','evidence_notes','method_text','review_records')})
+                      ('pending_evidence','evidence_requests','evidence_notes','method_text','review_records','excerpts')})
         state['read_text'] = {key:[save({'role':'tool','content':text}) for text in spans]
                               for key,spans in research.read_text.items()}
     return {'format':1, 'safe':True, 'blocker':'', 'frozen':frozen,
@@ -75,7 +75,7 @@ def restore_research(research, state, load):
     research._milestones = {tuple(item) for item in state.get('milestones', [])}
     research._observed_milestones = len(research._milestones)
     research.steps_without_progress = state.get('steps_without_progress', 0)
-    for key in ('pending_evidence','evidence_requests','evidence_notes','method_text','review_records'):
+    for key in ('pending_evidence','evidence_requests','evidence_notes','method_text','review_records','excerpts'):
         setattr(research,key,state.get(key, [] if key == 'pending_evidence' else {}))
     research.read_text = {key:[load(evidence_id)['content'] for evidence_id in spans]
                           for key,spans in state['read_text'].items()}

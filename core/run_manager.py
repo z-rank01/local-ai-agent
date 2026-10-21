@@ -88,6 +88,7 @@ class RunManager:
         safe = bool(checkpoint.get('safe')) and row['status'] != 'SUCCEEDED' and not checkpoint.get('continued_by')
         research = checkpoint.get('research') or {}
         published = checkpoint.get('published')
+        draft = checkpoint.get('draft') or (research.get('record') or {}).get('draft')
         research_status = ('PUBLISHED' if published else 'DELIVERY_INCOMPLETE'
                            if research and row['status'] in TERMINAL else (research.get('record') or {}).get('status'))
         conversation = self.conversations.get_conversation(row['conversation_id']) if row['conversation_id'] else None
@@ -97,8 +98,8 @@ class RunManager:
             'resumable': safe,
             'resume_blocker': '' if row['status'] == 'SUCCEEDED' else checkpoint.get('blocker') or ('' if checkpoint.get('safe') else '尚无安全检查点'),
             'research_status': research_status,
-            'publication_status': 'PUBLISHED' if published else ('NOT_PUBLISHED' if research else None),
-            'artifacts': [published] if published else [],
+            'publication_status': 'PUBLISHED' if published else ('DRAFT' if draft else 'NOT_PUBLISHED' if research else None),
+            'artifacts': [published] if published else [draft] if draft else [],
         }
 
     def state(self, run_id, status, **extra):
@@ -181,6 +182,10 @@ class RunManager:
                         self.store.update(control.id, phase=value['data'].get('summary') or value['data'].get('name', '工具执行'))
                     if value['event'] == 'tool.completed' and value['data'].get('name') == 'brief_publish':
                         result = value['data'].get('result') or {}
+                        if isinstance(result, dict) and result.get('draft'):
+                            checkpoint = self.store.get(control.id)['checkpoint']
+                            checkpoint['draft'] = result['draft']
+                            self.store.update(control.id, checkpoint=checkpoint)
                         if value['data'].get('status') == 'ok' and isinstance(result,dict) and result.get('status') == 'PUBLISHED':
                             checkpoint = self.store.get(control.id)['checkpoint']
                             checkpoint['published'] = {key:result[key] for key in ('path','title','sha256')}

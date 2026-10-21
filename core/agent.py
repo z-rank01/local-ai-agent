@@ -391,9 +391,14 @@ class Agent:
             closing_stagnation = None
             while (research is not None and research.active) or stock_deadline is not None or research_continuing or self.max_rounds <= 0 or round_number < self.max_rounds:
                 autonomous = research is not None and research.active
-                if autonomous and any(r.get('status') in ('STARTED','UNKNOWN') for r in research.review_records.values()):
+                if autonomous and any(r.get('status') in ('STARTED','UNKNOWN','FAILED') for r in research.review_records.values()):
                     await research.incomplete()
-                    yield AgentEvent('error', text='单独核对结果未确认；本轮停止，不自动重发，原稿与证据已保留。')
+                    draft = research.record.get('draft', {}).get('path')
+                    control = getattr(self, 'run_control', None)
+                    if control:
+                        await control.boundary(messages)
+                    yield AgentEvent('error', text='单独核对未完成；本轮停止，不自动重发，原稿与证据已保留。'
+                                     + (f'\n[阅读草稿（未完成核对）]({draft})' if draft else ''))
                     return
                 if autonomous and research.pending_evidence:
                     import uuid
@@ -1001,6 +1006,7 @@ class Agent:
                 continue
             params = {}
             start = time.monotonic()
+            research = getattr(self.router, 'research', None)
             try:
                 raw = fn.get('arguments', {})
                 params = json.loads(raw) if isinstance(raw, str) else raw
@@ -1008,7 +1014,6 @@ class Agent:
                     raise ValueError('工具参数必须是 JSON 对象')
                 if research_finalizing and name == 'research_begin' and params.get('evidence_requests'):
                     raise ValueError('当前仅收尾，不再登记新联网取证；可回读已有证据、修改稿件并核对发布。')
-                research = getattr(self.router, 'research', None)
                 if research is not None and research.active and name not in research.tool_names:
                     raise ValueError('自主研究当前步骤未开放此工具；先读取适用方法，并使用本轮已开放的研究工具。本步骤未执行。')
                 if research_handoff and name == 'stock_research_submit' and params.get('research_mode', 'reuse') not in ('reuse', 'continue'):
@@ -1026,21 +1031,22 @@ class Agent:
                 if name == 'context_evidence_read':
                     result = self.context_mgr.read_evidence(**params)
                 elif name == 'brief_publish' and research is not None:
-                    from . import config as _config
                     if hasattr(self.router, 'authorize_publication'):
                         await self.router.authorize_publication(params)
                     candidate = await research.publication_input(params)
                     if await research.queue_citation_reads(candidate):
                         result={'status':'EVIDENCE_PENDING','message':'已登记当前稿选中的原文回读，待实际摘录返回后再提交；未修改正文。'}
-                    elif not _config.PUBLISH_REVIEW_ENFORCE:
-                        # The independent review is advisory by default: publish
-                        # directly. Mechanical provenance checks still run inside
-                        # publish(), so quotes and arithmetic are still traced.
-                        result = await research.publish(candidate)
                     else:
-                        async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
-                            async for event in events:
-                                yield event
+                        from .research_visuals import validate_publication, render_charts
+                        candidate = validate_publication(candidate, research.sources, research.read_text)
+                        render_charts(candidate.get('charts', []))
+                        try:
+                            async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
+                                async for event in events:
+                                    yield event
+                        except (Exception, asyncio.CancelledError):
+                            await research.save_review_draft(candidate)
+                            raise
                         from .research_review import fingerprint, review_blocks
                         review = research.review_records.get(fingerprint(candidate), {})
                         if research.pending_evidence:
@@ -1076,6 +1082,8 @@ class Agent:
                     control.end_step(confirmed=not isinstance(exc, httpx.TransportError)
                         and '未返回最终执行结果' not in str(exc))
                 result = {'error': str(exc)}
+                if name == 'brief_publish' and research is not None and research.record.get('draft'):
+                    result['draft'] = research.record['draft']
                 status = 'error'
             # Explicit local-only attachments are rendered by the UI, never in model history.
             observation = model_projection(result)
@@ -1110,6 +1118,8 @@ class Agent:
         from contextlib import aclosing
         import uuid
         research=self.router.research
+        candidate = await research.publication_input(candidate)
+        candidate = validate_publication(candidate, research.sources, research.read_text)
         if any(row.get('status') in ('STARTED','UNKNOWN') for row in research.review_records.values()):
             raise RuntimeError('存在未确认的单独核对请求，不自动重发；已保存稿件与证据')
         if await research.queue_citation_reads(candidate):
@@ -1176,7 +1186,9 @@ class Agent:
             if not previous or len(result['issues'])<min(previous):
                 research.progress('review_improvement',len(result['issues']))
             record.update(result,status='COMPLETE')
-            record['read_request_keys']=await research.queue_review_reads(result['read_requests'])
+            from . import config as _config
+            record['read_request_keys']=(await research.queue_review_reads(result['read_requests'])
+                                         if _config.PUBLISH_REVIEW_ENFORCE else [])
             record['native_call_id']=receipt.get('local_attempt_id')
             await research.write(directory+'-result.json',record)
             await research.checkpoint()
@@ -1184,12 +1196,16 @@ class Agent:
                 'status':'ok','elapsed':time.monotonic()-started,'result':result},text='关键结论核对完成')
         except asyncio.CancelledError:
             record['status']='UNKNOWN' if receipt.get('result_status') not in ('COMPLETE','FAILED','TRUNCATED') else 'FAILED'
+            if control:
+                control.end_step(confirmed=record['status'] != 'UNKNOWN')
             record['native_call_id']=receipt.get('local_attempt_id')
             await research.write(directory+'-result.json',record)
             await research.checkpoint()
             raise
         except Exception:
             record['status']='UNKNOWN' if receipt.get('result_status')=='UNKNOWN' or response is None and not receipt else 'FAILED'
+            if control:
+                control.end_step(confirmed=record['status'] != 'UNKNOWN')
             record['native_call_id']=receipt.get('local_attempt_id')
             await research.write(directory+'-result.json',record)
             await research.checkpoint()

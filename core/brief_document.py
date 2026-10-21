@@ -51,7 +51,7 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
                     edition='v1', material=None, as_of='已有保存资料，未更新至生成日',
                     scope_label='研究简报', material_note=None,
                     authorship='模型生成 · 程序排版', stance=None,
-                    charts_html='', provenance='已有资料写作试点'):
+                    charts_html='', review_html='', provenance='已有资料写作试点'):
     """Render received prose as-is with explicit saved-material provenance.
 
     No remote images, executable HTML or scripts. This function neither approves
@@ -85,7 +85,7 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
         body = body[:reference.start()]
     else:
         refs = '<section class="references" id="references"><h2>论证与参考</h2><p>来源请核对正文引用；未新增来源声明。</p></section>'
-    body += _scale_charts(material, material_sha256) + charts_html + refs
+    body += _scale_charts(material, material_sha256) + charts_html + refs + review_html
     generated_time = datetime.fromisoformat(generated_at)
     display_time = (generated_time.astimezone(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M') + '（北京时间）'
                     if generated_time.tzinfo else generated_time.strftime('%Y-%m-%d %H:%M') + '（时区未注明）')

@@ -154,7 +154,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         _, run, params = await self.prepare()
         run.record['phase'] = '分析'
         run.methods.clear()
-        with self.assertRaisesRegex(ValueError, '当前阶段为分析.*尚未实际读取方法') as error:
+        with self.assertRaisesRegex(ValueError, '尚未实际读取方法') as error:
             await run.publish(params)
         self.assertNotIn('尚无本轮公开来源', str(error.exception))
         run.record['phase'] = '核对'
