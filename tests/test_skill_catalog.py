@@ -69,6 +69,20 @@ class SkillCatalogFlowTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '当前环境'):
                 catalog.action('notes', 'rollback', 'a', environment_errors=['当前环境不可用'])
 
+    def test_invalid_update_retains_last_valid_revision_but_removal_stops_discovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            persistence = CapabilityStore(ConversationStore(Path(directory) / 'conversations.db')._connect)
+            catalog = SkillCatalog(persistence, 'one')
+            catalog.effective(snapshot(package('valid')))
+            broken = {'versions': {}, 'invalid': [{'name': 'notes', 'error': '源文件语法无效'}]}
+            kept = catalog.effective(broken)
+            self.assertEqual(kept['versions']['notes']['revision'], 'valid')
+            self.assertEqual(persistence.list('one')['notes']['candidate_error'], '源文件语法无效')
+            self.assertEqual(catalog.effective({'versions': {}, 'invalid': []})['versions'], {})
+            fixed = catalog.effective(snapshot(package('fixed')))
+            self.assertEqual(fixed['versions']['notes']['revision'], 'fixed')
+            self.assertNotIn('candidate_error', persistence.list('one')['notes'])
+
     def test_incremental_upgrade_backs_up_without_losing_conversations(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'conversations.db'
