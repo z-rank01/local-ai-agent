@@ -1,15 +1,14 @@
 import {useEffect, useRef, useState} from 'react';
 import type {ReactNode} from 'react';
-import {fetchStockModels, fetchStockService, stockServiceAction} from '../api';
-import type {ProviderInfo, StockModel, StockServiceStatus} from '../types';
-import {ModelPicker} from '../app/ModelPicker';
+import {fetchStockService, stockServiceAction} from '../api';
+import type {ConversationSummary, StockServiceStatus} from '../types';
 import {notify} from '../lib/notify';
 import {Accordion} from '../ui/Accordion';
 import {Collapse} from '../ui/Collapse';
 import {Icon} from '../ui/Icon';
 import {Markdown} from '../ui/Markdown';
 
-export type StockPanelProps = {onChanged?: () => void};
+export type StockPanelProps = {conversation?: ConversationSummary; onChanged?: () => void};
 
 type Step = NonNullable<StockServiceStatus['recovery']>['steps'][number];
 type PositionReview = NonNullable<StockServiceStatus['position_reviews']>[number];
@@ -49,15 +48,13 @@ function ReviewItem({head, children}: {head: string; children: ReactNode}): JSX.
   );
 }
 
-export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
+export function StockPanel({conversation, onChanged}: StockPanelProps): JSX.Element {
   const [status, setStatus] = useState<StockServiceStatus | null>(null);
-  const [marketModels, setMarketModels] = useState<StockModel[]>([]);
   const [root, setRoot] = useState('');
   const [stateDir, setStateDir] = useState('simulation');
   const [port, setPort] = useState('8765');
   const [busy, setBusy] = useState(false);
   const [researchOnly, setResearchOnly] = useState<boolean | undefined>(undefined);
-  const [modelsRefreshing, setModelsRefreshing] = useState(false);
   const [pendingAction, setPendingAction] = useState('');
   const [error, setError] = useState('');
   const [challenge, setChallenge] = useState('');
@@ -70,22 +67,6 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
   const revision = useRef(0);
   /* 只由轮询写入的错误在连通恢复后自动消失；操作错误保留到下一次操作 */
   const pollError = useRef(false);
-
-  /* 简报分析模型目录来自后端；读取失败时选择器自己显示空态，刷新按钮可重试 */
-  const refreshMarketModels = async (force = false) => {
-    setModelsRefreshing(true);
-    try {
-      setMarketModels(await fetchStockModels(force));
-    } catch {
-      setMarketModels([]);
-    } finally {
-      setModelsRefreshing(false);
-    }
-  };
-
-  useEffect(() => {
-    void refreshMarketModels();
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -176,41 +157,6 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
   const settingsMeta = status?.settings?.root
     ? `${status.settings.state_dir} · ${status.settings.port}`
     : '首次使用';
-  const marketModel = status?.market_model;
-  const marketName = marketModels.find(
-    (item) => item.provider === marketModel?.provider && item.model === marketModel?.model,
-  );
-  const marketModelLabel = marketModel
-    ? `${marketName?.provider_name ?? marketModel.provider} / ${marketModel.model}`
-    : '尚未配置';
-  /* 简报模型目录只带选择器真正渲染的字段（供应商、型号、可用状态）；
-     其余模型元信息按中性值补齐，不臆造上下文窗口与能力 */
-  const marketProviders: ProviderInfo[] = Array.from(new Set(marketModels.map((item) => item.provider))).map(
-    (providerId) => {
-      const group = marketModels.filter((item) => item.provider === providerId);
-      return {
-        id: providerId,
-        name: group[0].provider_name,
-        kind: group[0].kind,
-        enabled: true,
-        base_url: null,
-        models: group.map((item) => ({
-          id: item.id,
-          name: item.model,
-          provider_id: item.provider,
-          provider_name: item.provider_name,
-          default: false,
-          capabilities: [],
-          context_window: null,
-          thinking_supported: false,
-          thinking_budget_supported: false,
-          thinking_enabled: null,
-          thinking_budget: null,
-          status: item.status,
-        })),
-      };
-    },
-  );
   const attention = Boolean(challenge) || problems.length > 0;
   const buttonLabel = (action: string, idle: string) =>
     busy && pendingAction === action ? pendingText[action] ?? '处理中…' : idle;
@@ -378,39 +324,9 @@ export function StockPanel({onChanged}: StockPanelProps): JSX.Element {
       ) : null}
 
       {online ? (
-        <Accordion
-          open={Boolean(openGroups.model)}
-          onToggle={() => toggleGroup('model')}
-          head="简报分析模型"
-          meta={status?.research_model?.enabled ? 'Qwen / qwen3.8-flash · 直连' : marketModelLabel}
-        >
-          <div className="field">
-            <span className="field-label">{status?.research_model?.enabled ? '直连关闭后使用的简报模型' : '每日简报分析模型'}</span>
-            <ModelPicker
-              providers={marketProviders}
-              value={marketModel ? `${marketModel.provider}:${marketModel.model}` : ''}
-              onChange={(modelId) => {
-                const choice = marketModels.find((item) => item.id === modelId);
-                if (choice) {
-                  void act('market_model_configure', {
-                    model: {provider: choice.provider, model: choice.model},
-                  });
-                }
-              }}
-              onRefresh={() => void refreshMarketModels(true)}
-              refreshing={modelsRefreshing}
-              disabled={busy || Boolean(status?.research_model?.enabled)}
-            />
-          </div>
-          <p className="panel-hint">直连开启时，新简报与只读研究固定使用 qwen3.8-flash。对话模型独立，已入队任务保持原配置。</p>
-          <label className="field">
-            <span className="field-label">只读研究使用 Qwen 云端直连（验收中）</span>
-            <input type="checkbox" checked={Boolean(status?.research_model?.enabled)} disabled={busy}
-              onChange={(event) => void act('research_model_configure', {
-                research: {enabled: event.target.checked, duties: ['C01', 'C02', 'C03', 'C04']},
-              })} />
-          </label>
-          <p className="panel-hint">仅影响新研究及新简报。旧任务保持原模型；审查通路保持原设置。当前仍需完成质量验收。</p>
+        <Accordion open={Boolean(openGroups.model)} onToggle={() => toggleGroup('model')}
+          head="会话模型" meta={conversation?.model || '请先选择会话'}>
+          <p className="panel-hint">跟随本会话模型：{conversation?.model || '尚未关联会话'}。新后台任务继承提交时模型，运行中保持不变；顶部切换只影响本会话后续任务。</p>
         </Accordion>
       ) : null}
 

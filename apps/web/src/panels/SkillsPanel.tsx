@@ -208,7 +208,7 @@ export function SkillsPanel({
             />
           </div>
           <p className="panel-hint">只影响本会话后续解释和明确提交的新研究任务；不适用的职责使用自动方法。</p>
-          <StockPanel onChanged={onChanged} />
+          <StockPanel conversation={conversation} onChanged={onChanged} />
         </>
       ),
     },

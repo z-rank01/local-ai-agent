@@ -261,6 +261,12 @@ export function fetchMessages(
   return requestJson<MessageRecord[]>(`/api/conversations/${conversationId}/messages`, undefined, baseUrl);
 }
 
+export function updateConversationModel(conversationId: string, model: string): Promise<ConversationSummary> {
+  return requestJson<ConversationSummary>(`/api/conversations/${conversationId}`, {
+    method: 'PATCH', headers: {'content-type':'application/json'}, body: JSON.stringify({model}),
+  });
+}
+
 export async function deleteConversation(
   conversationId: string,
   baseUrl = DEFAULT_BASE_URL,

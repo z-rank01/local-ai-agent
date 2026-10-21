@@ -93,6 +93,19 @@ def exclusive_turn(method):
         model = request.model if request else kwargs.get('model')
         if provider or model:
             self._runtime.models.resolve(provider, model)
+        conversation = self._require_conversation(key) if key else None
+        if conversation and (provider or model):
+            chosen, _ = self._runtime.models.resolve(provider, model)
+            if chosen['id'] != conversation.model:
+                raise HTTPException(409, '会话模型选择已变化，请刷新后重试；不会按过期请求切换模型')
+        if method.__name__ == 'resume_checkpoint':
+            parent = self.runs.store.get(kwargs['parent_run_id'])
+            frozen_model = self._execution_model(conversation, frozen=parent['checkpoint']['frozen']['model'])
+        elif conversation:
+            frozen_model = self._execution_model(conversation)
+        else:
+            chosen, _ = self._runtime.models.resolve(provider, model)
+            frozen_model = self._execution_model(type('Selection', (), {'model': chosen['id']})())
         if key and isinstance(args[0], ChatRequest) and self._require_conversation(key).workspace_id != workspace_id:
             raise HTTPException(409, '会话工作区不能更改')
         snapshot = self.workspaces.snapshot(workspace_id)
@@ -108,6 +121,7 @@ def exclusive_turn(method):
             lease = self.workspaces.acquire(snapshot, key or '__new__')
             scoped = self.for_workspace(workspace_id, snapshot=snapshot)
             scoped._run_control = current_run.get()
+            scoped._frozen_model = frozen_model
             active_key = key or '__new__:' + workspace_id
             self._active_conversations.add(active_key)
             keys = {active_key}
@@ -197,8 +211,8 @@ class ChatSessionService:
             spec, client = self._runtime.models.resolve(provider, model, fallback=conversation.model)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
-        self._store.set_model(conversation.id, spec['id'])
-        conversation.model = spec['id']
+        if spec['id'] != conversation.model:
+            raise HTTPException(409, '会话模型选择已变化，请先保存本会话模型选择')
         return spec, client
 
     def list_conversations(
@@ -219,7 +233,7 @@ class ChatSessionService:
         conv = self._store.create_conversation(
             workspace_id=workspace_id,
             title=title,
-            model=model or self._runtime.models.default,
+            model=self._runtime.models.resolve(model=model)[0]['id'],
         )
         return self._conversation_summary(conv)
 
@@ -230,6 +244,20 @@ class ChatSessionService:
     def update_conversation_title(self, conversation_id: str, title: str) -> ConversationSummary:
         self._require_conversation(conversation_id)
         self._store.update_conversation_title(conversation_id, title)
+        return self.get_conversation(conversation_id)
+
+    def update_conversation(self, conversation_id, *, title=None, model=None):
+        self._require_conversation(conversation_id)
+        if title is None and model is None:
+            raise HTTPException(422, '请提供会话标题或模型')
+        if model is not None:
+            try:
+                spec, _ = self._runtime.models.resolve(model=model)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            self._store.set_model(conversation_id, spec['id'])
+        if title is not None:
+            self._store.update_conversation_title(conversation_id, title)
         return self.get_conversation(conversation_id)
 
     async def research_methods(self) -> list[dict]:
@@ -560,7 +588,10 @@ class ChatSessionService:
             raise HTTPException(status_code=422, detail="message cannot be empty")
 
         conversation = self._ensure_conversation(request.conversation_id, request.title)
-        self._select_model(conversation, request.provider_id, request.model)
+        if request.conversation_id:
+            # Admission already checked the request against the stored choice.
+            # A later selection change must not alter this admitted run.
+            conversation.model = self._frozen_model[0]['id']
         run_id = self._run_control.id
         yield UIStreamEvent(
             event="session.started",
@@ -613,7 +644,7 @@ class ChatSessionService:
         if request_id and not self._store.claim_chat_request(request_id):
             raise HTTPException(409, '该请求已受理，请刷新查看已有结果；如需再次执行请发送新消息。')
         conversation = self._require_conversation(conversation_id)
-        self._select_model(conversation, provider_id, model)
+        conversation.model = self._frozen_model[0]['id']
         messages = self._store.get_messages(conversation_id)
 
         # Locate the user message we will regenerate from. Default: most recent.
@@ -696,7 +727,7 @@ class ChatSessionService:
         if request_id and not self._store.claim_chat_request(request_id):
             raise HTTPException(409, '该请求已受理，请刷新查看已有结果；如需再次执行请发送新消息。')
         conversation = self._require_conversation(conversation_id)
-        self._select_model(conversation, provider_id, model)
+        conversation.model = self._frozen_model[0]['id']
         target = self._store.get_message(message_id)
         if target is None or target.conversation_id != conversation_id:
             raise HTTPException(status_code=404, detail="message not found")
@@ -929,8 +960,18 @@ class ChatSessionService:
         filename = f"{safe_title}-{conversation.id}.txt"
         return content, filename
 
-    def _execution_model(self, conversation):
-        spec, llm = self._runtime.models.resolve(fallback=conversation.model)
+    def _execution_model(self, conversation, *, frozen=None):
+        spec, llm = self._runtime.models.resolve(model=frozen['id'] if frozen else conversation.model)
+        llm = copy.copy(llm)
+        if frozen:
+            if any(spec.get(k) != frozen.get(k) for k in ('id','provider_id','model','base_url')):
+                raise HTTPException(409, '冻结模型连接配置已变化，不能继续')
+            spec = {**spec, 'options': frozen.get('options', {})}
+            if spec['kind'] == 'local':
+                llm.think = spec['options'].get('think')
+            else:
+                llm.spec = spec
+            return spec, llm
         # Explicit thinking setting only; "default" leaves the client untouched so
         # static options apply and discovered models use the provider default.
         thinking_state = model_settings.thinking_setting(spec) if thinking_capability(spec) else None
@@ -947,6 +988,7 @@ class ChatSessionService:
                 else:
                     options.pop('thinking_budget', None)
                 llm.spec = {**spec, 'options': options}
+                spec = llm.spec
         if spec['kind'] == 'local':
             spec = {**spec,'options':{'think':getattr(llm,'think',None)}}
         return spec, llm
@@ -962,7 +1004,7 @@ class ChatSessionService:
             raise HTTPException(409, '原用户问题已变化或不存在，不能按旧检查点继续')
         scoped = self.for_workspace(row['workspace_id'])
         conversation = self._require_conversation(row['conversation_id'])
-        spec, client = self._execution_model(conversation)
+        spec, client = self._execution_model(conversation, frozen=checkpoint['frozen']['model'])
         actual = environment(getattr(client,'spec',spec), scoped._snapshot, conversation.research_method)
         if checkpoint['frozen'] != actual:
             raise HTTPException(409, '模型、方法、权限、提示或工作区配置已变化；不能按原检查点继续')
@@ -1028,7 +1070,7 @@ class ChatSessionService:
                 yield event
 
     async def _run_assistant_turn(self, conversation, run_id, *, response_to_message_id, response_version_number, answer_only=False, request_id=None):
-        spec, llm = self._execution_model(conversation)
+        spec, llm = self._frozen_model
         cloud = spec['kind'] == 'cloud'
         workspace_allowed = self._snapshot.record['cloud_read']
         cloud_write_allowed = self._snapshot.record['cloud_write']
@@ -1379,7 +1421,7 @@ class ChatSessionService:
             return self._require_conversation(conversation_id)
         created = self._store.create_conversation(
             title=title or "新对话",
-            model=self._runtime.models.default,
+            model=self._frozen_model[0]['id'],
             workspace_id=self._snapshot.id,
         )
         return self._require_conversation(created.id)

@@ -23,6 +23,7 @@ import {
   streamEditMessage,
   streamRegenerate,
   updateConversationTitle,
+  updateConversationModel,
   uploadWorkspaceFile,
 } from '../api';
 import {
@@ -127,11 +128,27 @@ export default function App(): JSX.Element {
   const runCursors=useRef<Record<string,number>>({});
   const syncedRunSnapshots=useRef<Record<string,number>>({});
   const currentRun=conversationRun(runList.runs,conversationId);
+  const modelSelectionRevision=useRef(0);
   const liveRun=currentRun&&RUN_LIVE.has(currentRun.status)?currentRun:undefined;
   const busy=turnPending||Boolean(liveRun);
   const refreshRuns=useCallback(async()=>{
     const next=await fetchRuns(); setRunList(next); setRunError(''); return next;
   },[]);
+
+  const chooseModel=async(model: string)=>{
+    const id=activeConversationIdRef.current;
+    if(!id) {setSelectedModelId(model);return;}
+    const revision=++modelSelectionRevision.current;
+    setVersionBusy(true);
+    try {
+      const summary=await updateConversationModel(id,model);
+      if(activeConversationIdRef.current===id&&revision===modelSelectionRevision.current) {
+        setSelectedModelId(summary.model);setCurrentSummary(summary);
+        setConversations(rows=>upsertConversation(rows,summary));
+      }
+    } catch(cause) {notify(formatBackendError(cause),'error');}
+    finally {if(revision===modelSelectionRevision.current)setVersionBusy(false);}
+  };
   const [versionBusy, setVersionBusy] = useState(false);
   const [conversationLoading, setConversationLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -445,7 +462,7 @@ export default function App(): JSX.Element {
         break;
       }
       case 'model.selected':
-        setSelectedModelId(eventText(event, 'model'));
+        // This is the frozen running model, not the next-turn selection.
         break;
       case 'attachments.imported': {
         const attachments = event.data.attachments;
@@ -662,6 +679,22 @@ export default function App(): JSX.Element {
     poll(); const timer=window.setInterval(poll,3000);
     return ()=>{mounted=false;window.clearInterval(timer);};
   },[refreshRuns]);
+
+  useEffect(()=>{
+    if(!conversationId)return;
+    let mounted=true;
+    const refresh=async()=>{
+      const revision=modelSelectionRevision.current;
+      try {
+        const summary=await fetchConversation(conversationId);
+        if(mounted&&revision===modelSelectionRevision.current) {
+          setCurrentSummary(summary);setSelectedModelId(summary.model);
+        }
+      } catch { /* Connection diagnostics use the existing status channel. */ }
+    };
+    const timer=window.setInterval(()=>void refresh(),3000);
+    return ()=>{mounted=false;window.clearInterval(timer);};
+  },[conversationId]);
 
   useEffect(()=>{
     const run=conversationRun(runList.runs,conversationId);
@@ -1357,7 +1390,7 @@ export default function App(): JSX.Element {
         onOpenDrawer={() => setDrawerOpen(true)}
         providers={providers}
         value={selectedModelId}
-        onChangeModel={setSelectedModelId}
+        onChangeModel={model=>{void chooseModel(model);}}
         onRefreshModels={refreshModels}
         modelsRefreshing={modelsRefreshing}
         exportEnabled={Boolean(conversationId)}

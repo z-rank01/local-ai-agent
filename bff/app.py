@@ -339,7 +339,7 @@ async def update_conversation(
     conversation_id: str,
     request: UpdateConversationRequest,
 ) -> ConversationSummary:
-    return get_chat_service().update_conversation_title(conversation_id, request.title)
+    return get_chat_service().update_conversation(conversation_id, title=request.title, model=request.model)
 
 @app.put('/api/conversations/{conversation_id}/research-method', response_model=ConversationSummary)
 async def update_research_method(conversation_id: str, request: ResearchMethodChoice) -> ConversationSummary:
