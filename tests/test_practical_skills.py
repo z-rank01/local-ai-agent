@@ -33,6 +33,11 @@ class PracticalSkillsTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     import_directory(str(root.parent), root / 'skills')
             self.assertTrue((source / 'skill.md').is_file())
+            (source / 'skill.md').write_text('---\nname: [broken\n---\n正文', encoding='utf-8')
+            with patch('sandbox._WORKSPACE_ROOT', str(root)):
+                with self.assertRaisesRegex(ValueError, 'YAML'):
+                    import_directory(str(source), root / 'skills')
+            self.assertEqual([entry.name for entry in (root / 'skills').iterdir()], ['meeting'])
 
     def test_import_and_reconcile_without_altering_originals(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -2,6 +2,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {changeManagedSkill, fetchManagedSkills, importManagedSkill, type ManagedSkill} from '../api';
 import {formatBackendError} from '../lib/format';
 import {askConfirm} from '../lib/confirm';
+import {SkillDiff} from './SkillDiff';
 
 export function SkillManager({workspaceId}: {workspaceId: string}): JSX.Element {
   const [rows, setRows] = useState<ManagedSkill[]>([]);
@@ -56,6 +57,7 @@ export function SkillManager({workspaceId}: {workspaceId: string}): JSX.Element 
       {row.blockers.map(message => <p className="panel-hint" key={message}>{message}</p>)}
       {row.pending ? <div className="field">
         <span className="field-label">待激活版本：{row.pending.revision.slice(0, 12)}</span>
+        <SkillDiff key={row.pending.revision} workspaceId={workspaceId} name={row.id} revision={row.pending.revision} />
         <span className="panel-hint">权限：{row.pending.permissions.join('、') || '无额外声明'}；依赖：{row.pending.dependencies.join('、') || '无'}</span>
         <button className="btn" disabled={busy || row.blockers.length > 0} onClick={() => void action(row, 'activate', row.pending!.revision)}>激活此版本</button>
       </div> : null}

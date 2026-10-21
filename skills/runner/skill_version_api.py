@@ -20,6 +20,21 @@ class ImportRequest(BaseModel):
     path: str
 
 
+class DiffRequest(BaseModel):
+    name: str
+    before: str | None = None
+    after: str
+
+
+@router.post('/capabilities/skills/diff')
+def diff(request: DiffRequest):
+    from skill_diff import compare_versions
+    try:
+        return compare_versions(storage(), request.name, request.before, request.after)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @router.post('/capabilities/skills/import')
 def import_skill(request: ImportRequest):
     from skill_import import import_directory

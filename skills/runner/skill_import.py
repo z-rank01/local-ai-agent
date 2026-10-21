@@ -20,7 +20,10 @@ def import_directory(path: str, destination=Path('/workspace/skills')):
     parts = split_frontmatter(text)
     if parts is None:
         raise ValueError('技能说明缺少 YAML frontmatter')
-    metadata = yaml.safe_load(parts[0])
+    try:
+        metadata = yaml.safe_load(parts[0])
+    except yaml.YAMLError as exc:
+        raise ValueError('技能说明的 YAML 格式无效，请修正后重新导入') from exc
     if not isinstance(metadata, dict) or not isinstance(metadata.get('name'), str):
         raise ValueError('技能缺少名称')
     name = validate_name(metadata['name'].strip().lower())

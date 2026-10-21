@@ -37,6 +37,13 @@ class SkillVersionFlowTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual((await second.info('meeting'))['body'], '新方法')
                     self.assertNotEqual(first.snapshot['versions']['meeting']['revision'],
                                         second.snapshot['versions']['meeting']['revision'])
+                    diff = await client.post('/capabilities/skills/diff', json={'name': 'meeting',
+                        'before': first.snapshot['versions']['meeting']['revision'],
+                        'after': second.snapshot['versions']['meeting']['revision']})
+                    self.assertEqual(diff.status_code, 200)
+                    self.assertEqual(diff.json()['files'][0]['change'], 'modified')
+                    self.assertIn('旧方法', diff.json()['files'][0]['diff'])
+                    self.assertIn('新方法', diff.json()['files'][0]['diff'])
                     mark.unlink()
                     resumed = await SkillSession.prepare(client, 'http://runner', {}, first.snapshot)
                     self.assertEqual((await resumed.info('meeting'))['body'], '旧方法')
@@ -47,6 +54,10 @@ class SkillVersionFlowTests(unittest.IsolatedAsyncioTestCase):
                     retained.write_text(prefix + '被改写', encoding='utf-8')
                     with self.assertRaises(httpx.HTTPStatusError):
                         await resumed.info('meeting')
+                    rejected = await client.post('/capabilities/skills/diff', json={'name': 'meeting',
+                        'before': first.snapshot['versions']['meeting']['revision'],
+                        'after': second.snapshot['versions']['meeting']['revision']})
+                    self.assertEqual(rejected.status_code, 409)
 
     async def test_invalid_package_isolated_and_unavailable_service_never_falls_back_to_mutable_body(self):
         with tempfile.TemporaryDirectory() as directory:

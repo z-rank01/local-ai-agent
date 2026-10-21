@@ -33,6 +33,11 @@ export type SkillRevision = {name: string; description: string; version?: string
   permissions: string[]; dependencies: string[]; path: string};
 export type ManagedSkill = {id: string; enabled: boolean; missing?: boolean; uninstalled?: boolean;
   active: SkillRevision | null; pending?: SkillRevision | null; history: SkillRevision[]; blockers: string[]};
+export type SkillDiff = {files: {path: string; change: string; before_bytes: number; after_bytes: number;
+  diff?: string; truncated?: boolean; preview?: string}[]};
+export function fetchSkillDiff(workspaceId: string, name: string, after: string): Promise<SkillDiff> {
+  return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills/${encodeURIComponent(name)}/diff?after=${encodeURIComponent(after)}`);
+}
 export function fetchManagedSkills(workspaceId: string): Promise<{skills: ManagedSkill[]; invalid: {name: string; error: string}[]}> {
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills`);
 }
