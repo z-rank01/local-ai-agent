@@ -71,6 +71,12 @@ class ToolRouter:
         """Trusted host extensions resolve an already bound transport by owner."""
         return self._providers.get(backend)
 
+    def bind_context(self, context) -> None:
+        """A copied router gets independent bindings for this host-owned run."""
+        from harness.contracts.tool_provider import ContextualTransport
+        self._providers = {owner: provider.bind(context) if isinstance(provider, ContextualTransport) else provider
+                           for owner, provider in self._providers.items()}
+
     def _workspace_params(self, tool, params):
         snapshot = getattr(self, 'workspace_snapshot', None)
         if snapshot is None or self._registry.get_backend(tool) not in {'skill-files', 'skill-runner'}:

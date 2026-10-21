@@ -1116,6 +1116,13 @@ class ChatSessionService:
         router.execution_profile = freeze_profile(spec,conversation.id,self._snapshot.id,
             workspace_allowed,run_id)
         router.models_runtime = self._runtime
+        from harness.contracts.tool_provider import ExecutionContext
+        from harness.runtime.model_gateway import ConversationModelGateway
+        permissions = frozenset((['workspace.read'] if not cloud or workspace_allowed else []) +
+            (['workspace.write', 'scripts.execute'] if not cloud or (workspace_allowed and cloud_write_allowed) else []))
+        router.bind_context(ExecutionContext(self._snapshot.id, self._snapshot.managed, self._snapshot.resolve,
+            conversation.id, run_id or '', spec['id'], permissions,
+            ConversationModelGateway(self._runtime, router.execution_profile)))
         from core.research_session import ResearchSession
         router.research = ResearchSession(router, conversation_id=conversation.id,
             model=spec['id'], allowed=not cloud or bool(workspace_allowed and cloud_write_allowed))

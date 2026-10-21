@@ -95,3 +95,6 @@ receipt = await gateway.generate(ModelRequest(
 
 
 Skill 的运行快照摘要通过宿主的 `tool_descriptions` 注入本轮 `skill_info` 工具说明，正文仍由实际调用按需读取。说明不改 schema、工具登记或权限，也不改共享注册表；新包不需要新增工具或 Agent 分支。仅摘要进入选择面不代表模型必然选择，必须保留真实调用与成果验收。
+
+
+需要运行上下文的传输实现 `ContextualTransport.bind(context)`，返回独立的 ToolTransport 绑定。宿主提供会话/运行 ID、冻结工作区解析器、模型 ID、权限集合以及已绑定的 ModelGateway；插件不能从请求参数覆盖这些值。普通文件服务上下文仍可只使用工作区字段。两个运行不共享可变绑定，原已登记传输不被改写；现有金融兼容桥暂保留原会话路由，尚未转换为这一绑定形式。

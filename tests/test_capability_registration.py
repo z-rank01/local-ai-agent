@@ -12,6 +12,43 @@ from core.tool_registry import ToolRegistry
 from harness.capabilities.catalog import package_catalog
 
 
+class ContextBindingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_two_runs_keep_their_workspace_and_model_without_mutating_provider(self):
+        from copy import copy
+        from core.tool_router import ToolRouter
+        from core.policy_engine import PolicyEngine
+        from core.audit_logger import AuditLogger
+        from harness.contracts.tool_provider import ExecutionContext
+
+        class Bound:
+            def __init__(self, context): self.context = context
+            async def call_tool(self, tool, arguments, session_id):
+                if session_id != self.context.conversation_id:
+                    raise PermissionError('conversation mismatch')
+                return {'workspace': self.context.workspace_id, 'model': self.context.model,
+                        'run': self.context.run_id, 'permissions': sorted(self.context.permissions)}
+
+        class Provider:
+            def bind(self, context): return Bound(context)
+
+        with tempfile.TemporaryDirectory() as directory:
+            registry = ToolRegistry(Path(directory))
+            registry.replace_owner('example', [{'name': 'context_read', 'backend': 'example', 'cloud': 'read'}])
+            factory = Provider()
+            router = ToolRouter('http://files', 'http://runner', '', PolicyEngine(config.POLICY_PATH),
+                AuditLogger(Path(directory) / 'audit.jsonl'), registry, providers={'example': factory})
+            self.addAsyncCleanup(router.close)
+            first, second = copy(router), copy(router)
+            first.bind_context(ExecutionContext('one', Path(directory), Path, 'c1', 'r1', 'local', frozenset({'workspace.read'})))
+            second.bind_context(ExecutionContext('two', Path(directory), Path, 'c2', 'r2', 'cloud', frozenset()))
+            self.assertIs(router.provider_for('example'), factory)
+            self.assertEqual(await first.dispatch('context_read', {}, 'c1'),
+                {'workspace': 'one', 'model': 'local', 'run': 'r1', 'permissions': ['workspace.read']})
+            self.assertEqual((await second.dispatch('context_read', {}, 'c2'))['workspace'], 'two')
+            with self.assertRaises(PermissionError):
+                await first.dispatch('context_read', {}, 'c2')
+
+
 class CapabilityRegistrationTests(unittest.TestCase):
     def test_search_and_finance_changes_preserve_new_plugin(self):
         registry = ToolRegistry(config.TOOLS_DIR)
