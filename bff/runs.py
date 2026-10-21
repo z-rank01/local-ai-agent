@@ -74,7 +74,7 @@ async def run_events(run_id: str, after_seq: int = Query(0, ge=0)):
                 if row != last:
                     yield UIStreamEvent(event='run.updated', run_id=run_id, data={'run': row})
                     last = row
-                if row['status'] in ('SUCCEEDED', 'FAILED', 'STOPPED', 'INTERRUPTED', 'PAUSED', 'QUEUED'):
+                if row['status'] in ('SUCCEEDED', 'FAILED', 'STOPPED', 'INTERRUPTED', 'PAUSED'):
                     return
                 await asyncio.sleep(1)
         return await _stream_ndjson(snapshots(), conversation_id=None)

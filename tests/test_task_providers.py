@@ -1,8 +1,9 @@
 """A new task namespace uses existing run routes without host business branches."""
 import os
+import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 import httpx
 from harness.runtime.tasks import TaskRegistry
 from harness.contracts.tasks import TaskUnavailable
@@ -43,6 +44,12 @@ class TaskProviderFlowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(listed['providers']['documents']['online'])
                 events = await client.get('/api/runs/documents:one/events')
                 self.assertIn('PAUSED', events.text)
+                provider = registry.for_run('documents:one')
+                with patch.object(provider, 'get', AsyncMock(side_effect=[
+                        {**provider.row, 'status': state} for state in ('QUEUED', 'RUNNING', 'SUCCEEDED')])):
+                    observed = await client.get('/api/runs/documents:one/events')
+                    self.assertEqual([json.loads(line)['data']['run']['status'] for line in observed.text.splitlines()],
+                                     ['QUEUED', 'RUNNING', 'SUCCEEDED'])
                 denied = await client.post('/api/runs/documents:one/control', json={'action':'stop'})
                 self.assertEqual(denied.status_code, 403)
                 rejected = await client.post('/api/runs/documents:one/control', json={'action':'resume'},
