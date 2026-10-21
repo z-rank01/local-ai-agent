@@ -10,37 +10,16 @@ import time
 import uuid
 from contextlib import suppress, aclosing
 import logging
-from pathlib import Path
 from typing import Any
 
 import httpx
 
-from . import config
 from .audit_logger import AuditLogger
 from .conversation_store import ConversationStore
 from .policy_engine import PolicyEngine
 from .tool_registry import ToolRegistry
 
 logger = logging.getLogger("core.router")
-
-
-def _spill_result(tool: str, value: str) -> str | None:
-    """Write an over-cap result to disk so truncation never loses text.
-
-    Returns the workspace path of the stored payload, or None when it could not
-    be written (truncation still happens, but the message says no copy exists).
-    """
-    try:
-        root = config.TOOL_RESULT_SPILL_DIR
-        root.mkdir(parents=True, exist_ok=True)
-        digest = hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:24]
-        target = root / f"{tool}-{digest}.txt"
-        if not target.exists():
-            target.write_text(value, encoding="utf-8")
-        return str(target)
-    except OSError as exc:
-        logger.warning("Could not spill %s result: %s", tool, exc)
-        return None
 
 
 class ToolRouter:
@@ -100,6 +79,27 @@ class ToolRouter:
         if hasattr(self, 'workspace_validate'):
             await self.workspace_validate()
 
+    async def _limit_result(self, tool, result, session_id):
+        cap = self._registry.get_max_result_chars(tool)
+        # Page boundaries, hashes and body belong to the file/fetch service.
+        if not cap or not isinstance(result, dict) or 'range' in result or 'next_offset' in result:
+            return result
+        snapshot = getattr(self, 'workspace_snapshot', None)
+        if getattr(self, 'cloud', False) and snapshot and not snapshot.record['cloud_write']:
+            return result  # Read-only grants cannot create a spill file.
+        result = dict(result)
+        for key in ('content', 'stdout', 'stderr', 'output', 'text'):
+            value = result.get(key)
+            if not isinstance(value, str) or len(value) <= cap:
+                continue
+            digest = hashlib.sha256(value.encode('utf-8')).hexdigest()
+            path = f'/workspace/.tool-results/{tool}-{digest}.txt'
+            saved = await self.dispatch('file_write', {'path':path, 'content':value}, session_id)
+            if not isinstance(saved, dict) or not saved.get('written'):
+                raise RuntimeError('完整工具结果未能保存；不能仅交付截断内容')
+            result[key] = value[:cap] + f'\n[仅显示前{cap}字符，共{len(value)}字符；完整结果可用file_read读取：{path}]'
+        return result
+
     async def dispatch(self, tool: str, params: dict[str, Any], session_id: str = "default") -> Any:
         research = getattr(self, 'research', None)
         if research is not None and research.active:
@@ -121,6 +121,9 @@ class ToolRouter:
             params = {"cwd": getattr(self, "default_cwd", "/workspace"), **params}
         params = self._workspace_params(tool, params)
         self._policy.check(tool, params)
+        cap = self._registry.get_max_result_chars(tool)
+        if cap and tool in ('file_read', 'web_fetch'):
+            params = {**params, 'max_chars':min(params.get('max_chars') or cap, cap)}
 
         backend = self._registry.get_backend(tool)
         if backend == 'research-runtime':
@@ -171,22 +174,7 @@ class ToolRouter:
             else:
                 result.pop('_source_file', None)
 
-        # Truncate only when a cap is configured (0 = unlimited). The untouched
-        # payload is spilled to disk first, so a shortened message never becomes
-        # the only copy of what the tool returned.
-        max_chars = self._registry.get_max_result_chars(tool)
-        if max_chars and isinstance(result, dict):
-            for key in ("content", "stdout", "stderr", "output", "text"):
-                val = result.get(key)
-                if isinstance(val, str) and len(val) > max_chars:
-                    result = dict(result)
-                    spill = _spill_result(tool, val)
-                    result[key] = (
-                        val[:max_chars]
-                        + f"\n...[已截断，仅显示前 {max_chars} 字符，共 {len(val)} 字符]"
-                        + (f"\n...[完整结果已保存: {spill}，可用 file_read 分页读取]"
-                           if spill else "\n...[完整结果未能保存到磁盘]")
-                    )
+        result = await self._limit_result(tool, result, session_id)
 
         # Auto-chain: file_read → file_convert for unsupported binary files
         if tool == "file_read" and isinstance(result, dict) and result.get("unsupported"):
@@ -244,6 +232,8 @@ class ToolRouter:
                     if line.strip():
                         event=json.loads(line)
                         completed=completed or event.get('event')=='result'
+                        if event.get('event') == 'result':
+                            event['result'] = await self._limit_result(tool, event['result'], session_id)
                         yield event
         finally:
             if not completed:

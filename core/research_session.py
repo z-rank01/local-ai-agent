@@ -26,6 +26,10 @@ RESEARCH_BLOCKED_TOOLS = frozenset({
     'pip_install', 'package_cancel',
     'skill_register', 'skill_unregister', 'skill_update', 'skill_run',
     'conversation_read', 'conversation_search',
+    'stock_research_submit', 'stock_research_resume', 'stock_research_cancel',
+    'stock_theme_research_submit', 'stock_candidate_screen',
+    'stock_market_brief', 'stock_market_brief_continue', 'stock_track_follow',
+    'git_commit',
 })
 # Universe used when the router cannot enumerate registered tools (test doubles).
 RESEARCH_FALLBACK_TOOLS = frozenset({

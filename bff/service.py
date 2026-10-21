@@ -1102,7 +1102,7 @@ class ChatSessionService:
         if stock_bridge is not None and not answer_only:
             agent.quality_first_research = True
             agent.stock_loop_enabled = True
-            agent.stock_window_seconds = 600
+            agent.stock_window_seconds = config.STOCK_WINDOW_SECONDS
             agent.extra_system_sections = list(getattr(agent, 'extra_system_sections', [])) + [
                 '股票工具调用：先判断用户问题尚缺哪些可核对的证据，只为具体缺口查找或读取。'
                 '已有结果足够时直接回答；不要重复已成功的查找、读取或任务提交。'

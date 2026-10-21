@@ -567,6 +567,26 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('web_search 还可 1 次',tool_msgs[0]['content'])
         self.assertIn('web_fetch 还可 3 次',tool_msgs[0]['content'])
 
+    async def test_zero_web_budgets_expose_tools_without_zero_remaining_warning(self):
+        seen = []
+        class Model:
+            cloud = False
+            async def chat_stream_with_tools(self, messages, tools=None):
+                seen.append([t['function']['name'] for t in tools])
+                if len(seen) == 1:
+                    yield '', {'role':'assistant','content':'','tool_calls':[{'id':'search','function':{
+                        'name':'web_search','arguments':{'query':'test'}}}]}
+                else:
+                    yield '', {'role':'assistant','content':'已查到'}
+        agent = self.agent([])
+        agent.llm = Model()
+        agent.registry.get_definitions = lambda **kw:[{'function':{'name':n}} for n in ('web_search','web_fetch')]
+        with patch.object(config,'WEB_SEARCH_BUDGET',0), patch.object(config,'WEB_FETCH_BUDGET',0):
+            events = [e async for e in agent.run([{'role':'user','content':'查询公开资料'}])]
+        self.assertEqual(seen[0],['web_search','web_fetch'])
+        messages = [e.data['message'] for e in events if e.kind=='message' and e.data['message'].get('role')=='tool']
+        self.assertNotIn('还可 0 次',messages[0]['content'])
+
 class CompactTests(unittest.IsolatedAsyncioTestCase):
     async def test_compact_preserves_entire_recent_tool_turn(self):
         from core.context_manager import ContextManager

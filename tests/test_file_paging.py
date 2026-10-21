@@ -4,6 +4,7 @@ import re
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skills' / 'files'))
@@ -133,6 +134,9 @@ class ToolLimitTests(unittest.TestCase):
     """The paging window must survive the router's own truncation."""
 
     def setUp(self):
+        cap = patch.object(config, 'TOOL_RESULT_MAX_CHARS', 200000)
+        cap.start()
+        self.addCleanup(cap.stop)
         # web_fetch only registers when websearch is enabled.
         self.registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=True)
 
@@ -172,6 +176,11 @@ class ToolLimitTests(unittest.TestCase):
             else:
                 os.environ['FILE_READ_MAX_CHARS'] = previous
             importlib.reload(module)
+
+    def test_global_zero_disables_yaml_router_caps(self):
+        with patch.object(config, 'TOOL_RESULT_MAX_CHARS', 0):
+            for tool in ('file_read','web_fetch','code_exec','file_convert'):
+                self.assertEqual(self.registry.get_max_result_chars(tool), 0)
 
 
 if __name__ == '__main__':

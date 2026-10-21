@@ -20,24 +20,6 @@ _STOCK_BRIDGE_BACKEND = "stock-bridge"
 # Fail-safe: a tool must declare `cloud: read` to be reachable from a cloud model.
 _DEFAULT_CLOUD_TIER = "write"
 
-_DEFAULT_MAX_RESULT_CHARS: dict[str, int] = {
-    "package_list": 20000,
-    "package_status": 10000,
-    "pip_install": 10000,
-    "file_read": 8000,
-    "file_list": 4000,
-    "code_exec": 6000,
-    "shell_exec": 4000,
-    "web_search": 4000,
-    "web_fetch": 8000,
-    "file_convert": 8000,
-    "git_status": 2000,
-    "skill_run": 6000,
-    "conversation_search": 5000,
-    "conversation_read": 7000,
-}
-
-
 class ToolRegistry:
     """Loads tool metadata from a directory of YAML files."""
 
@@ -126,15 +108,11 @@ class ToolRegistry:
     def get_max_result_chars(self, tool_name: str) -> int:
         """Result characters handed back to the model; 0 means unlimited.
 
-        A per-tool ``max_result_chars`` in YAML wins so one tool can be bounded
-        deliberately. Otherwise the harness-wide ``config.TOOL_RESULT_MAX_CHARS``
-        applies, and 0 there disables capping entirely — the historical per-tool
-        defaults must not survive a global "unlimited" setting.
+        Global 0 disables router capping. With a positive cap, a smaller explicit
+        per-tool limit wins. Service pagination remains a separate contract.
         """
-        override = self._tools.get(tool_name, {}).get("max_result_chars")
-        if override is not None:
-            return int(override)
         global_cap = config.TOOL_RESULT_MAX_CHARS
         if global_cap <= 0:
             return 0
-        return min(global_cap, _DEFAULT_MAX_RESULT_CHARS.get(tool_name, global_cap))
+        override = self._tools.get(tool_name, {}).get('max_result_chars', global_cap)
+        return min(global_cap, int(override)) if int(override) > 0 else global_cap

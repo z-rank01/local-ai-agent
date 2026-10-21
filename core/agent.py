@@ -413,7 +413,7 @@ class Agent:
                                 await research.observe(event.data)
                             yield event
                     continue
-                active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or
+                active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or budgets[d['function']['name']] <= 0 or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
                 if autonomous:
                     active = [d for d in active if d['function']['name'] in research.tool_names]
@@ -1081,12 +1081,12 @@ class Agent:
             observation = model_projection(result)
             content = json.dumps(observation, ensure_ascii=False, default=str)
             if budgets and counts is not None and name in budgets:
-                remaining = {n: max(0, b - counts.get(n, 0) - (1 if n == name else 0)) for n, b in budgets.items()}
+                remaining = {n: max(0, b - counts.get(n, 0) - (1 if n == name else 0)) for n, b in budgets.items() if b > 0}
                 if getattr(self, 'quality_first_research', False):
                     research = getattr(self.router, 'research', None)
                     if research is None or not research.active:
                         content += '\n[检索批次提示：请核对本批发现、反证与未决问题。有新证据可继续检索；长股票研究请提交现有后台研究工具，不要求用户反复发送继续。]'
-                else:
+                elif remaining:
                     content += '\n[联网额度：' + '，'.join(f'{n} 还可 {r} 次' for n, r in remaining.items()) + '；请据此规划后续检索，额度用尽后基于已有结果回答。]'
             message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
             messages.append(message)

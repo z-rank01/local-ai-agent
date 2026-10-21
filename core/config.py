@@ -105,10 +105,7 @@ COMPACT_THRESHOLD = _env_float("COMPACT_THRESHOLD", 0.9)
 
 # Per-tool result characters handed back to the model. 0 = full result.
 TOOL_RESULT_MAX_CHARS = _env_int("TOOL_RESULT_MAX_CHARS", 0)
-# When a result does exceed the cap, the untouched payload is written here so no
-# text is lost; the shortened message names the file.
-TOOL_RESULT_SPILL_DIR = Path(_env("TOOL_RESULT_SPILL_DIR",
-                                  str(_PROJECT_ROOT / "data" / "private" / "tool-results")))
+# Over-cap, non-paginated results are saved through the current workspace tools.
 # Sent as the provider's max_tokens. 0 = let the provider decide.
 MODEL_MAX_OUTPUT_TOKENS = _env_int("MODEL_MAX_OUTPUT_TOKENS", 0)
 
