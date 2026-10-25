@@ -81,6 +81,10 @@ class PluginImportFlowTests(unittest.TestCase):
             self.assertTrue((root / 'plugins/sample/plugin.json').exists())
             confirm_build(packages)
             self.assertFalse(store.list('__host__', 'plugin')['sample']['enabled'])
+            unchanged = packages.import_source(source)
+            self.assertIsNone(unchanged['pending'])
+            self.assertEqual(unchanged['active']['revision'], first)
+            self.assertEqual(unchanged['deployment'], 'INSTALLED')
             metadata['version'] = '2.0'
             (source / 'plugin.json').write_text(json.dumps(metadata))
             payload(source)

@@ -48,7 +48,8 @@ class PluginPackages:
                 row['revision'] != previous['revision'] for row in state['history']):
             state['history'].append(previous)
         entry = {'revision': revision, 'manifest': metadata, 'source': str(source.absolute())}
-        state.update(pending=entry, uninstalled=False)
+        unchanged = (state.get('active') or {}).get('revision') == revision
+        state.update(pending=None if unchanged else entry, uninstalled=False)
         self.store.save('__host__', identity, state, 'plugin_package')
         return {'id': identity, **state}
 
