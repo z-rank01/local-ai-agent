@@ -16,21 +16,23 @@ for (const directory of (await readdir(path.join(root, 'plugins'), {withFileType
   if (manifest.id !== directory.name || !/^[a-z][a-z0-9-]*$/.test(manifest.id) || manifest.harness_api !== 1) {
     throw new Error('Invalid UI plugin identity: ' + directory.name);
   }
-  const prefix = `apps/web/src/plugins/${manifest.id}/`;
+  const bundledPrefix = `apps/web/src/plugins/${manifest.id}/`;
+  const packagePrefix = `plugins/${manifest.id}/ui/`;
+  const prefix = typeof entry === 'string' && entry.startsWith(packagePrefix) ? packagePrefix : bundledPrefix;
   if (typeof entry !== 'string' || !entry.startsWith(prefix) || !entry.endsWith('.tsx')) {
     throw new Error('UI entry must belong to its plugin: ' + manifest.id);
   }
   const ownedRoot = await realpath(path.join(root, prefix));
-  const parentRoot = await realpath(path.join(root, 'apps/web/src/plugins'));
+  const parentRoot = await realpath(path.join(root, prefix === packagePrefix ? `plugins/${manifest.id}` : 'apps/web/src/plugins'));
   const ownedRelative = path.relative(parentRoot, ownedRoot);
   if (ownedRelative.startsWith('..') || path.isAbsolute(ownedRelative)) throw new Error('UI package escapes plugin root');
   const actual = await realpath(path.join(root, entry));
   const relative = path.relative(ownedRoot, actual);
   if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('UI entry escapes plugin: ' + manifest.id);
-  const module = '../' + entry.slice('apps/web/src/'.length).replace(/\.tsx$/, '');
+  const module = path.relative(path.join(root, 'apps/web/src/extensions'), actual).replaceAll('\\', '/').replace(/\.tsx$/, '');
   const metadata = {id: manifest.id, title: manifest.ui.title ?? manifest.title, description: manifest.ui.description ?? manifest.description};
   if (![metadata.title, metadata.description].every(value => typeof value === 'string')) throw new Error('UI metadata missing');
-  entries.push({order: Number.isFinite(manifest.ui.order) ? manifest.ui.order : 100, source: `  {...${JSON.stringify(metadata)}, load: () => import(${JSON.stringify(module)})}`});
+  entries.push({order: Number.isFinite(manifest.ui.order) ? manifest.ui.order : 100, source: `  {...${JSON.stringify(metadata)}, load: () => import(${JSON.stringify(module.startsWith('.') ? module : './' + module)})}`});
 }
 const destination = path.join(root, 'apps/web/src/extensions/generated.ts');
 await mkdir(path.dirname(destination), {recursive: true});

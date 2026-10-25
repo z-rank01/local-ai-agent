@@ -95,9 +95,11 @@ app.add_middleware(
 from .capabilities import router as capabilities_router
 from .skill_management import router as skill_management_router
 from .runs import router as runs_router
+from .plugin_packages import router as plugin_packages_router
 app.include_router(capabilities_router)
 app.include_router(skill_management_router)
 app.include_router(runs_router)
+app.include_router(plugin_packages_router)
 async def _stream_ndjson(
     events: AsyncGenerator[UIStreamEvent, None],
     *,

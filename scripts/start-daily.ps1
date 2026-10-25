@@ -53,6 +53,15 @@ Write-Host ''
 Write-Host '  Local AI Agent - starting' -ForegroundColor White
 Write-Host ''
 
+$dailyPluginDeployment = & $dailyPython (Join-Path $PSScriptRoot 'deploy_plugins.py')
+if ($LASTEXITCODE -ne 0) { throw 'Plugin deployment failed; inspect the package error before restarting.' }
+$dailyPluginDeployment = $dailyPluginDeployment | ConvertFrom-Json
+if ($dailyPluginDeployment.build_required) {
+    if ($SkipTools) { throw 'Pending plugin deployment requires tool image build; do not use -SkipTools.' }
+    $Build = $true
+    $RebuildWeb = $true
+}
+
 # -- [0/7] workspace ---------------------------------------------------------
 $workspace = Join-Path $dailyRoot 'data/workspace'
 if (-not (Test-Path -LiteralPath (Join-Path $workspace '.git'))) {
@@ -134,6 +143,11 @@ try {
         Write-Ok 'web bundle built'
     } else {
         Write-Ok 'web bundle present (use -RebuildWeb after UI code changes)'
+    }
+
+    if ($dailyPluginDeployment.build_required) {
+        & $dailyPython (Join-Path $PSScriptRoot 'deploy_plugins.py') confirm-build
+        if ($LASTEXITCODE -ne 0) { throw 'Plugin build completion could not be saved.' }
     }
 
     # -- [3/7] launcher-owned service controller ------------------------------

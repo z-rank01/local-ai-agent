@@ -1,0 +1,7 @@
+{
+  "id": "file-integrity", "version": "1.0.0", "harness_api": 1,
+  "title": "文件完整性核对", "description": "读取实际文件，计算 SHA256 与字节数，用于确认原件是否变化",
+  "backends": ["skill-files"], "owners": ["file-integrity"],
+  "required": [], "optional": [], "permissions": ["workspace.read"],
+  "tool_directory": "tools", "tool_registration": "managed", "execution": "files"
+}

@@ -8,6 +8,8 @@ import zipfile
 from core.conversation_store import ConversationStore
 from harness.infrastructure.capability_store import CapabilityStore
 from harness.infrastructure.plugin_packages import PluginPackages
+from harness.infrastructure.plugin_deployment import apply_pending, confirm_build
+from harness.infrastructure.package_diff import package_diff
 
 
 class PluginImportFlowTests(unittest.TestCase):
@@ -49,3 +51,75 @@ class PluginImportFlowTests(unittest.TestCase):
                     packages.import_source(archive)
             self.assertFalse((root / 'outside.py').exists())
             self.assertEqual(before, store.list('__host__', 'plugin_package'))
+
+    def test_reviewed_deploy_update_rollback_and_uninstall_keep_snapshots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'; source.mkdir()
+            metadata = dict(id='sample', version='1.0', title='Example', description='fixture',
+                harness_api=1, backends=['skill-files'], required=[], optional=[], permissions=[],
+                execution='files', tool_registration='managed')
+            (source / 'plugin.json').write_text(json.dumps(metadata))
+            store = CapabilityStore(ConversationStore(root / 'conversations.db')._connect)
+            packages = PluginPackages(store, root / 'saved', root / 'plugins')
+            first = packages.import_source(source)['pending']['revision']
+            self.assertEqual(apply_pending(packages)['changed'], [])
+            with self.assertRaisesRegex(ValueError, '信任'):
+                packages.queue('sample', 'activate', first)
+            packages.queue('sample', 'activate', first, trusted=True)
+            self.assertTrue(apply_pending(packages)['build_required'])
+            self.assertTrue((root / 'plugins/sample/plugin.json').exists())
+            confirm_build(packages)
+            self.assertFalse(store.list('__host__', 'plugin')['sample']['enabled'])
+            metadata['version'] = '2.0'
+            (source / 'plugin.json').write_text(json.dumps(metadata))
+            second = packages.import_source(source)['pending']['revision']
+            differences = package_diff(packages, 'sample', second)
+            self.assertEqual(differences['files'][0]['path'], 'plugin.json')
+            self.assertIn('2.0', differences['files'][0]['diff'])
+            packages.queue('sample', 'activate', second, trusted=True)
+            apply_pending(packages); confirm_build(packages)
+            packages.queue('sample', 'rollback', first, trusted=True)
+            self.assertFalse(apply_pending(packages)['errors'])
+            confirm_build(packages)
+            self.assertEqual(json.loads((root / 'plugins/sample/plugin.json').read_text())['version'], '1.0')
+            packages.queue('sample', 'uninstall')
+            self.assertFalse(apply_pending(packages)['errors'])
+            confirm_build(packages)
+            self.assertFalse((root / 'plugins/sample').exists())
+            self.assertTrue(packages.read('sample', second).exists())
+
+
+class PluginImportApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_local_import_review_and_stage_do_not_execute_or_replace_live_code(self):
+        import httpx
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from bff.app import app
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'sample'; source.mkdir()
+            (source / 'plugin.json').write_text(json.dumps(dict(id='sample', version='1',
+                title='Example', description='fixture', harness_api=1, backends=['skill-files'],
+                required=[], optional=[], permissions=[], execution='files', tool_registration='managed')))
+            runtime = SimpleNamespace(store=ConversationStore(root / 'conversations.db'))
+            with patch('bff.plugin_packages.get_runtime', return_value=runtime), \
+                    patch('bff.plugin_packages.config._PROJECT_ROOT', root), \
+                    patch('core.ui_session.session_token', return_value='test-page-token'):
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                        base_url='http://127.0.0.1:9510', headers={'X-Harness-Session':'test-page-token'}) as client:
+                    denied = await client.post('/api/plugin-packages/import', json={'path':str(source)})
+                    self.assertEqual(denied.status_code, 403)
+                    client.headers['Origin'] = 'http://127.0.0.1:9510'
+                    imported = await client.post('/api/plugin-packages/import', json={'path':str(source)})
+                    self.assertEqual(imported.status_code, 200)
+                    revision = imported.json()['pending']['revision']
+                    action = {'action':'activate', 'revision':revision}
+                    self.assertEqual((await client.post('/api/plugin-packages/sample', json=action)).status_code, 409)
+                    action['trusted'] = True
+                    queued = await client.post('/api/plugin-packages/sample', json=action)
+                    self.assertEqual(queued.json()['deployment'], 'PENDING_RESTART')
+                    self.assertFalse((root / 'plugins/sample').exists())
+                    diff = await client.get('/api/plugin-packages/sample/diff', params={'after':revision})
+                    self.assertEqual(diff.status_code, 200)
+                    self.assertEqual(diff.json()['files'][0]['change'], 'added')

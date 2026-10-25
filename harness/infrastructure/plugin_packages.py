@@ -18,7 +18,8 @@ class PluginPackages:
         identity = metadata.get('id') if isinstance(metadata, dict) else None
         if not isinstance(identity, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,47}', identity):
             raise ValueError('插件标识无效')
-        if (self.bundled / identity).exists():
+        installed = self.store.list('__host__', 'plugin_package').get(identity, {})
+        if (self.bundled / identity).exists() and not installed.get('deployed_revision'):
             raise ValueError('导入包不能覆盖随宿主安装的插件')
         revision = content_revision(files)
         self.storage.mkdir(parents=True, exist_ok=True)
@@ -61,3 +62,20 @@ class PluginPackages:
         if content_revision(read_package(path)) != revision:
             raise ValueError('插件内容与已登记版本不一致')
         return path
+
+    def queue(self, identity, action, revision=None, *, trusted=False):
+        state = self.store.list('__host__', 'plugin_package').get(identity)
+        if state is None:
+            raise ValueError('插件未导入')
+        if action in ('activate', 'rollback'):
+            if not trusted:
+                raise ValueError('须确认信任此具体版本及其声明权限')
+            self.read(identity, revision or '')
+            state.update(target=revision, trusted_revision=revision, remove_requested=False,
+                         deployment='PENDING_RESTART', error='')
+        elif action == 'uninstall':
+            state.update(target=None, remove_requested=True, deployment='PENDING_RESTART', error='')
+        else:
+            raise ValueError('不支持的插件安装操作')
+        self.store.save('__host__', identity, state, 'plugin_package')
+        return {'id': identity, **state}

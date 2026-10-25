@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react';
 import {fetchCapabilities, setCapability, prepareCapability, type CapabilitySummary} from '../api';
 import {formatBackendError} from '../lib/format';
+import {PluginPackages} from './PluginPackages';
 
 /** Manifest inventory is deliberately distinct from live service health. */
 export function CapabilityCatalog(): JSX.Element {
@@ -38,6 +39,7 @@ export function CapabilityCatalog(): JSX.Element {
   }, [rows]);
   return <details>
     <summary>能力清单与工具登记</summary>
+    <PluginPackages/>
     <p className="panel-hint">可选执行环境须先准备，再启用；准备环境不会运行文档任务。</p>
     <button type="button" className="btn" disabled={loading} onClick={() => void refresh()}>
       {loading ? '刷新中…' : '刷新登记状态'}

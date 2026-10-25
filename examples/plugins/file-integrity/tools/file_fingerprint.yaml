@@ -1,0 +1,12 @@
+name: file_fingerprint
+display_name: 核对文件指纹
+backend: skill-files
+tier: extended
+cloud: read
+description: 读取工作区实际文件，返回 SHA256、字节数及路径；可与已知指纹比较是否改变，不修改原件。仅表示内容字节一致，不证明内容真实性。
+parameters:
+  type: object
+  properties:
+    path: {type: string, description: 工作区中的文件路径}
+    expected_sha256: {type: string, description: 可选的已知 SHA256 指纹}
+  required: [path]

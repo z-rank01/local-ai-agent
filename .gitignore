@@ -35,3 +35,10 @@ Thumbs.db
 
 # Build-generated plugin UI registry
 apps/web/src/extensions/generated.ts
+
+# Locally installed plugin payloads are user-managed, never repository commits.
+/plugins/*/
+!/plugins/finance/
+!/plugins/websearch/
+!/plugins/document-index/
+!/plugins/document-batch/
