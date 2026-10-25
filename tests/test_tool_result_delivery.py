@@ -86,18 +86,24 @@ class ToolDeliveryTests(unittest.IsolatedAsyncioTestCase):
 
     def test_research_keeps_editing_but_excludes_background_side_effects(self):
         registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=True, stock_bridge_url='http://unused')
-        run = ResearchSession(SimpleNamespace(known_tools=registry.known_tools),conversation_id='s',model='test',allowed=True)
+        run = ResearchSession(SimpleNamespace(known_tools=registry.known_tools,
+            tools_for_role=registry.tools_for_role),conversation_id='s',model='test',allowed=True)
         run.methods.add('read-method')
         for name in ('file_edit','file_convert','package_list','stock_report_read'):
             self.assertIn(name,run.tool_names)
         for name in ('git_commit','stock_research_submit','stock_research_resume','stock_research_cancel','stock_theme_research_submit','stock_track_follow','stock_track_ignore'):
             self.assertNotIn(name,run.tool_names)
+        self.assertIn('stock_research_submit', run.blocked_tools)
+        registry.unregister_owner(registry.get_owner('stock_research_submit'))
+        self.assertNotIn('stock_research_submit', run.blocked_tools)
+        self.assertIn('git_commit', run.blocked_tools)
 
     async def test_stream_and_dispatch_share_research_control_boundary(self):
         registry = ToolRegistry(config.TOOLS_DIR)
         router = ToolRouter('http://unused','http://unused','http://unused',Mock(),Mock(),registry)
         self.addAsyncCleanup(router._client.aclose)
-        router.research = SimpleNamespace(active=True)
+        router.research = ResearchSession(router, conversation_id='s', model='test', allowed=True)
+        router.research.record = {'directory': '/workspace/reports/test'}
         with self.assertRaises(PermissionError):
             await router.dispatch('skill_run',{'skill_name':'unused'})
         with self.assertRaises(PermissionError):

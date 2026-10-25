@@ -27,9 +27,6 @@ RESEARCH_BLOCKED_TOOLS = frozenset({
     'pip_install', 'package_cancel',
     'skill_register', 'skill_unregister', 'skill_update', 'skill_run',
     'conversation_read', 'conversation_search',
-    'stock_research_submit', 'stock_research_resume', 'stock_research_cancel',
-    'stock_theme_research_submit', 'stock_candidate_screen',
-    'stock_market_brief', 'stock_market_brief_continue', 'stock_track_follow', 'stock_track_ignore',
     'git_commit',
 })
 # Universe used when the router cannot enumerate registered tools (test doubles).
@@ -37,9 +34,7 @@ RESEARCH_FALLBACK_TOOLS = frozenset({
     'research_begin', 'brief_publish', 'skill_list', 'skill_info', 'file_read',
     'file_edit', 'file_write', 'file_list', 'file_convert', 'code_exec',
     'shell_exec', 'web_search', 'web_fetch', 'git_status', 'git_commit',
-    'package_list', 'package_status', 'context_evidence_read', 'stock_report_read',
-    'stock_public_evidence_find', 'stock_public_evidence_read',
-    'stock_research_find', 'stock_theme_research_find'})
+    'package_list', 'package_status', 'context_evidence_read'})
 METHOD_TOOLS = frozenset({'research_begin', 'skill_list', 'skill_info', 'file_list', 'file_read'})
 
 
@@ -138,6 +133,11 @@ class ResearchSession:
         return self.record is not None and self.published is None
 
     @property
+    def blocked_tools(self):
+        roles = getattr(self.router, 'tools_for_role', lambda role: set())
+        return RESEARCH_BLOCKED_TOOLS | frozenset(roles('research_blocked'))
+
+    @property
     def tool_names(self):
         # Before a method is read only discovery/reading is useful; afterwards the
         # whole registered surface is open except the destructive tools below.
@@ -147,7 +147,7 @@ class ResearchSession:
             return METHOD_TOOLS
         known = getattr(self.router, 'known_tools', None)
         universe = frozenset(known) if known else RESEARCH_FALLBACK_TOOLS
-        return universe - RESEARCH_BLOCKED_TOOLS
+        return universe - self.blocked_tools
 
     async def write(self, name, value, *, binary=False):
         result = await self.router.dispatch('file_write', {

@@ -138,3 +138,5 @@ Docker Desktop 下内部网络不保证发布主机端口，因此可选服务�
 调用策略也可实现 `ReceiptPresenter.present_receipt(tool, arguments, receipt, question=..., read_receipts=...)`：对单个已授权且成功返回的调用生成确定性展示，或返回 `None` 继续普通模型处理。`ReceiptPresentation` 保存正文、审计事件和版本；不运行工具、不扩大授权。宿主只按实际所有者分派，并保留自主研究的发布流程优先级。金融来源范围与算术展示的核验实现均在金融包，宿主不再按这两个工具名分别输出。
 
 可选 `phase_guidance(phase)` 只贡献本轮实际登记工具所有者的阶段说明，不能开放新工具或授权。金融交接约束由金融包提供，不写进通用循环。宿主展开的内部取证步骤通过 `SkillSession.pin_generated_step` 解析本轮固定资源路径；不会改写模型自行提交的代码，也不回退到可变源目录。
+
+`tool_roles.research_blocked` 声明该插件在聊天只读研究中应排除的操作；模型工具列表及实际调用边界使用同一集合，宿主的删除、安装和跨会话限制继续独立生效。可选 `accepted_handoff(tool, receipt)` 解释成功返回的真实交接回执；未实现或未确认受理时，不把后台任务视为已提交。声明和解释只作用于当前登记的工具所有者，不授予任何权限。

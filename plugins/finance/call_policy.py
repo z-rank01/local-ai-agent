@@ -2,6 +2,9 @@
 
 
 class FinanceCallPolicy:
+    def accepted_handoff(self, tool, receipt):
+        return isinstance(receipt, dict) and receipt.get('code') == 'TASK_SUBMITTED'
+
     def phase_guidance(self, phase):
         from .phase_guidance import HANDOFF
         return HANDOFF if phase == 'handoff' else ''

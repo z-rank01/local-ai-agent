@@ -57,6 +57,11 @@
     ]
   },
   "tool_roles": {
+    "research_blocked": [
+      "stock_research_submit", "stock_research_resume", "stock_research_cancel",
+      "stock_theme_research_submit", "stock_candidate_screen", "stock_market_brief",
+      "stock_market_brief_continue", "stock_track_follow", "stock_track_ignore"
+    ],
     "source_read": [
       "stock_report_read",
       "stock_public_evidence_read"

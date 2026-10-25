@@ -882,10 +882,12 @@ class Agent:
                             stock_boundary = True
                         else:
                             if (quality_research or (research is not None and research.active)) and event.kind == 'tool_end' and event.data.get('status') == 'ok':
-                                if (event.data.get('name') in handoff_tools and
-                                        isinstance(event.data.get('result'), dict) and
-                                        event.data['result'].get('code') == 'TASK_SUBMITTED'):
-                                    background_submitted = True
+                                if event.data.get('name') in handoff_tools:
+                                    policy_for = getattr(self.registry, 'execution_policy', lambda name: None)
+                                    policy = policy_for(event.data.get('name'))
+                                    accepted = getattr(policy, 'accepted_handoff', None)
+                                    if accepted and accepted(event.data.get('name'), event.data.get('result')):
+                                        background_submitted = True
                                 import hashlib
                                 fingerprint = hashlib.sha256(json.dumps(model_projection(event.data.get('result')),
                                     ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()

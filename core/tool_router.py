@@ -98,10 +98,12 @@ class ToolRouter:
         """Names registered at startup; research derives its surface from this."""
         return self._registry.known_tools
 
+    def tools_for_role(self, role):
+        return self._registry.tools_for_role(role)
+
     def _check_research_tool(self, tool):
-        from .research_session import RESEARCH_BLOCKED_TOOLS
         research = getattr(self, 'research', None)
-        if research is not None and research.active and tool in RESEARCH_BLOCKED_TOOLS:
+        if research is not None and research.active and tool in research.blocked_tools:
             raise PermissionError(f'当前聊天研究不开放此工具：{tool}；取证、计算、资料编辑与发布保持可用')
 
     async def authorize_publication(self, params):
