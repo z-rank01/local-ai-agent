@@ -30,6 +30,9 @@ class ToolRegistry:
         self._tools: dict[str, dict[str, Any]] = {}
         self._owned = OwnedTools()
         self._load(str(tools_dir), enable_websearch, bool(stock_bridge_url))
+        from harness.runtime.call_policies import CallPolicies
+        packages = config._PROJECT_ROOT / 'plugins' if Path(tools_dir).resolve() == Path(config.TOOLS_DIR).resolve() else None
+        self._call_policies = CallPolicies(packages)
         core_count = sum(1 for t in self._tools.values() if t.get("tier", "core") == "core")
         logger.info("ToolRegistry loaded %d tools (%d core, %d extended) from %s (websearch=%s, stock=%s)",
                      len(self._tools), core_count, len(self._tools) - core_count,
@@ -88,6 +91,15 @@ class ToolRegistry:
 
     def ownership(self) -> dict[str, str]:
         return self._owned.owners()
+
+    def execution_policy(self, tool_name):
+        """Policies follow actual registration ownership, never a tool-name prefix."""
+        return self._call_policies.for_owner(self.get_owner(tool_name))
+
+    def tools_for_role(self, role):
+        """Resolve declarations against currently registered tools owned by that package."""
+        return {name for name, owner in self.ownership().items()
+                if name in self._call_policies.roles.get(owner, {}).get(role, [])}
 
     @property
     def known_tools(self) -> frozenset[str]:

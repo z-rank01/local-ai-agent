@@ -234,7 +234,8 @@ class Agent:
         conversation_key = conversation_key or session_id
         messages = strip_think_tags_from_history(messages)
         evidence_messages = getattr(self, 'evidence_history', messages)
-        stock_read_tools = ('stock_report_read', 'stock_public_evidence_read')
+        tools_for_role = getattr(self.registry, 'tools_for_role', lambda role: set())
+        stock_read_tools = tools_for_role('source_read')
         # Read provenance comes from authorized tool history, before compaction can
         # replace its protocol messages with a source index. It is turn-local.
         stock_read_seen = any(m.get('role') == 'tool' and m.get('tool_name') in stock_read_tools
@@ -368,10 +369,7 @@ class Agent:
             counts = {}
             budgets = {'web_search': config.WEB_SEARCH_BUDGET, 'web_fetch': config.WEB_FETCH_BUDGET}
             quality_research = bool(getattr(self, 'quality_first_research', False))
-            research_tools = {'web_search', 'web_fetch', 'context_evidence_read',
-                'stock_public_evidence_read', 'stock_public_evidence_find', 'stock_report_read',
-                'stock_research_find', 'stock_research_submit', 'stock_theme_research_find',
-                'stock_theme_research_submit', 'stock_market_brief', 'stock_track_read', 'stock_track_find'}
+            research_tools = {'context_evidence_read'} | tools_for_role('research')
             research_continuing, no_progress_rounds, observations = False, 0, set()
             execution_retries = 0
             from .stock_source_review import SourceReview
@@ -389,7 +387,7 @@ class Agent:
             handoff_attempted = False
             handoff_prepared = False
             background_submitted = False
-            handoff_tools = {'stock_theme_research_submit', 'stock_research_submit'}
+            handoff_tools = tools_for_role('handoff')
             research = getattr(self.router, 'research', None)
             from .research_material_view import ResearchMaterialView
             research_view = ResearchMaterialView()
@@ -465,7 +463,7 @@ class Agent:
                         handoff_prepared = True
                     else:
                         handoff_attempted = True
-                    offered_handoff = handoff_tools | ({'stock_market_brief_find', 'stock_research_find'} if preparing else set())
+                    offered_handoff = handoff_tools | (tools_for_role('handoff_lookup') if preparing else set())
                     active = [d for d in active if d['function']['name'] in offered_handoff]
                     messages.append({'role': 'system', 'content':
                         '研究交付窗口已到，进入后台交接步骤。仅当原问题属于用户已授权的股票、公司或产业公开研究且尚未完成时，'
@@ -878,7 +876,7 @@ class Agent:
                                     and call['function']['name'] in allowed for call in calls)):
                         public_research_deadline = time.monotonic() + window_seconds
                     if (stock_deadline is None and getattr(self, 'stock_loop_enabled', False) and
-                            any(call['function']['name'].startswith('stock_') and
+                            any(call['function']['name'] in tools_for_role('windowed') and
                                 call['function']['name'] in allowed for call in calls)):
                         stock_deadline = time.monotonic() + window_seconds
                 stock_boundary = False
@@ -1018,6 +1016,7 @@ class Agent:
                 stock_boundary = True
                 continue
             params = {}
+            call_policy = None
             start = time.monotonic()
             research = getattr(self.router, 'research', None)
             try:
@@ -1029,10 +1028,10 @@ class Agent:
                     raise ValueError('当前仅收尾，不再登记新联网取证；可回读已有证据、修改稿件并核对发布。')
                 if research is not None and research.active and name not in research.tool_names:
                     raise ValueError('自主研究当前步骤未开放此工具；先读取适用方法，并使用本轮已开放的研究工具。本步骤未执行。')
-                if research_handoff and name == 'stock_research_submit' and params.get('research_mode', 'reuse') not in ('reuse', 'continue'):
-                    raise ValueError('后台交接只能复用研究，不能以新版本绕过未知调用。')
-                if research_handoff and name in ('stock_theme_research_submit', 'stock_research_submit') and not str(params.get('research_question') or '').strip():
-                    raise ValueError('后台交接必须明确传入公开研究问题，不能丢失原任务目标。')
+                policy_for = getattr(self.registry, 'execution_policy', None)
+                call_policy = policy_for(name) if policy_for else None
+                if call_policy is not None:
+                    call_policy.validate(name, params, phase='handoff' if research_handoff else 'normal')
                 if allowed is not None and name not in allowed:
                     if budgets and name in budgets:
                         raise ValueError(f'当前步骤未开放 {name}；该请求未执行。请遵守当前交付或交接阶段，不能据此声称配额已用尽或没有检索结果。')
@@ -1131,8 +1130,7 @@ class Agent:
                 'purpose': evidence_step.get('purpose', '') if evidence_step else '',
                 'elapsed': time.monotonic() - start, 'result': result, 'result_preview': _format_tool_result_preview(result)})
             self.audit.record('tool_loop', {'session_id': session_id, 'name': name, 'status': status})
-            if (name.startswith('stock_') and isinstance(result, dict) and
-                    (result.get('status') in ('TIME_LIMIT', 'STEP_LIMIT') or result.get('broker_continue') is False)):
+            if call_policy is not None and call_policy.ends_window(name, result):
                 stock_boundary = True
         if stock_boundary:
             yield AgentEvent('stock_boundary')

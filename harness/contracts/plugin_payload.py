@@ -55,6 +55,8 @@ def _validate_payload(root, metadata):
             raise ValueError('容器内部端口无效')
     if metadata.get('task_provider'):
         provider(metadata['task_provider'])
+    if metadata.get('call_policy'):
+        provider(metadata['call_policy'])
     if metadata.get('artifacts'):
         provider(metadata['artifacts']['provider'])
     for prompt in metadata.get('prompts', []):

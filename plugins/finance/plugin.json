@@ -2,6 +2,7 @@
   "id": "finance",
   "version": "1.0.0",
   "harness_api": 1,
+  "call_policy": "plugins.finance.call_policy:FinanceCallPolicy",
   "title": "金融研究",
   "description": "研究任务、公开证据与报告；账户操作遵循原业务确认规则",
   "backends": [
@@ -53,6 +54,54 @@
     "owner": "stock-bridge",
     "tools": [
       "stock_report_read"
+    ]
+  },
+  "tool_roles": {
+    "source_read": [
+      "stock_report_read",
+      "stock_public_evidence_read"
+    ],
+    "research": [
+      "stock_public_evidence_read",
+      "stock_public_evidence_find",
+      "stock_report_read",
+      "stock_research_find",
+      "stock_research_submit",
+      "stock_theme_research_find",
+      "stock_theme_research_submit",
+      "stock_market_brief",
+      "stock_track_read",
+      "stock_track_find"
+    ],
+    "handoff": [
+      "stock_theme_research_submit",
+      "stock_research_submit"
+    ],
+    "handoff_lookup": [
+      "stock_market_brief_find",
+      "stock_research_find"
+    ],
+    "windowed": [
+      "stock_account_view",
+      "stock_candidate_find",
+      "stock_candidate_screen",
+      "stock_market_brief",
+      "stock_market_brief_continue",
+      "stock_market_brief_find",
+      "stock_public_evidence_find",
+      "stock_public_evidence_read",
+      "stock_report_read",
+      "stock_research_cancel",
+      "stock_research_find",
+      "stock_research_resume",
+      "stock_research_submit",
+      "stock_theme_research_find",
+      "stock_theme_research_submit",
+      "stock_track_find",
+      "stock_track_follow",
+      "stock_track_ignore",
+      "stock_track_read",
+      "stock_track_review_find"
     ]
   }
 }

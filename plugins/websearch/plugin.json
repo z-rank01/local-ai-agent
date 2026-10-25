@@ -27,5 +27,11 @@
         "web_fetch"
       ]
     }
-  ]
+  ],
+  "tool_roles": {
+    "research": [
+      "web_search",
+      "web_fetch"
+    ]
+  }
 }

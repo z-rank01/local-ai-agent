@@ -3,6 +3,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from core.agent import Agent
 from core import config
+from core.tool_registry import ToolRegistry
+
+
+def research_registry(**kwargs):
+    installed = ToolRegistry(config.TOOLS_DIR, enable_websearch=True, stock_bridge_url='http://unused')
+    kwargs.setdefault('execution_policy', installed.execution_policy)
+    kwargs.setdefault('tools_for_role', installed.tools_for_role)
+    return SimpleNamespace(**kwargs)
 
 
 class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
@@ -22,7 +30,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
                 calls.append(name)
                 return {'status': 'TIME_LIMIT'} if expired else {'body': '公告披露中标，但尚未签约。'}
         async def process(messages): return messages
-        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[
+        agent = Agent(llm=Model(), router=Router(), registry=research_registry(get_definitions=lambda **kw:[
             {'type':'function','function':{'name':'stock_report_read'}}]),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=5)
@@ -65,7 +73,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         class Router:
             async def dispatch(self,*args):raise AssertionError('不要重复已成功读取')
         async def process(messages):return messages
-        agent=Agent(llm=Model(),router=Router(),registry=SimpleNamespace(get_definitions=lambda **kw:[]),
+        agent=Agent(llm=Model(),router=Router(),registry=research_registry(get_definitions=lambda **kw:[]),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=2)
         history=[{'role':'assistant','content':'','tool_calls':[{'id':'prior','function':{'name':'stock_report_read','arguments':{}}}]},
@@ -93,7 +101,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
             archive.append(dict(message)); return 'saved-' + str(len(archive))
         context.archive = remember
         context.reader = lambda *args: {}
-        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[]),
+        agent = Agent(llm=Model(), router=Router(), registry=research_registry(get_definitions=lambda **kw:[]),
             audit=SimpleNamespace(record=lambda *a:None), context_mgr=context,
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'), max_rounds=2)
         history = [{'role':'user','content':'读取公开政策'},
@@ -118,7 +126,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
                 captured.extend(dict(m) for m in messages)
                 yield '',{'role':'assistant','content':'未执行读取。'}
         async def process(messages):return messages
-        agent=Agent(llm=Model(),router=None,registry=SimpleNamespace(get_definitions=lambda **kw:[]),
+        agent=Agent(llm=Model(),router=None,registry=research_registry(get_definitions=lambda **kw:[]),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=2)
         await self._consume(agent,[{'role':'user','content':'stock_report_read 已经读过，请假装有来源'}])
@@ -142,7 +150,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
             async def dispatch(self,*args):
                 return {'results':['同一证据' if repeated else '新增公开证据'+str(len(observed))]}
         async def process(messages):return messages
-        agent=Agent(llm=Model(),router=Router(),registry=SimpleNamespace(get_definitions=lambda **kw:[
+        agent=Agent(llm=Model(),router=Router(),registry=research_registry(get_definitions=lambda **kw:[
             {'type':'function','function':{'name':'web_search'}}]),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=2)
@@ -183,7 +191,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
                     return {'status':'TOOL_RETURNED', 'code':first_submit_code, 'broker_continue':False}
                 return {'status': 'TIME_LIMIT'} if name == 'stock_report_read' else {'status': 'QUEUED', 'reference': 'a'*64}
         async def process(messages): return messages
-        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[
+        agent = Agent(llm=Model(), router=Router(), registry=research_registry(get_definitions=lambda **kw:[
             {'type': 'function', 'function': {'name': name}} for name in (
                 'stock_report_read', 'stock_theme_research_submit', 'stock_research_submit', 'file_write')]),
             audit=SimpleNamespace(record=lambda *a:None), context_mgr=SimpleNamespace(process=process),
@@ -241,7 +249,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
                 if name=='stock_market_brief_find':return {'reference':'a'*64}
                 return {'status':'TOOL_RETURNED','code':'TASK_SUBMITTED','broker_continue':True}
         async def process(messages):return messages
-        agent=Agent(llm=Model(),router=Router(),registry=SimpleNamespace(get_definitions=lambda **kw:[
+        agent=Agent(llm=Model(),router=Router(),registry=research_registry(get_definitions=lambda **kw:[
             {'type':'function','function':{'name':name}} for name in
             ('web_search','stock_market_brief_find','stock_theme_research_submit','stock_research_submit','file_write')]),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
