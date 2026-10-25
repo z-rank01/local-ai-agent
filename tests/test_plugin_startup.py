@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from core.conversation_store import ConversationStore
 from harness.capabilities.startup import restore_plugins
+from harness.capabilities.catalog import package_catalog
 from harness.infrastructure.capability_store import CapabilityStore
 
 
@@ -42,8 +43,15 @@ class StartupFlowTests(unittest.IsolatedAsyncioTestCase):
                 package.mkdir()
                 (package / 'plugin.json').write_text(json.dumps(dict(id=identity,
                     execution=execution, required=required, harness_api=1,
+                    version='1.0', title=identity, description='fixture',
+                    backends=[identity], optional=[], permissions=[],
                     tool_registration='managed')), encoding='utf-8')
                 store.save('__host__', identity, {'enabled': True}, 'plugin')
+            invalid = root / 'invalid'
+            invalid.mkdir()
+            (invalid / 'plugin.json').write_text(json.dumps(dict(id='invalid',
+                harness_api=True, execution='container', tool_registration='managed')))
+            store.save('__host__', 'invalid', {'enabled': True}, 'plugin')
             with patch('harness.capabilities.packaged_plugins.PackagedProvider', Provider), \
                     patch('harness.capabilities.container_plugins.ContainerPackage', Provider):
                 await restore_plugins(runtime, root, 'http://unused', {})
@@ -53,3 +61,8 @@ class StartupFlowTests(unittest.IsolatedAsyncioTestCase):
             broken = runtime.capabilities.status('broken')
             self.assertEqual(broken['state'], 'START_FAILED')
             self.assertIn('missing', broken['error'])
+            self.assertFalse(runtime.capabilities.manages('invalid'))
+            rows = {row['id']: row for row in package_catalog(root, {})}
+            self.assertEqual(rows['invalid']['registration'], 'invalid')
+            self.assertIn('API', rows['invalid']['error'])
+            self.assertEqual(rows['a-files']['management'], 'managed')

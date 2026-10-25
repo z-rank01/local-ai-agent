@@ -1,7 +1,7 @@
 """Manage explicitly activated tools packaged into the isolated file service."""
-import json
 import httpx
 import yaml
+from harness.contracts.plugin_manifest import read_manifest
 from harness.runtime.lifecycle import LifecycleManager
 from harness.contracts.package_revision import package_revision
 
@@ -35,12 +35,10 @@ def register_packages(runtime, packages, endpoint, headers):
     runtime.router.capabilities = runtime.capabilities
     for manifest in sorted(packages.glob('*/plugin.json')):
         try:
-            metadata = json.loads(manifest.read_text(encoding='utf-8'))
+            metadata = read_manifest(manifest, packages)
             if metadata.get('tool_registration') != 'managed' or metadata.get('execution') != 'files':
                 continue
             identity = metadata['id']
-            if identity != manifest.parent.name or metadata.get('harness_api') != 1:
-                continue
             runtime.capabilities.register(identity, PackagedProvider(manifest.parent, metadata,
                 runtime.tool_registry, endpoint, headers), required=metadata.get('required', []))
         except (OSError, ValueError, KeyError):

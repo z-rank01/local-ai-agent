@@ -1,7 +1,7 @@
 """Trusted bundled container packages use the same lifecycle and public registry."""
 import importlib
-import json
 import yaml
+from harness.contracts.plugin_manifest import read_manifest
 from core.workspaces import WorkspaceManager
 from core import config
 from harness.infrastructure.capability_store import CapabilityStore
@@ -44,12 +44,10 @@ def register_containers(runtime, packages):
         try:
             if not manifest.resolve().is_relative_to(packages.resolve()):
                 raise ValueError('插件清单越界')
-            metadata = json.loads(manifest.read_text(encoding='utf-8'))
+            metadata = read_manifest(manifest, packages)
             if metadata.get('execution') != 'container':
                 continue
             identity = metadata['id']
-            if identity != manifest.parent.name or metadata.get('harness_api') != 1:
-                continue
             package = ContainerPackage(manifest.parent, metadata, runtime)
             runtime.capabilities.register(identity, package, required=metadata.get('required', []))
         except (OSError, ValueError, TypeError, KeyError):

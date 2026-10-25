@@ -136,3 +136,5 @@ local_agent是聊天Agent内部的单次本地Gemma4:26b调用；无工具、发
 ## 插件前端贡献（构建登记）
 
 插件清单的 `ui.settings` 指向 `apps/web/src/plugins/<插件ID>/` 内的 TSX 入口。构建/开发/类型检查先运行 `scripts/generate-extensions.mjs`，生成已忽略的 extensions/generated.ts，不手工加宿主组件导入。面板只消费 CapabilityPanelProps 与通用 HTTP 接口，独立延迟加载；金融/搜索控制 API 和领域类型归各自前端包。新增 UI 资源需原入口构建并刷新生效，不加载任意远程 JavaScript。外部插件安装流程仍待完成，此规则目前适用于显式随源码构建的插件。
+
+插件启动恢复先登记全部文件/容器提供者，再按生命周期依赖顺序恢复保存的启用意图；单个失败保留具体状态，不阻断无关能力。清单基础校验共用 harness/contracts/plugin_manifest.py，目录展示与启动登记须一致。
