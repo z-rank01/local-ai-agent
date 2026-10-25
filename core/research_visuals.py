@@ -101,10 +101,12 @@ def validate_publication(params, sources, read_text):
     errors = []
     for index, calc in enumerate(calculations):
         for input_index, row in enumerate(calc['inputs']):
-            if row['source'].startswith('calculation:') or (row['source'].startswith('constant:') and row.get('period') == '不适用'):
+            if row['source'].startswith('calculation:'):
                 continue
             if not row.get('unit'):
-                errors.append(f'calculations[{index}].inputs[{input_index}] 计算输入缺少单位；原文原值需填单位，只有前项计算引用可以继承单位')
+                errors.append(f'calculations[{index}].inputs[{input_index}] 计算输入缺少单位；原文原值需填单位，常数填写其实际单位（无量纲填“倍”），只有前项计算引用可以继承单位')
+            if row['source'].startswith('constant:') and row.get('period') == '不适用':
+                continue
             if row['source'] not in cited or not quoted_number(row['value'], cited[row['source']]['quote']):
                 errors.append(f"calculations[{index}].inputs[{input_index}] 的 {row['value']} 未在来源 {row['source']} 引句中定位；换算或中间结果须引用前项计算，数学常数须标明含义")
     if errors:
@@ -125,7 +127,7 @@ def validate_publication(params, sources, read_text):
                     raise ValueError(f'calculations[{index}].inputs[{input_index}] 的原值与前项calculation:{reference}换算后不一致')
                 continue
             if not row.get('unit'):
-                raise ValueError('计算输入缺少单位')
+                raise ValueError(f'calculations[{index}].inputs[{input_index}] 计算输入缺少单位')
             if row['source'].startswith('constant:') and row['period'] == '不适用':
                 continue
         values = [number(row['value']) for row in calc['inputs']]
