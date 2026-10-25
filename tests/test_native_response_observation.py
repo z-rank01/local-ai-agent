@@ -70,6 +70,17 @@ class NativeResponseTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt['usage'])
         self.assertEqual(receipt['usage_status'],'NOT_REPORTED')
 
+    async def test_textual_tool_protocol_does_not_complete_delivery_or_retry(self):
+        client = await self.client([{'id': RESPONSE_ID, 'choices': [{'delta': {
+            'content': '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="code_exec">'},
+            'finish_reason': 'stop'}]}])
+        with self.assertRaisesRegex(RuntimeError, '工具未执行'):
+            await self.run_client(client)
+        receipt = self.receipt()
+        self.assertEqual(receipt['delivery_status'], 'FAILED')
+        self.assertEqual(receipt['failure_category'], 'UNPARSED_TOOL_CALL')
+        self.assertEqual(receipt['finish_reason'], 'stop')
+
     async def test_network_timeout_is_unknown_and_no_fake_zero_usage(self):
         client=await self.client(timeout=True)
         with self.assertRaisesRegex(RuntimeError,'超时'): await self.run_client(client)

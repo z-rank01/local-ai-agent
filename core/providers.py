@@ -233,6 +233,9 @@ class CompatibleClient:
                 raise RuntimeError('模型连接提前中断，已保留收到的内容。')
             if calls:
                 accumulated['tool_calls'] = [calls[i] for i in sorted(calls)]
+            if not calls and re.match(r'^\s*<\uff5c+DSML\uff5c+\s+calls>', accumulated['content']):
+                receipt.failure_category = 'UNPARSED_TOOL_CALL'
+                raise RuntimeError('模型把工具调用返回为正文，工具未执行，不能视为任务完成。已保留回执，未自动执行正文代码或重发。')
             if selected_source_tool and (not calls or any(call['function']['name'] != selected_source_tool for call in calls.values())):
                 receipt.failure_category='TOOL_CHOICE_NOT_HONOURED'
                 error = RuntimeError('供应商未返回指定的来源工具调用；原结果保留，未自动重发或降级。')
