@@ -57,7 +57,8 @@ export function PluginPackages(): JSX.Element {
       {row.pending ? version(row, row.pending, false) : null}
       {row.active ? <span className="panel-hint">已安装版本：{row.active.manifest.version} · {row.active.revision.slice(0,16)}</span> : null}
       {row.active ? <button className="btn" disabled={busy} onClick={() => void perform(() => importPackage(row.active!.source))}>从原来源检查更新</button> : null}
-      {row.history.map(entry => version(row, entry, true))}
+      {row.history.filter(entry => entry.revision !== row.active?.revision && entry.revision !== row.pending?.revision)
+        .map(entry => version(row, entry, true))}
       {!row.uninstalled ? <button className="btn" disabled={busy} onClick={() => void perform(() => changePackage(row.id, 'uninstall'))}>卸载插件（重启生效）</button> : null}
     </div>)}
   </section>;
