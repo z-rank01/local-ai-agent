@@ -14,6 +14,7 @@ $dailyRoot = Split-Path -Parent $PSScriptRoot
 Assert-DailyAcceptanceState $dailyRoot $AcceptanceState
 Assert-DailyStartupPorts
 $dailyPython = Join-Path $dailyRoot '.conda/python.exe'
+$env:PYTHONDONTWRITEBYTECODE = '1' # Installed plugin snapshots must not acquire host-generated cache files.
 if (-not (Test-Path -LiteralPath $dailyPython)) {
     throw 'Missing .conda\python.exe. Create it first: python -m venv .conda; .\.conda\python.exe -m pip install -e .'
 }
@@ -85,6 +86,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $workspace '.git'))) {
 $dailyEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
+    function Invoke-DailyToolAndWebBuild {
     if (-not $SkipTools) {
         Write-Host '  [1/7] Docker & tool containers' -ForegroundColor Cyan
         docker info *> $null
@@ -143,6 +145,24 @@ try {
         Write-Ok 'web bundle built'
     } else {
         Write-Ok 'web bundle present (use -RebuildWeb after UI code changes)'
+    }
+
+    }
+    try {
+        Invoke-DailyToolAndWebBuild
+    } catch {
+        if (-not $dailyPluginDeployment.build_required) { throw }
+        Write-Warn2 ('Plugin build failed; restoring previous packages: ' + $_.Exception.Message)
+        foreach ($dailyFailedLog in @('web-build.log', 'tool-containers.log', 'websearch-build.log')) {
+            $dailyFailedPath = Join-Path $dailyLogs $dailyFailedLog
+            if (Test-Path -LiteralPath $dailyFailedPath) {
+                Copy-Item -LiteralPath $dailyFailedPath -Destination ($dailyFailedPath + '.plugin-failed') -Force
+            }
+        }
+        & $dailyPython (Join-Path $PSScriptRoot 'deploy_plugins.py') restore-build
+        if ($LASTEXITCODE -ne 0) { throw 'Plugin rollback failed; saved content and diagnostic state retained.' }
+        # Rebuild the restored sources before opening the original page. Never use a mixed image/bundle.
+        Invoke-DailyToolAndWebBuild
     }
 
     if ($dailyPluginDeployment.build_required) {

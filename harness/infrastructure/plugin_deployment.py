@@ -12,6 +12,11 @@ def apply_pending(packages):
         if state.get('deployment') != 'PENDING_RESTART':
             continue
         try:
+            if 'build_baseline' not in state:
+                state['build_baseline'] = {
+                    'active': state.get('active'),
+                    'enabled': packages.store.list('__host__', 'plugin').get(identity, {}).get('enabled', False),
+                }
             destination = packages.bundled / identity
             if destination.parent.resolve() != packages.bundled.resolve() or destination.is_symlink():
                 raise ValueError('插件部署目录越界')
@@ -68,4 +73,5 @@ def confirm_build(packages):
     for identity, state in packages.store.list('__host__', 'plugin_package').items():
         if state.get('deployment') == 'BUILD_REQUIRED':
             state.update(deployment='REMOVED' if state.get('uninstalled') else 'INSTALLED', target=None)
+            state.pop('build_baseline', None)
             packages.store.save('__host__', identity, state, 'plugin_package')

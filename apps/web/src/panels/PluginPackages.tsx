@@ -51,7 +51,8 @@ export function PluginPackages(): JSX.Element {
     {rows.map(row => <div className="field" key={row.id}>
       <span className="field-label">{row.active?.manifest.title ?? row.pending?.manifest.title ?? row.id}</span>
       <span className="panel-hint">{({PENDING_RESTART:'等待正常退出后重启', BUILD_REQUIRED:'等待启动器完成构建',
-        INSTALLED:'已安装，可在能力清单启用', REMOVED:'已卸载，历史版本和成果保留', DEPLOY_FAILED:'部署失败'} as Record<string,string>)[row.deployment ?? ''] ?? '已导入，等待确认版本'}</span>
+        INSTALLED:'已安装，可在能力清单启用', REMOVED:'已卸载，历史版本和成果保留', DEPLOY_FAILED:'部署失败',
+        BUILD_FAILED:'构建失败，已恢复先前安装内容'} as Record<string,string>)[row.deployment ?? ''] ?? '已导入，等待确认版本'}</span>
       {row.error ? <p role="alert">{row.error}</p> : null}
       {row.pending ? version(row, row.pending, false) : null}
       {row.active ? <span className="panel-hint">已安装版本：{row.active.manifest.version} · {row.active.revision.slice(0,16)}</span> : null}

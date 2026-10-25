@@ -11,13 +11,23 @@ from core.conversation_store import ConversationStore
 from harness.infrastructure.capability_store import CapabilityStore
 from harness.infrastructure.plugin_packages import PluginPackages
 from harness.infrastructure.plugin_deployment import apply_pending, confirm_build
+from harness.infrastructure.plugin_recovery import restore_before_build
 
 
 if __name__ == '__main__':
     packages = PluginPackages(CapabilityStore(ConversationStore()._connect),
                               ROOT / 'data/private/plugin-packages', ROOT / 'plugins')
+    if sys.argv[1:] == ['restore-build']:
+        for port in (9510, 9511):
+            with socket.socket() as probe:
+                probe.settimeout(1)
+                if probe.connect_ex(('127.0.0.1', port)) == 0:
+                    raise SystemExit('Plugin build restoration requires normal full stack exit first.')
     if sys.argv[1:] == ['confirm-build']:
         confirm_build(packages)
+    elif sys.argv[1:] == ['restore-build']:
+        print(json.dumps(restore_before_build(packages,
+            '插件构建失败，已恢复构建前版本；请查看 data/logs 的构建日志并修正候选包。'), ensure_ascii=True))
     elif not sys.argv[1:]:
         states = packages.store.list('__host__', 'plugin_package')
         if any(row.get('deployment') in ('PENDING_RESTART', 'BUILD_REQUIRED') for row in states.values()):

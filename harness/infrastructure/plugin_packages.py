@@ -5,6 +5,7 @@ import re
 import tempfile
 
 from harness.contracts.plugin_manifest import read_manifest
+from harness.contracts.plugin_payload import validate_payload
 from harness.infrastructure.plugin_archive import read_package, content_revision
 
 
@@ -32,6 +33,7 @@ class PluginPackages:
             metadata = read_manifest(package / 'plugin.json', Path(staging))
             if metadata.get('tool_registration') != 'managed':
                 raise ValueError('外部插件必须使用托管登记契约')
+            validate_payload(package, metadata)
             destination = self.storage / revision / identity
             if destination.exists():
                 if content_revision(read_package(destination)) != revision:

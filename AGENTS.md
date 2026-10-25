@@ -140,3 +140,5 @@ local_agent是聊天Agent内部的单次本地Gemma4:26b调用；无工具、发
 插件启动恢复先登记全部文件/容器提供者，再按生命周期依赖顺序恢复保存的启用意图；单个失败保留具体状态，不阻断无关能力。清单基础校验共用 harness/contracts/plugin_manifest.py，目录展示与启动登记须一致。
 
 本地 Plugin 由原会话库 plugin_package 保存导入版本、信任确认及待部署状态；包快照在 data/private/plugin-packages。导入不执行代码。用户确认具体版本后，由唯一启动器冷启动步骤 deploy_plugins.py 部署至已忽略的 plugins/<id>，拒绝覆盖随源码包或被修改的部署目录；完整退出前不得部署。在构建确认前保留 BUILD_REQUIRED，不能把已复制当作可用。卸载只移除安装副本，保留快照和用户成果。
+
+本地插件冷安装构建失败时，唯一启动器保留 `*.plugin-failed` 日志、恢复原包后重建，不另启执行器。包内资源在导入时校验；恢复与部署的实际验收状态见股票仓库 docs/计划.md。
