@@ -1,6 +1,7 @@
 """Host-owned per-run Skill metadata; model arguments cannot select revisions."""
 from copy import deepcopy
 import json
+import re
 import httpx
 
 
@@ -29,6 +30,24 @@ class SkillSession:
             headers=self.headers, json={'name': name, 'revision': entry['revision']})
         response.raise_for_status()
         return response.json()
+
+    async def pin_generated_step(self, params):
+        """Resolve host-generated resource paths against this run's frozen catalog.
+
+        Only internal evidence expansion uses this method. Model-authored code
+        and arbitrary user files are not rewritten.
+        """
+        resource = re.compile(r'/workspace/skills/([A-Za-z0-9_-]+)(?=/)')
+        values = {key: value for key, value in params.items() if key in ('path', 'code', 'command') and isinstance(value, str)}
+        names = {match.group(1) for value in values.values() for match in resource.finditer(value)}
+        paths = {}
+        for name in sorted(names):
+            package = await self.info(name)
+            if package is None:
+                raise ValueError('程序步骤所需 Skill 不在本轮固定版本中：' + name)
+            paths[name] = package['path'].rstrip('/')
+        return {**params, **{key: resource.sub(lambda match: paths[match.group(1)], value)
+                           for key, value in values.items()}}
 
     def listing(self, result):
         return {'skills': list(self.snapshot['versions'].values()) + self.snapshot['invalid'],

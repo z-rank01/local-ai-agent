@@ -393,6 +393,9 @@ class Agent:
                 if autonomous and research.pending_evidence:
                     import uuid
                     step = research.pending_evidence[0]
+                    skill_session = getattr(self.router, 'skill_session', None)
+                    if skill_session is not None:
+                        step['params'] = await skill_session.pin_generated_step(step['params'])
                     call = {'id': 'call_' + uuid.uuid4().hex, 'type': 'function',
                             'function': {'name': step['name'], 'arguments': json.dumps(step['params'], ensure_ascii=False)}}
                     # Explicit program expansion of a model-selected need. Normal
@@ -449,14 +452,7 @@ class Agent:
                     offered_handoff = handoff_tools | (tools_for_role('handoff_lookup') if preparing else set())
                     active = [d for d in active if d['function']['name'] in offered_handoff]
                     messages.append({'role': 'system', 'content':
-                        '研究交付窗口已到，进入后台交接步骤。仅当原问题属于用户已授权的股票、公司或产业公开研究且尚未完成时，'
-                        '请用现有提交工具将待研究的公开问题交给股票工作进程。只用已核对的证券身份或本会话安全引用；'
-                        '尚无安全引用时，可先使用本轮提供的查找工具取得已有简报或研究引用，不刷新简报。'
-                        '非股票研究不能改写成股票任务；没有适用后台能力时如实说明未完成范围。'
-                        '必须填写 research_question，保留问题、反证及完成判据。个股任务使用 reuse/continue，'
-                        '不得用 redo 或新任务绕过 UNKNOWN。不得传持仓、账户或私有文件。'
-                        '若已有后台任务、问题已完成或缺少合法输入，交付已有成果并明确缺口，不另建任务。'
-                        '只有收到真实受理回执才可声称后台会继续；无需让用户重复发送继续。'})
+                        '\n\n'.join(self.registry.phase_guidance('handoff', offered_handoff))})
                 elif stock_window_closed or generic_final_round or no_progress_closed:
                     active = []
                     messages.append({"role": "system", "content":

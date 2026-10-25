@@ -11,6 +11,7 @@ def research_registry(**kwargs):
     kwargs.setdefault('execution_policy', installed.execution_policy)
     kwargs.setdefault('tools_for_role', installed.tools_for_role)
     kwargs.setdefault('history_projectors', installed.history_projectors)
+    kwargs.setdefault('phase_guidance', installed.phase_guidance)
     return SimpleNamespace(**kwargs)
 
 

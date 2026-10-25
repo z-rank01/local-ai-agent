@@ -47,6 +47,14 @@ class SkillVersionFlowTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual((await second.info('meeting'))['body'], '新方法')
                     self.assertNotEqual(first.snapshot['versions']['meeting']['revision'],
                                         second.snapshot['versions']['meeting']['revision'])
+                    generated = {'path': '/workspace/skills/meeting/SKILL.md'}
+                    old_step = await first.pin_generated_step(generated)
+                    new_step = await second.pin_generated_step(generated)
+                    self.assertIn('旧方法', Path(old_step['path']).read_text(encoding='utf-8'))
+                    self.assertIn('新方法', Path(new_step['path']).read_text(encoding='utf-8'))
+                    self.assertEqual(generated['path'], '/workspace/skills/meeting/SKILL.md')
+                    with self.assertRaises(ValueError):
+                        await first.pin_generated_step({'code': "open('/workspace/skills/missing/scripts/run.py')"})
                     diff = await client.post('/capabilities/skills/diff', json={'name': 'meeting',
                         'before': first.snapshot['versions']['meeting']['revision'],
                         'after': second.snapshot['versions']['meeting']['revision']})

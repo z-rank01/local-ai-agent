@@ -109,6 +109,16 @@ class ToolRegistry:
                 if (provider := self._call_policies.for_owner(owner)) is not None
                 and callable(getattr(provider, 'project_history', None))]
 
+    def phase_guidance(self, phase, tool_names):
+        owners = {owner for name, owner in self.ownership().items() if name in tool_names}
+        sections = []
+        for owner in sorted(owners):
+            provider = self._call_policies.for_owner(owner)
+            guidance = getattr(provider, 'phase_guidance', None)
+            if guidance and (text := guidance(phase)) and text not in sections:
+                sections.append(text)
+        return sections
+
     @property
     def known_tools(self) -> frozenset[str]:
         return frozenset(self._tools)

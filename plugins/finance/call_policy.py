@@ -2,6 +2,10 @@
 
 
 class FinanceCallPolicy:
+    def phase_guidance(self, phase):
+        from .phase_guidance import HANDOFF
+        return HANDOFF if phase == 'handoff' else ''
+
     def present_receipt(self, tool, arguments, receipt, *, question, read_receipts):
         from harness.contracts.receipt_presentation import ReceiptPresentation
         if tool == 'stock_public_evidence_read':
