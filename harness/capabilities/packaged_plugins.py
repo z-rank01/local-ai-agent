@@ -2,7 +2,6 @@
 import json
 import httpx
 import yaml
-from harness.infrastructure.capability_store import CapabilityStore
 from harness.runtime.lifecycle import LifecycleManager
 from harness.contracts.package_revision import package_revision
 
@@ -30,12 +29,10 @@ class PackagedProvider:
         self.registry.unregister_owner(self.metadata['id'])
 
 
-async def restore_packages(runtime, packages, endpoint, headers):
+def register_packages(runtime, packages, endpoint, headers):
     if runtime.capabilities is None:
         runtime.capabilities = LifecycleManager()
     runtime.router.capabilities = runtime.capabilities
-    store = CapabilityStore(runtime.store._connect)
-    states = store.list('__host__', 'plugin')
     for manifest in sorted(packages.glob('*/plugin.json')):
         try:
             metadata = json.loads(manifest.read_text(encoding='utf-8'))
@@ -48,10 +45,3 @@ async def restore_packages(runtime, packages, endpoint, headers):
                 runtime.tool_registry, endpoint, headers), required=metadata.get('required', []))
         except (OSError, ValueError, KeyError):
             continue
-    for identity, state in states.items():
-        if state.get('enabled') and runtime.capabilities.manages(identity):
-            try:
-                await runtime.capabilities.activate(identity)
-            except Exception:
-                # The manager retains an exact failure; optional packages cannot block chat.
-                pass

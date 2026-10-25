@@ -33,9 +33,8 @@ class ContainerPackage:
         self.runtime.router.bind_provider(self.metadata['id'], None)
 
 
-async def restore_containers(runtime, packages):
+def register_containers(runtime, packages):
     runtime.container_packages = {}
-    states = CapabilityStore(runtime.store._connect).list('__host__', 'plugin')
     store = CapabilityStore(runtime.store._connect)
     for identity, state in store.list('__host__', 'plugin_environment').items():
         if state.get('state') == 'PREPARING':
@@ -57,8 +56,3 @@ async def restore_containers(runtime, packages):
             # Invalid declarations are already reported by the read-only catalog.
             continue
         runtime.container_packages[identity] = package
-        if states.get(identity, {}).get('enabled'):
-            try:
-                await runtime.capabilities.activate(identity)
-            except Exception:
-                pass  # Lifecycle retains the exact error without blocking chat.

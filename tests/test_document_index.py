@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / 'skills/files'))
 from plugin_host import PluginHost
 from path_guard import PathGuard
 from harness.contracts.tool_provider import ExecutionContext
-from harness.capabilities.packaged_plugins import restore_packages
+from harness.capabilities.packaged_plugins import register_packages
 from core.conversation_store import ConversationStore
 from core.tool_registry import ToolRegistry
 from core import config
@@ -80,7 +80,7 @@ class PackagedLifecycleFlowTests(unittest.IsolatedAsyncioTestCase):
             host = PluginHost(ROOT / 'plugins', context)
             runtime = SimpleNamespace(capabilities=None, router=SimpleNamespace(),
                 tool_registry=ToolRegistry(config.TOOLS_DIR), store=ConversationStore(root / 'conversations.db'))
-            await restore_packages(runtime, ROOT / 'plugins', 'http://files', {})
+            register_packages(runtime, ROOT / 'plugins', 'http://files', {})
             self.assertNotIn('documents_index', runtime.tool_registry.known_tools)
             payload = {'versions': host.versions, 'revisions': {}}
             transport = httpx.MockTransport(lambda req: httpx.Response(200, json=payload))

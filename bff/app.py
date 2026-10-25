@@ -70,11 +70,9 @@ async def lifespan(_: FastAPI):
     )
     from core.skills_service import skill_switches
     await skill_switches.restore(runtime)
-    from harness.capabilities.packaged_plugins import restore_packages
-    await restore_packages(runtime, config._PROJECT_ROOT / 'plugins',
+    from harness.capabilities.startup import restore_plugins
+    await restore_plugins(runtime, config._PROJECT_ROOT / 'plugins',
         config.SKILL_FILES_URL, {'X-Workspace-Token': tool_token('default')})
-    from harness.capabilities.container_plugins import restore_containers
-    await restore_containers(runtime, config._PROJECT_ROOT / 'plugins')
     watcher = asyncio.create_task(_auto_exit_watcher()) if config.AUTO_EXIT_ON_CLOSE else None
     try:
         yield
