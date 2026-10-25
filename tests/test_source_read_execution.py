@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from tests import test_in1, test_stock_source_quotes
-from core.stock_source_quotes import source_task_index
+from plugins.finance.source_quotes import source_task_index
 
 
 class SourceIndexTests(unittest.TestCase):

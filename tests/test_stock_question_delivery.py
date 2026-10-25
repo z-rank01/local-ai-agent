@@ -1,7 +1,7 @@
 import json
 import unittest
 import httpx
-from core.stock_bridge import StockBridge
+from plugins.finance.bridge import StockBridge
 from tests.test_stock_bridge import make_broker
 
 

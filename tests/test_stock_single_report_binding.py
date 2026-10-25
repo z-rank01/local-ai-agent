@@ -4,10 +4,10 @@ import json
 import unittest
 from types import SimpleNamespace
 
-from core.stock_source_quotes import prior_explanation_view, source_task_index, original_records
-from core.stock_report_context import report_material_view
-from core.stock_task_source_view import lookup_index
-from core.stock_reply_purpose import selection_view
+from plugins.finance.source_quotes import prior_explanation_view, source_task_index, original_records
+from plugins.finance.report_context import report_material_view
+from plugins.finance.task_source_view import lookup_index
+from plugins.finance.reply_purpose import selection_view
 from tests.test_stock_explanation_view import source_turn
 from tests.test_stock_report_context import report
 from tests.test_stock_source_quotes import SourceQuoteLoopTests

@@ -12,9 +12,9 @@ def incomplete_delivery(index, question, records, *, authorised):
     message = '来源补查未返回工具调用，原文核对未完成；未将待核草稿作为研究结论交付。'
     if not authorised:
         return message
-    from .stock_task_binding import reference_binding
-    from .stock_source_coverage import canonical_span
-    from .stock_receipts import successful
+    from plugins.finance.task_binding import reference_binding
+    from plugins.finance.source_coverage import canonical_span
+    from plugins.finance.receipts import successful
     binding = reference_binding(index, question)
     if binding['selection'] == 'all_known' or not binding['references']:
         return message

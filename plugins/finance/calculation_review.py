@@ -47,7 +47,7 @@ def validate_calculations(value):
 
 def calculation_index(messages, *, receipts=None):
     """Latest successful paired report only, never user/model-stage content."""
-    from .stock_receipts import paired_receipts
+    from plugins.finance.receipts import paired_receipts
     latest = {}
     for receipt in (paired_receipts(messages, {'stock_report_read'}, allow_legacy_reference=False) if receipts is None else receipts):
         if receipt.tool_name != 'stock_report_read' or receipt.observation.get('source_reference') != receipt.reference:
@@ -72,7 +72,7 @@ def calculation_index(messages, *, receipts=None):
                 except ValueError:
                     row.pop('annual_source',None)
                 if 'service_mean' in row:
-                    from .stock_calculation_contract import validated_service_mean
+                    from plugins.finance.calculation_contract import validated_service_mean
                     try:
                         validated_service_mean(row, ''.join(page['body'] for page in pages))
                     except (ValueError, TypeError, KeyError, ArithmeticError):
@@ -117,7 +117,7 @@ def current_program_records(index,user_request,source_index):
 
 def program_source_guidance(records):
     if not records:return None
-    from .stock_financial_receipts import currency_display
+    from plugins.finance.financial_receipts import currency_display
     view=deepcopy(records)
     for row in view:
         row['unit_display']={'项目总额':currency_display(row['amount_yuan']),

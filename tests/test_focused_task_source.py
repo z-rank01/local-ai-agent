@@ -1,6 +1,6 @@
 import copy,json,unittest
-from core.stock_task_source_view import lookup_index
-from core.stock_source_quotes import prune_empty_sections,isolate_quote_paragraphs,unverified_quotes
+from plugins.finance.task_source_view import lookup_index
+from plugins.finance.source_quotes import prune_empty_sections,isolate_quote_paragraphs,unverified_quotes
 from tests import test_stock_task_source_view as fixture
 
 

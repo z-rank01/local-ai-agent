@@ -1,7 +1,7 @@
 import copy,json,unittest
 import httpx
-from core.stock_bridge import StockBridge
-from core.stock_company_context import validate_context,context_index,current_guidance
+from plugins.finance.bridge import StockBridge
+from plugins.finance.company_context import validate_context,context_index,current_guidance
 from tests.test_stock_calculation_review import history
 from tests.test_stock_bridge import make_broker,ok_step,REF
 

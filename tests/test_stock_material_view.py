@@ -4,7 +4,7 @@ import json
 import unittest
 
 from core.stock_material_view import project_materials
-from core.stock_report_context import report_material_view
+from plugins.finance.report_context import report_material_view
 from tests import test_stock_report_context as reports
 from tests import test_financial_field_catalogue as catalogues
 
@@ -42,7 +42,7 @@ class MaterialViewTests(unittest.TestCase):
         self.assertEqual(project_materials(rows, None).messages, rows)
 
     def test_source_review_transitions_do_not_change_parameters(self):
-        from core.stock_source_review import SourceReview, Phase
+        from plugins.finance.source_review import SourceReview, Phase
         state = SourceReview(); state.begin('核对原文')
         self.assertEqual(state.phase, Phase.FIND)
         event = {'status': 'ok', 'name': 'stock_public_evidence_find', 'params': {'search': '原查询'},

@@ -13,7 +13,7 @@ class FinanceTasks:
 
     @property
     def service(self):
-        from core.stock_service import stock_service
+        from .service import stock_service
         return stock_service
 
     async def list(self, workspace_id):

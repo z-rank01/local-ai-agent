@@ -7,7 +7,7 @@ import httpx
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from core.stock_bridge import StockBridge
+from plugins.finance.bridge import StockBridge
 from core.conversation_store import Message
 from bff.service import ChatSessionService
 from bff.app import app
@@ -153,7 +153,7 @@ class ReportReaderAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         self.bridge.read_report_page.assert_awaited_once_with('c',REF,1,'read',section='references',revision=revision)
 
     async def test_changed_document_is_a_conflict_without_replacing_old_history(self):
-        from core.stock_bridge import ReportUpdated
+        from plugins.finance.bridge import ReportUpdated
         self.bridge.read_report_page.side_effect=ReportUpdated('报告已更新')
         before=self.message.tool_result
         with self.assertRaises(HTTPException) as exc:
@@ -165,7 +165,7 @@ class ReportReaderAuthorizationTests(unittest.IsolatedAsyncioTestCase):
 
 class ReaderDocumentBridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_typed_local_document_and_update_conflict(self):
-        from core.stock_bridge import ReportUpdated
+        from plugins.finance.bridge import ReportUpdated
         document={'layout':'research-reader-v2','section':'body','page':1,'page_count':1,
                   'content':'中文正文','blocks':[{'kind':'markdown','content':'中文正文'}]}
         calls=[]

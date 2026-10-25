@@ -6,7 +6,7 @@ from unittest.mock import patch
 import httpx
 
 from core import config
-from core.stock_bridge import StockBridge
+from plugins.finance.bridge import StockBridge
 from core.tool_registry import ToolRegistry
 
 REF = 'a' * 64

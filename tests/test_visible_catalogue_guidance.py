@@ -1,5 +1,5 @@
 import copy,json,unittest
-from core.stock_company_context import current_guidance,validate_context
+from plugins.finance.company_context import current_guidance,validate_context
 from tests.test_stock_company_context import observation
 from tests.test_financial_field_catalogue import directory
 from tests.test_stock_bridge import REF

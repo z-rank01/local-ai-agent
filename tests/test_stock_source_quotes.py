@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 
 from core.agent import Agent
-from core.stock_source_quotes import (original_texts, original_records, complete_sources,
+from plugins.finance.source_quotes import (original_texts, original_records, complete_sources,
     unverified_quotes, unverified_absence_claims, isolate_quote_paragraphs, repair_quote_format)
 
 
@@ -182,9 +182,14 @@ class SourceQuoteLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('“2024年未用完的中央额度收回”',events[-1].text)
         self.assertEqual(''.join(e.text for e in events if e.kind=='token'),events[-1].text)
     def agent(self, model, router, tools):
+        from core import config
+        from core.tool_registry import ToolRegistry
+        registered = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://unused')
         async def process(messages):return messages
         agent=Agent(llm=model,router=router,registry=SimpleNamespace(get_definitions=lambda **kw:[
-            {'type':'function','function':{'name':name}} for name in tools]),
+            {'type':'function','function':{'name':name}} for name in tools],
+            tools_for_role=registered.tools_for_role, execution_policy=registered.execution_policy,
+            history_projectors=registered.history_projectors),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=5)
         agent.quality_first_research=agent.stock_loop_enabled=True
@@ -299,6 +304,9 @@ class SourceQuoteServiceTests(ServiceTests):
             cloud=True
             model='qwen3.5-flash'
             async def chat_stream_with_tools(self,*args):
+                if any('current-question-purpose' in str(m) or '\u672c\u6b65\u9aa4\u4ec5\u6309\u5f53\u524d\u7528\u6237\u95ee\u9898' in m.get('content', '') for m in args[0]):
+                    yield '', {'role': 'assistant', 'content': '{"reply_focus":"analysis"}'}
+                    return
                 calls.append(1)
                 yield generated,None
                 yield '',{'role':'assistant','content':generated}
@@ -346,6 +354,8 @@ class SourceQuoteServiceTests(ServiceTests):
         local=self.runtime.store.messages_as_dicts(conv.id,cloud=False)
         self.assertTrue(any('确定的局部修复' in m.get('content','') for m in local))
     async def install_review_history(self):
+        from core import config
+        self.runtime.tool_registry.load_backend(config.TOOLS_DIR, 'stock-bridge')
         conv=self.runtime.store.create_conversation(model='qwen:qwen3.5-flash')
         self.runtime.store.add_message(conv.id,role='protocol',metadata={'cloud_safe':True,'message':{
             'role':'assistant','content':'','tool_calls':[{'id':'saved','type':'function','function':{
@@ -368,6 +378,9 @@ class SourceQuoteServiceTests(ServiceTests):
             cloud=True
             model='qwen3.5-flash'
             async def chat_stream_with_tools(self,*args):
+                if any('\u672c\u6b65\u9aa4\u4ec5\u6309\u5f53\u524d\u7528\u6237\u95ee\u9898' in m.get('content', '') for m in args[0]):
+                    yield '', {'role': 'assistant', 'content': '{"reply_focus":"analysis"}'}
+                    return
                 calls.append(1);text=bad if len(calls)==1 else good
                 yield text,None
                 yield '',{'role':'assistant','content':text}
@@ -376,7 +389,10 @@ class SourceQuoteServiceTests(ServiceTests):
         events=[e async for e in self.service.stream_chat(ChatRequest(conversation_id=conv.id,
             message='请核对已保存公开原文',provider_id='qwen',model='qwen3.5-flash'))]
         visible=[e.data.get('text','') for e in events if e.event=='assistant.completed']
-        self.assertEqual(visible,[good])
+        # A replacement paragraph is not a source-read receipt. The current
+        # source protocol must keep this run incomplete instead of accepting it.
+        self.assertTrue(any(e.event == 'error' for e in events))
+        self.assertTrue(any('来源补查未返回工具调用' in text for text in visible))
         self.assertNotIn(bad,''.join(e.data.get('text','') for e in events if e.event=='assistant.delta'))
         rows=self.runtime.store.get_messages(conv.id)
         rejected=[json.loads(r.metadata) for r in rows if json.loads(r.metadata).get('quality_status')=='rejected_source_quote']

@@ -1,7 +1,7 @@
 import copy,hashlib,json,unittest
-from core.stock_task_source_view import current_task_source_view,VERSION
-from core.stock_source_quotes import original_records
-from core.stock_source_coverage import coverage_index
+from plugins.finance.task_source_view import current_task_source_view,VERSION
+from plugins.finance.source_quotes import original_records
+from plugins.finance.source_coverage import coverage_index
 from tests import test_stock_source_coverage as fixtures
 
 REF=fixtures.REF;OLD='c'*64

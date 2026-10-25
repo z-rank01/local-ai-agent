@@ -28,6 +28,6 @@ def reference_binding(index, question, current=()):
 
 
 def history_binding(messages, last_user):
-    from .stock_source_quotes import source_task_index
+    from plugins.finance.source_quotes import source_task_index
     return reference_binding(source_task_index(messages), messages[last_user].get('content'),
                              {row['source_reference'] for row in source_task_index(messages[last_user:])})

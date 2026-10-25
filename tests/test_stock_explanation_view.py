@@ -3,7 +3,7 @@ import json
 import unittest
 
 from core.context_manager import ContextManager
-from core.stock_source_quotes import prior_explanation_view
+from plugins.finance.source_quotes import prior_explanation_view
 from tests import test_stock_source_quotes
 
 

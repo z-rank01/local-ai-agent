@@ -149,7 +149,7 @@ def source_task_index(messages, *, receipts=None):
     Older receipts lack source_reference; link their successful response to its
     own tool call. This changes only the current model view, not stored history.
     """
-    from .stock_receipts import paired_receipts
+    from plugins.finance.receipts import paired_receipts
     rows = {}
     for receipt in (paired_receipts(messages) if receipts is None else receipts):
         value, token = receipt.observation, receipt.reference
@@ -193,7 +193,7 @@ def prior_explanation_view(messages, archive):
     raw_tasks = {row.get('source_reference') for row in original_records(messages)
                  if any(span.get('kind', 'ORIGINAL_TEXT') in ('ORIGINAL_TEXT', 'PEER_ORIGINAL_TEXT')
                         for span in row.get('excerpts', []) if isinstance(span, dict))}
-    from .stock_task_binding import history_binding
+    from plugins.finance.task_binding import history_binding
     binding = history_binding(messages, last_user)
     selected = binding['references'] & known & raw_tasks if binding['selection'] != 'all_known' else set()
     if not selected:

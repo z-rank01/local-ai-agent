@@ -1,7 +1,7 @@
 """Finance report/source projection and its provenance annotations."""
 from harness.contracts.history_projection import HistoryProjection
 from .material_view import project_materials
-from core.stock_report_context import MATERIAL_VIEW_VERSION
+from plugins.finance.report_context import MATERIAL_VIEW_VERSION
 
 
 def project_history(history, archive):

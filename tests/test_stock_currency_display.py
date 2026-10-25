@@ -4,9 +4,9 @@ import unittest
 from decimal import InvalidOperation
 from types import SimpleNamespace
 
-from core.stock_financial_receipts import currency_display
-from core.stock_calculation_review import calculation_index, program_source_guidance
-from core.stock_company_context import context_index, current_guidance
+from plugins.finance.financial_receipts import currency_display
+from plugins.finance.calculation_review import calculation_index, program_source_guidance
+from plugins.finance.company_context import context_index, current_guidance
 from tests.test_stock_calculation_review import history, REF
 from tests.test_stock_company_context import observation
 from tests import test_stock_source_quotes as quote_tests

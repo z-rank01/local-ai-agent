@@ -2,7 +2,7 @@ import copy
 import json
 import unittest
 
-from core.stock_receipts import paired_receipts
+from plugins.finance.receipts import paired_receipts
 
 
 def rows():
@@ -50,8 +50,8 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(list(paired_receipts(history)), [])
 
     def test_incremental_index_matches_full_and_invalidates_projection(self):
-        from core.stock_evidence import EvidenceIndex
-        from core.stock_source_quotes import source_task_index
+        from plugins.finance.evidence import EvidenceIndex
+        from plugins.finance.source_quotes import source_task_index
         index = EvidenceIndex(); history = rows()
         index.update(history[:1]); self.assertEqual(index.sources, [])
         index.update(history); self.assertEqual(index.sources, source_task_index(history))

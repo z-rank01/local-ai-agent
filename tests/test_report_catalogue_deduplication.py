@@ -1,8 +1,8 @@
 import copy,json,unittest
-from core.stock_report_context import report_material_view
+from plugins.finance.report_context import report_material_view
 from tests import test_stock_report_context as fixtures
 from tests import test_financial_field_catalogue as catalogue_fixtures
-from core.stock_source_quotes import original_records,source_task_index
+from plugins.finance.source_quotes import original_records,source_task_index
 
 class CatalogueViewTests(fixtures.ReportMaterialViewTests):
     def test_old_directory_copy_archived_latest_complete_directory_kept(self):

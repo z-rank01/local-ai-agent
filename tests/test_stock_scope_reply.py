@@ -2,7 +2,7 @@ import copy
 import json
 import unittest
 
-from core.stock_source_coverage import scope_request_error, scope_reply
+from plugins.finance.source_coverage import scope_request_error, scope_reply
 from tests.test_stock_source_coverage import REF, EVENT, URL, page
 from tests import test_stock_source_quotes as quote_tests
 
@@ -89,7 +89,7 @@ class ScopeReplyLoopTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bridge_rejects_wrong_ref_before_broker_and_never_forwards_presentation(self):
         import httpx
-        from core.stock_bridge import StockBridge
+        from plugins.finance.bridge import StockBridge
         from tests.test_stock_bridge import make_broker,ok_step
         captured=[]
         broker=make_broker(captured,step_responses=[ok_step(page((1,2)))])

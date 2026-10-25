@@ -15,7 +15,7 @@ from .memory_manager import MemoryManager
 from .policy_engine import PolicyEngine
 from .prompt_builder import PromptBuilder
 from .providers import ModelRegistry
-from .stock_bridge import StockBridge
+from plugins.finance.bridge import StockBridge
 from .tool_registry import ToolRegistry
 from .tool_router import ToolRouter
 

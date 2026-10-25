@@ -241,16 +241,16 @@ class Agent:
         stock_read_seen = any(m.get('role') == 'tool' and m.get('tool_name') in stock_read_tools
                               for m in evidence_messages)
         current_user_question=next((m.get('content','') for m in reversed(messages) if m.get('role')=='user'),'')
-        from .stock_source_quotes import original_texts, original_records, source_task_index
+        from plugins.finance.source_quotes import original_texts, original_records, source_task_index
         source_quote_originals = original_texts(evidence_messages)
         source_read_records = original_records(evidence_messages)
-        from .stock_evidence import EvidenceIndex
+        from plugins.finance.evidence import EvidenceIndex
         evidence_index = EvidenceIndex()
         evidence_index.update(evidence_messages)
         source_index = evidence_index.sources
-        from .stock_calculation_review import calculation_index
+        from plugins.finance.calculation_review import calculation_index
         source_calculation_index = dict(evidence_index.calculations)
-        from .stock_company_context import context_index
+        from plugins.finance.company_context import context_index
         source_comparison_index = dict(evidence_index.comparisons)
         self.pending_source_review = ''
         cloud = getattr(self.llm, "cloud", False)
@@ -308,7 +308,7 @@ class Agent:
                     logger.warning('Prior stock explanation view skipped')
                 return history
             messages = index_prior_explanations(messages)
-            from .stock_task_source_view import lookup_index
+            from plugins.finance.task_source_view import lookup_index
             early_question = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             defer_purpose_context = (getattr(self, 'stock_reply_purpose_enabled', False)
                 and self.allow_tools and stock_read_seen and (not cloud or workspace_granted)
@@ -355,13 +355,13 @@ class Agent:
             research_tools = {'context_evidence_read'} | tools_for_role('research')
             research_continuing, no_progress_rounds, observations = False, 0, set()
             execution_retries = 0
-            from .stock_source_review import SourceReview
+            from plugins.finance.source_review import SourceReview
             source_review = SourceReview()
             source_repair_protocol = []
             source_index_message = None
             program_source_message = None
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
-            from .stock_task_source_view import lookup_index
+            from plugins.finance.task_source_view import lookup_index
             purpose_pending = bool(getattr(self, 'stock_reply_purpose_enabled', False)
                 and self.allow_tools and stock_read_seen and (not cloud or workspace_granted))
             round_number = 0
@@ -467,14 +467,14 @@ class Agent:
                 stock_read_seen = stock_read_seen or any(counts.get(name, 0) for name in stock_read_tools)
                 lookup_context = lookup_index(source_index, user_request)
                 if source_review.attempts:
-                    from .stock_source_quotes import READ_TOOLS
+                    from plugins.finance.source_quotes import READ_TOOLS
                     active = [d for d in active if d['function']['name'] in READ_TOOLS]
                 if stock_read_seen:
                     # Transient control guidance belongs to this model view, not user history.
                     # Keep one fresh copy after evidence reads instead of accumulating it.
                     messages = [m for m in messages if not (m.get('role') == 'system'
                                 and m.get('content') == STOCK_DELIVERY_GUIDANCE)]
-                    from .stock_source_quotes import source_index_guidance
+                    from plugins.finance.source_quotes import source_index_guidance
                     # Retain the pre-compression index and merge actual new
                     # receipts. No source material or old evidence is rewritten.
                     evidence_index.update(messages)
@@ -490,7 +490,7 @@ class Agent:
                         messages.append(source_index_message)
                     messages.append({'role': 'system', 'content': STOCK_DELIVERY_GUIDANCE})
                 messages = index_prior_explanations(messages)
-                from .stock_source_coverage import merge_read_records
+                from plugins.finance.source_coverage import merge_read_records
                 source_read_records=merge_read_records(source_read_records,original_records(messages))
                 evidence_index.update(messages)
                 source_calculation_index.update(evidence_index.calculations)
@@ -513,7 +513,7 @@ class Agent:
                 purpose_step = False
                 purpose_view = None
                 if purpose_pending and not source_review.parameter_step and not stock_window_closed and not no_progress_closed:
-                    from .stock_reply_purpose import selection_view
+                    from plugins.finance.reply_purpose import selection_view
                     purpose_view = selection_view(messages, user_request, lookup_context, active)
                     purpose_step = purpose_view is not None
                     purpose_pending = False
@@ -646,7 +646,7 @@ class Agent:
                                 elif reviewing_thinking:
                                     yield AgentEvent('token', text=token)
                                 else:
-                                    from .stock_source_quotes import may_start_literal_quote
+                                    from plugins.finance.source_quotes import may_start_literal_quote
                                     review_visible_prefix += token
                                     quote_buffering = quote_buffering or may_start_literal_quote(review_visible_prefix)
                                     if quote_buffering:
@@ -662,7 +662,7 @@ class Agent:
                     control.end_step()
                 calls = accumulated.get('tool_calls') or []
                 if purpose_step:
-                    from .stock_reply_purpose import analysis_decision
+                    from plugins.finance.reply_purpose import analysis_decision
                     yield AgentEvent('reply_purpose_protocol', data={'message': {
                         'role': 'assistant', 'content': accumulated.get('content') or ''},
                         'view_version': 'current-question-purpose-v1', 'tool_call_count': len(calls)})
@@ -690,7 +690,7 @@ class Agent:
                                      if span.get('kind') in ('SOURCE_FIELD','PEER_SOURCE_FIELD')
                                      and span.get('text') and span.get('url') and span.get('location')]
                         if original_texts(source_repair_protocol) or field_reads:
-                            from .stock_source_quotes import complete_sources
+                            from plugins.finance.source_quotes import complete_sources
                             self.audit.record('source_read_delivery_transition', {
                                 'session_id': session_id,
                                 'reason': 'SOURCE_CONTINUATION_NO_CALL_AFTER_READ',
@@ -709,12 +709,12 @@ class Agent:
                             'message':{'role':'system','content':'来源补查参数生成没有返回工具调用，原文核对未完成。'},
                             'rejected_answer':accumulated.get('content',''),
                             'quality_issues':[{'reason':'SOURCE_EXECUTION_NOT_STARTED'}]})
-                        from .stock_source_review import incomplete_delivery
+                        from plugins.finance.source_review import incomplete_delivery
                         raise RuntimeError(incomplete_delivery(
                             source_index, user_request, source_read_records,
                             authorised=self.allow_tools and (not cloud or workspace_granted)))
                 if quote_guard and not calls:
-                    from .stock_source_quotes import (original_texts, original_records, complete_sources,
+                    from plugins.finance.source_quotes import (original_texts, original_records, complete_sources,
                         unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs,
                         repair_quote_format, _review_payload)
                     reply = accumulated.get('content') or ''
@@ -726,7 +726,7 @@ class Agent:
                             'semantic_certification': False})
                     source_quote_originals = list(dict.fromkeys(source_quote_originals + original_texts(messages)))
                     source_read_records=merge_read_records(source_read_records,original_records(messages))
-                    from .stock_calculation_review import repair_scale_divisions,repair_scale_units
+                    from plugins.finance.calculation_review import repair_scale_divisions,repair_scale_units
                     program_records=current_calculations
                     calculated_reply, calculation_edits = repair_scale_divisions(reply, program_records)
                     calculated_reply,unit_edits=repair_scale_units(calculated_reply,program_records)
@@ -872,12 +872,12 @@ class Agent:
                             pure_purpose_requested |= (event.data.get('params') or {}).get('reply_focus') in ('calculation','source_scope')
                         if (len(calls) == 1 and event.kind == 'tool_end' and event.data.get('status') == 'ok'
                                 and event.data.get('name') == 'stock_public_evidence_read'):
-                            from .stock_source_coverage import scope_reply
+                            from plugins.finance.source_coverage import scope_reply
                             verified_scope_reply = scope_reply(model_projection(event.data.get('result')),
                                 event.data.get('params') or {}, current_user_question, source_read_records)
                         if (len(calls)==1 and event.kind=='tool_end' and event.data.get('status')=='ok'
                                 and event.data.get('name')=='stock_report_read'):
-                            from .stock_arithmetic_purpose import calculation_reply
+                            from plugins.finance.arithmetic_purpose import calculation_reply
                             verified_calculation_reply=calculation_reply(model_projection(event.data.get('result')),
                                 event.data.get('params') or {},current_user_question)
                         if source_parameter_step and event.kind == 'message' and event.data.get('message', {}).get('role') == 'tool':

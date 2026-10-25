@@ -1,9 +1,9 @@
 """Compose financial calculation, comparison and reading coverage context."""
 from dataclasses import dataclass
 
-from core.stock_calculation_review import current_program_records, program_source_guidance
-from core.stock_company_context import current_guidance, current_cashflow_scope_version
-from core.stock_source_coverage import coverage_guidance
+from plugins.finance.calculation_review import current_program_records, program_source_guidance
+from plugins.finance.company_context import current_guidance, current_cashflow_scope_version
+from plugins.finance.source_coverage import coverage_guidance
 
 
 @dataclass

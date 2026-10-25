@@ -1,6 +1,6 @@
 import unittest
 import json
-from core.stock_source_quotes import unverified_quotes, unverified_absence_claims, repair_quote_format, isolate_quote_paragraphs
+from plugins.finance.source_quotes import unverified_quotes, unverified_absence_claims, repair_quote_format, isolate_quote_paragraphs
 
 
 class ReviewTableRoleTests(unittest.TestCase):

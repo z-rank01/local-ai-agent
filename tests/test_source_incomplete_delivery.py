@@ -1,6 +1,6 @@
 import copy
 import unittest
-from core.stock_source_review import incomplete_delivery
+from plugins.finance.source_review import incomplete_delivery
 
 
 class IncompleteDeliveryTests(unittest.TestCase):

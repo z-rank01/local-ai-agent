@@ -1,5 +1,5 @@
 import json,copy,unittest
-from core.stock_company_context import validate_context,current_guidance
+from plugins.finance.company_context import validate_context,current_guidance
 from tests.test_stock_company_context import context,observation,REV
 
 def directory():

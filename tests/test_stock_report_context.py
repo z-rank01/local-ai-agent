@@ -3,8 +3,8 @@ import hashlib
 import json
 import unittest
 
-from core.stock_report_context import report_material_view
-from core.stock_source_quotes import original_records, source_task_index
+from plugins.finance.report_context import report_material_view
+from plugins.finance.source_quotes import original_records, source_task_index
 from tests.test_stock_explanation_view import source_turn
 
 

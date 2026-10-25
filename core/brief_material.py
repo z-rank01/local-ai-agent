@@ -9,11 +9,11 @@ from hashlib import sha256
 import json
 import re
 
-from .stock_receipts import paired_receipts
-from .stock_source_coverage import canonical_span, coverage_index
-from .stock_financial_receipts import financial_fields_from_read
-from .stock_company_context import context_index
-from .stock_calculation_review import calculation_index
+from plugins.finance.receipts import paired_receipts
+from plugins.finance.source_coverage import canonical_span, coverage_index
+from plugins.finance.financial_receipts import financial_fields_from_read
+from plugins.finance.company_context import context_index
+from plugins.finance.calculation_review import calculation_index
 
 
 def _pick(row, keys):

@@ -1,7 +1,7 @@
 """Finance report pages keep reference ownership and revision validation."""
 import re
 from harness.contracts.artifacts import ArtifactError
-from core.stock_bridge import ReportUpdated
+from plugins.finance.bridge import ReportUpdated
 
 
 class FinanceArtifacts:

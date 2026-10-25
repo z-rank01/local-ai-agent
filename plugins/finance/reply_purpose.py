@@ -16,7 +16,7 @@ def selection_view(history, question, lookup, definitions):
     tools = [d for d in definitions if d['function']['name'] in READ_TOOLS]
     if not any(d['function']['name'] == 'stock_report_read' for d in tools):
         return None
-    from .stock_source_quotes import source_index_guidance
+    from plugins.finance.source_quotes import source_index_guidance
     return ([history[0], {'role': 'system', 'content':
         '本步骤仅按当前用户问题的语义选择回复用途与必要的只读参数，不生成答案。'
         '经营、趋势、比较、原文含义及混合问题保留analysis；可以仅返回严格JSON '

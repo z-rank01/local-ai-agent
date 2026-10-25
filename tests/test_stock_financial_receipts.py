@@ -1,6 +1,6 @@
 import copy
 import unittest
-from core.stock_financial_receipts import financial_fields_from_read
+from plugins.finance.financial_receipts import financial_fields_from_read
 
 def observation(peer=True):
     symbol='300070' if peer else '688178'
@@ -54,7 +54,7 @@ class FinancialReadTests(unittest.TestCase):
 class FinancialBridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_bridge_annotations_keep_existing_gate_and_local_isolation(self):
         import httpx
-        from core.stock_bridge import StockBridge
+        from plugins.finance.bridge import StockBridge
         from tests.test_stock_bridge import make_broker,ok_step
         for allowed,bad in ((True,False),(False,False),(True,True)):
             v=observation();v.pop('source_reference')

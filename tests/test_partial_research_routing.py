@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 import yaml
-from core.stock_bridge import _TOOL_ACTIONS
+from plugins.finance.bridge import _TOOL_ACTIONS
 
 
 class PartialResearchRoutingTests(unittest.TestCase):

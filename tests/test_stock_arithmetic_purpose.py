@@ -1,6 +1,6 @@
 import copy,json,unittest
 from decimal import Decimal,localcontext
-from core.stock_arithmetic_purpose import validated_service_mean,calculation_reply,request_error
+from plugins.finance.arithmetic_purpose import validated_service_mean,calculation_reply,request_error
 from tests.test_stock_calculation_review import receipt,observation,REF
 from tests import test_stock_bridge as bt,test_stock_source_quotes as qt
 
@@ -23,7 +23,7 @@ def value():
 
 class PurposeTests(unittest.TestCase):
     def test_history_keeps_base_scale_but_discards_invalid_optional_average(self):
-        from core.stock_calculation_review import calculation_index
+        from plugins.finance.calculation_review import calculation_index
         v=value();v['program_calculations'][0]['service_mean']['mean_amount_yuan']='3800.04'
         messages=[{'role':'assistant','tool_calls':[{'id':'r','function':{'name':'stock_report_read','arguments':{'reference':REF}}}]},
                   {'role':'tool','tool_name':'stock_report_read','tool_call_id':'r','content':json.dumps(v)}]
@@ -105,7 +105,7 @@ class PurposeLoopTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bridge_gates_authorization_drops_only_bad_mean_and_does_not_forward_purpose(self):
         import httpx
-        from core.stock_bridge import StockBridge
+        from plugins.finance.bridge import StockBridge
         captured=[];v=value();v['program_calculations'][0]['service_mean']['service_years']='4'
         broker=bt.make_broker(captured,step_responses=[bt.ok_step(v)])
         client=httpx.AsyncClient(transport=httpx.MockTransport(broker));self.addAsyncCleanup(client.aclose)

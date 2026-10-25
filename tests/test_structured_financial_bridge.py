@@ -1,5 +1,5 @@
 import unittest,httpx
-from core.stock_bridge import StockBridge
+from plugins.finance.bridge import StockBridge
 from core.tool_registry import ToolRegistry
 from core import config
 from tests.test_stock_bridge import make_broker,REF

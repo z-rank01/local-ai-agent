@@ -1,10 +1,10 @@
 """Turn-local receipt index, incremented only when protocol material changes."""
 import json
 
-from .stock_receipts import paired_receipts
-from .stock_source_quotes import source_task_index
-from .stock_company_context import context_index
-from .stock_calculation_review import calculation_index
+from plugins.finance.receipts import paired_receipts
+from plugins.finance.source_quotes import source_task_index
+from plugins.finance.company_context import context_index
+from plugins.finance.calculation_review import calculation_index
 
 
 class EvidenceIndex:

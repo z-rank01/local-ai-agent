@@ -28,7 +28,7 @@ class NativeObservationTests(unittest.IsolatedAsyncioTestCase):
         import hashlib
         import json
         from tests.test_stock_report_context import report
-        from core.stock_report_context import MATERIAL_VIEW_VERSION
+        from plugins.finance.report_context import MATERIAL_VIEW_VERSION
         observed, received, saved = [], [], {}
         class Model:
             cloud = False

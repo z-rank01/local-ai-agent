@@ -1,8 +1,8 @@
 import copy,json,unittest
 from types import SimpleNamespace
-from core.stock_source_coverage import (canonical_span,snapshot_hash,validated_source_coverage,
+from plugins.finance.source_coverage import (canonical_span,snapshot_hash,validated_source_coverage,
                                        coverage_index,coverage_guidance,merge_read_records)
-from core.stock_source_quotes import complete_sources
+from plugins.finance.source_quotes import complete_sources
 from tests import test_stock_source_quotes as quote_tests
 
 REF='a'*64;EVENT='b'*16;URL='https://pdf.dfcfw.com/a.pdf'
@@ -111,7 +111,7 @@ class SourceCoverageLoopTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bridge_keeps_original_page_cursor_and_current_authorized_reference(self):
         import httpx
-        from core.stock_bridge import StockBridge
+        from plugins.finance.bridge import StockBridge
         from tests.test_stock_bridge import make_broker,ok_step
         value=page();value.pop('source_reference');before=copy.deepcopy(value)
         client=httpx.AsyncClient(transport=httpx.MockTransport(make_broker([],step_responses=[ok_step(value)])))

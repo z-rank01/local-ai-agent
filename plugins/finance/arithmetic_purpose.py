@@ -5,9 +5,9 @@ this path. Research analysis stays on the ordinary model path.
 """
 import re
 from decimal import Decimal,localcontext
-from .stock_calculation_review import validate_calculations,validated_annual_source
-from .stock_financial_receipts import currency_display
-from .stock_calculation_contract import validated_service_mean
+from plugins.finance.calculation_review import validate_calculations,validated_annual_source
+from plugins.finance.financial_receipts import currency_display
+from plugins.finance.calculation_contract import validated_service_mean
 
 VERSION='program-arithmetic-reply-v1'
 

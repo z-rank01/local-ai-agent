@@ -9,7 +9,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation, localcontext
 import re
 from urllib.parse import urlparse
-from .stock_company_context import FINANCIAL_METRICS
+from plugins.finance.company_context import FINANCIAL_METRICS
 
 HOSTS={'www.csrc.gov.cn','www.ndrc.gov.cn','pdf.dfcfw.com','data.eastmoney.com','vip.stock.finance.sina.com.cn'}
 

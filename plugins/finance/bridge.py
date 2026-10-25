@@ -16,7 +16,7 @@ import uuid
 
 import httpx
 
-logger = logging.getLogger("core.stock_bridge")
+logger = logging.getLogger("plugins.finance.bridge")
 
 ACTOR = 'local-ai-agent'
 
@@ -279,14 +279,14 @@ class StockBridge:
             self.set_turn(session_id, None)
             state = self._turns[session_id]
         if tool == 'stock_public_evidence_read':
-            from .stock_source_coverage import scope_request_error
+            from plugins.finance.source_coverage import scope_request_error
             error = scope_request_error(params, state['query'])
             if error:
                 return {'error': error}
             if params.get('reply_focus') == 'source_scope' and not state.get('allow_report_body'):
                 return {'error': '来源范围核对须沿现有已授权云端读取开关进行；此步骤未执行。'}
         if tool == 'stock_report_read':
-            from .stock_arithmetic_purpose import request_error
+            from plugins.finance.arithmetic_purpose import request_error
             error=request_error(params,state['query'])
             if error:return {'error':error}
             if params.get('reply_focus')=='calculation' and not state.get('allow_report_body'):
@@ -368,7 +368,7 @@ class StockBridge:
             # a parent brief token mentioned by a historical model stage.
             observation['source_reference'] = params['reference']
             if tool == 'stock_public_evidence_read' and 'source_coverage' in observation:
-                from .stock_source_coverage import validated_source_coverage
+                from plugins.finance.source_coverage import validated_source_coverage
                 observation['source_coverage'] = validated_source_coverage(observation)
             observation['page_reading'] = (
                 '以上 body 是本地报告的第 {page} 页正文，已随本轮交给模型阅读；'
@@ -391,7 +391,7 @@ class StockBridge:
                        and 1 <= item['requested_page'] <= item['page_count']
                        for item in answer_pages):
                     if 'comparison_context' in observation:
-                        from .stock_company_context import validate_context
+                        from plugins.finance.company_context import validate_context
                         try:
                             validate_context(observation['comparison_context'], answer_pages)
                             observation['page_reading'] += 'comparison_context与本版正文对应，包含冻结比较身份、人民币累计指标及原任务来源定位；未核字段不作结论，保留部分成果含义。'
@@ -399,7 +399,7 @@ class StockBridge:
                             observation.pop('comparison_context', None)
                             observation['page_reading'] += '比较依据未通过绑定核验，正文保留，相关身份或指标来源仍待核。'
                     if 'program_calculations' in observation:
-                        from .stock_calculation_review import validate_calculations,validated_annual_source
+                        from plugins.finance.calculation_review import validate_calculations,validated_annual_source
                         try:
                             calculations = [dict(row) for row in validate_calculations(observation['program_calculations'])]
                             body_text = ''.join(item['body'] for item in answer_pages)
@@ -417,7 +417,7 @@ class StockBridge:
                                     calc.pop('annual_source',None)
                                     observation['page_reading'] += '年度字段定位回执未通过核验，保留有效程序比例，来源定位仍待核。'
                                 if 'service_mean' in calc:
-                                    from .stock_arithmetic_purpose import validated_service_mean
+                                    from plugins.finance.arithmetic_purpose import validated_service_mean
                                     try:validated_service_mean(calc,body_text)
                                     except (ValueError,TypeError,KeyError,ArithmeticError):
                                         calc.pop('service_mean',None)
@@ -452,12 +452,12 @@ class StockBridge:
             observation = dict(observation)
             observation['source_reference'] = params['reference']
             if tool == 'stock_public_evidence_read' and 'source_coverage' in observation:
-                from .stock_source_coverage import validated_source_coverage
+                from plugins.finance.source_coverage import validated_source_coverage
                 observation['source_coverage'] = validated_source_coverage(observation)
             if tool == 'stock_public_evidence_read' and not state.get('allow_report_body'):
                 observation.pop('financial_fields', None)
             elif tool == 'stock_public_evidence_read' and 'financial_fields' in observation:
-                from .stock_financial_receipts import financial_fields_from_read
+                from plugins.finance.financial_receipts import financial_fields_from_read
                 observation['financial_fields'] = financial_fields_from_read(observation)
             observation['source_reading'] = (
                 '本结果只属于 source_reference 指向的任务。事件编号及 read_cursor/next_cursor 必须与该引用配套使用；'

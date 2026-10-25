@@ -137,7 +137,7 @@ def validate_context(context, pages):
 
 
 def context_index(messages, *, receipts=None):
-    from .stock_receipts import paired_receipts
+    from plugins.finance.receipts import paired_receipts
     latest = {}
     for receipt in (paired_receipts(messages, {'stock_report_read'}, allow_legacy_reference=False) if receipts is None else receipts):
         if receipt.tool_name != 'stock_report_read' or receipt.observation.get('source_reference') != receipt.reference:
@@ -186,7 +186,7 @@ def catalogue_archive(messages, reference, context, subject, evidence_ids):
 
 
 def current_guidance(index,question,source_index,read_records=None, *, visible_messages=None, evidence_ids=None):
-    from .stock_financial_receipts import currency_display
+    from plugins.finance.financial_receipts import currency_display
     refs=set(re.findall(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])',question))
     if not refs and source_index:refs={source_index[0]['source_reference']}
     rows=[{'source_reference':ref,**deepcopy(value)} for ref,value in index.items() if ref in refs and value]

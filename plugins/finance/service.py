@@ -11,7 +11,7 @@ from pathlib import Path
 import httpx
 
 from core import config
-from core.stock_bridge import StockBridge
+from plugins.finance.bridge import StockBridge
 
 # Pid of the stock backend that scripts/start-daily.ps1 started. It is recorded for
 # diagnostics; liveness is judged by the control API, never by "something is listening

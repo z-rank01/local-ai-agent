@@ -3,11 +3,11 @@ from dataclasses import dataclass
 import json
 import re
 
-from core.stock_source_quotes import prior_explanation_view, PRIOR_EXPLANATION_VIEW_VERSION
-from core.stock_report_context import report_material_view
-from core.stock_task_source_view import current_task_source_view
-from core.stock_task_binding import history_binding
-from core.stock_receipts import paired_receipts
+from plugins.finance.source_quotes import prior_explanation_view, PRIOR_EXPLANATION_VIEW_VERSION
+from plugins.finance.report_context import report_material_view
+from plugins.finance.task_source_view import current_task_source_view
+from plugins.finance.task_binding import history_binding
+from plugins.finance.receipts import paired_receipts
 
 
 @dataclass

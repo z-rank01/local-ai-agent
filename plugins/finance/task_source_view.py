@@ -7,7 +7,7 @@ Stored messages, tool arguments and current-turn results are never rewritten.
 import json
 import re
 
-from .stock_source_quotes import original_records, source_task_index
+from plugins.finance.source_quotes import original_records, source_task_index
 
 VERSION = 'current-task-source-index-v1'
 TOOLS = {'stock_public_evidence_find', 'stock_public_evidence_read'}
@@ -20,7 +20,7 @@ def lookup_index(index, question):
     This narrows an index, not Broker permission or model tool arguments.
     The full receipts and other-task evidence pointers remain recoverable.
     """
-    from .stock_task_binding import reference_binding, explicit_references
+    from plugins.finance.task_binding import reference_binding, explicit_references
     binding = reference_binding(index, question)
     requested = explicit_references(question)
     if not requested:
@@ -48,7 +48,7 @@ def current_task_source_view(messages, archive):
     read_tasks={r.get('source_reference') for r in original_records(messages)}
     # No implicit latest-task choice and no unknown-reference filtering.
     if not requested or not requested<=known or not requested & read_tasks:return messages,[]
-    from .stock_receipts import paired_receipts
+    from plugins.finance.receipts import paired_receipts
     replacements, index = {}, []
     for receipt in paired_receipts(messages[:last_user], TOOLS):
         if receipt.reference in requested:

@@ -3,7 +3,7 @@ import hashlib
 import json
 import re
 from urllib.parse import urlparse
-from .stock_financial_receipts import HOSTS
+from plugins.finance.financial_receipts import HOSTS
 
 
 def canonical_span(span, fallback_url=None):

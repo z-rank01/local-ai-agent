@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 from tests import test_stock_source_quotes as quote_tests
-from core.stock_source_quotes import (unverified_absence_claims, may_start_literal_quote,
+from plugins.finance.source_quotes import (unverified_absence_claims, may_start_literal_quote,
                                      isolate_quote_paragraphs, quote_feedback)
 
 

@@ -4,7 +4,7 @@ import unittest
 from decimal import Decimal, localcontext
 from types import SimpleNamespace
 
-from core.stock_calculation_review import validate_calculations, calculation_index, repair_scale_divisions
+from plugins.finance.calculation_review import validate_calculations, calculation_index, repair_scale_divisions
 from tests import test_stock_bridge as bridge_tests, test_stock_source_quotes as quote_tests
 make_broker, ok_step, REF = bridge_tests.make_broker, bridge_tests.ok_step, bridge_tests.REF
 

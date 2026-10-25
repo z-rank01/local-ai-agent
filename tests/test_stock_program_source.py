@@ -1,8 +1,8 @@
 import copy,json,unittest
 from types import SimpleNamespace
 from tests import test_stock_calculation_review as calculations, test_stock_source_quotes as quotes
-from core.stock_calculation_review import calculation_index, validated_annual_source, repair_scale_units
-from core.stock_source_quotes import isolate_quote_paragraphs,unverified_quotes,prune_empty_sections
+from plugins.finance.calculation_review import calculation_index, validated_annual_source, repair_scale_units
+from plugins.finance.source_quotes import isolate_quote_paragraphs,unverified_quotes,prune_empty_sections
 
 def annual_source():
     return dict(kind='SOURCE_FIELD',metric='revenue',symbol='688178',report_period='20251231',

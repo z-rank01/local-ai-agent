@@ -1,10 +1,10 @@
 import copy
 import unittest
 from decimal import Decimal
-from core.stock_company_context import validate_context, CASHFLOW_SCOPE_READING, context_index, current_cashflow_scope_version
+from plugins.finance.company_context import validate_context, CASHFLOW_SCOPE_READING, context_index, current_cashflow_scope_version
 from tests.test_stock_company_context import observation
 from tests.test_stock_bridge import make_broker, ok_step, REF
-from core.stock_bridge import StockBridge
+from plugins.finance.bridge import StockBridge
 import httpx
 
 

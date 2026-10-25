@@ -32,12 +32,12 @@ def report_material_view(messages, archive, *, compact_catalogues=False):
     last_user = max((i for i, row in enumerate(messages) if row.get('role') == 'user'), default=-1)
     if archive is None or last_user < 0:
         return messages, []
-    from .stock_task_binding import history_binding
+    from plugins.finance.task_binding import history_binding
     binding = history_binding(messages, last_user)
     selected = binding['references'] if binding['selection'] != 'all_known' else set()
     if not selected:
         return messages, []
-    from .stock_receipts import paired_receipts
+    from plugins.finance.receipts import paired_receipts
     reports, latest = [], {}
     for receipt in paired_receipts(messages, {'stock_report_read'}):
         position, reference, value = receipt.position, receipt.reference, receipt.observation
@@ -71,7 +71,7 @@ def report_material_view(messages, archive, *, compact_catalogues=False):
             projected.pop('comparison_context', None)
         if needs_directory:
             from copy import deepcopy
-            from .stock_company_context import validated_catalogue
+            from plugins.finance.company_context import validated_catalogue
             context = deepcopy(projected['comparison_context'])
             for subject in context.get('subjects', []):
                 try:

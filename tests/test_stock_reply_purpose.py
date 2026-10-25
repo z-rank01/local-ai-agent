@@ -3,9 +3,9 @@ import json
 import unittest
 from types import SimpleNamespace
 
-from core.stock_reply_purpose import selection_view, analysis_decision
-from core.stock_task_source_view import lookup_index
-from core.stock_source_quotes import source_task_index
+from plugins.finance.reply_purpose import selection_view, analysis_decision
+from plugins.finance.task_source_view import lookup_index
+from plugins.finance.source_quotes import source_task_index
 from tests.test_stock_explanation_view import source_turn
 from tests.test_stock_source_quotes import SourceQuoteLoopTests
 from tests.test_stock_arithmetic_purpose import value, REF

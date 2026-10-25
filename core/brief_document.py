@@ -18,7 +18,7 @@ def _scale_charts(material, digest):
     encoded = json.dumps(packet, ensure_ascii=False, sort_keys=True, allow_nan=False)
     if sha256(encoded.encode()).hexdigest() != digest:
         raise ValueError('图表材料与正文材料指纹不一致')
-    from .stock_calculation_review import validate_calculations
+    from plugins.finance.calculation_review import validate_calculations
     charts = []
     for task in packet['tasks']:
         for calc in validate_calculations(task['program_calculations']):
