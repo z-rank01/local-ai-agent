@@ -36,6 +36,8 @@ class StartupFlowTests(unittest.IsolatedAsyncioTestCase):
                 ('z-container', 'container', []),
                 ('broken', 'container', ['missing']),
                 ('independent', 'files', []),
+                ('blocked', 'files', ['disabled']),
+                ('disabled', 'files', []),
             ]
             store = CapabilityStore(runtime.store._connect)
             for identity, execution, required in declarations:
@@ -46,7 +48,7 @@ class StartupFlowTests(unittest.IsolatedAsyncioTestCase):
                     version='1.0', title=identity, description='fixture',
                     backends=[identity], optional=[], permissions=[],
                     tool_registration='managed')), encoding='utf-8')
-                store.save('__host__', identity, {'enabled': True}, 'plugin')
+                store.save('__host__', identity, {'enabled': identity != 'disabled'}, 'plugin')
             invalid = root / 'invalid'
             invalid.mkdir()
             (invalid / 'plugin.json').write_text(json.dumps(dict(id='invalid',
@@ -62,6 +64,10 @@ class StartupFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(broken['state'], 'START_FAILED')
             self.assertIn('missing', broken['error'])
             self.assertFalse(runtime.capabilities.manages('invalid'))
+            self.assertEqual(runtime.capabilities.status('disabled')['state'], 'INACTIVE')
+            self.assertEqual(runtime.capabilities.status('blocked')['state'], 'START_FAILED')
+            self.assertNotIn('disabled', events)
+            self.assertIn('明确启用', runtime.capabilities.status('blocked')['error'])
             rows = {row['id']: row for row in package_catalog(root, {})}
             self.assertEqual(rows['invalid']['registration'], 'invalid')
             self.assertIn('API', rows['invalid']['error'])

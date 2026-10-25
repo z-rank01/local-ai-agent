@@ -44,12 +44,13 @@ class LifecycleManager:
     def manages(self, identity):
         return self._identity(identity) in self._instances
 
-    async def activate(self, identity):
+    async def activate(self, identity, *, enabled_dependencies=None):
         async with self._lock:
-            await self._activate(identity, ())
+            permitted = None if enabled_dependencies is None else {self._identity(name) for name in enabled_dependencies}
+            await self._activate(identity, (), permitted)
         return self.status(identity)
 
-    async def _activate(self, identity, ancestors):
+    async def _activate(self, identity, ancestors, permitted):
         identity = self._identity(identity)
         if identity in ancestors:
             raise ValueError('能力依赖形成循环：' + ' → '.join((*ancestors, identity)))
@@ -58,12 +59,14 @@ class LifecycleManager:
         instance = self._instances[identity]
         if instance.state == 'ACTIVE':
             return
+        if ancestors and permitted is not None and identity not in permitted:
+            raise ValueError('所需能力尚未启用，请先明确启用：' + identity)
         if instance.state in ('DRAINING', 'STOP_FAILED'):
             raise ValueError('先完成能力收尾，再重新激活')
         instance.state, instance.error = 'STARTING', ''
         try:
             for dependency in instance.required:
-                await self._activate(dependency, (*ancestors, identity))
+                await self._activate(dependency, (*ancestors, identity), permitted)
             await instance.provider.activate()
             instance.state = 'ACTIVE'
         except BaseException as exc:

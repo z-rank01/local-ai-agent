@@ -79,6 +79,7 @@ async def change_capability(identity: str, body: CapabilityAction, request: Requ
     # Keep the explicit intent even if activation or drain fails; state shows the error.
     store.save('__host__', identity, {'enabled': body.enabled}, 'plugin')
     try:
-        return await (manager.activate(identity) if body.enabled else manager.deactivate(identity))
+        enabled = {name for name, state in store.list('__host__', 'plugin').items() if state.get('enabled')}
+        return await (manager.activate(identity, enabled_dependencies=enabled) if body.enabled else manager.deactivate(identity))
     except (ValueError, RuntimeError, httpx.HTTPError, TimeoutError) as exc:
         raise HTTPException(409, str(exc)) from exc
