@@ -134,3 +134,5 @@ Docker Desktop 下内部网络不保证发布主机端口，因此可选服务�
 
 
 调用策略可选实现 `project_history(history, archive)`，返回 `HistoryProjection`：替换后的消息、已归档证据 ID、显示标记及审计摘要。宿主先检查本轮工作区授权，并登记证据后交给模型；只有当前登记工具的历史回执才选择所属提供者。金融历史报告、原文与重复回执整理在 `plugins/finance/history.py`、`material_view.py`；原 `core/stock_material_view.py` 只保留旧导入兼容。插件调用规则、工具角色和包内 Python 源码加入检查点兼容信息，改规则后不能直接继续旧环境检查点。
+
+调用策略也可实现 `ReceiptPresenter.present_receipt(tool, arguments, receipt, question=..., read_receipts=...)`：对单个已授权且成功返回的调用生成确定性展示，或返回 `None` 继续普通模型处理。`ReceiptPresentation` 保存正文、审计事件和版本；不运行工具、不扩大授权。宿主只按实际所有者分派，并保留自主研究的发布流程优先级。金融来源范围与算术展示的核验实现均在金融包，宿主不再按这两个工具名分别输出。

@@ -856,8 +856,7 @@ class Agent:
                         stock_deadline = time.monotonic() + window_seconds
                 stock_boundary = False
                 fresh_observation = False
-                verified_scope_reply = None
-                verified_calculation_reply = None
+                receipt_presentation = None
                 purpose_tool_failed = False
                 pure_purpose_requested = False
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
@@ -870,16 +869,15 @@ class Agent:
                         if purpose_step and event.kind == 'tool_end':
                             purpose_tool_failed |= event.data.get('status') != 'ok'
                             pure_purpose_requested |= (event.data.get('params') or {}).get('reply_focus') in ('calculation','source_scope')
-                        if (len(calls) == 1 and event.kind == 'tool_end' and event.data.get('status') == 'ok'
-                                and event.data.get('name') == 'stock_public_evidence_read'):
-                            from plugins.finance.source_coverage import scope_reply
-                            verified_scope_reply = scope_reply(model_projection(event.data.get('result')),
-                                event.data.get('params') or {}, current_user_question, source_read_records)
-                        if (len(calls)==1 and event.kind=='tool_end' and event.data.get('status')=='ok'
-                                and event.data.get('name')=='stock_report_read'):
-                            from plugins.finance.arithmetic_purpose import calculation_reply
-                            verified_calculation_reply=calculation_reply(model_projection(event.data.get('result')),
-                                event.data.get('params') or {},current_user_question)
+                        if len(calls) == 1 and event.kind == 'tool_end' and event.data.get('status') == 'ok':
+                            policy_for = getattr(self.registry, 'execution_policy', lambda name: None)
+                            policy = policy_for(event.data.get('name'))
+                            presenter = getattr(policy, 'present_receipt', None)
+                            if presenter:
+                                receipt_presentation = presenter(
+                                    event.data.get('name'), event.data.get('params') or {},
+                                    model_projection(event.data.get('result')),
+                                    question=current_user_question, read_receipts=source_read_records)
                         if source_parameter_step and event.kind == 'message' and event.data.get('message', {}).get('role') == 'tool':
                             source_repair_protocol.append(event.data['message'])
                         if source_parameter_step and event.kind == 'tool_end':
@@ -909,25 +907,14 @@ class Agent:
                     yield AgentEvent('message', data={'message': message})
                     yield AgentEvent('done', text=text)
                     return
-                if verified_scope_reply and not (research is not None and research.active):
-                    # Pure read metadata is delivered from verified receipts;
-                    # do not ask the cloud to recreate a business analysis.
-                    message = {'role': 'assistant', 'content': verified_scope_reply}
+                if receipt_presentation and not (research is not None and research.active):
+                    message = {'role': 'assistant', 'content': receipt_presentation.text}
                     messages.append(message)
-                    self.audit.record('source_scope_reply', {'session_id': session_id,
-                        'version': 'source-scope-reply-v1', 'provider_call_added': False})
-                    yield AgentEvent('token', text=verified_scope_reply)
+                    self.audit.record(receipt_presentation.audit_event, {'session_id': session_id,
+                        'version': receipt_presentation.version, 'provider_call_added': False})
+                    yield AgentEvent('token', text=receipt_presentation.text)
                     yield AgentEvent('message', data={'message': message})
-                    yield AgentEvent('done', text=verified_scope_reply)
-                    return
-                if verified_calculation_reply and not (research is not None and research.active):
-                    message={'role':'assistant','content':verified_calculation_reply}
-                    messages.append(message)
-                    self.audit.record('program_calculation_reply',{'session_id':session_id,
-                        'version':'program-arithmetic-reply-v1','provider_call_added':False})
-                    yield AgentEvent('token',text=verified_calculation_reply)
-                    yield AgentEvent('message',data={'message':message})
-                    yield AgentEvent('done',text=verified_calculation_reply)
+                    yield AgentEvent('done', text=receipt_presentation.text)
                     return
                 if purpose_step and (purpose_tool_failed or pure_purpose_requested) and not (research is not None and research.active):
                     raise RuntimeError('所选回复用途的读取或同版回执核验未完成；已有结果保留，不自动改参数或生成替代结论。')
