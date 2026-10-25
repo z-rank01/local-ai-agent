@@ -250,7 +250,7 @@ class Agent:
         source_index = evidence_index.sources
         from .stock_calculation_review import calculation_index
         source_calculation_index = dict(evidence_index.calculations)
-        from .stock_company_context import context_index, current_guidance
+        from .stock_company_context import context_index
         source_comparison_index = dict(evidence_index.comparisons)
         self.pending_source_review = ''
         cloud = getattr(self.llm, "cloud", False)
@@ -495,26 +495,18 @@ class Agent:
                 evidence_index.update(messages)
                 source_calculation_index.update(evidence_index.calculations)
                 source_comparison_index.update(evidence_index.comparisons)
-                from .stock_calculation_review import current_program_records,program_source_guidance
-                current_calculations=current_program_records(source_calculation_index,user_request,source_index)
+                from plugins.finance.guidance import compose_guidance
                 if program_source_message:
                     messages=[m for m in messages if m is not program_source_message
                               and not (m.get('role')=='system' and m.get('content')==program_source_message['content'])]
-                program_guidance=(program_source_guidance(current_calculations)
-                                  if self.allow_tools and (not cloud or workspace_granted) else None)
-                comparison_guidance=(current_guidance(source_comparison_index,user_request,source_index,source_read_records,
-                                     visible_messages=messages, evidence_ids=getattr(self.context_mgr,'evidence_ids',None))
-                                     if self.allow_tools and (not cloud or workspace_granted) else None)
-                from .stock_company_context import current_cashflow_scope_version
-                cashflow_scope_version = (current_cashflow_scope_version(source_comparison_index, user_request, source_index)
-                                          if comparison_guidance else None)
-                from .stock_source_coverage import coverage_guidance
-                saved_coverage_guidance=(coverage_guidance(source_read_records,user_request,source_index)
-                                        if self.allow_tools and (not cloud or workspace_granted) else None)
-                if comparison_guidance:
-                    program_guidance='\n\n'.join(g for g in (program_guidance,comparison_guidance) if g)
-                if saved_coverage_guidance:
-                    program_guidance='\n\n'.join(g for g in (program_guidance,saved_coverage_guidance) if g)
+                financial_guidance = compose_guidance(
+                    source_calculation_index, source_comparison_index, user_request,
+                    source_index, source_read_records,
+                    authorized=self.allow_tools and (not cloud or workspace_granted),
+                    messages=messages, evidence_ids=getattr(self.context_mgr, 'evidence_ids', None))
+                current_calculations = financial_guidance.calculations
+                cashflow_scope_version = financial_guidance.cashflow_scope_version
+                program_guidance = financial_guidance.content
                 if program_guidance:
                     program_source_message={'role':'system','content':program_guidance}
                     messages.append(program_source_message)
@@ -557,8 +549,8 @@ class Agent:
                     'source_lookup_selection': lookup_context['selection'],
                     'source_lookup_reference_count': len(lookup_context['rows']),
                     'prior_explanation_index_version': prior_explanation_index_version,
-                    'saved_source_coverage_version': 'saved-source-coverage-v1' if saved_coverage_guidance else None,
-                    'comparison_context_version': 'comparison-source-context-v1' if comparison_guidance else None,
+                    'saved_source_coverage_version': 'saved-source-coverage-v1' if financial_guidance.has_coverage else None,
+                    'comparison_context_version': 'comparison-source-context-v1' if financial_guidance.has_comparison else None,
                     'cashflow_net_scope_version': cashflow_scope_version,
                     'calculation_context_version': 'program-source-index-v1' if current_calculations else None,
                 }

@@ -94,7 +94,7 @@ class ToolRegistry:
 
     def execution_policy(self, tool_name):
         """Policies follow actual registration ownership, never a tool-name prefix."""
-        return self._call_policies.for_owner(self.get_owner(tool_name))
+        return self._call_policies.for_owner(self._owned.owners().get(tool_name))
 
     def tools_for_role(self, role):
         """Resolve declarations against currently registered tools owned by that package."""
