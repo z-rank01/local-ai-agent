@@ -42,14 +42,18 @@ class RunStore:
         return self.get(run_id)
 
     def list(self, workspace_id=None, limit=100):
-        sql, args = 'SELECT * FROM chat_runs', []
+        # Sort lightweight IDs, not multi-megabyte research checkpoints. Sorting
+        # full rows spills private payloads to SQLite's OS temporary directory.
+        sql, args = 'SELECT id FROM chat_runs', []
         if workspace_id:
             sql += ' WHERE workspace_id=?'
             args.append(workspace_id)
         sql += " ORDER BY CASE WHEN status IN ('RUNNING','PAUSING','PAUSED','STOPPING') THEN 0 ELSE 1 END, updated_at DESC LIMIT ?"
         args.append(limit)
         with self.store._connect() as db:
-            return [self.decode(row) for row in db.execute(sql, args)]
+            ids = [row['id'] for row in db.execute(sql, args)]
+            return [self.decode(db.execute('SELECT * FROM chat_runs WHERE id=?', (run_id,)).fetchone())
+                    for run_id in ids]
 
     def update(self, run_id, **fields):
         allowed = {'conversation_id', 'status', 'model', 'phase', 'error', 'checkpoint', 'payload'}
