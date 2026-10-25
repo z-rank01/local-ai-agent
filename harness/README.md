@@ -131,3 +131,6 @@ Docker Desktop 下内部网络不保证发布主机端口，因此可选服务�
 已安装插件可用 `call_policy: plugins.<id>.<module>:<Class>` 提供 `CallPolicy`。`validate(tool, arguments, phase=...)` 在调用前检查所属业务规则；`ends_window(tool, receipt)` 仅解释实际回执是否结束本批调用。宿主仍负责授权、执行、取消与账本，策略不会授予权限或另起执行器。策略按实际工具所有者选择，不按工具名前缀识别业务。
 
 清单 `tool_roles` 声明 `research`、`source_read`、`handoff`、`handoff_lookup`、`windowed` 对应的工具列表，解析时只保留本插件实际登记的工具。插件内规则与分组变化随原入口重启生效；不是运行中热替换。金融专用上下文与来源核对尚有后续迁移，不能把此接口接入视为整个循环已通用化。
+
+
+调用策略可选实现 `project_history(history, archive)`，返回 `HistoryProjection`：替换后的消息、已归档证据 ID、显示标记及审计摘要。宿主先检查本轮工作区授权，并登记证据后交给模型；只有当前登记工具的历史回执才选择所属提供者。金融历史报告、原文与重复回执整理在 `plugins/finance/history.py`、`material_view.py`；原 `core/stock_material_view.py` 只保留旧导入兼容。插件调用规则、工具角色和包内 Python 源码加入检查点兼容信息，改规则后不能直接继续旧环境检查点。

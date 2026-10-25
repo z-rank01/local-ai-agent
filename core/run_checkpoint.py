@@ -5,6 +5,7 @@ from . import config
 
 
 def environment(spec, snapshot, method):
+    from harness.runtime.call_policies import contribution_versions
     prompts = {p.name: sha256(p.read_bytes()).hexdigest()
                for p in (config.PROMPTS_DIR/'modules').glob('*') if p.is_file()}
     review_prompt = config.PROMPTS_DIR/'research_review.txt'
@@ -19,7 +20,8 @@ def environment(spec, snapshot, method):
             ('id','provider_id','model','base_url','options') if k in spec},
             'workspace_id': snapshot.id, 'workspace_version': snapshot.record['version'],
             'roots': {k:str(v) for k,v in snapshot.roots.items()}, 'cloud_read': snapshot.record['cloud_read'],
-            'cloud_write': snapshot.record['cloud_write'], 'method': method, 'prompts': prompts}
+            'cloud_write': snapshot.record['cloud_write'], 'method': method, 'prompts': prompts,
+            'call_contributions': contribution_versions(config._PROJECT_ROOT / 'plugins')}
 
 
 def capture(agent, messages, frozen, response_id, archive):

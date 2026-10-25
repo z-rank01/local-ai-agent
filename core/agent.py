@@ -286,36 +286,19 @@ class Agent:
                         and getattr(self.context_mgr, 'reader', None) is not None):
                     return history
                 try:
-                    from .stock_material_view import project_materials
-                    from .stock_report_context import MATERIAL_VIEW_VERSION
-                    result = project_materials(history, self.context_mgr.archive)
-                    binding = result.binding
-                    view, prior_index = result.messages, result.priors
-                    material_index, other_source_index = result.reports, result.other_sources
-                    prior_count = len(prior_index)
-                    prior_index += material_index
-                    prior_index += other_source_index
-                    if prior_index:
-                        if prior_count:
-                            prior_explanation_index_version = result.prior_version
-                        self.context_mgr.evidence_ids.update(row['evidence_id'] for row in prior_index)
-                        self.audit.record('task_explanation_view', {'session_id': session_id,
-                            'version': MATERIAL_VIEW_VERSION if material_index else explanation_view_version,
-                            'prior_explanation_index_version': prior_explanation_index_version,
-                            'task_material_binding_version': binding['version'] if binding else None,
-                            'task_material_binding_selection': binding['selection'] if binding else None,
-                            'task_material_binding_count': len(binding['references']) if binding else 0,
-                            'indexed_messages': len(prior_index), 'indexed_report_materials': len(material_index),
-                            'indexed_other_task_source_receipts':len(other_source_index)-result.duplicate_count,
-                            'indexed_duplicate_source_receipts':result.duplicate_count,
-                            'before_chars': sum(len(row.get('content') or '') for row in history),
-                            'after_chars': sum(len(row.get('content') or '') for row in view)})
+                    projectors = getattr(self.registry, 'history_projectors', lambda history: [])(history)
+                    for projector in projectors:
+                        result = projector.project_history(history, self.context_mgr.archive)
+                        if not result.evidence_ids:
+                            continue
+                        self.context_mgr.evidence_ids.update(result.evidence_ids)
+                        self.audit.record('task_explanation_view', {'session_id': session_id, **result.audit})
                         explanation_view_active = True
-                        if material_index:
-                            explanation_view_version = MATERIAL_VIEW_VERSION
-                        if other_source_index:
-                            source_task_view_active = True
-                        return view
+                        explanation_view_version = result.annotations.get('view_version', explanation_view_version)
+                        prior_explanation_index_version = result.annotations.get('prior_version') or prior_explanation_index_version
+                        source_task_view_active |= bool(result.annotations.get('source_view'))
+                        history = result.messages
+                    return history
                 except Exception as exc:
                     self.audit.record('task_material_view_fallback', {
                         'session_id': session_id, 'reason': 'MATERIAL_PROJECTION_FAILED',

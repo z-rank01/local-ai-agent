@@ -29,6 +29,12 @@ def read_manifest(manifest: Path, packages: Path) -> dict:
             raise ValueError(f'无效清单字段：{field}')
     if identity in value['required'] or identity in value['optional']:
         raise ValueError('插件不能依赖自身')
+    roles = value.get('tool_roles', {})
+    if not isinstance(roles, dict) or any(
+            not isinstance(role, str) or not isinstance(names, list)
+            or any(not isinstance(name, str) or not name for name in names)
+            for role, names in roles.items()):
+        raise ValueError('工具角色声明须为角色到工具名称列表的映射')
     if value.get('tool_registration') == 'managed' and value.get('execution') not in ('files', 'container'):
         raise ValueError('不支持的托管插件执行环境')
     return value

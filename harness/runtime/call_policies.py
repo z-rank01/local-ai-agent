@@ -1,5 +1,6 @@
 """Load installed contributions; failures affect only their declared owners."""
 import importlib
+from hashlib import sha256
 from harness.contracts.plugin_manifest import read_manifest
 
 
@@ -34,3 +35,21 @@ class CallPolicies:
         if owner in self.errors:
             raise ValueError('能力调用策略不可用：' + self.errors[owner])
         return self.providers.get(owner)
+
+
+def contribution_versions(packages):
+    """Pin manifest declarations and package Python sources for explicit continuation."""
+    versions = {}
+    for manifest in sorted(packages.glob('*/plugin.json')):
+        try:
+            metadata = read_manifest(manifest, packages)
+        except (OSError, ValueError):
+            continue  # Invalid packages are already excluded from registration.
+        if not (metadata.get('call_policy') or metadata.get('tool_roles')):
+            continue
+        digest = sha256(manifest.read_bytes())
+        for source in sorted(manifest.parent.rglob('*.py')):
+            digest.update(source.relative_to(manifest.parent).as_posix().encode('utf-8'))
+            digest.update(source.read_bytes())
+        versions[metadata['id']] = digest.hexdigest()
+    return versions

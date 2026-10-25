@@ -101,6 +101,14 @@ class ToolRegistry:
         return {name for name, owner in self.ownership().items()
                 if name in self._call_policies.roles.get(owner, {}).get(role, [])}
 
+    def history_projectors(self, history):
+        tools = self.tools_for_role('source_read')
+        owners = {self.get_owner(row['tool_name']) for row in history
+                  if row.get('role') == 'tool' and row.get('tool_name') in tools}
+        return [provider for owner in sorted(owners)
+                if (provider := self._call_policies.for_owner(owner)) is not None
+                and callable(getattr(provider, 'project_history', None))]
+
     @property
     def known_tools(self) -> frozenset[str]:
         return frozenset(self._tools)

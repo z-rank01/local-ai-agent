@@ -2,6 +2,10 @@
 
 
 class FinanceCallPolicy:
+    def project_history(self, history, archive):
+        from .history import project_history
+        return project_history(history, archive)
+
     def validate(self, tool, arguments, *, phase):
         if phase != 'handoff':
             return

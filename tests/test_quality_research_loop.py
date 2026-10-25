@@ -10,6 +10,7 @@ def research_registry(**kwargs):
     installed = ToolRegistry(config.TOOLS_DIR, enable_websearch=True, stock_bridge_url='http://unused')
     kwargs.setdefault('execution_policy', installed.execution_policy)
     kwargs.setdefault('tools_for_role', installed.tools_for_role)
+    kwargs.setdefault('history_projectors', installed.history_projectors)
     return SimpleNamespace(**kwargs)
 
 
