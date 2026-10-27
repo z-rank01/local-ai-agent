@@ -11,6 +11,8 @@ async def restore_plugins(runtime, packages, endpoint, headers):
     services = register_adapters(runtime, packages)
     register_packages(runtime, packages, endpoint, headers)
     register_containers(runtime, packages)
+    if runtime.tool_registry is not None:
+        runtime.capabilities.activation_guard = runtime.tool_registry.assert_activation_compatible
     await restore_adapters(runtime, services)
     states = CapabilityStore(runtime.store._connect).list('__host__', 'plugin')
     enabled = {identity for identity, state in states.items() if state.get('enabled')}

@@ -73,9 +73,9 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
         run = ResearchSession(Files(), conversation_id='test', model='unchanged', allowed=True)
         await run.begin({'scope': '研究', 'plan': ['选方法']})
         dispatch = AsyncMock(return_value={'content': 'actual'})
-        agent = SimpleNamespace(router=SimpleNamespace(research=run, dispatch=dispatch),
-                                registry=SimpleNamespace(),
-                                audit=SimpleNamespace(record=lambda *args: None))
+        agent = FinanceLoop(llm=SimpleNamespace(), router=SimpleNamespace(research=run, dispatch=dispatch),
+                            registry=SimpleNamespace(), audit=SimpleNamespace(record=lambda *args: None),
+                            context_mgr=SimpleNamespace(), prompt_builder=SimpleNamespace())
         calls = [{'id': 'one', 'function': {'name': 'web_fetch', 'arguments': {'url': 'https://example.org'}}}]
         events = [e async for e in FinanceLoop._execute_tools(agent, calls, 'test', [], allowed={'web_fetch'})]
         dispatch.assert_not_awaited()

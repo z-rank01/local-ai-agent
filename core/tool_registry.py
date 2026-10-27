@@ -117,6 +117,9 @@ class ToolRegistry:
         return self._call_policies.create_turn(set(self.ownership().values()),
             getattr(self, 'turn_context', {}))
 
+    def assert_activation_compatible(self, identity):
+        self._call_policies.assert_activation_compatible(identity, set(self.ownership().values()))
+
     def hidden_research_methods(self):
         active = set(self.ownership().values())
         visible = set(self._call_policies.research_methods(active))

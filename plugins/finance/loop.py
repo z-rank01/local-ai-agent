@@ -21,7 +21,7 @@ class FinanceLoop(Agent):
 
     def __init__(self, host=None, **kwargs):
         if host is not None:
-            self.__dict__ = host.__dict__
+            host.derive(self)
         else:
             super().__init__(**kwargs)
 
@@ -702,149 +702,65 @@ class FinanceLoop(Agent):
             if research is not None:
                 await research.close()
 
-    async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None, budgets=None,
-                             counts=None, execution_deadline=None, research_handoff=False, evidence_step=None, research_finalizing=False):
-        turn_boundary = False
-        for tc in tool_calls:
-            control = getattr(self, 'run_control', None)
-            if control:
-                await control.boundary(messages)
-            fn = tc.get('function', {})
-            name = fn.get('name', '')
-            if turn_boundary or (execution_deadline is not None and time.monotonic() >= execution_deadline):
-                skipped = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name,
-                           'content': '{"error":"本轮处理窗口已到，此步骤未执行。"}'}
-                messages.append(skipped)
-                yield AgentEvent('message', data={'message': skipped})
-                turn_boundary = True
-                continue
-            params = {}
-            call_policy = None
-            start = time.monotonic()
-            research = getattr(self.router, 'research', None)
-            turn = getattr(self, 'turn', None)
-            if turn is None:
-                from harness.runtime.turns import NullTurn
-                turn = self.registry.create_turn() if hasattr(self.registry, 'create_turn') else NullTurn()
-                self.turn = turn
-            turn.research = research
+    def _validate_tool(self, name, params, research, research_finalizing):
+        if research_finalizing and name == 'research_begin' and params.get('evidence_requests'):
+            raise ValueError('当前仅收尾，不再登记新联网取证；可回读已有证据、修改稿件并核对发布。')
+        super()._validate_tool(name, params, research, research_finalizing)
+
+    async def _dispatch_tool(self, name, params, session_id, control, call_id, messages):
+        research = getattr(self.router, 'research', None)
+        if name != 'brief_publish' or research is None:
+            async with aclosing(super()._dispatch_tool(name, params, session_id, control, call_id, messages)) as events:
+                async for event in events:
+                    yield event
+            return
+        if hasattr(self.router, 'authorize_publication'):
+            await self.router.authorize_publication(name, params)
+        candidate = await research.publication_input(params)
+        if await research.queue_citation_reads(candidate):
+            result = {'status': 'EVIDENCE_PENDING',
+                      'message': '已登记当前稿选中的原文回读，待实际摘录返回后再提交；未修改正文。'}
+        else:
+            publication = research.publication
+            candidate = publication.validate_publication(candidate, research.sources, research.read_text)
+            publication.render_charts(candidate.get('charts', []))
             try:
-                raw = fn.get('arguments', {})
-                params = json.loads(raw) if isinstance(raw, str) else raw
-                if not isinstance(params, dict):
-                    raise ValueError('工具参数必须是 JSON 对象')
-                if research_finalizing and name == 'research_begin' and params.get('evidence_requests'):
-                    raise ValueError('当前仅收尾，不再登记新联网取证；可回读已有证据、修改稿件并核对发布。')
-                if research is not None and research.active and name not in research.tool_names:
-                    raise ValueError('自主研究当前步骤未开放此工具；先读取适用方法，并使用本轮已开放的研究工具。本步骤未执行。')
-                params = turn.before_tool(name, params)
-                policy_for = getattr(self.registry, 'execution_policy', None)
-                call_policy = policy_for(name) if policy_for else None
-                if call_policy is not None:
-                    call_policy.validate(name, params, phase='handoff' if research_handoff else 'normal')
-                if allowed is not None and name not in allowed:
-                    if budgets and name in budgets:
-                        raise ValueError(f'当前步骤未开放 {name}；该请求未执行。请遵守当前交付或交接阶段，不能据此声称配额已用尽或没有检索结果。')
-                    raise ValueError(f'当前步骤未开放 {name}；本步骤未执行，不代表供应商额度用完。')
-                if control:
-                    control.begin_step('工具：'+name)
-                purpose = evidence_step.get('purpose', '') if evidence_step else ''
-                yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id'], 'purpose': purpose})
-                result = None
-                if name == 'context_evidence_read':
-                    result = self.context_mgr.read_evidence(**params)
-                elif name == 'local_agent':
-                    self.router._policy.check(name,params)
-                    if hasattr(self.router,'workspace_validate'): await self.router.workspace_validate()
-                    from core.local_agent import delegate
-                    result=await delegate(self.router.models_runtime,self.router.execution_profile,params,
-                        self.context_mgr.read_evidence,
-                        lambda kind,data:self.audit.record(kind,{**data,'research_phase':'local_delegate'}))
-                    if result['status']=='UNKNOWN':
-                        self.local_agent_unknown=True
-                        if control: control.end_step(confirmed=False)
-                elif name == 'brief_publish' and research is not None:
-                    if hasattr(self.router, 'authorize_publication'):
-                        await self.router.authorize_publication(name, params)
-                    candidate = await research.publication_input(params)
-                    if await research.queue_citation_reads(candidate):
-                        result={'status':'EVIDENCE_PENDING','message':'已登记当前稿选中的原文回读，待实际摘录返回后再提交；未修改正文。'}
-                    else:
-                        publication = research.publication
-                        candidate = publication.validate_publication(candidate, research.sources, research.read_text)
-                        publication.render_charts(candidate.get('charts', []))
-                        try:
-                            async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
-                                async for event in events:
-                                    yield event
-                        except (Exception, asyncio.CancelledError):
-                            await research.save_review_draft(candidate)
-                            raise
-                        from .research_review import fingerprint, review_blocks
-                        review = research.review_records.get(fingerprint(candidate), {})
-                        if research.pending_evidence:
-                            result={'status':'EVIDENCE_PENDING','review':review,
-                                'message':'单独核对已选择现有原件补读；待实际工具返回后，局部处理问题并保留其他有效事实与反证。核对建议不是事实。'}
-                        elif review_blocks(review):
-                            result = {'error':'单独核对标出必须修改的关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
-                                      'review':review}
-                        else:
-                            result = await research.publish(candidate)
-                elif hasattr(self.router, 'dispatch_stream'):
-                    async with aclosing(self.router.dispatch_stream(name, params, session_id)) as stream:
-                        async for packet in stream:
-                            if packet.get('event') == 'result':
-                                result = packet['result']
-                            else:
-                                yield AgentEvent('tool_progress', data={'name': name, 'call_id': tc['id'], **packet})
-                else:
-                    result = await self.router.dispatch(name, params, session_id)
-                result = await turn.after_tool(name, result)
-                if result is None:
-                    raise RuntimeError('工具未返回最终执行结果')
-                failed = tool_failed(result)
-                status = 'error' if failed else 'ok'
-                if evidence_step is not None:
-                    await research.complete_evidence(evidence_step, result, status)
-                if control and not getattr(self,'local_agent_unknown',False):
-                    control.end_step()
-            except Exception as exc:
-                if evidence_step is not None and research.pending_evidence and research.pending_evidence[0] is evidence_step:
-                    await research.complete_evidence(evidence_step, {'error': str(exc)}, 'error')
-                if control:
-                    import httpx
-                    control.end_step(confirmed=not isinstance(exc, httpx.TransportError)
-                        and '未返回最终执行结果' not in str(exc))
-                result = {'error': str(exc)}
-                if name == 'brief_publish' and research is not None and research.record.get('draft'):
-                    result['draft'] = research.record['draft']
-                status = 'error'
-            # Explicit local-only attachments are rendered by the UI, never in model history.
-            observation = model_projection(result)
-            content = json.dumps(observation, ensure_ascii=False, default=str)
-            if budgets and counts is not None and name in budgets:
-                remaining = {n: max(0, b - counts.get(n, 0) - (1 if n == name else 0)) for n, b in budgets.items() if b > 0}
-                if getattr(self, 'quality_first_research', False):
-                    research = getattr(self.router, 'research', None)
-                    if research is None or not research.active:
-                        content += '\n[检索批次提示：请核对本批发现、反证与未决问题。有新证据可继续检索；长股票研究请提交现有后台研究工具，不要求用户反复发送继续。]'
-                elif remaining:
-                    content += '\n[联网额度：' + '，'.join(f'{n} 还可 {r} 次' for n, r in remaining.items()) + '；请据此规划后续检索，额度用尽后基于已有结果回答。]'
-            message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
-            messages.append(message)
-            yield AgentEvent('message', data={'message': message})
-            from harness.runtime.receipts import call_summary
-            stage_text = ('研究阶段：' + str(result['phase'])
-                          if name == 'research_begin' and status == 'ok' and isinstance(result, dict) and 'phase' in result else None)
-            yield AgentEvent('tool_end', text=stage_text or call_summary(result, status), data={
-                'name': name, 'call_id': tc['id'], 'params': params, 'status': status,
-                'purpose': evidence_step.get('purpose', '') if evidence_step else '',
-                'elapsed': time.monotonic() - start, 'result': result, 'result_preview': _format_tool_result_preview(result)})
-            self.audit.record('tool_loop', {'session_id': session_id, 'name': name, 'status': status})
-            if call_policy is not None and call_policy.ends_window(name, result):
-                turn_boundary = True
-        if turn_boundary:
-            yield AgentEvent('turn_boundary')
+                async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
+                    async for event in events:
+                        yield event
+            except (Exception, asyncio.CancelledError):
+                await research.save_review_draft(candidate)
+                raise
+            from .research_review import fingerprint, review_blocks
+            review = research.review_records.get(fingerprint(candidate), {})
+            if research.pending_evidence:
+                result = {'status': 'EVIDENCE_PENDING', 'review': review,
+                          'message': '单独核对已选择现有原件补读；待实际工具返回后，局部处理问题并保留其他有效事实与反证。核对建议不是事实。'}
+            elif review_blocks(review):
+                result = {'error': '单独核对标出必须修改的关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
+                          'review': review}
+            else:
+                result = await research.publish(candidate)
+        yield AgentEvent('tool_result', data={'result': result})
+
+    def _tool_error(self, name, error):
+        result = super()._tool_error(name, error)
+        research = getattr(self.router, 'research', None)
+        if name == 'brief_publish' and research is not None and research.record.get('draft'):
+            result['draft'] = research.record['draft']
+        return result
+
+    def _tool_end_text(self, name, result, status):
+        if name == 'research_begin' and status == 'ok' and isinstance(result, dict) and 'phase' in result:
+            return '研究阶段：' + str(result['phase'])
+        return None
+
+    def _budget_note(self, remaining):
+        if getattr(self, 'quality_first_research', False):
+            research = getattr(self.router, 'research', None)
+            if research is None or not research.active:
+                return '\n[检索批次提示：请核对本批发现、反证与未决问题。有新证据可继续检索；长股票研究请提交现有后台研究工具，不要求用户反复发送继续。]'
+        return super()._budget_note(remaining)
 
     async def _review_candidate(self, candidate, session_id, messages):
         from .research_review import fingerprint, review_messages, parse_review, previous_findings

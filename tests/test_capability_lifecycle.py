@@ -124,3 +124,41 @@ class LifecycleFlowTests(unittest.IsolatedAsyncioTestCase):
         await running
         await stopping
         self.assertEqual(events, ['start:search', 'stop:search'])
+
+    async def test_conflicting_orchestrator_is_rejected_before_provider_side_effects(self):
+        from harness.runtime.call_policies import CallPolicies
+        policies = CallPolicies()
+        policies.turn_providers = {'finance': object, 'other': object}
+        policies.plugin_owners = {'finance': ('stock-bridge',), 'other': ('other',)}
+        active_owners = {'stock-bridge'}
+        manager = LifecycleManager()
+        manager.activation_guard = lambda identity: policies.assert_activation_compatible(identity, active_owners)
+        events = []
+        manager.register('stock-bridge', Provider('stock-bridge', events))
+        manager.register('other', Provider('other', events))
+        manager.register('files', Provider('files', events))
+        await manager.activate('stock-bridge')
+        with self.assertRaisesRegex(ValueError, '请先停用 finance'):
+            await manager.activate('other')
+        self.assertEqual(manager.status('other')['state'], 'START_FAILED')
+        self.assertEqual(events, ['start:stock-bridge'])
+        await manager.activate('files')
+        await manager.deactivate('stock-bridge')
+        active_owners.clear()
+        await manager.activate('other')
+        self.assertEqual(events, ['start:stock-bridge', 'start:files', 'stop:stock-bridge', 'start:other'])
+
+    async def test_research_sessions_do_not_silently_replace_each_other(self):
+        from harness.runtime.call_policies import CallPolicies
+        class Research:
+            def __init__(self, router, **kwargs):
+                self.router, self.kwargs = router, kwargs
+        policies = CallPolicies()
+        policies.research_sessions = {'finance': Research, 'other': Research}
+        policies.plugin_owners = {'finance': ('stock-bridge',), 'other': ('other',)}
+        with self.assertRaisesRegex(ValueError, '多个冲突的研究会话提供者'):
+            policies.create_research(object(), active_owners={'stock-bridge', 'other'})
+        selected = policies.create_research(object(), active_owners={'stock-bridge'})
+        self.assertIsInstance(selected, Research)
+        with self.assertRaisesRegex(ValueError, '未登记或当前未启用'):
+            policies.create_research(object(), active_owners=set())

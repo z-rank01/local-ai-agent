@@ -23,6 +23,7 @@ class LifecycleManager:
         self._instances: dict[str, Instance] = {}
         self._aliases: dict[str, str] = {}
         self._lock = asyncio.Lock()
+        self.activation_guard = None
 
     def register(self, identity: str, provider: Lifecycle, *, required=(), aliases=()):
         names = (identity, *aliases)
@@ -67,6 +68,8 @@ class LifecycleManager:
         try:
             for dependency in instance.required:
                 await self._activate(dependency, (*ancestors, identity), permitted)
+            if self.activation_guard is not None:
+                self.activation_guard(identity)
             await instance.provider.activate()
             instance.state = 'ACTIVE'
         except BaseException as exc:

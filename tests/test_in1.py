@@ -777,4 +777,49 @@ class SearchGuardTests(unittest.TestCase):
                     'https://zh.wikipedia.org/wiki/升降桌','https://cn.bing.com/ck/a?redirect=x']:
             self.assertFalse(self.guard(url),url)
 
+class ExecutionHostTests(unittest.TestCase):
+    def test_finance_executor_has_frozen_dependencies_but_independent_turn_configuration(self):
+        from plugins.finance.loop import FinanceLoop
+        host = Agent(llm=SimpleNamespace(), router=SimpleNamespace(), registry=SimpleNamespace(),
+            audit=SimpleNamespace(), context_mgr=SimpleNamespace(), prompt_builder=SimpleNamespace())
+        host.extra_system_sections = ['one']
+        host.allowed_tool_names = {'file_read'}
+        host.tool_descriptions = {'skill_info': 'fixed'}
+        executor = FinanceLoop(host=host)
+        self.assertIsNot(executor.__dict__, host.__dict__)
+        self.assertIs(executor.llm, host.llm)
+        self.assertIs(executor.router, host.router)
+        self.assertIs(executor.registry, host.registry)
+        executor.extra_system_sections.append('two')
+        executor.allowed_tool_names.add('skill_info')
+        executor.tool_descriptions['skill_info'] = 'changed'
+        self.assertEqual(host.extra_system_sections, ['one'])
+        self.assertEqual(host.allowed_tool_names, {'file_read'})
+        self.assertEqual(host.tool_descriptions, {'skill_info': 'fixed'})
+
+
+class SharedToolExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_normal_and_finance_paths_share_streaming_tool_results(self):
+        from plugins.finance.loop import FinanceLoop
+        class Router:
+            async def dispatch_stream(self, name, params, session_id):
+                yield {'event': 'output', 'text': 'partial'}
+                yield {'event': 'result', 'result': {'value': 1}}
+        for executor_type in (Agent, FinanceLoop):
+            with self.subTest(executor=executor_type.__name__):
+                executor = executor_type(llm=SimpleNamespace(), router=Router(), registry=SimpleNamespace(),
+                    audit=SimpleNamespace(record=lambda *args: None), context_mgr=SimpleNamespace(),
+                    prompt_builder=SimpleNamespace())
+                messages = []
+                call = {'id': 'one', 'function': {'name': 'demo', 'arguments': '{}'}}
+                events = [event async for event in executor._execute_tools([call], 'session', messages,
+                    allowed={'demo'})]
+                self.assertEqual([event.kind for event in events],
+                    ['tool_start', 'tool_progress', 'message', 'tool_end'])
+                self.assertEqual(events[1].data['call_id'], 'one')
+                self.assertEqual(events[-1].data['result'], {'value': 1})
+                self.assertEqual(messages[0]['role'], 'tool')
+                self.assertNotIn('tool_result', {event.kind for event in events})
+
+
 if __name__=='__main__': unittest.main()

@@ -112,6 +112,24 @@ class Agent:
         self.allow_tools = True
         self.tool_descriptions: dict[str, str] = {}
 
+    def derive(self, target):
+        """Initialize a related executor with frozen dependencies and independent turn configuration."""
+        target.__init__(llm=self.llm, router=self.router, registry=self.registry,
+            audit=self.audit, context_mgr=self.context_mgr, prompt_builder=self.prompt_builder,
+            memory=self.memory, tool_tier=self.tool_tier, max_rounds=self.max_rounds)
+        for name in ('allow_tools', 'workspace_cloud_allowed', 'cloud_write_allowed',
+                     'turn', 'run_control', 'turn_reply_purpose_enabled', 'turn_loop_enabled',
+                     'turn_window_seconds', 'quality_first_research', 'continuing_checkpoint'):
+            if hasattr(self, name):
+                setattr(target, name, getattr(self, name))
+        target.tool_descriptions = dict(getattr(self, 'tool_descriptions', {}))
+        target.extra_system_sections = list(getattr(self, 'extra_system_sections', []))
+        if hasattr(self, 'allowed_tool_names'):
+            target.allowed_tool_names = set(self.allowed_tool_names) if self.allowed_tool_names is not None else None
+        if hasattr(self, 'evidence_history'):
+            target.evidence_history = list(self.evidence_history)
+        return target
+
     async def run(self, messages: list[dict], session_id: str = 'default',
                   conversation_key: str | None = None) -> AsyncGenerator[AgentEvent, None]:
         from . import config
@@ -315,7 +333,13 @@ class Agent:
         return final_text, messages
 
     async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None,
-                             budgets=None, counts=None, execution_deadline=None, phase='normal'):
+                             budgets=None, counts=None, execution_deadline=None, phase='normal',
+                             research_handoff=False, evidence_step=None, research_finalizing=False):
+        from harness.runtime.turns import NullTurn
+        turn = getattr(self, 'turn', None)
+        if turn is None:
+            turn = self.registry.create_turn() if hasattr(self.registry, 'create_turn') else NullTurn()
+            self.turn = turn
         turn_boundary = False
         for tc in tool_calls:
             control = getattr(self, 'run_control', None)
@@ -332,70 +356,63 @@ class Agent:
                 continue
             params, call_policy = {}, None
             start = time.monotonic()
+            research = getattr(self.router, 'research', None)
+            turn.research = research
             try:
                 raw = fn.get('arguments', {})
                 params = json.loads(raw) if isinstance(raw, str) else raw
                 if not isinstance(params, dict):
                     raise ValueError('工具参数必须是 JSON 对象')
+                self._validate_tool(name, params, research, research_finalizing)
+                params = turn.before_tool(name, params)
                 policy_for = getattr(self.registry, 'execution_policy', None)
                 call_policy = policy_for(name) if policy_for else None
                 if call_policy is not None:
-                    call_policy.validate(name, params, phase=phase)
+                    call_policy.validate(name, params, phase='handoff' if research_handoff else phase)
                 if allowed is not None and name not in allowed:
                     if budgets and name in budgets:
                         raise ValueError(f'当前步骤未开放 {name}；该请求未执行。请遵守当前交付或交接阶段，不能据此声称配额已用尽或没有检索结果。')
                     raise ValueError(f'当前步骤未开放 {name}；本步骤未执行，不代表供应商额度用完。')
                 if control:
                     control.begin_step('工具：' + name)
-                yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id'], 'purpose': ''})
-                if name == 'context_evidence_read':
-                    result = self.context_mgr.read_evidence(**params)
-                elif name == 'local_agent':
-                    self.router._policy.check(name, params)
-                    if hasattr(self.router, 'workspace_validate'):
-                        await self.router.workspace_validate()
-                    from .local_agent import delegate
-                    result = await delegate(self.router.models_runtime, self.router.execution_profile, params,
-                        self.context_mgr.read_evidence,
-                        lambda kind, data: self.audit.record(kind, {**data, 'research_phase': 'local_delegate'}))
-                    if result['status'] == 'UNKNOWN':
-                        self.local_agent_unknown = True
-                        if control:
-                            control.end_step(confirmed=False)
-                elif hasattr(self.router, 'dispatch_stream'):
-                    result = None
-                    async with aclosing(self.router.dispatch_stream(name, params, session_id)) as stream:
-                        async for packet in stream:
-                            if packet.get('event') == 'result':
-                                result = packet['result']
-                            else:
-                                yield AgentEvent('tool_progress', data={'name': name, 'call_id': tc['id'], **packet})
-                else:
-                    result = await self.router.dispatch(name, params, session_id)
+                purpose = evidence_step.get('purpose', '') if evidence_step else ''
+                yield AgentEvent('tool_start', data={'name': name, 'params': params, 'call_id': tc['id'], 'purpose': purpose})
+                result = None
+                async with aclosing(self._dispatch_tool(name, params, session_id, control, tc['id'], messages)) as events:
+                    async for event in events:
+                        if event.kind == 'tool_result':
+                            result = event.data.get('result')
+                        else:
+                            yield event
+                result = await turn.after_tool(name, result)
                 if result is None:
                     raise RuntimeError('工具未返回最终执行结果')
                 status = 'error' if tool_failed(result) else 'ok'
+                if evidence_step is not None:
+                    await research.complete_evidence(evidence_step, result, status)
                 if control and not getattr(self, 'local_agent_unknown', False):
                     control.end_step()
             except Exception as exc:
+                if evidence_step is not None and research.pending_evidence and research.pending_evidence[0] is evidence_step:
+                    await research.complete_evidence(evidence_step, {'error': str(exc)}, 'error')
                 if control:
                     import httpx
                     control.end_step(confirmed=not isinstance(exc, httpx.TransportError)
                         and '未返回最终执行结果' not in str(exc))
-                result, status = {'error': str(exc)}, 'error'
+                result, status = self._tool_error(name, exc), 'error'
             observation = model_projection(result)
             content = json.dumps(observation, ensure_ascii=False, default=str)
             if budgets and counts is not None and name in budgets:
                 remaining = {n: max(0, b - counts.get(n, 0) - (1 if n == name else 0))
                              for n, b in budgets.items() if b > 0}
-                if remaining:
-                    content += '\n[联网额度：' + '，'.join(f'{n} 还可 {r} 次' for n, r in remaining.items()) + '；请据此规划后续检索，额度用尽后基于已有结果回答。]'
+                content += self._budget_note(remaining)
             message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
             messages.append(message)
             yield AgentEvent('message', data={'message': message})
             from harness.runtime.receipts import call_summary
-            yield AgentEvent('tool_end', text=call_summary(result, status), data={
-                'name': name, 'call_id': tc['id'], 'params': params, 'status': status, 'purpose': '',
+            yield AgentEvent('tool_end', text=self._tool_end_text(name, result, status) or call_summary(result, status), data={
+                'name': name, 'call_id': tc['id'], 'params': params, 'status': status,
+                'purpose': evidence_step.get('purpose', '') if evidence_step else '',
                 'elapsed': time.monotonic() - start, 'result': result,
                 'result_preview': _format_tool_result_preview(result)})
             self.audit.record('tool_loop', {'session_id': session_id, 'name': name, 'status': status})
@@ -403,6 +420,50 @@ class Agent:
                 turn_boundary = True
         if turn_boundary:
             yield AgentEvent('turn_boundary')
+
+    def _validate_tool(self, name, params, research, research_finalizing):
+        if research is not None and research.active and name not in research.tool_names:
+            raise ValueError('自主研究当前步骤未开放此工具；先读取适用方法，并使用本轮已开放的研究工具。本步骤未执行。')
+
+    async def _dispatch_tool(self, name, params, session_id, control, call_id, messages):
+        result = None
+        if name == 'context_evidence_read':
+            result = self.context_mgr.read_evidence(**params)
+        elif name == 'local_agent':
+            self.router._policy.check(name, params)
+            if hasattr(self.router, 'workspace_validate'):
+                await self.router.workspace_validate()
+            from .local_agent import delegate
+            result = await delegate(self.router.models_runtime, self.router.execution_profile, params,
+                self.context_mgr.read_evidence,
+                lambda kind, data: self.audit.record(kind, {**data, 'research_phase': 'local_delegate'}))
+            if result['status'] == 'UNKNOWN':
+                self.local_agent_unknown = True
+                if control:
+                    control.end_step(confirmed=False)
+        elif hasattr(self.router, 'dispatch_stream'):
+            async with aclosing(self.router.dispatch_stream(name, params, session_id)) as stream:
+                async for packet in stream:
+                    if packet.get('event') == 'result':
+                        result = packet['result']
+                    else:
+                        yield AgentEvent('tool_progress', data={'name': name, 'call_id': call_id, **packet})
+        else:
+            result = await self.router.dispatch(name, params, session_id)
+        if result is None:
+            raise RuntimeError('工具未返回最终执行结果')
+        yield AgentEvent('tool_result', data={'result': result})
+
+    def _tool_error(self, name, error):
+        return {'error': str(error) or type(error).__name__}
+
+    def _tool_end_text(self, name, result, status):
+        return None
+
+    def _budget_note(self, remaining):
+        if not remaining:
+            return ''
+        return '\n[联网额度：' + '，'.join(f'{n} 还可 {r} 次' for n, r in remaining.items()) + '；请据此规划后续检索，额度用尽后基于已有结果回答。]'
 
     async def _inject_context_into_messages(self, messages: list[dict], session_id: str) -> list[dict]:
         user_content = next((m['content'] for m in reversed(messages) if m['role'] == 'user'), '')

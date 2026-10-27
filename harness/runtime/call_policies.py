@@ -10,7 +10,7 @@ class CallPolicies:
         self.turn_providers, self.plugin_owners = {}, {}
         self.groups = {}
         self.reply_purposes = {}
-        self.research_session = None
+        self.research_sessions = {}
         self.method_families = {}
         if packages is None:
             return
@@ -30,7 +30,7 @@ class CallPolicies:
                     module, name = metadata['research_session'].split(':')
                     if not module.startswith('plugins.' + metadata['id'] + '.') or not name.isidentifier():
                         raise ValueError('研究会话入口必须属于当前插件')
-                    self.research_session = getattr(importlib.import_module(module), name)
+                    self.research_sessions[metadata['id']] = getattr(importlib.import_module(module), name)
                 turn_reference = metadata.get('turn_policy')
                 if turn_reference:
                     module, name = turn_reference.split(':')
@@ -52,10 +52,21 @@ class CallPolicies:
             except Exception as exc:
                 self.errors.update(dict.fromkeys(owners, str(exc)))
 
+    def _active(self, declarations, active_owners):
+        return [identity for identity in declarations
+                if identity in active_owners or any(owner in active_owners
+                    for owner in self.plugin_owners.get(identity, ()))]
+
+    def assert_activation_compatible(self, identity, active_owners):
+        for kind, providers in (('回合编排者', self.turn_providers), ('研究会话提供者', self.research_sessions)):
+            for candidate in self._active(providers, {identity}):
+                conflicts = [other for other in self._active(providers, active_owners) if other != candidate]
+                if conflicts:
+                    raise ValueError(f'首版每个运行只允许一个{kind}；请先停用 {"、".join(conflicts)}，再启用 {candidate}')
+
     def create_turn(self, active_owners, context=None):
         from harness.runtime.turns import NullTurn
-        identities = [identity for identity in self.turn_providers
-                      if any(owner in active_owners for owner in self.plugin_owners[identity])]
+        identities = self._active(self.turn_providers, active_owners)
         if len(identities) > 1:
             raise ValueError('当前回合存在多个冲突的业务编排者：' + ', '.join(identities))
         return self.turn_providers[identities[0]](context) if identities else NullTurn()
@@ -66,11 +77,14 @@ class CallPolicies:
                 for family in families]
 
     def create_research(self, router, **kwargs):
-        if self.research_session is None:
-            raise ValueError('研究能力未登记')
         active_owners = kwargs.pop('active_owners', ())
+        identities = self._active(self.research_sessions, active_owners)
+        if not identities:
+            raise ValueError('研究能力未登记或当前未启用')
+        if len(identities) > 1:
+            raise ValueError('当前运行存在多个冲突的研究会话提供者：' + ', '.join(identities))
         kwargs.setdefault('method_families', self.research_methods(active_owners))
-        return self.research_session(router=router, **kwargs)
+        return self.research_sessions[identities[0]](router=router, **kwargs)
 
     def for_owner(self, owner):
         if owner in self.errors:
