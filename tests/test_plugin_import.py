@@ -92,6 +92,9 @@ class PluginImportFlowTests(unittest.TestCase):
             differences = package_diff(packages, 'sample', second)
             self.assertEqual(differences['files'][0]['path'], 'plugin.json')
             self.assertIn('2.0', differences['files'][0]['diff'])
+            metadata['version'] = '3.0'
+            (source / 'plugin.json').write_text(json.dumps(metadata))
+            third = packages.import_source(source)['pending']['revision']
             packages.queue('sample', 'activate', second, trusted=True)
             apply_pending(packages)
             restored = restore_before_build(packages, 'fixture compiler rejected candidate')
@@ -99,6 +102,8 @@ class PluginImportFlowTests(unittest.TestCase):
             recovered = store.list('__host__', 'plugin_package')['sample']
             self.assertEqual(recovered['active']['revision'], first)
             self.assertEqual(recovered['pending']['revision'], second)
+            self.assertTrue(any(row['revision'] == third for row in recovered['history']))
+            self.assertTrue(packages.read('sample', third).exists())
             self.assertEqual(recovered['deployment'], 'BUILD_FAILED')
             self.assertEqual(json.loads((root / 'plugins/sample/plugin.json').read_text())['version'], '1.0')
             packages.queue('sample', 'activate', second, trusted=True)

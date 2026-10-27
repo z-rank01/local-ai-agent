@@ -102,6 +102,25 @@ class PagingTests(unittest.TestCase):
             self.assertIsNone(result['next_offset'])
             self.assertEqual(result['total_chars'], 3)
 
+    def test_new_file_is_shared_with_runner(self):
+        path = self.root / 'new-package' / 'SKILL.md'
+        self.ops.write(str(path), 'method')
+        self.assertEqual(path.read_text(encoding='utf-8'), 'method')
+        self.assertEqual(path.stat().st_mode & 0o777, 0o666)
+
+    def test_edit_preserves_existing_permissions(self):
+        import hashlib
+        path = Path(self._write('editable.txt', 'before'))
+        os.chmod(path, 0o666)
+        result = self.ops.edit(str(path), 'before', 'after', hashlib.sha256(b'before').hexdigest())
+        self.assertTrue(result['changed'])
+        self.assertEqual(path.read_text(encoding='utf-8'), 'after')
+        self.assertEqual(path.stat().st_mode & 0o777, 0o666)
+        legacy = Path(self._write('legacy.txt', 'old'))
+        os.chmod(legacy, 0o600)
+        self.ops.edit(str(legacy), 'old', 'new', hashlib.sha256(b'old').hexdigest())
+        self.assertEqual(legacy.stat().st_mode & 0o777, 0o666)
+
     def test_sha256_still_describes_the_whole_file(self):
         path = self._write('hash.txt', 'x' * 5000)
         import hashlib
@@ -138,7 +157,7 @@ class ToolLimitTests(unittest.TestCase):
         cap.start()
         self.addCleanup(cap.stop)
         # web_fetch only registers when websearch is enabled.
-        self.registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=True)
+        self.registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch',))
 
     def test_file_read_limit_exceeds_a_real_data_file(self):
         limit = self.registry.get_max_result_chars('file_read')

@@ -12,7 +12,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from core.research_session import RESEARCH_BLOCKED_TOOLS
+from plugins.finance.research.session import RESEARCH_BLOCKED_TOOLS
 _method_prompt = (ROOT/'plugins/finance/prompts/methods.txt').read_text(encoding='utf-8')
 PACKAGE = ROOT / 'skills/runner/packages' / re.search(r'当前项目投研适配包 (harness-stock-research-v\d+)', _method_prompt).group(1)
 SCENARIOS = {
@@ -137,12 +137,12 @@ body{overflow-wrap:anywhere;margin:0;background:#f3f5f1;color:#21332c;font:16px/
 <p><strong>模型归属：</strong>每个会话独立选模型；分析、写作、单独核对和关联股票任务使用运行开始时的快照。顶部切换只影响本会话后续运行。主模型可按需用 local_agent 委派本地 Gemma4:26b，子任务没有工具、发布或递归委派权限；结果由主模型判断，不作为云端失败回退。</p><h3>实际方法文件</h3><div id="methods" class="grid"></div><h3>研究工具静态定义</h3><p>清单取自当前研究允许集合和对应YAML；开关、授权仍决定每轮实际可用工具。context_evidence_read由Agent按已登记证据动态提供，定义见core/agent.py。</p><div id="tools" class="grid"></div>
 <details><summary>业务模块与产物</summary><pre>core/model_execution.py：冻结会话模型、供应商适配和原模型账本
 core/local_agent.py：本地 Gemma4 只读辅助委派
-core/research_session.py：会话研究记录、容器文件保存、发布
-core/research_visuals.py：发布输入核对、SVG
-core/research_evidence.py：模型选定的证据需求展开为原工具调用；引用片段实际回读
-core/research_review.py：候选稿指纹、独立核对输入与结果契约，不认证语义
-core/research_material_view.py：旧大工具回执和参数转为可完整回读的证据指针
-core/brief_document.py：既有阅读模板
+plugins/finance/research/session.py：会话研究记录、容器文件保存、发布
+plugins/finance/publication.py：发布输入核对、SVG
+plugins/finance/evidence_steps.py：模型选定的证据需求展开为原工具调用；引用片段实际回读
+plugins/finance/research_review.py：候选稿指纹、独立核对输入与结果契约，不认证语义
+plugins/finance/research_material_view.py：旧大工具回执和参数转为可完整回读的证据指针
+plugins/finance/brief_document.py：既有阅读模板
 skills/websearch/source_document.py：PDF页码、快照与分页
 skills/runner/packages/harness-stock-research-v3/scripts/calculate.py：容器算术，当前方法复用
 skills/runner/packages/harness-stock-research-v4/scripts/read_report.py：章节摘录及匹配页目录；只有实际返回的原句登记为已读

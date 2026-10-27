@@ -18,32 +18,33 @@ from . import config
 
 logger = logging.getLogger("core.tool_registry")
 
-_WEBSEARCH_BACKEND = "skill-websearch"
-_STOCK_BRIDGE_BACKEND = "stock-bridge"
 # Fail-safe: a tool must declare `cloud: read` to be reachable from a cloud model.
 _DEFAULT_CLOUD_TIER = "write"
 
 class ToolRegistry:
-    """Loads tool metadata from a directory of YAML files."""
+    """Loads core tools; lifecycle owners activate package contributions."""
 
-    def __init__(self, tools_dir: str | Path, *, enable_websearch: bool = False, stock_bridge_url: str = "") -> None:
+    def __init__(self, tools_dir: str | Path, *, enabled_backends=()) -> None:
+        enabled_backends = tuple(enabled_backends)
         self._tools: dict[str, dict[str, Any]] = {}
         self._owned = OwnedTools()
-        self._load(str(tools_dir), enable_websearch, bool(stock_bridge_url))
+        self._load(str(tools_dir))
+        for backend in enabled_backends:
+            self.load_backend(tools_dir, backend)
         from harness.runtime.call_policies import CallPolicies
         packages = config._PROJECT_ROOT / 'plugins' if Path(tools_dir).resolve() == Path(config.TOOLS_DIR).resolve() else None
         self._call_policies = CallPolicies(packages)
         core_count = sum(1 for t in self._tools.values() if t.get("tier", "core") == "core")
-        logger.info("ToolRegistry loaded %d tools (%d core, %d extended) from %s (websearch=%s, stock=%s)",
+        logger.info("ToolRegistry loaded %d tools (%d core, %d extended) from %s (enabled=%s)",
                      len(self._tools), core_count, len(self._tools) - core_count,
-                     tools_dir, enable_websearch, bool(stock_bridge_url))
+                     tools_dir, enabled_backends)
 
-    def _load(self, tools_dir: str, enable_websearch: bool, stock_enabled: bool) -> None:
+    def _load(self, tools_dir: str) -> None:
         tools_path = Path(tools_dir)
         if not tools_path.is_dir():
             logger.warning("tools_dir %r does not exist — no tools loaded", tools_dir)
             return
-        for yaml_file in self._sources(tools_path):
+        for yaml_file in sorted(tools_path.glob('*.yaml')):
             try:
                 with open(yaml_file, encoding="utf-8") as f:
                     tool = yaml.safe_load(f)
@@ -51,12 +52,6 @@ class ToolRegistry:
                 backend = tool.get("backend")
                 if not name or not backend:
                     logger.warning("Skipping %s: missing 'name' or 'backend'", yaml_file.name)
-                    continue
-                if backend == _WEBSEARCH_BACKEND and not enable_websearch:
-                    logger.info("Skipping %s: websearch feature disabled", name)
-                    continue
-                if backend == _STOCK_BRIDGE_BACKEND and not stock_enabled:
-                    logger.info("Skipping %s: stock bridge not configured", name)
                     continue
                 self._tools[name] = tool
             except Exception as exc:
@@ -100,6 +95,50 @@ class ToolRegistry:
         """Resolve declarations against currently registered tools owned by that package."""
         return {name for name, owner in self.ownership().items()
                 if name in self._call_policies.roles.get(owner, {}).get(role, [])}
+
+    def tool_group(self, name):
+        owner = self._owned.owners().get(name)
+        return (self._tools.get(name, {}).get('group') or self._call_policies.groups.get(owner)
+                or ('文件' if owner == 'skill-files' else '执行与技能'))
+
+    def tool_purposes(self):
+        owners = self.ownership()
+        return {name: self._call_policies.reply_purposes.get(owner, {})
+                for name, owner in owners.items() if self._call_policies.reply_purposes.get(owner)}
+
+    def capability_catalog(self):
+        from harness.capabilities.catalog import package_catalog
+        keys = ('id', 'title', 'description', 'version', 'required', 'optional', 'permissions', 'tools')
+        return [{key: row.get(key, []) for key in keys}
+                for row in package_catalog(config._PROJECT_ROOT / 'plugins', self.ownership())
+                if row['registration'] == 'registered']
+
+    def create_turn(self):
+        return self._call_policies.create_turn(set(self.ownership().values()),
+            getattr(self, 'turn_context', {}))
+
+    def hidden_research_methods(self):
+        active = set(self.ownership().values())
+        visible = set(self._call_policies.research_methods(active))
+        return {family for families in self._call_policies.method_families.values()
+                for family in families if family not in visible}
+
+    def create_research(self, router, **kwargs):
+        return self._call_policies.create_research(router,
+            active_owners=set(self.ownership().values()), **kwargs)
+
+    def call_limits(self):
+        owners = self.ownership()
+        limits = {}
+        for name, owner in owners.items():
+            declared = self._call_policies.limits.get(owner, {}).get(name)
+            if declared is None:
+                continue
+            value = getattr(config, declared) if isinstance(declared, str) else declared
+            if type(value) is not int or value < 0:
+                raise ValueError('能力调用限额配置无效：' + str(declared))
+            limits[name] = value
+        return limits
 
     def history_projectors(self, history):
         tools = self.tools_for_role('source_read')

@@ -36,6 +36,8 @@ class SkillPackage:
     path: str = ""
     permissions: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
+    required: list[str] = field(default_factory=list)
+    optional: list[str] = field(default_factory=list)
 
     def listing_entry(self) -> dict:
         """Compact metadata for skill_list (progressive disclosure level 1)."""
@@ -48,10 +50,14 @@ class SkillPackage:
             entry["version"] = self.version
         entry['permissions'] = self.permissions
         entry['dependencies'] = self.dependencies
+        entry['required'] = self.required
+        entry['optional'] = self.optional
         if self.references:
             entry["references_count"] = len(self.references)
         if self.scripts:
             entry["scripts_count"] = len(self.scripts)
+            entry['entrypoints'] = [{'path': (Path(self.path) / script).as_posix(), 'kind': 'script'}
+                                    for script in self.scripts]
         return entry
 
 
@@ -135,10 +141,12 @@ def parse_package(skill_dir: Path, skills_root: Path | None = None) -> tuple[Ski
         return None, "frontmatter 缺少必填字段 description"
     if "/" in fm_name or "\\" in fm_name or ".." in fm_name:
         return None, "name 字段不允许包含路径分隔符"
-    for key in ('permissions', 'dependencies'):
+    for key in ('permissions', 'dependencies', 'required', 'optional'):
         values = data.get(key, [])
         if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
             return None, f'{key} 必须是非空字符串列表'
+    if set(data.get('required', [])) & set(data.get('optional', [])):
+        return None, '同一能力不能同时声明为必需和可选依赖'
 
     package = SkillPackage(
         name=name,
@@ -148,6 +156,8 @@ def parse_package(skill_dir: Path, skills_root: Path | None = None) -> tuple[Ski
         path=str(skill_dir),
         permissions=data.get('permissions', []),
         dependencies=data.get('dependencies', []),
+        required=data.get('required', []),
+        optional=data.get('optional', []),
     )
     for resource_dir in RESOURCE_DIRS:
         directory = skill_dir / resource_dir

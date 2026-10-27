@@ -15,7 +15,6 @@ from .memory_manager import MemoryManager
 from .policy_engine import PolicyEngine
 from .prompt_builder import PromptBuilder
 from .providers import ModelRegistry
-from plugins.finance.bridge import StockBridge
 from .tool_registry import ToolRegistry
 from .tool_router import ToolRouter
 
@@ -33,18 +32,18 @@ class RuntimeServices:
     store: ConversationStore
     agent: Agent
     models: ModelRegistry
-    stock_bridge: Any = None
     capabilities: Any = None
     task_providers: Any = None
     artifact_providers: Any = None
     container_packages: Any = None
+    capability_services: Any = None
+    adapter_errors: Any = None
+    commands: Any = None
 
     async def close(self) -> None:
         await self.router.close()
         await self.llm.close()
         await self.models.close()
-        if self.stock_bridge is not None:
-            await self.stock_bridge.close()
 
     def agent_for(self, spec, llm):
         cloud = spec['kind'] == 'cloud'
@@ -69,16 +68,10 @@ class RuntimeServices:
 
 def build_runtime() -> RuntimeServices:
     """Construct the shared backend runtime used by shells and adapters."""
-    enable_websearch = config.ENABLE_WEBSEARCH
-
-    tool_registry = ToolRegistry(
-        config.TOOLS_DIR, enable_websearch=enable_websearch,
-        stock_bridge_url=config.STOCK_BRIDGE_URL,
-    )
+    tool_registry = ToolRegistry(config.TOOLS_DIR)
     policy = PolicyEngine(config.POLICY_PATH)
     audit = AuditLogger(config.LOG_PATH)
     store = ConversationStore(config.DB_PATH)
-    stock_bridge = StockBridge(config.STOCK_BRIDGE_URL, config.STOCK_BRIDGE_TOKEN) if config.STOCK_BRIDGE_URL else None
     router = ToolRouter(
         config.SKILL_FILES_URL,
         config.SKILL_RUNNER_URL,
@@ -87,8 +80,6 @@ def build_runtime() -> RuntimeServices:
         audit,
         tool_registry,
         store=store,
-        enable_websearch=enable_websearch,
-        providers={'stock-bridge': stock_bridge} if stock_bridge else {},
     )
     llm = LLMClient(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
     context_mgr = ContextManager(
@@ -114,7 +105,7 @@ def build_runtime() -> RuntimeServices:
         tool_tier=config.TOOL_TIER,
         max_rounds=config.AGENT_MAX_ROUNDS,
     )
-    return RuntimeServices(
+    runtime = RuntimeServices(
         tool_registry=tool_registry,
         policy=policy,
         audit=audit,
@@ -126,5 +117,7 @@ def build_runtime() -> RuntimeServices:
         store=store,
         agent=agent,
         models=ModelRegistry(),
-        stock_bridge=stock_bridge,
     )
+    from harness.capabilities.loader import register_adapters
+    register_adapters(runtime, config._PROJECT_ROOT / 'plugins')
+    return runtime

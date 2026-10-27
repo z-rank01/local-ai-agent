@@ -1,12 +1,7 @@
 """Candidate identity and a clean, same-model review context."""
-from hashlib import sha256
 import json
 from pathlib import Path
-from .research_evidence import model_evidence
-
-
-def fingerprint(candidate):
-    return sha256(json.dumps(candidate,ensure_ascii=False,sort_keys=True,allow_nan=False).encode()).hexdigest()
+from harness.runtime.evidence import model_evidence, fingerprint
 
 
 def previous_findings(records):
@@ -18,7 +13,7 @@ def previous_findings(records):
 
 
 def review_messages(question, candidate, research, system, findings=()):
-    instructions=(Path(__file__).resolve().parents[1]/'config/prompts/research_review.txt').read_text(encoding='utf-8')
+    instructions=(Path(__file__).parent/'prompts/review.txt').read_text(encoding='utf-8')
     # The writer's self-checks are not independent evidence. Preserve the original
     # submission elsewhere; only remove this affirmation from the review view.
     view={key:value for key,value in candidate.items() if key!='review'}
@@ -41,7 +36,7 @@ def review_blocks(review):
     stopped candidates from converging. ``PUBLISH_REVIEW_ENFORCE=true`` restores
     blocking, and even then only ``severity: blocking`` findings count.
     """
-    from . import config
+    from core import config
     if not config.PUBLISH_REVIEW_ENFORCE:
         return False
     return bool(blocking_findings((review or {}).get('issues')))

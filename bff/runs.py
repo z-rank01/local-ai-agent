@@ -40,7 +40,7 @@ async def list_runs(request: Request, workspace_id: str | None = None):
     for namespace, provider in providers().providers.items():
         try:
             snapshot = await provider.list(workspace_id)
-            result['runs'].extend(snapshot['runs'])
+            result['runs'].extend({**row, 'source': 'plugin'} for row in snapshot['runs'])
             result['providers'][namespace] = snapshot['status']
             if snapshot.get('compatibility_key'):
                 result[snapshot['compatibility_key']] = snapshot['status']

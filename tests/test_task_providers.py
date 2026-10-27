@@ -63,7 +63,7 @@ class TaskProviderFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_finance_adapter_keeps_owner_control_and_offline_semantics(self):
         from unittest.mock import AsyncMock
         service = SimpleNamespace(status=AsyncMock(return_value={'online':False}), request=AsyncMock())
-        with patch('core.stock_service.stock_service', service):
+        with patch('plugins.finance.service.stock_service', service):
             provider = FinanceTasks()
             with self.assertRaises(TaskUnavailable):
                 await provider.control('stock:old', 'resume')

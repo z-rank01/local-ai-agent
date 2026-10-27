@@ -23,7 +23,6 @@ import httpx
 from fastapi import HTTPException
 
 from core import config, model_settings
-from core.brief_comparison import BriefComparison, requested as brief_comparison_requested
 from core.conversation_store import Conversation, ConversationStore, Message
 from core.input_utils import ImportedFile, ingest_local_file_paths
 from core.providers import thinking_capability
@@ -86,13 +85,18 @@ def exclusive_turn(method):
             async for event in self.runs.subscribe(existing['id']):
                 yield UIStreamEvent.model_validate(event)
             return
-        from core.stock_service import stock_service
-        if stock_service.lock.locked():
-            raise HTTPException(409, '股票服务正在切换，请稍后发送')
+        for capability in (getattr(self._runtime, 'capability_services', None) or {}).values():
+            lock = getattr(capability, 'lock', None)
+            if lock is not None and lock.locked():
+                raise HTTPException(409, '能力服务正在切换，请稍后发送')
         provider = request.provider_id if request else kwargs.get('provider_id')
         model = request.model if request else kwargs.get('model')
         if provider or model:
-            self._runtime.models.resolve(provider, model)
+            await self._runtime.models.catalog()
+            try:
+                self._runtime.models.resolve(provider, model)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
         conversation = self._require_conversation(key) if key else None
         if conversation and (provider or model):
             chosen, _ = self._runtime.models.resolve(provider, model)
@@ -118,6 +122,7 @@ def exclusive_turn(method):
         if workspace_id != 'default' or snapshot.record['roots']:
             snapshot = await self.workspaces.ensure(workspace_id)
         async def execute():
+            from contextlib import nullcontext
             lease = self.workspaces.acquire(snapshot, key or '__new__')
             scoped = self.for_workspace(workspace_id, snapshot=snapshot)
             scoped._run_control = current_run.get()
@@ -125,14 +130,18 @@ def exclusive_turn(method):
             active_key = key or '__new__:' + workspace_id
             self._active_conversations.add(active_key)
             keys = {active_key}
+            capabilities = getattr(scoped._runtime, 'capabilities', None)
+            run_lease = (capabilities.leases(capabilities.active())
+                         if capabilities and getattr(request, 'allow_tools', True) else nullcontext())
             try:
-                async with aclosing(method(scoped, *args, **kwargs)) as events:
-                    async for event in events:
-                        if event.conversation_id:
-                            self.workspaces.active[lease] = (event.conversation_id, snapshot)
-                            keys.add(event.conversation_id)
-                            self._active_conversations.add(event.conversation_id)
-                        yield event
+                async with run_lease:
+                    async with aclosing(method(scoped, *args, **kwargs)) as events:
+                        async for event in events:
+                            if event.conversation_id:
+                                self.workspaces.active[lease] = (event.conversation_id, snapshot)
+                                keys.add(event.conversation_id)
+                                self._active_conversations.add(event.conversation_id)
+                            yield event
             finally:
                 self._active_conversations.difference_update(keys)
                 self.workspaces.active.pop(lease, None)
@@ -181,7 +190,9 @@ class ChatSessionService:
             model=self._runtime.models.default,
             workspace_path=str(self._workspace_root),
             workspace_id=self._snapshot.id,
-            tool_catalog=[{"name": name, "display_name": value.get("display_name", value.get("short_description", name)), "group": value.get("group", "股票" if value.get("backend") == "stock-bridge" else "联网搜索" if value.get("backend") == "skill-websearch" else "文件" if value.get("backend") == "skill-files" else "执行与技能")} for name, value in getattr(self._runtime.tool_registry, "_tools", {}).items()],
+            tool_catalog=[{"name": name, "display_name": value.get("display_name", value.get("short_description", name)),
+                "group": self._runtime.tool_registry.tool_group(name)}
+                for name, value in getattr(self._runtime.tool_registry, "_tools", {}).items()],
             tools=tools,
             websearch_enabled="web_search" in tools,
             auto_exit_enabled=config.AUTO_EXIT_ON_CLOSE,
@@ -263,13 +274,10 @@ class ChatSessionService:
         return self.get_conversation(conversation_id)
 
     async def research_methods(self) -> list[dict]:
-        from core.stock_service import stock_service
         try:
-            rows = (await stock_service.request('/api/control/methods'))['methods']
+            return await self._runtime.capability_services['finance'].research_methods()
         except (ValueError, OSError, httpx.HTTPError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return [{key: row[key] for key in ('id', 'title', 'roles', 'source', 'source_version', 'version')}
-                for row in rows]
 
     async def update_research_method(self, conversation_id: str, method_id: str) -> ConversationSummary:
         self._require_conversation(conversation_id)
@@ -312,14 +320,13 @@ class ChatSessionService:
         Scope is derived from the stored conversation, never the active UI's
         workspace. Only cloud-safe protocol can supply evidence.
         """
-        from core.brief_material import prepare_material
         conversation = self._require_conversation(conversation_id)
         if conversation_id in self._active_conversations:
             raise HTTPException(409, '本会话仍在运行，请完成后再准备简报材料')
         snapshot = self.workspaces.snapshot(conversation.workspace_id)
         self.workspaces.assert_idle(snapshot)
         try:
-            result = prepare_material(
+            result = self._runtime.capability_services['finance'].prepare_material(
                 self._store.messages_as_dicts(conversation_id, cloud=True), references,
                 cloud_allowed=snapshot.record['cloud_read'])
         except PermissionError as exc:
@@ -361,6 +368,13 @@ class ChatSessionService:
         finally:
             self.workspaces.active.pop(lease, None)
 
+    def _artifact_registry(self):
+        if getattr(self._runtime, 'artifact_providers', None) is None:
+            from harness.runtime.artifacts import ArtifactRegistry
+            self._runtime.artifact_providers = ArtifactRegistry.bundled(
+                config._PROJECT_ROOT / 'plugins', self._runtime.router.provider_for)
+        return self._runtime.artifact_providers
+
     def saved_artifact(self, conversation_id: str, message_id: str):
         from harness.contracts.artifacts import SavedArtifact
         self._require_conversation(conversation_id)
@@ -375,20 +389,19 @@ class ChatSessionService:
             metadata = json.loads(message.metadata or '{}')
         except ValueError:
             metadata = {}
+        registry = self._artifact_registry()
         return SavedArtifact(conversation_id, message_id, message.tool_name,
             hashlib.sha256(content.encode('utf-8')).hexdigest(), content,
-            metadata if isinstance(metadata, dict) else {})
+            metadata if isinstance(metadata, dict) else {},
+            artifact_type=registry.types.get(message.tool_name, 'saved-text'),
+            owner=registry.owners.get(message.tool_name, ''))
 
     async def read_report_page(self, conversation_id: str, message_id: str,
                                page: int, request_id: str, *, section: str | None = None,
                                revision: str | None = None) -> dict:
         from harness.contracts.artifacts import ArtifactPage, ArtifactError
-        from harness.runtime.artifacts import ArtifactRegistry
         saved = self.saved_artifact(conversation_id, message_id)
-        if getattr(self._runtime, 'artifact_providers', None) is None:
-            self._runtime.artifact_providers = ArtifactRegistry.bundled(
-                config._PROJECT_ROOT / 'plugins', self._runtime.router.provider_for)
-        provider = self._runtime.artifact_providers.providers.get(saved.tool)
+        provider = self._artifact_registry().providers.get(saved.tool)
         if provider is None:
             raise HTTPException(422, '成果提供者不可用，仍可阅读已保存正文')
         try:
@@ -1018,9 +1031,9 @@ class ChatSessionService:
             raise HTTPException(409, '模型、方法、权限、提示或工作区配置已变化；不能按原检查点继续')
         scope = ('cloud' if spec['kind']=='cloud' else 'local')+':'+row['workspace_id']
         ids = set(checkpoint['messages']) | set(checkpoint['evidence_ids'])
-        state = checkpoint.get('research')
+        state = checkpoint.get('turn', checkpoint.get('research'))
         if state:
-            ids.update(eid for spans in state['read_text'].values() for eid in spans)
+            ids.update(state.get('evidence_ids', ()))
         for evidence_id in ids:
             try:
                 load_message(self._store, conversation.id, scope, evidence_id)
@@ -1077,6 +1090,46 @@ class ChatSessionService:
             async for event in events:
                 yield event
 
+    def _workspace_router(self, router, snapshot):
+        router._backend_urls = dict(router._backend_urls)
+        record = snapshot.record
+        if snapshot.id != 'default' or record['roots']:
+            router._backend_urls.update({'skill-files': f'http://127.0.0.1:{record["files_port"]}',
+                                         'skill-runner': f'http://127.0.0.1:{record["runner_port"]}'})
+        router._policy = copy.copy(router._policy)
+        router._policy._allowed = list(snapshot.roots)
+        router.default_cwd = snapshot.cwd
+        router.workspace_roots = list(snapshot.roots)
+        router.workspace_id = snapshot.id
+        if snapshot.id != 'default' or os.environ.get('DAILY_SERVICES') == '1':
+            router.workspace_snapshot = snapshot
+            router.workspace_token = tool_token(snapshot.id)
+        if snapshot.id != 'default' or record['roots'] or os.environ.get('DAILY_SERVICES') == '1':
+            router.workspace_validate = lambda: self.workspaces.verify(record)
+        router._policy._denied = list(router._policy._denied) + [path + '/.git' for path in snapshot.roots]
+        return router
+
+    async def execute_capability_command(self, identity, name, arguments, workspace_id):
+        command = self._runtime.commands.get(identity, name)
+        arguments = self._runtime.commands.validate(command, arguments)
+        if self._runtime.tool_registry.get_owner(command.tool) not in {command.identity, *command.owners}:
+            raise RuntimeError('命令工具未激活或不属于此插件')
+        snapshot = self.workspaces.snapshot(workspace_id)
+        self.workspaces.assert_idle(snapshot)
+        if workspace_id != 'default' or snapshot.record['roots']:
+            snapshot = await self.workspaces.ensure(workspace_id)
+        lease = self.workspaces.acquire(snapshot, 'capability-command')
+        try:
+            router = self._workspace_router(copy.copy(self._runtime.router), snapshot)
+            from harness.contracts.tool_provider import ExecutionContext
+            context = ExecutionContext(snapshot.id, snapshot.managed, snapshot.resolve,
+                permissions=frozenset({'workspace.read', 'workspace.write', 'scripts.execute'}))
+            router.bind_context(context)
+            result = await router.dispatch(command.tool, arguments, workspace_id)
+            return {'plugin': identity, 'command': name, 'result': result}
+        finally:
+            self.workspaces.active.pop(lease, None)
+
     async def _run_assistant_turn(self, conversation, run_id, *, response_to_message_id, response_version_number, answer_only=False, request_id=None):
         spec, llm = self._frozen_model
         cloud = spec['kind'] == 'cloud'
@@ -1097,27 +1150,20 @@ class ChatSessionService:
         agent.context_mgr.summary_cache_reader = lambda key: self._store.cached_task_summary(
             conversation.id, evidence_scope, key)
         router = copy.copy(agent.router)
-        router._backend_urls = dict(router._backend_urls)
         record = self._snapshot.record
-        if self._snapshot.id != "default" or record["roots"]:
-            router._backend_urls.update({"skill-files": f"http://127.0.0.1:{record['files_port']}", "skill-runner": f"http://127.0.0.1:{record['runner_port']}"})
-        router._policy = copy.copy(router._policy)
-        router._policy._allowed = list(self._snapshot.roots)
-        router.default_cwd = self._snapshot.cwd
-        router.workspace_roots = list(self._snapshot.roots)
-        router.workspace_id = self._snapshot.id
-        if self._snapshot.id != "default" or os.environ.get("DAILY_SERVICES") == "1":
-            router.workspace_snapshot = self._snapshot
-        if self._snapshot.id != "default" or os.environ.get("DAILY_SERVICES") == "1":
-            router.workspace_token = tool_token(self._snapshot.id)
-        if self._snapshot.id != "default" or record["roots"] or os.environ.get("DAILY_SERVICES") == "1":
-            router.workspace_validate = lambda: self.workspaces.verify(record)
-        router._policy._denied = list(router._policy._denied) + [p + "/.git" for p in self._snapshot.roots]
+        router = self._workspace_router(router, self._snapshot)
         agent.router = router
         from core.model_execution import freeze_profile
         router.execution_profile = freeze_profile(spec,conversation.id,self._snapshot.id,
             workspace_allowed,run_id)
         router.models_runtime = self._runtime
+        turn = agent.registry.create_turn()
+        agent.turn = turn
+        router.research = (self._runtime.tool_registry.create_research(router,
+            conversation_id=conversation.id, model=spec['id'],
+            allowed=not cloud or bool(workspace_allowed and cloud_write_allowed))
+            if turn.loop_enabled else None)
+        turn.research = router.research
         from harness.contracts.tool_provider import ExecutionContext
         from harness.runtime.model_gateway import ConversationModelGateway
         permissions = frozenset((['workspace.read'] if not cloud or workspace_allowed else []) +
@@ -1125,9 +1171,6 @@ class ChatSessionService:
         router.bind_context(ExecutionContext(self._snapshot.id, self._snapshot.managed, self._snapshot.resolve,
             conversation.id, run_id or '', spec['id'], permissions,
             ConversationModelGateway(self._runtime, router.execution_profile)))
-        from core.research_session import ResearchSession
-        router.research = ResearchSession(router, conversation_id=conversation.id,
-            model=spec['id'], allowed=not cloud or bool(workspace_allowed and cloud_write_allowed))
         resume = getattr(self, '_resume_checkpoint', None)
         if os.environ.get('DAILY_SERVICES') == '1' and not answer_only and (not cloud or workspace_allowed):
             from harness.capabilities.skill_session import SkillSession
@@ -1138,21 +1181,15 @@ class ChatSessionService:
                 from .skill_management import catalog_for
                 router.skill_session.snapshot = catalog_for(self._runtime, self._snapshot.id,
                     allow_write=not cloud or cloud_write_allowed).effective(router.skill_session.snapshot)
+                router.skill_session.snapshot['capabilities'] = self._runtime.tool_registry.capability_catalog()
         if resume:
-            from core.run_checkpoint import load_message, continuation_messages, restore_research
+            from core.run_checkpoint import load_message, continuation_messages
             load = lambda evidence_id: load_message(self._store,conversation.id,evidence_scope,evidence_id)
             messages = continuation_messages(resume, load)
             agent.continuing_checkpoint = True
             agent.evidence_history = [load(evidence_id) for evidence_id in resume['messages']]
-            restore_research(router.research, resume.get('research'), load)
-            for source in router.research.sources.values():
-                page = await router.dispatch('file_read',{'path':source['path'],'max_chars':1},conversation.id)
-                if page.get('sha256') != source.get('artifact_sha256'):
-                    raise ValueError('检查点来源文件缺失或已变化，未继续生成')
-            for path,fingerprint in router.research.method_fingerprints.items():
-                page = await router.dispatch('file_read',{'path':path,'max_chars':1},conversation.id)
-                if page.get('sha256') != fingerprint:
-                    raise ValueError('已读取的方法文件已变化，未继续生成')
+            turn.restore_state(resume.get('turn', resume.get('research')), load)
+            await turn.verify_restore(lambda params: router.dispatch('file_read', params, conversation.id))
             agent.context_mgr.evidence_ids.update(resume['evidence_ids'])
         if agent.memory is not None and (self._snapshot.id != "default" or os.environ.get("DAILY_SERVICES") == "1"):
             from core.memory_manager import MemoryManager
@@ -1162,49 +1199,20 @@ class ChatSessionService:
             description = router.skill_session.discovery_context()
             if description:
                 agent.tool_descriptions['skill_info'] = description
+                agent.extra_system_sections.append(description)
         method_id = conversation.research_method
-        if method_id != 'auto' and not answer_only:
-            from core.stock_service import stock_service
-            try:
-                rows = (await stock_service.request('/api/control/methods'))['methods']
-                selected = next((row for row in rows if row['id'] == method_id), None)
-                if selected:
-                    agent.extra_system_sections += [
-                        '本会话人工选择的研究方法：' + selected['title'] + '，版本 ' + selected['version'] +
-                        '。仅在当前问题适用时采用。方法帮助提问和核查，不能代替事实、来源或股票交易门禁。\n' +
-                        selected['content']]
-            except (ValueError, OSError, httpx.HTTPError):
-                pass
         agent.allow_tools = not answer_only
         agent.workspace_cloud_allowed = workspace_allowed
         agent.cloud_write_allowed = cloud_write_allowed
+        agent.extra_system_sections += await turn.configure(method_id, answer_only)
         base = dict(conversation_id=conversation.id, run_id=run_id)
         meta = {'model': spec['id'], 'cloud_safe': cloud or workspace_allowed}
         response_meta = dict(response_to_message_id=response_to_message_id, version_number=response_version_number)
         text, reasoning, block, thinking_block = '', '', uuid.uuid4().hex, uuid.uuid4().hex
         thinking_open = False
         active_tools = {}
-        stock_bridge = self._runtime.stock_bridge
-        agent.stock_source_review_enabled = stock_bridge is not None
-        agent.stock_reply_purpose_enabled = stock_bridge is not None and not answer_only
-        if stock_bridge is not None and not answer_only:
-            agent.quality_first_research = True
-            agent.stock_loop_enabled = True
-            agent.stock_window_seconds = config.STOCK_WINDOW_SECONDS
-            agent.extra_system_sections = list(getattr(agent, 'extra_system_sections', [])) + [
-                '股票工具调用：先判断用户问题尚缺哪些可核对的证据，只为具体缺口查找或读取。'
-                '已有结果足够时直接回答；不要重复已成功的查找、读取或任务提交。'
-                '根据已返回的总页数停止读取，不请求不存在的页；任务引用只作工具参数，不在回答中展示。'
-                '参数错误可定向修正；结果未知不能自动重发。' +
-                (f'旧股票工具通路交付窗口为{config.STOCK_WINDOW_SECONDS}秒；' if config.STOCK_WINDOW_SECONDS > 0 else '旧股票工具通路不设固定交付窗口；') +
-                'research_begin开启的聊天自主研究不受此交接窗口约束。设置交接窗口时，旧通路到时通过已有提交工具和真实受理回执，'
-                '将尚未完成且已授权的公开研究交给股票工作进程自动继续，无需要求用户重复发送“继续”。'
-                '保留原问题、反证、完成判据及已保存来源；已有后台任务直接查询，不重复提交。'
-                '未受理、结果未知、材料不可得或没有进展时，交付已核对内容并说明实际缺口，不能声称后台已接续。'
-                '后续追问依据本会话已保存的工具结果、来源和游标接续；'
-                '必要时重新查找有效引用，不刷新简报或重建已受理任务。']
-        stock_pending_local = {}   # broker sequence -> call_id for local-only results
-        stock_tool_rows = {}       # call_id -> saved tool row id
+        pending_local = {}
+        provider_tool_rows = {}       # call_id -> saved tool row id
         turn_query = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
         control = getattr(self,'_run_control',None)
         if control:
@@ -1220,20 +1228,13 @@ class ChatSessionService:
                 return value
             control.checkpoint_factory = checkpoint
             control.validate = lambda: self.validate_run_resume(self.runs.store.get(control.id))
-        brief_comparison = (BriefComparison() if stock_bridge is not None and not answer_only
-                            and brief_comparison_requested(turn_query) else None)
-        brief_failed = False
+        start_turn = getattr(turn, 'start_turn', None)
+        if start_turn is not None and not answer_only:
+            start_turn(conversation.id, request_id or run_id, turn_query, method_id,
+                router.execution_profile, bool(workspace_allowed))
+            agent.allowed_tool_names = turn.allowed_tools()
+        failed = False
         last_assistant_content = None
-        if brief_comparison is not None:
-            # The verified renderer only needs version lookup and report pages.
-            # Withhold tools unrelated to this verified metadata comparison.
-            agent.allowed_tool_names = {'stock_market_brief_find', 'stock_report_read'}
-        if stock_bridge is not None and not answer_only:
-            stock_bridge.set_turn(conversation.id, request_id or run_id,
-                turn_query,
-                method_id=method_id,
-                execution_profile=router.execution_profile,
-                allow_report_body=bool(workspace_allowed))
         def emit(event, **kwargs):
             return UIStreamEvent(event=event, **base, **kwargs)
         def save(role, content='', **kwargs):
@@ -1242,10 +1243,17 @@ class ChatSessionService:
             yield emit('model.selected', data={'model': spec['id'], 'cloud': cloud,
                 'workspace_cloud_allowed': workspace_allowed,
                 'cloud_write_allowed': cloud_write_allowed})
-            async with aclosing(agent.run(messages, conversation.id, conversation.id)) as events:
+            async def policy_events():
+                async with aclosing(agent.run(messages, conversation.id, conversation.id)) as running:
+                    async for event in running:
+                        yield event
+                if not failed:
+                    async with aclosing(turn.completion_events(conversation.id)) as finishing:
+                        async for event in finishing:
+                            yield event
+            async with aclosing(policy_events()) as events:
                 async for event in events:
                     if event.kind == 'token':
-                        # Model transports emit reasoning delimiters as complete protocol tokens.
                         token = event.text
                         if token.strip() == '<think>':
                             thinking_open = True
@@ -1258,47 +1266,31 @@ class ChatSessionService:
                             yield emit('reasoning.delta', block_id=thinking_block, data={'text': token})
                         else:
                             text += token
-                            if brief_comparison is None:
+                            if not turn.buffer_output:
                                 yield emit('assistant.delta', block_id=block, data={'text': token, 'model': spec['id']})
-                    elif event.kind == 'reply_purpose_protocol':
-                        save('protocol', metadata={**meta, 'cloud_safe': False,
-                            'reply_purpose_view_version': event.data['view_version'],
-                            'reply_purpose_tool_call_count': event.data['tool_call_count'],
-                            'message': event.data['message']})
-                    elif event.kind == 'quality_repaired':
-                        # Retain the generated prose and exact local edits for
-                        # audit. This is not new evidence or a cloud message.
-                        save('protocol', metadata={**meta, 'cloud_safe': False,
-                            'message': {'role': 'system', 'content':
-                                '已按本轮授权原文或同版程序结果作确定的局部修复；其他事实和缺失判断仍须核验。'},
-                            'quality_status': event.data['quality_status'],
-                            'original_answer': event.data['original_answer'],
-                            'quality_edits': event.data['quality_edits']})
-                    elif event.kind == 'quality_rejected':
-                        # Keep the failed prose locally in existing protocol metadata;
-                        # the next model view gets the typed correction, not a false fact.
-                        save('protocol', metadata={**meta, 'message': event.data['message'],
-                            'quality_status': event.data.get('quality_status','rejected_source_quote'),
-                            'rejected_answer': event.data['rejected_answer'],
-                            'quality_issues': event.data['quality_issues']})
-                        text, reasoning = '', ''
-                        block, thinking_block = uuid.uuid4().hex, uuid.uuid4().hex
+                    elif event.data.get('protocol'):
+                        save('protocol', metadata={**meta, **event.data['protocol']})
+                        if event.data.get('reset_output'):
+                            text, reasoning = '', ''
+                            block, thinking_block = uuid.uuid4().hex, uuid.uuid4().hex
                     elif event.kind == 'message':
                         message = event.data['message']
                         protocol = ({**message, 'content': ''}
-                                    if brief_comparison is not None and message['role'] == 'assistant'
-                                    else message)
+                                    if turn.buffer_output and message['role'] == 'assistant' else message)
                         save('protocol', metadata={**meta, 'message': protocol})
                         if message['role'] == 'assistant' and not event.data.get('internal'):
                             final_text = message.get('content') or text
                             last_assistant_content = final_text
-                            if brief_comparison is None and (final_text or reasoning):
+                            if not turn.buffer_output and (final_text or reasoning):
                                 saved = save('assistant', final_text, thinking=reasoning, metadata=meta)
                                 yield emit('assistant.completed', block_id=block, message_id=saved.id,
                                     data={'text': final_text, 'model': spec['id']})
                             text, reasoning = '', ''
                             block, thinking_block = uuid.uuid4().hex, uuid.uuid4().hex
-                    elif event.kind == 'done' and event.text and event.text != last_assistant_content and brief_comparison is None:
+                    elif (event.kind == 'done' and event.text and event.text != last_assistant_content
+                          and (not turn.buffer_output or event.data.get('final'))):
+                        if event.data.get('final'):
+                            yield emit('assistant.delta', block_id=block, data={'text': event.text, 'model': spec['id']})
                         saved = save('assistant', event.text, metadata=meta)
                         last_assistant_content = event.text
                         yield emit('assistant.completed', block_id=block, message_id=saved.id,
@@ -1318,85 +1310,54 @@ class ChatSessionService:
                         yield emit('tool.progress', block_id=event.data['call_id'], data=event.data)
                     elif event.kind == 'tool_end':
                         data = event.data
-                        if brief_comparison is not None:
-                            brief_comparison.accept(data)
+                        turn.accept_tool(data)
                         display_params = _redact_params(data.get('params', {}))
                         saved = save('tool', '[' + data['status'] + '] ' + data['name'] + ' ' + event.text
                             + (' · ' + data['purpose'] if data.get('purpose') else '') + '\n' + data.get('result_preview',''), tool_name=data['name'],
                             tool_result=data.get('result'), metadata={**meta, 'params': display_params,
                                 'purpose': data.get('purpose', ''), 'status': data['status']})
                         active_tools.pop(data['call_id'], None)
-                        if stock_bridge is not None:
-                            stock_tool_rows[data['call_id']] = saved.id
-                            result = data.get('result')
-                            if isinstance(result, dict) and result.get('local_result_available'):
-                                sequence = result.get('broker_sequence')
-                                if isinstance(sequence, int):
-                                    stock_pending_local[sequence] = data['call_id']
+                        provider_tool_rows[data['call_id']] = saved.id
+                        result = data.get('result')
+                        if isinstance(result, dict) and result.get('local_result_available'):
+                            sequence = result.get('broker_sequence')
+                            if isinstance(sequence, int):
+                                pending_local[sequence] = data['call_id']
                         yield emit('tool.completed', block_id=data['call_id'], message_id=saved.id,
                             data={**data, 'params': display_params, 'detail': data.get('result_preview',''),
-                                'summary': data.get('purpose') or event.text, 'headline': event.text})
+                                'summary': data.get('purpose') or event.text, 'headline': event.text,
+                                'checkpoint': turn.checkpoint_event(data)})
                     elif event.kind == 'error':
-                        if getattr(agent, 'pending_source_review', ''):
-                            text += agent.pending_source_review
-                            agent.pending_source_review = ''
-                        partial = ('版本对比未完成；请查看已打开的本地附件并稍后重试。'
-                                   if brief_comparison is not None else
-                                   text + ('\n\n' if text else '') + '本轮未完成：' + event.text)
-                        brief_failed = True
+                        if getattr(agent, 'pending_review', ''):
+                            text += agent.pending_review
+                            agent.pending_review = ''
+                        partial = turn.failure_text(text, event.text)
+                        failed = True
                         saved = save('assistant', partial, thinking=reasoning, metadata={**meta, 'status':'error'})
                         text, reasoning = '', ''
                         yield emit('assistant.completed', block_id=block, message_id=saved.id,
                             data={'text': partial, 'model':spec['id'], 'status':'error'})
                         yield emit('error', data={'message': event.text})
-            if brief_comparison is not None and stock_bridge is not None and not brief_failed:
-                for reference, page in brief_comparison.missing_required_reads():
-                    call_id = uuid.uuid4().hex
-                    params = {'reference': reference, 'page': page}
-                    yield emit('tool.started', block_id=call_id,
-                        data={'call_id': call_id, 'name': 'stock_report_read',
-                              'params': params, 'summary': '核对简报版本'})
-                    result = await stock_bridge.call_tool('stock_report_read', params, conversation.id)
-                    status = 'error' if result.get('error') else 'ok'
-                    tool_data = {'call_id': call_id, 'name': 'stock_report_read',
-                                 'params': params, 'status': status, 'result': result}
-                    brief_comparison.accept(tool_data)
-                    saved = save('tool', '核对简报版本：' + ('已读取' if status == 'ok' else '未完成'),
-                                 tool_name='stock_report_read', tool_result=result,
-                                 metadata={**meta, 'params': params, 'status': status})
-                    stock_tool_rows[call_id] = saved.id
-                    sequence = result.get('broker_sequence')
-                    if result.get('local_result_available') and isinstance(sequence, int):
-                        stock_pending_local[sequence] = call_id
-                    yield emit('tool.completed', block_id=call_id, message_id=saved.id,
-                        data={**tool_data, 'detail': '版本读取已核对', 'headline': '核对简报版本'})
-                    if status == 'error':
-                        break
-            if stock_bridge is not None and not answer_only:
-                async for stock_event in self._finish_stock_turn(conversation.id, stock_pending_local, stock_tool_rows, emit):
-                    yield stock_event
-            if brief_comparison is not None and not brief_failed:
-                verified_text = brief_comparison.render()
-                saved = save('assistant', verified_text, metadata=meta)
-                yield emit('assistant.delta', block_id=block, data={'text': verified_text, 'model': spec['id']})
-                yield emit('assistant.completed', block_id=block, message_id=saved.id,
-                    data={'text': verified_text, 'model': spec['id']})
-                text, reasoning = '', ''
+            if not answer_only:
+                async for provider_event in self._finish_provider_turn(turn, conversation.id, pending_local, provider_tool_rows, emit):
+                    yield provider_event
             latest = self._require_conversation(conversation.id)
             yield emit('conversation.updated', data={'conversation':self._conversation_summary(latest).model_dump()})
             yield emit('session.completed')
         finally:
-            if getattr(agent, 'pending_source_review', ''):
-                text += agent.pending_source_review
-                agent.pending_source_review = ''
-            if stock_bridge is not None and stock_bridge.has_open_turn(conversation.id):
+            if router.research is not None:
+                await router.research.close()
+            turn = getattr(agent, 'turn', None)
+            if getattr(agent, 'pending_review', ''):
+                text += agent.pending_review
+                agent.pending_review = ''
+            if turn is not None and turn.has_open_turn(conversation.id):
                 # Interrupted path: harvest attachments to storage without streaming.
-                async for _ in self._finish_stock_turn(conversation.id, stock_pending_local, stock_tool_rows, None):
+                async for _ in self._finish_provider_turn(turn, conversation.id, pending_local, provider_tool_rows, None):
                     pass
             # Disconnects/stop preserve partial output and terminal tool states.
             if text or reasoning:
-                interrupted = ('版本对比已中断；已取得的附件仍可查看。' if brief_comparison is not None
-                               else text + '\n\n[生成已中断]')
+                interrupted = turn.interrupted_text(text)
                 save('assistant', interrupted, thinking=reasoning, metadata={**meta,'status':'interrupted'})
             for tool in active_tools.values():
                 result = {**tool.get('partial', {}), 'error':'执行已中断，请核查已有结果；不会自动重跑。'}
@@ -1405,16 +1366,21 @@ class ChatSessionService:
                 save('tool', '[error] 执行已中断，请核查已有结果。', tool_name=tool['name'],
                     tool_result=result, metadata={**meta,'status':'error','params':_redact_params(tool.get('params', {}))})
 
-    async def _finish_stock_turn(self, conversation_id, pending, tool_rows, emit):
-        """Finish the turn's broker session and attach harvested local-only results.
+    def archive_artifact(self, conversation_id, message_id, content):
+        from harness.contracts.artifacts import ArtifactError
+        saved = self.saved_artifact(conversation_id, message_id)
+        provider = self._artifact_registry().providers.get(saved.tool)
+        archive = getattr(provider, 'archive', None)
+        if archive is None:
+            return None
+        conversation = self._require_conversation(conversation_id)
+        try:
+            return archive(saved, content, self.workspaces.snapshot(conversation.workspace_id))
+        except ArtifactError as exc:
+            raise HTTPException(exc.status, exc.detail) from exc
 
-        Broker step numbers preserve ownership even when other steps have no
-        attachment or report text contains Markdown separators.
-        """
-        bridge = self._runtime.stock_bridge
-        if bridge is None:
-            return
-        results = await bridge.finish_turn(conversation_id)
+    async def _finish_provider_turn(self, turn, conversation_id, pending, tool_rows, emit):
+        results = await turn.finish_turn(conversation_id)
         if not results or not pending:
             return
         for item in results:
@@ -1426,37 +1392,12 @@ class ChatSessionService:
             if not message_id:
                 continue
             self._store.update_message_tool_result(conversation_id, message_id, text)
-            message = self._store.get_message(message_id)
-            if message and message.tool_name == 'stock_report_read':
-                try:
-                    self.archive_research_material(conversation_id, message_id, text)
-                except (OSError, HTTPException) as exc:
-                    # The DB attachment remains authoritative even if the workspace is unavailable.
-                    logging.getLogger(__name__).warning('Research material file not saved: %s', type(exc).__name__)
+            try:
+                self.archive_artifact(conversation_id, message_id, text)
+            except (OSError, HTTPException, ValueError) as exc:
+                logging.getLogger(__name__).warning('Artifact file not saved: %s', type(exc).__name__)
             if emit is not None:
                 yield emit('tool.local_result', block_id=call_id, message_id=message_id, data={'local_result': text})
-
-    def archive_research_material(self, conversation_id: str, message_id: str, text: str) -> str:
-        """Save only the received material, never fetch missing pages or change history."""
-        conversation = self._require_conversation(conversation_id)
-        message = self._store.get_message(message_id)
-        if not message or message.conversation_id != conversation_id or message.tool_name != 'stock_report_read':
-            raise HTTPException(404, '研究材料不属于本会话')
-        if not re.fullmatch(r'[a-f0-9]+', conversation_id) or not re.fullmatch(r'[a-f0-9]+', message_id):
-            raise HTTPException(422, '无效材料定位')
-        payload = text.encode('utf-8')
-        digest = hashlib.sha256(payload).hexdigest()
-        virtual = f'/workspace/reports/_research/{conversation_id}/{message_id}-{digest}.md'
-        snapshot = self.workspaces.snapshot(conversation.workspace_id)
-        target = snapshot.resolve(virtual)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with target.open('xb') as handle:
-                handle.write(payload)
-        except FileExistsError:
-            if target.read_bytes() != payload:
-                raise OSError('Research material archive conflict')
-        return virtual
 
     def _ensure_conversation(self, conversation_id: str | None, title: str | None) -> Conversation:
         if conversation_id:

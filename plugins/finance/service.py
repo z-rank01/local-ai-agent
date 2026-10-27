@@ -121,8 +121,24 @@ class StockService:
             result['message'] = str(exc) if isinstance(exc, ValueError) else '股票后台未运行或控制接口尚未就绪'
         return result
 
+    async def research_methods(self):
+        rows = (await self.request('/api/control/methods'))['methods']
+        return [{key: row[key] for key in ('id', 'title', 'roles', 'source', 'source_version', 'version')}
+                for row in rows]
+
+    def prepare_material(self, messages, references, cloud_allowed):
+        from .brief_material import prepare_material
+        return prepare_material(messages, references, cloud_allowed=cloud_allowed)
+
+    def shutdown_targets(self):
+        from urllib.parse import urlparse
+        value = os.environ.get('STOCK_BRIDGE_URL', '')
+        if not value:
+            return {}
+        return {'stock-bridge': [urlparse(value).port or 80]}
+
     async def attach(self, runtime, enabled):
-        previous = runtime.stock_bridge
+        previous = getattr(runtime.tool_registry, 'turn_context', {}).get('stock-bridge')
         bridge = None
         if enabled:
             _, state = self.paths()
@@ -138,7 +154,14 @@ class StockService:
                 await bridge.close()
             raise
         runtime.router.bind_provider('stock-bridge', bridge)
-        runtime.stock_bridge = bridge
+        from .research_transport import ResearchTransport
+        if enabled:
+            runtime.tool_registry.load_backend(config.TOOLS_DIR, 'research-runtime')
+            runtime.router.bind_provider('research-runtime', ResearchTransport())
+        else:
+            runtime.tool_registry.unregister_owner('research-runtime')
+            runtime.router.bind_provider('research-runtime', None)
+        runtime.tool_registry.turn_context = {'stock-bridge': bridge} if bridge else {}
         if previous:
             await previous.close()
 
@@ -190,7 +213,8 @@ class StockService:
             runtime.capabilities = LifecycleManager()
         runtime.router.capabilities = runtime.capabilities
         if not runtime.capabilities.manages('stock-bridge'):
-            runtime.capabilities.register('finance', FinanceLifecycle(self, runtime), aliases=('stock-bridge',))
+            runtime.capabilities.register('finance', FinanceLifecycle(self, runtime),
+                aliases=('stock-bridge', 'research-runtime'))
         return runtime.capabilities
 
     async def restore(self, runtime):

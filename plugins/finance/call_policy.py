@@ -36,3 +36,23 @@ class FinanceCallPolicy:
     def ends_window(self, tool, receipt):
         return isinstance(receipt, dict) and (
             receipt.get('status') in ('TIME_LIMIT', 'STEP_LIMIT') or receipt.get('broker_continue') is False)
+
+    def normalize_publication(self, params):
+        from .publication import normalize_publication
+        return normalize_publication(params)
+
+    def literal_text(self, text):
+        from .publication import literal_text
+        return literal_text(text)
+
+    def validate_publication(self, params, sources, read_text):
+        from .publication import validate_publication
+        return validate_publication(params, sources, read_text)
+
+    def render_charts(self, charts):
+        from .publication import render_charts
+        return render_charts(charts)
+
+    def validate_visual_plan(self, params):
+        from .publication import validate_visual_plan
+        return validate_visual_plan(params)

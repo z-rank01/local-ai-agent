@@ -26,7 +26,7 @@ class AcceptanceLaunchGuardTests(unittest.TestCase):
                 +"Assert-DailyAcceptanceState '"+str(root).replace("'","''")+"' '"+expected+"'\n"
                 +"Write-Output 'GUARD_PASSED'\n",encoding='utf-8')
             return subprocess.run(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(script)],
-                                  capture_output=True,text=True,timeout=15)
+                                  capture_output=True,text=True,encoding='mbcs',errors='replace',timeout=15)
 
     def test_correct_paused_separate_state_passes(self):
         result=self.run_guard({})
@@ -65,6 +65,6 @@ class AcceptanceLaunchGuardTests(unittest.TestCase):
             result=subprocess.run(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-Command',
                 "$ErrorActionPreference='Stop'; . '"+str(helper).replace("'","''")+
                 f"'; Assert-DailyStartupPorts -Ports @(0,{port}); 'PORTS_PASSED'"],
-                capture_output=True,text=True,timeout=20)
+                capture_output=True,text=True,encoding='mbcs',errors='replace',timeout=20)
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertIn('PORTS_PASSED',result.stdout)

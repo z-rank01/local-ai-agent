@@ -48,6 +48,23 @@ class ContextBindingTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(PermissionError):
                 await first.dispatch('context_read', {}, 'c2')
 
+    async def test_research_transport_uses_bound_session(self):
+        from plugins.finance.research_transport import ResearchTransport
+        from harness.contracts.tool_provider import ExecutionContext
+        with tempfile.TemporaryDirectory() as directory:
+            session = SimpleNamespace(calls=[])
+            async def begin(params):
+                session.calls.append(('begin', params))
+                return {'status': 'IN_PROGRESS'}
+            async def publish(params):
+                session.calls.append(('publish', params))
+                return {'status': 'PUBLISHED'}
+            session.begin, session.publish = begin, publish
+            bound = ResearchTransport().bind(ExecutionContext('default', Path(directory), Path, research=session))
+            self.assertEqual((await bound.call_tool('research_begin', {'scope': 'x'}, 'c'))['status'], 'IN_PROGRESS')
+            self.assertEqual((await bound.call_tool('brief_publish', {}, 'c'))['status'], 'PUBLISHED')
+            self.assertEqual(session.calls, [('begin', {'scope': 'x'}), ('publish', {})])
+
 
 class CapabilityRegistrationTests(unittest.TestCase):
     def test_search_and_finance_changes_preserve_new_plugin(self):
@@ -108,7 +125,7 @@ class CapabilityApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_inventory_requires_page_session_and_returns_registered_tools(self):
         from bff.app import app
         from unittest.mock import Mock
-        registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=True)
+        registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch',))
         with patch.dict(os.environ, {'DAILY_SERVICES': '1'}), \
                 patch('core.ui_session.session_token', return_value='test-page-token'), \
                 patch('bff.capabilities.CapabilityStore.list', return_value={}), \

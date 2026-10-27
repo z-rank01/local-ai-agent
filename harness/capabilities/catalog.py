@@ -17,9 +17,11 @@ def package_catalog(root: Path, ownership: dict[str, str]) -> list[dict]:
             tools = sorted(name for name, owner in ownership.items() if owner in owners)
             rows.append({**asdict(descriptor), 'api_version': 1, 'tools': tools,
                 'backends': value['backends'], 'owners': owners,
+                'commands': value.get('commands', {}),
                 'environment_required': value.get('execution') == 'container',
                 'registration': 'registered' if tools else 'unregistered',
-                'management': 'managed' if value.get('tool_registration') == 'managed' else 'legacy_adapter', 'error': None})
+                'management': ('managed' if value.get('tool_registration') == 'managed'
+                               else 'managed_service' if value.get('adapter') else 'legacy_adapter'), 'error': None})
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             rows.append({'id': package_id, 'kind': 'plugin', 'registration': 'invalid',
                 'error': str(exc) if isinstance(exc, ValueError) else '清单不可读或格式无效', 'tools': []})

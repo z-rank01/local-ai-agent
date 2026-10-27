@@ -34,15 +34,12 @@ class ToolRouter:
         registry: ToolRegistry,
         store: ConversationStore | None = None,
         *,
-        enable_websearch: bool = False,
         providers: dict[str, ToolTransport] | None = None,
     ):
         self._backend_urls = {
             "skill-files": skill_files_url.rstrip("/"),
             "skill-runner": skill_runner_url.rstrip("/"),
         }
-        if enable_websearch:
-            self._backend_urls["skill-websearch"] = skill_websearch_url.rstrip("/")
         self._policy = policy
         self._audit = audit
         self._registry = registry
@@ -73,7 +70,9 @@ class ToolRouter:
 
     def bind_context(self, context) -> None:
         """A copied router gets independent bindings for this host-owned run."""
+        from dataclasses import replace
         from harness.contracts.tool_provider import ContextualTransport
+        context = replace(context, research=getattr(self, 'research', None))
         self._providers = {owner: provider.bind(context) if isinstance(provider, ContextualTransport) else provider
                            for owner, provider in self._providers.items()}
 
@@ -106,9 +105,9 @@ class ToolRouter:
         if research is not None and research.active and tool in research.blocked_tools:
             raise PermissionError(f'当前聊天研究不开放此工具：{tool}；取证、计算、资料编辑与发布保持可用')
 
-    async def authorize_publication(self, params):
-        """The agent's separate review must cross the same publication boundary."""
-        self._policy.check('brief_publish', params)
+    async def authorize_publication(self, tool, params):
+        """A publication tool crosses the same policy and workspace boundary."""
+        self._policy.check(tool, params)
         if hasattr(self, 'workspace_validate'):
             await self.workspace_validate()
 
@@ -164,11 +163,6 @@ class ToolRouter:
             params = {**params, 'max_chars':min(params.get('max_chars') or cap, cap)}
 
         backend = self._registry.get_backend(tool)
-        if backend == 'research-runtime':
-            research = getattr(self, 'research', None)
-            if research is None:
-                raise RuntimeError('研究工具需要当前会话和工作区上下文')
-            return await (research.begin(params) if tool == 'research_begin' else research.publish(params))
         if backend == "local-runtime":
             result = self._dispatch_local(tool, params)
             self._audit.record(tool, {"session_id": session_id, "params": params, "status": "ok"})
@@ -183,8 +177,6 @@ class ToolRouter:
             raise RuntimeError(f"能力传输未配置：{backend}")
         base_url = self._backend_urls[backend]
 
-        if tool == 'web_fetch':
-            params = {**params, 'include_file': bool(getattr(self, 'research', None) and self.research.active)}
         resp = await self._client.post(
             f"{base_url}/tool/{tool}",
             json=params, headers=self._headers(backend),
@@ -208,13 +200,6 @@ class ToolRouter:
         skill_session = getattr(self, 'skill_session', None)
         if skill_session is not None and tool in {'skill_list', 'skill_info'}:
             result = await skill_session.adapt(tool, params, result)
-        if tool == 'web_fetch' and isinstance(result, dict):
-            research = getattr(self, 'research', None)
-            if research and research.active:
-                result = await research.save_source(result)
-            else:
-                result.pop('_source_file', None)
-
         result = await self._limit_result(tool, result, session_id)
 
         # Auto-chain: file_read → file_convert for unsupported binary files
@@ -450,4 +435,11 @@ class ToolRouter:
         return resp.json()
 
     async def close(self) -> None:
+        import inspect
+        for provider in list(self._providers.values()):
+            close = getattr(provider, 'close', None)
+            if close is not None:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
         await self._client.aclose()

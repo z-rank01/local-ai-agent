@@ -72,3 +72,45 @@ class StartupFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(rows['invalid']['registration'], 'invalid')
             self.assertIn('API', rows['invalid']['error'])
             self.assertEqual(rows['a-files']['management'], 'managed')
+
+    async def test_manifest_adapter_is_registered_before_restore(self):
+        import os
+        import sys
+        import types
+        from harness.runtime.lifecycle import LifecycleManager
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / 'demo'
+            package.mkdir()
+            (package / 'plugin.json').write_text(json.dumps({
+                'id': 'demo', 'harness_api': 1, 'version': '1', 'title': 'Demo',
+                'description': 'fixture', 'backends': ['demo'], 'required': [],
+                'optional': [], 'permissions': [], 'adapter': 'plugins.demo.service:service'}), encoding='utf-8')
+            events = []
+
+            class Provider:
+                async def activate(self): events.append('activate')
+                async def deactivate(self): pass
+
+            class Service:
+                def lifecycle(self, runtime):
+                    events.append('register')
+                    runtime.capabilities = LifecycleManager()
+                    runtime.capabilities.register('demo', Provider())
+
+                async def restore(self, runtime):
+                    events.append('restore')
+                    await runtime.capabilities.activate('demo')
+
+            module = types.ModuleType('plugins.demo.service')
+            module.service = Service()
+            runtime = SimpleNamespace(capabilities=None, router=SimpleNamespace(),
+                                      tool_registry=None, store=ConversationStore(root / 'state.db'))
+            with patch.dict(os.environ, {'DAILY_SERVICES': '1'}), \
+                    patch.dict(sys.modules, {'plugins.demo.service': module}):
+                await restore_plugins(runtime, root, 'http://unused', {})
+            self.assertEqual(events, ['register', 'restore', 'activate'])
+            self.assertIs(runtime.capability_services['demo'], module.service)
+            self.assertEqual(runtime.capabilities.status('demo')['state'], 'ACTIVE')
+            rows = package_catalog(root, {})
+            self.assertEqual(rows[0]['management'], 'managed_service')

@@ -13,21 +13,27 @@ test('manifest addition and removal regenerate UI without editing host imports; 
     await mkdir(scripts, {recursive: true});
     const generator = path.join(scripts, 'generate-extensions.mjs');
     await copyFile(path.join(path.dirname(fileURLToPath(import.meta.url)), 'generate-extensions.mjs'), generator);
-    const add = async id => {
+    const add = async (id, withArtifact = false) => {
       await mkdir(path.join(root, 'plugins', id), {recursive: true});
       const entry = `apps/web/src/plugins/${id}/index.tsx`;
       await mkdir(path.dirname(path.join(root, entry)), {recursive: true});
       await writeFile(path.join(root, entry), 'export default function Panel() { return null; }');
-      await writeFile(path.join(root, 'plugins', id, 'plugin.json'), JSON.stringify({
-        id, title: id, description: 'test', harness_api: 1, ui: {settings: entry},
-      }));
+      const manifest = {id, title: id, description: 'test', harness_api: 1, ui: {settings: entry}};
+      if (withArtifact) {
+        const renderer = `apps/web/src/plugins/${id}/artifact.tsx`;
+        await writeFile(path.join(root, renderer), 'export function getArtifactInfo() { return {}; }');
+        manifest.artifacts = {type: 'document-text', tools: ['document_read'], renderer};
+      }
+      await writeFile(path.join(root, 'plugins', id, 'plugin.json'), JSON.stringify(manifest));
     };
     const build = () => execFileSync(process.execPath, [generator], {stdio: 'pipe'});
     const output = path.join(root, 'apps/web/src/extensions/generated.ts');
     await add('first'); build();
     assert.match(await readFile(output, 'utf8'), /plugins\/first\/index/);
-    await add('second'); build();
-    assert.match(await readFile(output, 'utf8'), /plugins\/second\/index/);
+    await add('second', true); build();
+    const generated = await readFile(output, 'utf8');
+    assert.match(generated, /plugins\/second\/index/);
+    assert.match(generated, /artifactContributions[\s\S]*plugins\/second\/artifact/);
     // Removing only the manifest uninstalls its contribution from the registry.
     await rm(path.join(root, 'plugins/first/plugin.json')); build();
     const previous = await readFile(output, 'utf8');

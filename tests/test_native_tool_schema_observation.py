@@ -8,6 +8,13 @@ import httpx
 from core.native_tool_schema import fingerprint, tool_schema_observation
 from core.providers import CompatibleClient, CallBudget
 
+PURPOSES = {'stock_report_read': {'analysis', 'calculation'},
+            'stock_public_evidence_read': {'analysis', 'source_scope'}}
+
+
+def observe(payload):
+    return tool_schema_observation(payload, PURPOSES)
+
 
 def definition(enum=None):
     return {'type': 'function', 'function': {'name': 'stock_report_read',
@@ -19,27 +26,27 @@ def definition(enum=None):
 class ToolSchemaTests(unittest.TestCase):
     def test_complete_hash_without_definition_text_or_defaults(self):
         payload={'tools': [definition()]};old=copy.deepcopy(payload)
-        v=tool_schema_observation(payload)
+        v=observe(payload)
         self.assertEqual(v['tools_sha256'],fingerprint(payload['tools']))
         self.assertEqual(v['tool_schema_fingerprints'][0]['reply_focus_schema']['enum'],['analysis','calculation'])
         self.assertNotIn('private-definition-text',json.dumps(v))
         self.assertNotIn('private-default',json.dumps(v))
         self.assertEqual(payload,old)
         payload['tools'][0]['function']['description']='different'
-        self.assertNotEqual(tool_schema_observation(payload)['tools_sha256'],v['tools_sha256'])
+        self.assertNotEqual(observe(payload)['tools_sha256'],v['tools_sha256'])
 
     def test_missing_empty_and_bad_schema_are_distinct(self):
         for p,present in (({},False),({'tools':[]},True)):
-            v=tool_schema_observation(p)
+            v=observe(p)
             self.assertEqual(v['tool_schema_count'],0);self.assertEqual(v['tools_field_present'],present)
-        v=tool_schema_observation({'tools':'private-test-value'})
+        v=observe({'tools':'private-test-value'})
         self.assertEqual(v['tool_schema_status'],'UNAVAILABLE')
         self.assertNotIn('private-test-value',json.dumps(v))
-        v=tool_schema_observation({'tools':[definition(['analysis','private-test-value'])]})
+        v=observe({'tools':[definition(['analysis','private-test-value'])]})
         self.assertEqual(v['tool_schema_fingerprints'][0]['reply_focus_schema']['status'],'UNRECOGNISED')
         self.assertNotIn('private-test-value',json.dumps(v))
         d=definition();del d['function']['parameters']['properties']['reply_focus']
-        self.assertEqual(tool_schema_observation({'tools':[d]})['tool_schema_fingerprints'][0]['reply_focus_schema']['status'],'MISSING')
+        self.assertEqual(observe({'tools':[d]})['tool_schema_fingerprints'][0]['reply_focus_schema']['status'],'MISSING')
 
 
 class CompatiblePayloadTests(unittest.IsolatedAsyncioTestCase):

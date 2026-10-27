@@ -104,14 +104,10 @@ class SettingsTests(unittest.IsolatedAsyncioTestCase):
 class StreamSettingsTests(unittest.IsolatedAsyncioTestCase):
     asyncSetUp = test_in1.ServiceTests.asyncSetUp
     async def test_settings_control_transport_and_tool_timeline(self):
-        # The registry only loads stock tools when a bridge URL is configured, and
-        # the daily .env deliberately leaves that to the page-managed connector, so
-        # this test must supply its own rather than depend on the machine's setup.
         with patch.object(model_settings, 'settings_path', lambda: Path(self.tmp.name)/'settings.json'), \
-                patch.object(config, 'STOCK_BRIDGE_URL', 'http://127.0.0.1:1'):
+                patch.dict('os.environ', {'STOCK_BRIDGE_URL': 'http://127.0.0.1:1'}):
             self.runtime.tool_registry._tools = ToolRegistry(
-                config.TOOLS_DIR, enable_websearch=config.ENABLE_WEBSEARCH,
-                stock_bridge_url='http://127.0.0.1:1')._tools
+                config.TOOLS_DIR, enabled_backends=('skill-websearch', 'stock-bridge'))._tools
             spec = next(s for s in self.runtime.models.specs if s['provider_id']=='qwen')
             payloads=[]
             emitted={'tool': False}
@@ -250,7 +246,7 @@ class ShutdownStackTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_shutdown_stack_endpoint_guards_and_payload(self):
         from bff import app as bff_app
-        from core.stock_service import stock_service
+        from plugins.finance.service import stock_service
         from unittest.mock import AsyncMock
         with patch.object(bff_app,'get_chat_service',return_value=SimpleNamespace(runs=SimpleNamespace(close=AsyncMock()))), \
              patch.object(bff_app,'_stop_tool_containers',AsyncMock()), \

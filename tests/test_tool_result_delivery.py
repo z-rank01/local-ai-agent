@@ -11,7 +11,7 @@ import httpx
 from core import config
 from core.tool_registry import ToolRegistry
 from core.tool_router import ToolRouter
-from core.research_session import ResearchSession
+from plugins.finance.research.session import ResearchSession
 from tests.test_file_paging import FileOps, PathGuard
 
 
@@ -39,7 +39,7 @@ class ToolDeliveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_spilled_results_can_be_read_in_each_workspace_without_crossing_roots(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(config, 'TOOL_RESULT_MAX_CHARS', 40):
-            registries = ToolRegistry(config.TOOLS_DIR, enable_websearch=True)
+            registries = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch',))
             for workspace in ('default', 'named'):
                 root = Path(temporary)/workspace
                 root.mkdir()
@@ -56,7 +56,8 @@ class ToolDeliveryTests(unittest.IsolatedAsyncioTestCase):
                     else:
                         result = {'text':workspace*60}
                     return httpx.Response(200,json=result)
-                router = ToolRouter('http://files','http://runner','http://search', Mock(), Mock(), registries, enable_websearch=True)
+                router = ToolRouter('http://files','http://runner','http://search', Mock(), Mock(), registries)
+                router.set_backend('skill-websearch', 'http://search')
                 await router._client.aclose()
                 router._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
                 self.addAsyncCleanup(router._client.aclose)
@@ -75,7 +76,7 @@ class ToolDeliveryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn('仅显示',page['content'])
 
     async def test_readonly_cloud_does_not_create_spill_files(self):
-        registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=True)
+        registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch',))
         router = ToolRouter('http://files','http://runner','http://search',Mock(),Mock(),registry)
         self.addAsyncCleanup(router._client.aclose)
         router.cloud = True
@@ -85,7 +86,7 @@ class ToolDeliveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await router._limit_result('web_search',result,'test'),result)
 
     def test_research_keeps_editing_but_excludes_background_side_effects(self):
-        registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=True, stock_bridge_url='http://unused')
+        registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch', 'stock-bridge'))
         run = ResearchSession(SimpleNamespace(known_tools=registry.known_tools,
             tools_for_role=registry.tools_for_role),conversation_id='s',model='test',allowed=True)
         run.methods.add('read-method')

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol, runtime_checkable
 from .models import ModelGateway
+from .research import ResearchSession
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class ExecutionContext:
     model: str = ''
     permissions: frozenset[str] = frozenset()
     model_gateway: ModelGateway | None = None
+    research: ResearchSession | None = None
 
 
 class ToolProvider(Protocol):

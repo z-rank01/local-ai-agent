@@ -1,4 +1,5 @@
 """Offline tests for the stock read-only bridge; a fake in-contract broker stands in."""
+import asyncio
 import json
 import unittest
 from unittest.mock import patch
@@ -559,13 +560,13 @@ class ResearchChainActionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RegistryGatingTests(unittest.TestCase):
-    def test_stock_tools_gated_on_configuration(self):
+    def test_stock_tools_follow_owner_activation(self):
         without = ToolRegistry(config.TOOLS_DIR)
         self.assertNotIn('stock_account_view', without.known_tools)
-        with_url = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://127.0.0.1:8766')
-        self.assertIn('stock_account_view', with_url.known_tools)
-        self.assertIn('stock_research_find', with_url.known_tools)
-        self.assertIn('stock_report_read', with_url.known_tools)
+        enabled = ToolRegistry(config.TOOLS_DIR, enabled_backends=('stock-bridge',))
+        self.assertIn('stock_account_view', enabled.known_tools)
+        self.assertIn('stock_research_find', enabled.known_tools)
+        self.assertIn('stock_report_read', enabled.known_tools)
 
 
 class RouterDelegationTests(unittest.IsolatedAsyncioTestCase):
@@ -577,7 +578,7 @@ class RouterDelegationTests(unittest.IsolatedAsyncioTestCase):
         from core.policy_engine import PolicyEngine
         from core.tool_router import ToolRouter
         with tempfile.TemporaryDirectory() as tmp:
-            registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://x')
+            registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('stock-bridge',))
             bridge = SimpleNamespace(calls=[])
             async def call_tool(tool, params, session_id):
                 bridge.calls.append((tool, params, session_id))
@@ -616,7 +617,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
                     {'sequence': 6, 'text': '相同摘要'},
                 ]
             async def close(self): pass
-        self.runtime.stock_bridge = FinishedBridge()
+        self.runtime.tool_registry.turn_context = {'stock-bridge': FinishedBridge()}
         conv = self.runtime.store.create_conversation(title='附件配对')
         ids = {}
         for sequence, name in ((1, 'stock_market_brief'), (3, 'stock_report_read'),
@@ -626,8 +627,10 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
             ids[sequence] = row.id
         pending = {sequence: f'call-{sequence}' for sequence in ids}
         rows = {call_id: ids[sequence] for sequence, call_id in pending.items()}
-        events = [event async for event in self.service._finish_stock_turn(
-            conv.id, pending, rows, lambda event, **kwargs: (event, kwargs))]
+        from plugins.finance.turn import FinanceTurn
+        turn = FinanceTurn(self.runtime.tool_registry.turn_context)
+        events = [event async for event in self.service._finish_provider_turn(
+            turn, conv.id, pending, rows, lambda event, **kwargs: (event, kwargs))]
         saved = {m.tool_name: m.tool_result['local_result']
                  for m in self.service.get_messages(conv.id) if m.role == 'tool'}
         self.assertEqual(saved['stock_report_read'], '报告正文\n\n---\n\n后续章节')
@@ -636,7 +639,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([event[1]['block_id'] for event in events],
                          ['call-3', 'call-1', 'call-6'])
 
-    def install_bridge(self, texts):
+    async def install_bridge(self, texts):
         from core.tool_registry import ToolRegistry
         parent = self
         class StubBridge:
@@ -660,11 +663,18 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
                 return [{'sequence': i + 1, 'text': text} for i, text in enumerate(texts)]
             async def close(self): pass
         stub = StubBridge()
-        registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://x')
-        self.runtime.stock_bridge = stub
+        registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('stock-bridge',))
+        registry.turn_context = {'stock-bridge': stub}
         self.runtime.tool_registry = registry
         self.runtime.router.bind_provider('stock-bridge', stub)
         self.runtime.router._registry = registry
+        from harness.runtime.lifecycle import LifecycleManager
+        lifecycle = LifecycleManager()
+        lifecycle.register('finance', type('StubLifecycle', (), {
+            'activate': lambda self: asyncio.sleep(0),
+            'deactivate': lambda self: asyncio.sleep(0)})(), aliases=('stock-bridge',))
+        await lifecycle.activate('stock-bridge')
+        self.runtime.router.capabilities = lifecycle
         return stub
 
     def stock_model(self):
@@ -684,7 +694,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         return ref
 
     async def test_local_result_attached_at_turn_end_not_in_protocol(self):
-        stub = self.install_bridge(['完整报告全文'])
+        stub = await self.install_bridge(['完整报告全文'])
         self.stock_model()
         events = [e async for e in self.service.stream_chat(ChatRequest(message='读报告', model='qwen3.5-flash', request_id='stock-turn-1'))]
         cid = events[0].conversation_id
@@ -699,7 +709,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('完整报告全文', json.dumps([m.metadata for m in protocol], ensure_ascii=False))
 
     async def test_answer_only_regenerate_opens_no_broker_session(self):
-        stub = self.install_bridge(['X'])
+        stub = await self.install_bridge(['X'])
         self.stock_model()
         events = [e async for e in self.service.stream_chat(ChatRequest(message='读报告', model='qwen:qwen3.5-flash', request_id='stock-turn-2'))]
         cid = events[0].conversation_id
@@ -708,7 +718,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(stub.turns), before)
 
     async def test_explicit_answer_only_request_opens_no_broker_session(self):
-        stub = self.install_bridge(['must not be read'])
+        stub = await self.install_bridge(['must not be read'])
         self.stock_model()
         events = [e async for e in self.service.stream_chat(ChatRequest(
             message='只评审给定文本', model='qwen:qwen3.5-flash', allow_tools=False))]
@@ -716,7 +726,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('tool.started', [event.event for event in events])
 
     async def test_next_turn_uses_saved_public_cursor_with_new_broker_turn(self):
-        stub = self.install_bridge([])
+        stub = await self.install_bridge([])
         reference = 'a' * 64
         event_id = 'b' * 16
         calls = []
@@ -761,7 +771,7 @@ class StockTurnTests(unittest.IsolatedAsyncioTestCase):
                          ['find-evidence', 'read-next'])
 
     async def test_disconnect_keeps_execution_then_explicit_stop_finishes_bridge(self):
-        stub = self.install_bridge(['X'])
+        stub = await self.install_bridge(['X'])
         parent = self
         ref = 'a' * 64
         class HangingModel:
@@ -801,27 +811,8 @@ class StockPrivacyTests(unittest.IsolatedAsyncioTestCase):
     """Local stock report content must never reach the model through any path."""
     asyncSetUp = test_in1.ServiceTests.asyncSetUp
 
-    def install_bridge(self, marker):
-        from core.tool_registry import ToolRegistry
-        parent = self
-        class StubBridge:
-            def __init__(self): self.open = False
-            def set_turn(self, cid, rid, query='', method_id='auto', **kwargs): self.open = True
-            def has_open_turn(self, cid): return self.open
-            async def call_tool(self, tool, params, session_id):
-                return {'model_observation': {'task_status': 'SUCCEEDED'}, 'status': 'TOOL_RETURNED',
-                        'code': 'OK', 'local_result_available': True, 'broker_sequence': 1}
-            async def finish_turn(self, cid):
-                self.open = False
-                return [{'sequence': 1, 'text': marker}]
-            async def close(self): pass
-        stub = StubBridge()
-        self.runtime.stock_bridge = stub
-        self.runtime.router.bind_provider('stock-bridge', stub)
-        registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://x')
-        self.runtime.tool_registry = registry
-        self.runtime.router._registry = registry
-        return stub
+    async def install_bridge(self, marker):
+        return await StockTurnTests.install_bridge(self, [marker])
 
     def recording_model(self):
         parent = self
@@ -842,7 +833,7 @@ class StockPrivacyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_local_result_never_reenters_model_history(self):
         marker = 'F01-SECRET-REPORT-TEXT'
-        self.install_bridge(marker)
+        await self.install_bridge(marker)
         self.recording_model()
         _ = [e async for e in self.service.stream_chat(ChatRequest(message='读报告', model='qwen3.5-flash', request_id='stock-leak-1'))]
         cid = _[0].conversation_id

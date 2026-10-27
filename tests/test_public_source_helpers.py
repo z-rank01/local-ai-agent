@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
-from core.research_session import ResearchSession
+from plugins.finance.research.session import ResearchSession
 from tests.test_research_session import Files
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,19 +69,22 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
     async def test_batch_cannot_use_old_tool_list_to_skip_method_read(self):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock
-        from core.agent import Agent
+        from plugins.finance.loop import FinanceLoop
         run = ResearchSession(Files(), conversation_id='test', model='unchanged', allowed=True)
         await run.begin({'scope': '研究', 'plan': ['选方法']})
         dispatch = AsyncMock(return_value={'content': 'actual'})
         agent = SimpleNamespace(router=SimpleNamespace(research=run, dispatch=dispatch),
+                                registry=SimpleNamespace(),
                                 audit=SimpleNamespace(record=lambda *args: None))
         calls = [{'id': 'one', 'function': {'name': 'web_fetch', 'arguments': {'url': 'https://example.org'}}}]
-        events = [e async for e in Agent._execute_tools(agent, calls, 'test', [], allowed={'web_fetch'})]
+        events = [e async for e in FinanceLoop._execute_tools(agent, calls, 'test', [], allowed={'web_fetch'})]
         dispatch.assert_not_awaited()
-        self.assertEqual(next(e for e in events if e.kind == 'tool_end').data['status'], 'error')
+        failed = next(e for e in events if e.kind == 'tool_end')
+        self.assertEqual(failed.data['status'], 'error')
+        self.assertIn('先读取适用方法', failed.data['result']['error'])
         await run.observe({'name': 'file_read', 'status': 'ok', 'params': {
             'path': '/workspace/skills/harness-stock-research-v3/references/event.md'}, 'result': {}})
-        events = [e async for e in Agent._execute_tools(agent, calls, 'test', [], allowed={'web_fetch'})]
+        events = [e async for e in FinanceLoop._execute_tools(agent, calls, 'test', [], allowed={'web_fetch'})]
         dispatch.assert_awaited_once()
         self.assertEqual(next(e for e in events if e.kind == 'tool_end').data['status'], 'ok')
 
@@ -125,8 +128,8 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('实际收到', (await run.publish(params))['error'])
         await run.observe({'name': 'code_exec', 'status': 'ok', 'params': {},
                            'result': {'stdout': json.dumps(receipt)}})
-        from core.research_review import fingerprint
-        from core.research_visuals import validate_publication
+        from plugins.finance.research_review import fingerprint
+        from plugins.finance.publication import validate_publication
         checked = validate_publication(params, run.sources, run.read_text)
         run.review_records[fingerprint(checked)]={'status':'COMPLETE','issues':[],
             'evidence_sha256':fingerprint(run.evidence_index()),'semantic_certification':False}

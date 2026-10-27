@@ -19,7 +19,7 @@ class PurposeContextOrderTests(unittest.IsolatedAsyncioTestCase):
             async def dispatch(self,*args):return {'model_observation':value()}
         self_outer=self
         a=SourceQuoteLoopTests.agent(self,Model(),Router(),['stock_report_read'])
-        a.stock_reply_purpose_enabled=True
+        a.turn_reply_purpose_enabled=True
         async def process(messages):raise AssertionError('pure purpose must not summarise unused history')
         a.context_mgr=SimpleNamespace(process=process)
         events=[e async for e in a.run(history())]
@@ -33,7 +33,7 @@ class PurposeContextOrderTests(unittest.IsolatedAsyncioTestCase):
                 calls.append(messages)
                 yield '',{'role':'assistant','content':'{"reply_focus":"analysis"}' if len(calls)==1 else '原分析继续。'}
         a=SourceQuoteLoopTests.agent(self,Model(),SimpleNamespace(),['stock_report_read'])
-        a.stock_reply_purpose_enabled=True
+        a.turn_reply_purpose_enabled=True
         async def process(messages):
             self.assertEqual(len(calls),1)
             self.assertTrue(any('末尾反证' in (m.get('content') or '') for m in messages))

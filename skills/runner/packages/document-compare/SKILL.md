@@ -2,6 +2,8 @@
 name: document-compare
 description: 比较多份方案、说明或报告的结论、数字和适用范围，用可定位的原文说明一致、矛盾与缺失信息。需要外部核实时结合可用搜索。
 version: 1.0.0
+required: []
+optional: [document-index, websearch]
 ---
 
 # 资料对比

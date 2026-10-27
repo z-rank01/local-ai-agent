@@ -48,7 +48,8 @@ class CompletionTests(unittest.IsolatedAsyncioTestCase):
             async def dispatch(self, *args):
                 return {'error': 'fixture: unavailable'}
         async def process(messages): return messages
-        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw: [
+        from plugins.finance.loop import FinanceLoop
+        agent = FinanceLoop(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw: [
             {'type': 'function', 'function': {'name': 'example_task'}}]),
             audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=10)

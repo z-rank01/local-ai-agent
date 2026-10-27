@@ -61,6 +61,27 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recovered['files'][1]['state'], 'UNKNOWN')
         self.assertEqual(recovered['files'][0]['state'], 'SUCCEEDED')
 
+    async def test_holdout_requires_receipt_originals_and_searchable_pdf(self):
+        from scripts.harness_holdout import structure, sha
+        source = self.root / 'cases/document-batch/o1-v1/chinese-scan.jpg'
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b'original-image')
+        output = self.root / 'reports/document-batch/example'
+        output.mkdir(parents=True)
+        (output / '001.pdf').write_bytes(b'%PDF-fixture')
+        (output / '001.txt').write_text('searchable text', encoding='utf-8')
+        inputs = [{'path': '/workspace/cases/document-batch/o1-v1/chinese-scan.jpg', 'sha256': sha(source)}]
+        files = [{'source': inputs[0]['path'], 'source_sha256': inputs[0]['sha256'], 'state': 'SUCCEEDED',
+                  'pdf': 'reports/document-batch/example/001.pdf', 'text': 'reports/document-batch/example/001.txt'}]
+        rows = [{'role': 'tool', 'tool_name': 'documents_batch', 'tool_result': {'state': 'QUEUED', 'files': files}},
+                {'role': 'tool', 'tool_name': 'documents_batch_status', 'tool_result': {'state': 'SUCCEEDED', 'files': files}},
+                {'role': 'tool', 'tool_name': 'file_read', 'params': {'path': '/workspace/reports/document-batch/example/001.txt'},
+                 'tool_result': {'content': 'searchable text'}}]
+        checks = structure({'capability': 'document-batch', 'task': 'o1'}, rows, inputs, self.root,
+            ocr_verifications={'/workspace/reports/document-batch/example/001.pdf': {'characters': 15}})
+        self.assertTrue(checks['required_tools_present'])
+        self.assertTrue(checks['ocr_receipt_and_text_layers_valid'])
+
     async def test_drain_cancels_active_and_queued_files_before_returning(self):
         entered = asyncio.Event()
         async def worker(source, output, language, cancel):

@@ -73,20 +73,32 @@ class LifecycleManager:
             instance.state, instance.error = 'START_FAILED', str(exc) or type(exc).__name__
             raise
 
+    def active(self):
+        return sorted(identity for identity, instance in self._instances.items()
+                      if instance.state == 'ACTIVE')
+
+    @asynccontextmanager
+    async def leases(self, identities):
+        names = sorted({self._identity(identity) for identity in identities})
+        instances = [self._instances[name] for name in names]
+        for name, instance in zip(names, instances):
+            if instance.state != 'ACTIVE':
+                raise RuntimeError(f'能力不接收新调用：{name} ({instance.state})')
+        for instance in instances:
+            instance.calls += 1
+            instance.idle.clear()
+        try:
+            yield frozenset(names)
+        finally:
+            for instance in reversed(instances):
+                instance.calls -= 1
+                if not instance.calls:
+                    instance.idle.set()
+
     @asynccontextmanager
     async def call(self, identity):
-        instance = self._instances[self._identity(identity)]
-        if instance.state != 'ACTIVE':
-            raise RuntimeError(f'能力不接收新调用：{identity} ({instance.state})')
-        # No await between admission and increment, so deactivation cannot interleave.
-        instance.calls += 1
-        instance.idle.clear()
-        try:
+        async with self.leases((identity,)):
             yield
-        finally:
-            instance.calls -= 1
-            if not instance.calls:
-                instance.idle.set()
 
     async def deactivate(self, identity, *, timeout=30, reconcile=False):
         identity = self._identity(identity)

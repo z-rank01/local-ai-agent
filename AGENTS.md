@@ -25,8 +25,8 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 258 项、2 项跳过（2026-10-09））
-npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）
+.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 951 项、20 项跳过（2026-10-27））
+npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
 
@@ -89,7 +89,7 @@ powershell Start-Process …（由聊天后端调用）
 - `core/runtime.py`：`build_runtime()` 组装工具注册表/路由/模型目录；技能开关通过公开的 `load_backend` / `unregister_owner` 与 `set_backend` 更新自身贡献，保留其他提供者的工具及 registry 对象同一性。禁止重建整张注册表覆盖其他能力。当前仍有旧业务接线，不能将此适配步骤视为完整插件迁移。
 - `bff/service.py`：`ChatSessionService` 是会话/工作区/流式门面；`exclusive_turn` 保证同工作区及目录重叠工作区串行执行，返回 409 与执行会话；不同目录的工作区可并行。技能切换期间聊天 409。目录配置每轮冻结，失败保留有效配置，用户明确检查应用后激活待生效配置。
 - 前端 `apps/web/src/` 为组件化结构：`app/`（App.tsx 编排层 + 顶栏/会话抽屉/输入胶囊/阅读栏/工作台 Sheet/设置/阅读器等区块）、`panels/`（工作区、技能、股票、打包任务）、`ui/`（Collapse/Panel/Popover 等基元）、`lib/`（storage/format/appearance/transcript/report/notify/confirm）；`styles.css` 是唯一令牌来源（Apple 设计系统，旧三栏紫系已废弃）。界面无常驻侧栏：顶栏细条 + 全屏阅读栏 + 底部悬浮输入胶囊；会话抽屉与工作台 Sheet 两级浮层默认收起；唯一"退出"按钮在会话抽屉底部。
-- 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。普通聊天通用系统内容维护在 `prompts/modules/01..07`；搜索与金融专属内容在各自 `plugins/<id>/prompts/`，由清单 `prompts` 声明并按本轮登记工具选择。新增能力提示不改通用 Agent 分支。插件提示文件和触发声明一起进入检查点兼容指纹；`prompts/system.txt` 只是 modules 缺失时的兜底占位。自主研究的单独核对角色使用 `prompts/research_review.txt`，不作为普通聊天模块注入；它与原模块一起进入检查点兼容指纹。
+- 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。普通聊天通用系统内容维护在 `prompts/modules/01..07`；搜索与金融专属内容在各自 `plugins/<id>/prompts/`，由清单 `prompts` 声明并按本轮登记工具选择。新增能力提示不改通用 Agent 分支。插件提示文件和触发声明一起进入检查点兼容指纹；`prompts/system.txt` 只是 modules 缺失时的兜底占位。自主研究的单独核对角色使用 `plugins/finance/prompts/review.txt`，不作为普通聊天模块注入；它与原模块一起进入检查点兼容指纹。
 
 聊天自主研究的evidence_requests由程序展开为原工具调用，不另起执行后端。evidence-index.json只登记实际收到的资料及模型标注；reviews保存同模型单独核对的候选稿/可见结果，不保存隐藏思维链、不进入正文。发布关联当前稿及证据指纹，不认证语义；核对UNKNOWN停止本轮且不重发。无进展收尾保留已有资料回读、改稿及核对，禁止新增联网需求；不能把阶段限制报成供应商额度不足。
 
@@ -125,7 +125,7 @@ powershell Start-Process …（由聊天后端调用）
 
 一次性恢复不得持久化 `daily-services.json.worker=true`；网络回执未知也保持下次启动不自动领取任务。镜像内插件资源在 `plugins/*/runtime`、`tools` 及清单中维护，修改后仍由唯一入口 `-Build` 生效。文件服务构建使用根目录白名单 `.dockerignore`，只复制服务与插件代码/契约，不把 data、密钥或整个宿主仓库挂载给容器。资料索引缓存属于工作区 `.capabilities/document-index`，可重建，不能成为第二份原始资料库。
 
-Harness 重构施工中：正式聊天的方法型 Skill 通过 Runner 的版本接口复制内容快照，运行检查点保存版本引用；更新原目录不影响该快照，旧式 Python Skill 暂沿兼容通路。此步骤不是完整能力安装/权限生命周期。修改后须通过唯一入口 `-Build` 重建 Runner 并重启 BFF；部署与真实模型验收状态只看股票仓库 `docs/计划.md`。
+Harness 当前实现：正式聊天的方法型 Skill 通过 Runner 的版本接口复制内容快照，运行检查点保存版本引用；更新原目录不影响该快照，旧式 Python Skill 暂沿兼容通路。`bff/skill_management.py` 的目录、差异和导入先走原工作区恢复流程；历史差异接受 before/after，卸载后仍可比较保留版本。`plugins/finance/loop.py` 承接金融聊天编排，通用宿主通过公开契约调用；core 中旧导入兼容保留，不另建执行后端。skills/** 改动须唯一入口 `-Build` 重建并重启 BFF；部署与真实模型验收状态只看股票仓库 `docs/计划.md`。
 
 模型选择属于conversation.model，顶栏修改立即持久化，不影响其他会话。每项运行冻结模型和实际生成参数；兼容续行也使用该快照。分析、写作、单独核对及新股票后台任务统一继承会话模型，不再读取股票独立简报模型或Qwen开关。可信execution_profile由BFF建立，经现有已鉴权内部通路使用，模型工具参数不能覆盖。云读授权仍按冻结授权和当前工作区共同核验，账户/交易规则不变。
 
@@ -135,7 +135,7 @@ local_agent是聊天Agent内部的单次本地Gemma4:26b调用；无工具、发
 
 ## 插件前端贡献（构建登记）
 
-插件清单的 `ui.settings` 指向 `apps/web/src/plugins/<插件ID>/` 内的 TSX 入口。构建/开发/类型检查先运行 `scripts/generate-extensions.mjs`，生成已忽略的 extensions/generated.ts，不手工加宿主组件导入。面板只消费 CapabilityPanelProps 与通用 HTTP 接口，独立延迟加载；金融/搜索控制 API 和领域类型归各自前端包。新增 UI 资源需原入口构建并刷新生效，不加载任意远程 JavaScript。外部插件安装流程仍待完成，此规则目前适用于显式随源码构建的插件。
+插件清单的 `ui.settings` 指向 `apps/web/src/plugins/<插件ID>/` 内的 TSX 入口。构建/开发/类型检查先运行 `scripts/generate-extensions.mjs`，生成已忽略的 extensions/generated.ts，不手工加宿主组件导入。面板只消费 CapabilityPanelProps 与通用 HTTP 接口，独立延迟加载；金融/搜索控制 API 和领域类型归各自前端包。新增 UI 资源需原入口构建并刷新生效，不加载任意远程 JavaScript。随源码包及已信任的本地包都经同一构建登记；未经信任的远程代码不因此获得执行或提示权限。
 
 插件启动恢复先登记全部文件/容器提供者，再按生命周期依赖顺序恢复保存的启用意图；单个失败保留具体状态，不阻断无关能力。清单基础校验共用 harness/contracts/plugin_manifest.py，目录展示与启动登记须一致。
 

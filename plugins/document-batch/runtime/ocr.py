@@ -6,9 +6,9 @@ import signal
 
 async def convert(source, output, language, cancel):
     command = ['ocrmypdf', '--skip-text', '--output-type', 'pdf', '--optimize', '0',
-               '--jobs', '1', '--tesseract-timeout', '180', '-l', language]
+               '--jobs', '1', '--tesseract-timeout', '180', '--tesseract-pagesegmode', '11', '-l', language]
     if source.suffix.lower() != '.pdf':
-        command += ['--image-dpi', '300']
+        command += ['--image-dpi', '300', '--oversample', '600']
     command += [str(source), str(output)]
     process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT, start_new_session=True)

@@ -3,7 +3,7 @@ display_name: 批量识别扫描资料
 backend: document-batch
 tier: extended
 cloud: write
-description: 把工作区中明确列出的 PDF 或图片批量识别为可搜索 PDF 和文本副本，保留原件。支持中文英文，返回异步任务和逐文件状态；提交不代表完成。之后查询任务，只有 SUCCEEDED 文件才有已验证成果，失败或中断不得宣称成功，不自动重发未知任务。
+description: 把工作区中明确列出的 PDF 或图片批量识别为可搜索 PDF 和文本副本，保留原件。支持中文英文，返回异步任务和逐文件状态；提交不代表完成。之后查询任务，只有 SUCCEEDED 文件才有已验证成果，失败或中断不得宣称成功，不自动重发未知任务。OCR 文本是识别结果，关键内容须与原图核对，不能宣称识别文本与原件逐字相同。
 parameters:
   type: object
   properties:

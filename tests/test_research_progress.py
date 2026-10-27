@@ -31,7 +31,7 @@ class ResearchProgressTests(unittest.IsolatedAsyncioTestCase):
         await run.observe(event)
         self.assertEqual(run.steps_without_progress,2)
         self.assertEqual(run.read_text[key],[text,quote])
-        from core.research_evidence import model_evidence
+        from harness.runtime.evidence import model_evidence
         raw=run.evidence_index();before=copy.deepcopy(raw)
         self.assertEqual(model_evidence(raw)['sources'][key]['received'],[text])
         self.assertEqual(raw,before)
@@ -69,7 +69,7 @@ class ResearchProgressTests(unittest.IsolatedAsyncioTestCase):
         # Downloaded verification text is not yet AI reading.
         saved = json.loads(files.files[run.sources[key]['path']])
         saved['pages'].append({'page':2, 'text':'尚未签订正式合同。收入确认时间不确定。'})
-        from core.research_session import encoded
+        from plugins.finance.research.session import encoded
         from hashlib import sha256
         files.files[run.sources[key]['path']] = encoded(saved)
         run.sources[key]['artifact_sha256'] = sha256(encoded(saved).encode()).hexdigest()

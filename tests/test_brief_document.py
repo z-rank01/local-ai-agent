@@ -1,7 +1,7 @@
 import unittest
 import json
 from hashlib import sha256
-from core.brief_document import render_document
+from plugins.finance.brief_document import render_document
 
 
 class BriefDocumentTests(unittest.TestCase):

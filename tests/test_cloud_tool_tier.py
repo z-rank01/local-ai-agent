@@ -55,8 +55,7 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(registry.get_cloud_tier('hypothetical-new-tool'), 'write')
 
     def test_read_only_definitions_exclude_write_tools(self):
-        registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=True,
-                                stock_bridge_url=config.STOCK_BRIDGE_URL or 'http://127.0.0.1:1')
+        registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch', 'stock-bridge'))
         names = {d['function']['name'] for d in registry.get_definitions(allow_write=False)}
         self.assertIn('file_read', names)
         self.assertIn('web_search', names)
@@ -64,7 +63,7 @@ class DeclarationTests(unittest.TestCase):
         self.assertFalse(names & EXPECTED_WRITE, names & EXPECTED_WRITE)
 
     def test_full_definitions_include_write_tools(self):
-        registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=True)
+        registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch',))
         names = {d['function']['name'] for d in registry.get_definitions(allow_write=True)}
         self.assertEqual(names & EXPECTED_WRITE, EXPECTED_WRITE)
 

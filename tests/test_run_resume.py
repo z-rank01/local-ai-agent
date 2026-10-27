@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from bff.schemas import ChatRequest
 from bff.service import ChatSessionService
-from core.run_checkpoint import restore_research
+from plugins.finance.research.session import ResearchSession
 from tests import test_in1
 
 
@@ -114,10 +114,10 @@ class ResumeTests(unittest.IsolatedAsyncioTestCase):
             await self.service.control_run(first.run_id,'resume')
 
     def test_read_provenance_restore_keeps_only_actually_received_segments(self):
-        research=SimpleNamespace()
+        research=ResearchSession(SimpleNamespace(),conversation_id='test',model='unchanged',allowed=True)
         state={'record':{'id':'research','status':'IN_PROGRESS'},'sources':{'S1':{'page_count':100}},
             'trace':[],'draft_count':2,'publication_attempts':1,'methods':['method.md'],
             'read_text':{'S1':['actually-read-page']}}
-        restore_research(research,state,lambda eid:{'content':'only page one'})
+        research.restore_state(state,lambda eid:{'content':'only page one'})
         self.assertEqual(research.read_text,{'S1':['only page one']})
         self.assertEqual(research.sources['S1']['page_count'],100)

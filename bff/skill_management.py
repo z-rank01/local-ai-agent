@@ -20,13 +20,14 @@ def catalog_for(runtime, workspace_id, *, allow_write=True):
                  all(not manager or not manager.manages(owner) or manager.status(owner)['accepting']
                      for owner in row.get('owners', []))]
     permissions = ['workspace.read'] + (['workspace.write', 'scripts.execute'] if allow_write else [])
-    return SkillCatalog(CapabilityStore(runtime.store._connect), workspace_id, available, permissions)
+    return SkillCatalog(CapabilityStore(runtime.store._connect), workspace_id, available, permissions,
+        hidden_packages=runtime.tool_registry.hidden_research_methods())
 
 
 async def snapshot_for(workspace_id):
     service = get_chat_service().for_workspace(workspace_id)
     record = service.workspaces.get(workspace_id)
-    await service.workspaces.verify(record)
+    await service.workspaces.ensure(workspace_id)
     async with httpx.AsyncClient(trust_env=False, timeout=20) as client:
         response = await client.post(f"http://127.0.0.1:{record['runner_port']}/capabilities/skills/freeze",
             headers={'X-Workspace-Token': tool_token(workspace_id)})
@@ -56,19 +57,19 @@ class SkillImport(BaseModel):
 
 
 @router.get('/api/workspaces/{workspace_id}/skills/{name}/diff')
-async def skill_diff(workspace_id: str, name: str, after: str):
+async def skill_diff(workspace_id: str, name: str, after: str, before: str | None = None):
     service = get_chat_service().for_workspace(workspace_id)
     record = service.workspaces.get(workspace_id)
     state = CapabilityStore(get_runtime().store._connect).list(workspace_id).get(name)
-    if not state or after not in {row['revision'] for row in
-            [state.get('active'), state.get('pending'), *state['history']] if row}:
+    revisions = {row['revision'] for row in [state.get('active'), state.get('pending'), *state['history']] if row} if state else set()
+    if not state or after not in revisions or (before is not None and before not in revisions):
         raise HTTPException(404, '版本不在本工作区的技能记录中')
-    await service.workspaces.verify(record)
+    await service.workspaces.ensure(workspace_id)
     try:
         async with httpx.AsyncClient(trust_env=False, timeout=20) as client:
             response = await client.post(f"http://127.0.0.1:{record['runner_port']}/capabilities/skills/diff",
                 headers={'X-Workspace-Token': tool_token(workspace_id)}, json={'name': name,
-                'before': (state.get('active') or {}).get('revision'), 'after': after})
+                'before': before or (state.get('active') or {}).get('revision'), 'after': after})
             if response.is_error:
                 raise HTTPException(response.status_code, '无法核验版本内容，未生成差异')
             return response.json()
@@ -81,11 +82,10 @@ async def import_skill(workspace_id: str, body: SkillImport, request: Request):
     from .app import require_local_control
     require_local_control(request)
     service = get_chat_service().for_workspace(workspace_id)
-    snapshot = service.workspaces.snapshot(workspace_id)
+    snapshot = await service.workspaces.ensure(workspace_id)
     path = snapshot.virtual(snapshot.resolve(body.path))
     lease = service.workspaces.acquire(snapshot, '__skills__')
     try:
-        await service.workspaces.verify(snapshot.record)
         async with httpx.AsyncClient(trust_env=False, timeout=30) as client:
             response = await client.post(f"http://127.0.0.1:{snapshot.record['runner_port']}/capabilities/skills/import",
                 headers={'X-Workspace-Token': tool_token(workspace_id)}, json={'path': path})

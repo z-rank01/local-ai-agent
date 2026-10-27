@@ -18,7 +18,7 @@ class PurposeProtocolServiceTests(test_in1.ServiceTests):
             def has_open_turn(self,*args):return False
             async def finish_turn(self,*args):return []
             async def close(self):pass
-        self.runtime.stock_bridge=Bridge();seen=[]
+        self.runtime.tool_registry.turn_context = {'stock-bridge': Bridge()};seen=[]
         class Model:
             cloud=True
             model='qwen3.5-flash'
@@ -28,6 +28,7 @@ class PurposeProtocolServiceTests(test_in1.ServiceTests):
                 yield text,None;yield '',{'role':'assistant','content':text}
             async def close(self):pass
         self.runtime.models.clients['qwen:qwen3.5-flash']=Model()
+        self.runtime.tool_registry.load_backend('config/tools', 'stock-bridge')
         defs=[{'type':'function','function':{'name':'stock_report_read','parameters':{'type':'object'}}}]
         with patch.object(self.runtime.tool_registry,'get_definitions',return_value=defs):
             events=[e async for e in self.service.stream_chat(ChatRequest(conversation_id=conv.id,

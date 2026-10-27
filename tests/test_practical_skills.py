@@ -67,6 +67,41 @@ class PracticalSkillsTests(unittest.TestCase):
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 2)
             self.assertEqual(output.read_bytes(), saved)
 
+    def test_capability_dependencies_and_fixed_script_entrypoints(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            install_methods(root)
+            compare, error = parse_package(root / 'skills/document-compare', root / 'skills')
+            self.assertIsNone(error)
+            self.assertEqual(compare.required, [])
+            self.assertEqual(compare.optional, ['document-index', 'websearch'])
+            table, error = parse_package(root / 'skills/table-reconcile', root / 'skills')
+            self.assertIsNone(error)
+            entry = table.listing_entry()
+            self.assertEqual(len(entry['entrypoints']), 1)
+            self.assertEqual(Path(entry['entrypoints'][0]['path']), Path(table.path) / 'scripts/reconcile.py')
+
+    def test_holdout_verifies_shell_read_and_saved_artifact(self):
+        from hashlib import sha256
+        from scripts.harness_holdout import structure
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'cases/meeting-notes/m1-v1/record.md'
+            source.parent.mkdir(parents=True)
+            source.write_text('这是一次真实的会议记录，包含足够长的原文用于核对，不能只凭工具名称宣称已经读取。', encoding='utf-8')
+            output = source.with_name('minutes.md')
+            output.write_text(source.read_text(encoding='utf-8'), encoding='utf-8')
+            task = {'capability': 'meeting-notes', 'task': 'm1'}
+            inputs = [{'path': '/workspace/cases/meeting-notes/m1-v1/record.md', 'sha256': sha256(source.read_bytes()).hexdigest()}]
+            rows = [{'role': 'tool', 'tool_name': 'skill_info', 'tool_result': {'body': '方法'}},
+                    {'role': 'tool', 'tool_name': 'shell_exec',
+                     'params': {'command': 'cat /workspace/cases/meeting-notes/m1-v1/record.md && cat /workspace/cases/meeting-notes/m1-v1/minutes.md'},
+                     'tool_result': {'stdout': source.read_text(encoding='utf-8'), 'exit_code': 0}}]
+            checks = structure(task, rows, inputs, root)
+            self.assertTrue(checks['required_tools_present'])
+            self.assertTrue(checks['source_reread'])
+            self.assertTrue(checks['written_artifact_reread'])
+
     def test_invalid_identity_never_mutates_or_executes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1277,7 +1277,7 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     void loadBootstrap();
-  }, [loadBootstrap]);
+  }, []);
 
   /* First establish the HttpOnly cookie; EventSource cannot carry headers. */
   useEffect(() => {
@@ -1410,6 +1410,7 @@ export default function App(): JSX.Element {
         onOpenSettings={() => openSettings('appearance')}
       />
       <Transcript
+        conversationId={conversationId ?? undefined}
         runStatus={currentRun?.status}
         items={transcriptItems}
         busy={busy}

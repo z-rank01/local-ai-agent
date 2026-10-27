@@ -77,6 +77,7 @@ DB_PATH = Path(_env("DB_PATH", str(_PROJECT_ROOT / "data" / "conversations.db"))
 
 OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = _env("OLLAMA_MODEL", "gemma4:26b")
+OLLAMA_READ_TIMEOUT = _env_int("OLLAMA_READ_TIMEOUT", 600)
 
 SKILL_FILES_URL = _env("SKILL_FILES_URL", "http://localhost:9101")
 SKILL_RUNNER_URL = _env("SKILL_RUNNER_URL", "http://localhost:9102")
@@ -117,17 +118,10 @@ TOOL_TIER = _env("TOOL_TIER", "all")
 # 0 = unlimited; research turns already continue while evidence is pending.
 AGENT_MAX_ROUNDS = _env_int("AGENT_MAX_ROUNDS", 0)
 
-# Time window for one stock/research tool loop, seconds. 0 = unlimited.
-STOCK_WINDOW_SECONDS = _env_int("STOCK_WINDOW_SECONDS", 600)
-
 # Shared character budget for files auto-injected into one turn's context.
 # 0 = no prefetch cap; disable prefetch entirely with PREFETCH_ENABLED=false.
 PREFETCH_MAX_CHARS = _env_int("PREFETCH_MAX_CHARS", 0)
 PREFETCH_ENABLED = _env_bool("PREFETCH_ENABLED", True)
-
-# Optional stock read-only bridge; stock tools are only registered when a URL is set.
-STOCK_BRIDGE_URL = _env("STOCK_BRIDGE_URL", "")
-STOCK_BRIDGE_TOKEN = _env("STOCK_BRIDGE_TOKEN", "")
 
 # Web search/fetch call budgets per user message (fresh allowance each turn).
 # 0 = unlimited.

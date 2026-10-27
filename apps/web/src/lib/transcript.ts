@@ -1,5 +1,6 @@
 import type {MessageRecord, TranscriptBlock} from '../types';
 import {splitStoredToolContent} from './format';
+import {isLocalReportBlock} from './report';
 
 export type AssistantTranscriptGroup = {
   id: string;
@@ -149,6 +150,7 @@ export function buildAssistantTimeline(
     const attempt = (toolAttempts.get(toolKey) ?? 0) + 1;
     toolAttempts.set(toolKey, attempt);
     const hasLocalResult = typeof (block.toolResult as {local_result?: unknown} | null | undefined)?.local_result === 'string';
+    const isLocalReport = isLocalReportBlock(block);
     const badges: string[] = [];
     if (attempt > 1) {
       badges.push(`第 ${attempt} 次调用`);
@@ -157,14 +159,14 @@ export function buildAssistantTimeline(
       badges.push('失败节点');
     }
     if (hasLocalResult) {
-      badges.push(block.label === 'stock_report_read' ? '研究材料' : '本地结果');
+      badges.push(isLocalReport ? '研究材料' : '本地结果');
     }
     return {
       id: block.id,
       stepNumber,
       kind: 'tool',
       title: `调用 ${block.label}`,
-      subtitle: hasLocalResult && block.label === 'stock_report_read'
+      subtitle: isLocalReport
         ? '内部研究材料已保存'
         : block.summary || (block.toolResult != null ? '结构化结果已保存' : block.text ? '已返回结果' : '等待结果'),
       status: block.status ?? groupStatus,

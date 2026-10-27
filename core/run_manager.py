@@ -180,16 +180,10 @@ class RunManager:
                         self.store.update(control.id, error=value['data'].get('message') or '执行失败')
                     if value['event'] == 'tool.started':
                         self.store.update(control.id, phase=value['data'].get('summary') or value['data'].get('name', '工具执行'))
-                    if value['event'] == 'tool.completed' and value['data'].get('name') == 'brief_publish':
-                        result = value['data'].get('result') or {}
-                        if isinstance(result, dict) and result.get('draft'):
-                            checkpoint = self.store.get(control.id)['checkpoint']
-                            checkpoint['draft'] = result['draft']
-                            self.store.update(control.id, checkpoint=checkpoint)
-                        if value['data'].get('status') == 'ok' and isinstance(result,dict) and result.get('status') == 'PUBLISHED':
-                            checkpoint = self.store.get(control.id)['checkpoint']
-                            checkpoint['published'] = {key:result[key] for key in ('path','title','sha256')}
-                            self.store.update(control.id, checkpoint=checkpoint)
+                    if value['event'] == 'tool.completed' and value['data'].get('checkpoint'):
+                        checkpoint = self.store.get(control.id)['checkpoint']
+                        checkpoint.update(value['data']['checkpoint'])
+                        self.store.update(control.id, checkpoint=checkpoint)
                     self.publish(control.id, value)
             self.state(control.id, 'FAILED' if failed else 'SUCCEEDED')
         except asyncio.CancelledError:
@@ -198,6 +192,7 @@ class RunManager:
             log.exception('Run %s failed', control.id)
             detail = str(exc.detail) if isinstance(exc, HTTPException) else (
                 str(exc) if isinstance(exc, (ValueError, RuntimeError, PermissionError)) else type(exc).__name__)
+            detail = detail or type(exc).__name__
             self.publish(control.id, {'event': 'error', 'data': {'message': detail}})
             self.state(control.id, 'FAILED', error=detail)
         finally:

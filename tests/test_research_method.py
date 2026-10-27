@@ -29,12 +29,13 @@ class ResearchMethodAPITests(unittest.IsolatedAsyncioTestCase):
         from bff import app as bff_app
         from bff.service import ChatSessionService
         from core import config
-        from core.stock_service import stock_service
+        from plugins.finance.service import stock_service
         with tempfile.TemporaryDirectory() as folder:
             base=Path(folder)
             store=ConversationStore(base/'conversations.db')
             with patch.object(config,'WORKSPACE_PATH',base/'workspace'), patch.object(config,'PROJECT_ROOT',base):
-                service=ChatSessionService(SimpleNamespace(store=store,models=SimpleNamespace(default='test')))
+                service=ChatSessionService(SimpleNamespace(store=store,models=SimpleNamespace(default='test'),
+                    capability_services={'finance': stock_service}))
                 first=store.create_conversation();other=store.create_conversation()
                 rows=[{'id':mid,'title':title,'roles':roles,'source':'项目适配','source_version':'1',
                        'version':'hash','content':'private method body','provenance':['local file']}

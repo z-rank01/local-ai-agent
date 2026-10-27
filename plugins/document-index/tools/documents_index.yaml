@@ -3,7 +3,7 @@ display_name: 更新资料索引
 backend: skill-files
 tier: extended
 cloud: write
-description: 增量索引指定工作区目录内的 Markdown、文本和 PDF，返回实际成功和失败文件数。只写可重建索引，不修改原件。资料更新后重新索引。
+description: 当用户要在一组资料中定位事实、短语、数字或公告时，优先用它建立或更新索引，再查找对应段落。只写当前工作区可重建的索引，不修改原件。按用户限定目录执行，不能用文件名列表或逐个猜测代替索引。
 parameters:
   type: object
   properties:

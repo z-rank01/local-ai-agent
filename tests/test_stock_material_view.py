@@ -3,7 +3,7 @@ import hashlib
 import json
 import unittest
 
-from core.stock_material_view import project_materials
+from plugins.finance.material_view import project_materials
 from plugins.finance.report_context import report_material_view
 from tests import test_stock_report_context as reports
 from tests import test_financial_field_catalogue as catalogues
@@ -55,7 +55,7 @@ class MaterialViewTests(unittest.TestCase):
         self.assertEqual(state.phase, Phase.EXPLANATION); self.assertEqual(state.attempts, 1)
 
     def test_duplicate_source_requires_exact_snapshot_and_preserves_current_turn(self):
-        from core.stock_material_view import duplicate_source_view
+        from plugins.finance.material_view import duplicate_source_view
         from tests.test_stock_receipts import rows
         first = rows(); second = copy.deepcopy(first)
         second[0]['tool_calls'][0]['id'] = 'read2'; second[1]['tool_call_id'] = 'read2'

@@ -25,6 +25,7 @@ export type TranscriptProps = {
   onRegenerate: (userMessageId?: string) => void;
   onSwitchVersion: (messageId: string, direction: -1 | 1) => void;
   onReadReport: (report: ReadingReport) => void;
+  conversationId?: string;
   editingMessageId: string | null;
   onCancelEdit: () => void;
   editText: string;
@@ -189,6 +190,7 @@ export function Transcript({
   onRegenerate,
   onSwitchVersion,
   onReadReport,
+  conversationId,
   editingMessageId,
   onCancelEdit,
   editText,
@@ -218,6 +220,7 @@ export function Transcript({
                   onSwitchVersion={onSwitchVersion}
                   onReadReport={onReadReport}
                   onOpenConversation={onOpenConversation}
+                  conversationId={conversationId}
                 />
               )
               : (

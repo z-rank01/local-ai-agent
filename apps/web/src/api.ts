@@ -1,4 +1,5 @@
 import {DEFAULT_BASE_URL, ApiError, apiFetch, readJson, requestJson} from './extensions/http';
+import type {SavedArtifact} from './extensions/contracts';
 import type {
   AppStatus,
   Workspace,
@@ -41,7 +42,8 @@ export function fetchCapabilities(): Promise<{api_version: number; capabilities:
 }
 
 export type SkillRevision = {name: string; description: string; version?: string; revision: string;
-  permissions: string[]; dependencies: string[]; environment_dependencies?: string[]; kind?: string; path: string};
+  permissions: string[]; dependencies: string[]; required?: string[]; optional?: string[];
+  entrypoints?: {path: string; kind: string}[]; environment_dependencies?: string[]; kind?: string; path: string};
 export type ManagedSkill = {id: string; enabled: boolean; missing?: boolean; uninstalled?: boolean;
   active: SkillRevision | null; pending?: SkillRevision | null; history: SkillRevision[]; blockers: string[]};
 export type SkillDiff = {files: {path: string; change: string; before_bytes: number; after_bytes: number;
@@ -101,6 +103,10 @@ export function deliverWorkspaceBrief(conversationId: string, path: string): Pro
   return requestJson(`/api/conversations/${encodeURIComponent(conversationId)}/brief-delivery`, {
     method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({path}),
   });
+}
+
+export function fetchSavedArtifact(conversationId: string, messageId: string): Promise<SavedArtifact> {
+  return requestJson(`/api/conversations/${encodeURIComponent(conversationId)}/artifacts/${encodeURIComponent(messageId)}`);
 }
 
 export function fetchReportPage(conversationId: string, messageId: string, page: number,

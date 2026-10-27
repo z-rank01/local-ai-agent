@@ -1,9 +1,9 @@
 import base64
 import json
 import unittest
-from core.research_evidence import evidence_steps, financial_read_step, catalogue
+from plugins.finance.evidence_steps import evidence_steps, financial_read_step, catalogue
 from tests.test_research_session import Files
-from core.research_session import ResearchSession
+from plugins.finance.research.session import ResearchSession
 
 
 class EvidenceTests(unittest.IsolatedAsyncioTestCase):
@@ -119,7 +119,7 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_program_expansion_is_visible_before_next_model_request(self):
         from types import SimpleNamespace
-        from core.agent import Agent
+        from plugins.finance.loop import FinanceLoop as Agent
         from tests import test_research_session as session_tests
         files,run,_=await session_tests.ResearchSessionTests().prepare()
         await run.begin({'phase':'获取','evidence_requests':[{'kind':'notice','article':'AN123'}]})

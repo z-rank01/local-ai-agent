@@ -5,10 +5,10 @@ import unittest
 from unittest.mock import patch
 
 from core import config
-from core.agent import Agent
-from core.research_review import fingerprint, parse_review, review_messages
-from core.research_evidence import model_evidence
-from core.research_session import ResearchSession
+from plugins.finance.loop import FinanceLoop as Agent
+from plugins.finance.research_review import fingerprint, parse_review, review_messages
+from harness.runtime.evidence import model_evidence
+from plugins.finance.research.session import ResearchSession
 from tests import test_research_session as session_tests
 
 _enforcement = None
@@ -154,7 +154,7 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(source,before)
 
     def test_chinese_pdf_spaces_do_not_remove_conditions_or_english_boundaries(self):
-        from core.research_visuals import literal_text
+        from plugins.finance.publication import literal_text
         self.assertEqual(literal_text('签订 相关正式\n合同'),literal_text('签订相关正式合同'))
         self.assertNotEqual(literal_text('not yet signed'),literal_text('notyetsigned'))
         self.assertNotEqual(literal_text('未签订合同'),literal_text('签订合同'))

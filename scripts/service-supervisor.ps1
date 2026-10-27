@@ -225,7 +225,7 @@ function Invoke-DailyDockerOperation($Context, [string]$Operation, [string]$Work
         'workspace_sync' {
             if ($WorkspaceId -ne 'default' -and $WorkspaceId -notmatch '^[a-f0-9]{12}$') { throw 'Invalid workspace id' }
             $groupNames = if ($WorkspaceId -eq 'default') { @('skill-files', 'skill-runner') } else { @("ws-$WorkspaceId-files", "ws-$WorkspaceId-runner") }
-            @('compose', '--profile', 'websearch', 'up', '-d', '--remove-orphans', '--wait') + $groupNames
+            @('compose', '--profile', 'websearch', 'up', '-d', '--force-recreate', '--remove-orphans', '--wait') + $groupNames
         }
         default { throw '不支持的容器操作' }
     }

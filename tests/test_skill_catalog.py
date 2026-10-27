@@ -99,3 +99,48 @@ class SkillCatalogFlowTests(unittest.TestCase):
             state = CapabilityStore(store._connect)
             state.save('default', 'notes', {'enabled': False})
             self.assertFalse(state.list('default')['notes']['enabled'])
+
+    def test_required_capabilities_block_but_optional_capabilities_can_degrade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            persistence = CapabilityStore(ConversationStore(Path(directory) / 'conversations.db')._connect)
+            catalog = SkillCatalog(persistence, 'one', available=['websearch'])
+            required = package('required', required=['document-index'], optional=['websearch'])
+            self.assertIn('document-index', catalog.blockers(required)[0])
+            catalog.reconcile(snapshot(required))
+            with self.assertRaisesRegex(ValueError, '缺少依赖'):
+                catalog.action('notes', 'activate', 'required')
+            optional = package('optional', optional=['document-index', 'websearch'])
+            catalog.reconcile(snapshot(optional))
+            catalog.action('notes', 'activate', 'optional')
+            self.assertEqual(catalog.effective(snapshot(optional))['versions']['notes']['revision'], 'optional')
+
+
+class SkillDiffApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_before_is_validated_and_forwarded(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, patch
+        import json
+        import httpx
+        from bff.skill_management import skill_diff
+        with tempfile.TemporaryDirectory() as directory:
+            store = ConversationStore(Path(directory) / 'conversations.db')
+            CapabilityStore(store._connect).save('default', 'notes', {
+                'enabled': True, 'active': {'revision': 'new'}, 'history': [{'revision': 'old'}]})
+            record = {'id': 'default', 'runner_port': 12345}
+            ensure = AsyncMock(return_value=record)
+            service = SimpleNamespace(for_workspace=lambda workspace_id: SimpleNamespace(
+                workspaces=SimpleNamespace(get=lambda name: record, ensure=ensure)))
+            runtime = SimpleNamespace(store=store)
+            payloads = []
+            def handler(request):
+                payloads.append(json.loads(request.content))
+                return httpx.Response(200, json={'files': [{'change': 'modified'}]})
+            real_client = httpx.AsyncClient
+            with patch('bff.skill_management.get_chat_service', return_value=service), \
+                    patch('bff.skill_management.get_runtime', return_value=runtime), \
+                    patch('bff.skill_management.httpx.AsyncClient',
+                          lambda **kwargs: real_client(transport=httpx.MockTransport(handler))):
+                result = await skill_diff('default', 'notes', 'new', 'old')
+            self.assertEqual(result['files'][0]['change'], 'modified')
+            self.assertEqual(payloads, [{'name': 'notes', 'before': 'old', 'after': 'new'}])
+            ensure.assert_awaited_once_with('default')

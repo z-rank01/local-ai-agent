@@ -12,6 +12,7 @@ import {runLabel,RUN_LIVE} from '../lib/runs';
 import {Icon} from '../ui/Icon';
 import {Markdown} from '../ui/Markdown';
 import {statusTone, ToolTrace} from './ToolTrace';
+import {ArtifactBlockCard} from './ReportCard';
 
 export type AssistantTurnProps = {
   runStatus?: string;
@@ -24,6 +25,7 @@ export type AssistantTurnProps = {
   onSwitchVersion: (messageId: string, direction: -1 | 1) => void;
   onReadReport: (report: ReadingReport) => void;
   onOpenConversation?: (conversationId: string) => void | Promise<void>;
+  conversationId?: string;
 };
 
 function withoutVersionBadge(step: AssistantTimelineEntry): AssistantTimelineEntry {
@@ -39,7 +41,9 @@ export function AssistantTurn({
   onDelete,
   onRegenerate,
   onSwitchVersion,
+  onReadReport,
   onOpenConversation,
+  conversationId,
 }: AssistantTurnProps): JSX.Element {
   const [traceOpen, setTraceOpen] = useState(true);
   const ordered = item.blocks;
@@ -78,7 +82,7 @@ export function AssistantTurn({
       ) : null}
       {ordered.map((block) => {
         if (isLocalReportBlock(block)) {
-          return null;
+          return <ArtifactBlockCard key={block.id} block={block} onReadReport={onReadReport} conversationId={conversationId} />;
         }
         if (showTrace && block.kind !== 'assistant') {
           return null;

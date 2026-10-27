@@ -184,15 +184,15 @@ class SourceQuoteLoopTests(unittest.IsolatedAsyncioTestCase):
     def agent(self, model, router, tools):
         from core import config
         from core.tool_registry import ToolRegistry
-        registered = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='http://unused')
+        registered = ToolRegistry(config.TOOLS_DIR, enabled_backends=('stock-bridge',))
         async def process(messages):return messages
         agent=Agent(llm=model,router=router,registry=SimpleNamespace(get_definitions=lambda **kw:[
             {'type':'function','function':{'name':name}} for name in tools],
             tools_for_role=registered.tools_for_role, execution_policy=registered.execution_policy,
-            history_projectors=registered.history_projectors),
+            history_projectors=registered.history_projectors, create_turn=registered.create_turn),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=5)
-        agent.quality_first_research=agent.stock_loop_enabled=True
+        agent.quality_first_research=agent.turn_loop_enabled=True
         return agent
 
     def history(self):
@@ -284,7 +284,7 @@ class SourceQuoteLoopTests(unittest.IsolatedAsyncioTestCase):
         agent=self.agent(Model(),SimpleNamespace(),['stock_public_evidence_read'])
         events=[e async for e in agent.run(self.history())]
         self.assertEqual(len(runs),1)
-        self.assertEqual(agent.pending_source_review,'原文引述：已生成的部分成果')
+        self.assertEqual(agent.pending_review,'原文引述：已生成的部分成果')
         self.assertEqual(events[-1].kind,'error')
 
 
@@ -367,7 +367,8 @@ class SourceQuoteServiceTests(ServiceTests):
             def has_open_turn(self,*args):return False
             async def finish_turn(self,*args):return []
             async def close(self):pass
-        self.runtime.stock_bridge=Bridge()
+        self.runtime.tool_registry.load_backend('config/tools', 'stock-bridge')
+        self.runtime.tool_registry.turn_context = {'stock-bridge': Bridge()}
         return conv
 
     async def test_failed_quote_saved_locally_but_not_published_as_final_fact(self):

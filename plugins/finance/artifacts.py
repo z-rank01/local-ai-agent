@@ -1,4 +1,5 @@
 """Finance report pages keep reference ownership and revision validation."""
+import hashlib
 import re
 from harness.contracts.artifacts import ArtifactError
 from plugins.finance.bridge import ReportUpdated
@@ -7,6 +8,22 @@ from plugins.finance.bridge import ReportUpdated
 class FinanceArtifacts:
     def __init__(self, transport):
         self.transport = transport
+
+    def archive(self, saved, content, snapshot):
+        if not re.fullmatch(r'[a-f0-9]+', saved.conversation_id) or not re.fullmatch(r'[a-f0-9]+', saved.identity):
+            raise ArtifactError(422, '无效材料定位')
+        payload = content.encode('utf-8')
+        digest = hashlib.sha256(payload).hexdigest()
+        virtual = f'/workspace/reports/_research/{saved.conversation_id}/{saved.identity}-{digest}.md'
+        target = snapshot.resolve(virtual)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with target.open('xb') as handle:
+                handle.write(payload)
+        except FileExistsError:
+            if target.read_bytes() != payload:
+                raise OSError('Research material archive conflict')
+        return virtual
 
     async def read_page(self, saved, request):
         params = saved.metadata.get('params')

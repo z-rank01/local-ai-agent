@@ -5,6 +5,8 @@ from typing import AsyncGenerator
 
 import httpx
 
+from . import config
+
 logger = logging.getLogger("core.llm")
 
 _JSON_BLOCK_RE = _re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", _re.DOTALL)
@@ -138,7 +140,7 @@ class LLMClient:
         self.think: bool | None = None
         self._supports_tools: bool = True
         self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+            timeout=httpx.Timeout(connect=30.0, read=config.OLLAMA_READ_TIMEOUT, write=30.0, pool=30.0)
         )
 
     @property
@@ -224,8 +226,10 @@ class LLMClient:
             msg = {**msg, "content": _wrap_thinking(thinking, cleaned)}
         return msg
 
+    observes_native_requests = True
+
     async def chat_stream_with_tools(
-        self, messages: list, tools: list | None = None
+        self, messages: list, tools: list | None = None, *, request_observer=None
     ) -> AsyncGenerator[tuple[str, dict | None], None]:
         """Stream tokens while detecting tool calls.
 
@@ -253,6 +257,17 @@ class LLMClient:
             payload["think"] = self.think
         if tools and self._supports_tools:
             payload["tools"] = tools
+        if request_observer:
+            import uuid
+            from .native_tool_schema import tool_schema_observation
+            call_id = uuid.uuid4().hex
+            request_observer('native_model_request', {
+                'call_id': call_id, 'model': 'ollama:' + self._model, 'local_attempt_id': call_id,
+                'parameters': {'stream': True, **({'think': self.think} if self.think is not None else {})},
+                'tool_names': [item['function']['name'] for item in tools or []],
+                'message_count': len(normalized),
+                'input_chars': len(_json.dumps(normalized, ensure_ascii=False)),
+                **tool_schema_observation(payload, {})})
 
         accumulated: dict = {"role": "assistant", "content": ""}
         tool_calls_acc: list[dict] = []

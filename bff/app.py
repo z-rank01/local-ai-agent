@@ -57,19 +57,10 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     runtime = get_runtime()
-    if os.environ.get('DAILY_SERVICES') == '1':
-        from core.stock_service import stock_service
-        try:
-            await stock_service.restore(runtime)
-        except Exception:
-            # The lifecycle retains the exact error; optional finance cannot block chat.
-            logging.getLogger(__name__).exception('Stock service startup failed')
     app.state.auto_exit = AutoExitState(
         enabled=config.AUTO_EXIT_ON_CLOSE,
         timeout_seconds=config.HEARTBEAT_TIMEOUT_SECONDS,
     )
-    from core.skills_service import skill_switches
-    await skill_switches.restore(runtime)
     from harness.capabilities.startup import restore_plugins
     await restore_plugins(runtime, config._PROJECT_ROOT / 'plugins',
         config.SKILL_FILES_URL, {'X-Workspace-Token': tool_token('default')})
@@ -150,7 +141,7 @@ def require_local_control(request: Request):
 async def stock_service_status(request: Request):
     if not _is_loopback_host(request.client.host if request.client else None):
         raise HTTPException(403, '仅允许本机查看服务控制')
-    from core.stock_service import stock_service
+    from plugins.finance.service import stock_service
     return await stock_service.status()
 @app.get('/api/admin/stock-models')
 async def stock_analysis_models(request: Request, refresh: int = 0):
@@ -196,7 +187,7 @@ async def stock_service_action(request: Request):
     require_local_control(request)
     if get_chat_service()._active_conversations:
         raise HTTPException(409, '聊天正在执行，请等待本轮结束后再切换服务')
-    from core.stock_service import stock_service
+    from plugins.finance.service import stock_service
     try:
         body = await request.json()
         if not isinstance(body, dict):
@@ -219,14 +210,14 @@ async def stock_service_action(request: Request):
 async def skills_status(request: Request):
     if not _is_loopback_host(request.client.host if request.client else None):
         raise HTTPException(403, '仅允许本机查看技能开关')
-    from core.skills_service import skill_switches
+    from plugins.websearch.service import skill_switches
     return skill_switches.status(get_runtime())
 @app.post('/api/admin/skills')
 async def skills_toggle(request: Request):
     require_local_control(request)
     if get_chat_service()._active_conversations:
         raise HTTPException(409, '聊天正在执行，请等待本轮结束后再切换技能')
-    from core.skills_service import skill_switches
+    from plugins.websearch.service import skill_switches
     try:
         body = await request.json()
         if not isinstance(body, dict) or not isinstance(body.get('websearch'), bool):
@@ -261,15 +252,14 @@ def _find_pids_on_port(port: int) -> list[int]:
                 pids.add(int(parts[4]))
     return sorted(pids)
 def _stack_shutdown_targets() -> dict[str, list[int]]:
-    from urllib.parse import urlparse
     web_port = int(os.environ.get('WEB_DEV_PORT', '5173'))
     targets = {
         'bff': [os.getpid()],
         'web': [pid for pid in _find_pids_on_port(web_port) if pid != os.getpid()],
     }
-    if config.STOCK_BRIDGE_URL:
-        port = urlparse(config.STOCK_BRIDGE_URL).port or 80
-        targets['stock-bridge'] = [pid for pid in _find_pids_on_port(port) if pid != os.getpid()]
+    for capability in (getattr(get_runtime(), 'capability_services', None) or {}).values():
+        for backend, ports in getattr(capability, 'shutdown_targets', lambda: {})().items():
+            targets[backend] = [pid for port in ports for pid in _find_pids_on_port(port) if pid != os.getpid()]
     return targets
 def schedule_stack_shutdown(targets: dict[str, list[int]]) -> None:
     async def terminate() -> None:
@@ -315,7 +305,7 @@ async def _finish_stack_shutdown() -> dict:
     for package in (getattr(get_runtime(), 'container_packages', None) or {}).values():
         await package.client.stop()
     targets = _stack_shutdown_targets()
-    from core.stock_service import stock_service
+    from plugins.finance.service import stock_service
     service_status = await stock_service.status()
     if service_status['online']:
         try:

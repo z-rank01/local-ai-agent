@@ -2,11 +2,26 @@
   "id": "finance",
   "version": "1.0.0",
   "harness_api": 1,
+  "adapter": "plugins.finance.service:stock_service",
   "call_policy": "plugins.finance.call_policy:FinanceCallPolicy",
+  "turn_policy": "plugins.finance.turn:FinanceTurn",
+  "reply_purposes": {
+    "stock_report_read": ["analysis", "calculation"],
+    "stock_public_evidence_read": ["analysis", "source_scope"]
+  },
+  "review_prompt": "prompts/review.txt",
+  "research_session": "plugins.finance.research.session:ResearchSession",
+  "research_methods": [
+    "harness-stock-research-v1",
+    "harness-stock-research-v2",
+    "harness-stock-research-v3",
+    "harness-stock-research-v4"
+  ],
   "title": "金融研究",
   "description": "研究任务、公开证据与报告；账户操作遵循原业务确认规则",
   "backends": [
-    "stock-bridge"
+    "stock-bridge",
+    "research-runtime"
   ],
   "tool_directory": "tools",
   "task_provider": "plugins.finance.tasks:FinanceTasks",
@@ -20,6 +35,7 @@
   "ui": {
     "settings": "apps/web/src/plugins/finance/index.tsx",
     "title": "股票后台",
+    "group": "股票",
     "description": "后台任务执行与每日简报",
     "order": 20
   },
@@ -52,8 +68,11 @@
   "artifacts": {
     "provider": "plugins.finance.artifacts:FinanceArtifacts",
     "owner": "stock-bridge",
+    "type": "finance-report",
+    "renderer": "apps/web/src/plugins/finance/artifact.tsx",
     "tools": [
-      "stock_report_read"
+      "stock_report_read",
+      "brief_publish"
     ]
   },
   "tool_roles": {

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 class StackLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_exit_drains_before_stock_containers_and_process_exit(self):
         from bff import app as module
-        from core.stock_service import stock_service
+        from plugins.finance.service import stock_service
         order=[]
         async def runs(): order.append('runs')
         async def stock(*args,**kwargs): order.append('stock'); return {'status':'shutting_down'}
@@ -54,4 +54,15 @@ class StackLifecycleTests(unittest.IsolatedAsyncioTestCase):
         module.app.state.auto_exit=AutoExitState()
         await module.heartbeat(SimpleNamespace(client=SimpleNamespace(host='127.0.0.1')))
         self.assertFalse(module.app.state.auto_exit.armed)
+
+    def test_build_targets_registered_workspace_groups(self):
+        from pathlib import Path
+        source = (Path(__file__).resolve().parents[1] / 'scripts/start-daily.ps1').read_text(encoding='utf-8')
+        self.assertIn("Get-Content -LiteralPath (Join-Path $dailyRoot 'data/private/workspace-containers.json') -Raw -Encoding UTF8", source)
+        self.assertIn('ws-$($_.id)-files', source)
+        self.assertIn('ws-$($_.id)-runner', source)
+        self.assertIn('build $dailyWorkspaceServices', source)
+        self.assertIn('$dailyExistingContainerSet.Contains("ws-$dailyWorkspaceId-files")', source)
+        self.assertIn("Invoke-DailyDockerOperation $dailyWorkspaceContext 'workspace_sync' $dailyWorkspaceId", source)
+        self.assertIn("'--force-recreate'", (Path(__file__).resolve().parents[1] / 'scripts/service-supervisor.ps1').read_text(encoding='utf-8'))
 

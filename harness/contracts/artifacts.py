@@ -14,10 +14,13 @@ class SavedArtifact:
     visibility: str = 'conversation-local-ui'
     completeness: str = 'UNKNOWN'
     media_type: str = 'text/plain'
+    artifact_type: str = 'saved-text'
+    owner: str = ''
 
     def public(self):
         return {key: getattr(self, key) for key in
-                ('conversation_id', 'identity', 'revision', 'content', 'visibility', 'completeness', 'media_type')}
+                ('conversation_id', 'identity', 'revision', 'content', 'visibility', 'completeness', 'media_type',
+                 'artifact_type', 'owner')}
 
 
 @dataclass(frozen=True)

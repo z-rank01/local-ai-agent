@@ -53,6 +53,12 @@ def _validate_payload(root, metadata):
         resource(service.get('dockerfile', ''))
         if type(service.get('port')) is not int or not 1024 <= service['port'] <= 65535:
             raise ValueError('容器内部端口无效')
+    if metadata.get('adapter'):
+        provider(metadata['adapter'])
+    for command in metadata.get('commands', {}).values():
+        if (not isinstance(command, dict) or command.get('tool') not in names
+                or not isinstance(command.get('parameters', {}), dict)):
+            raise ValueError('插件命令必须引用本包已声明工具和参数 schema')
     if metadata.get('task_provider'):
         provider(metadata['task_provider'])
     if metadata.get('call_policy'):

@@ -4,7 +4,7 @@ from copy import deepcopy
 from html import escape
 import re
 
-from . import config
+from core import config
 
 
 def number(value):

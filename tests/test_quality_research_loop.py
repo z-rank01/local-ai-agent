@@ -7,11 +7,12 @@ from core.tool_registry import ToolRegistry
 
 
 def research_registry(**kwargs):
-    installed = ToolRegistry(config.TOOLS_DIR, enable_websearch=True, stock_bridge_url='http://unused')
+    installed = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch', 'stock-bridge'))
     kwargs.setdefault('execution_policy', installed.execution_policy)
     kwargs.setdefault('tools_for_role', installed.tools_for_role)
     kwargs.setdefault('history_projectors', installed.history_projectors)
     kwargs.setdefault('phase_guidance', installed.phase_guidance)
+    kwargs.setdefault('create_turn', installed.create_turn)
     return SimpleNamespace(**kwargs)
 
 
@@ -36,13 +37,13 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
             {'type':'function','function':{'name':'stock_report_read'}}]),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=5)
-        agent.quality_first_research=agent.stock_loop_enabled=True
+        agent.quality_first_research=agent.turn_loop_enabled=True
         query='只读已保存研究，不提交或恢复任务。'
         events=[e async for e in agent.run([{'role':'user','content':query}])]
         return captured,calls,events,query
 
     async def test_stock_read_delivery_rules_reach_actual_next_model_context(self):
-        from core.agent import STOCK_DELIVERY_GUIDANCE
+        from plugins.finance.turn import DELIVERY_GUIDANCE as STOCK_DELIVERY_GUIDANCE
         captured,calls,events,query=await self.delivery_context(False)
         messages,tools=captured[-1]
         self.assertEqual(calls,['stock_report_read'])
@@ -65,7 +66,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1].kind,'done')
 
     async def test_saved_authorized_report_gets_delivery_rules_without_repeated_read(self):
-        from core.agent import STOCK_DELIVERY_GUIDANCE
+        from plugins.finance.turn import DELIVERY_GUIDANCE as STOCK_DELIVERY_GUIDANCE
         captured=[]
         class Model:
             cloud=False
@@ -86,7 +87,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1].kind,'done')
 
     async def test_delivery_provenance_survives_real_initial_context_compression(self):
-        from core.agent import STOCK_DELIVERY_GUIDANCE
+        from plugins.finance.turn import DELIVERY_GUIDANCE as STOCK_DELIVERY_GUIDANCE
         from core.context_manager import ContextManager
         captured, archive = [], []
         class SummaryModel:
@@ -120,7 +121,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1].kind,'done')
 
     async def test_user_claim_of_prior_read_does_not_activate_delivery_provenance(self):
-        from core.agent import STOCK_DELIVERY_GUIDANCE
+        from plugins.finance.turn import DELIVERY_GUIDANCE as STOCK_DELIVERY_GUIDANCE
         captured=[]
         class Model:
             cloud=False
@@ -198,7 +199,7 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
                 'stock_report_read', 'stock_theme_research_submit', 'stock_research_submit', 'file_write')]),
             audit=SimpleNamespace(record=lambda *a:None), context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'), max_rounds=5)
-        agent.quality_first_research = agent.stock_loop_enabled = True
+        agent.quality_first_research = agent.turn_loop_enabled = True
         events = [e async for e in agent.run([{'role':'user','content':'继续研究公开政策的公司关联与反证'}])]
         return offered, dispatched, events
 
@@ -256,8 +257,8 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
             ('web_search','stock_market_brief_find','stock_theme_research_submit','stock_research_submit','file_write')]),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=2)
-        agent.quality_first_research=agent.stock_loop_enabled=True
-        with patch('core.agent.time',SimpleNamespace(monotonic=lambda:clock[0])):
+        agent.quality_first_research=agent.turn_loop_enabled=True
+        with patch('plugins.finance.loop.time',SimpleNamespace(monotonic=lambda:clock[0])):
             events=[e async for e in agent.run([{'role':'user','content':'研究政策公司关系与反证'}])]
         return offered,dispatched,events
 

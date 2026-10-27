@@ -3,8 +3,8 @@ import copy
 import json
 import unittest
 
-from core.research_session import ResearchSession
-from core.research_visuals import number, validate_publication
+from plugins.finance.research.session import ResearchSession
+from plugins.finance.publication import number, validate_publication
 
 
 class Files:
@@ -19,6 +19,8 @@ class Files:
                 assert '/' + child in params['command']
             return {'exit_code': 0}
         if tool == 'file_read':
+            if params['path'] not in self.files:
+                raise FileNotFoundError(params['path'])
             content = self.files[params['path']]
             offset = params.get('offset', 0)
             end = offset + 100
@@ -62,7 +64,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         # These cases isolate deterministic rendering. Review orchestration is
         # exercised separately with a real ResearchSession and a mock supplier.
         from unittest.mock import Mock
-        from core.research_review import fingerprint
+        from plugins.finance.research_review import fingerprint
         run.check_review = Mock()
         run.review_records[fingerprint(params)]={'status':'COMPLETE','issues':[],
             'evidence_sha256':fingerprint(run.evidence_index())}
@@ -105,6 +107,99 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(files.files[root+'/editorial-notes.json'])['notes'], params['editorial_notes'])
         self.assertEqual(json.loads(files.files[root+'/evidence.json'])['editorial_notes'], params['editorial_notes'])
         self.assertEqual(result, await run.publish(params))
+
+    async def test_revision_creates_new_lineage_with_verified_evidence_and_clean_review(self):
+        files, old, params = await self.prepare()
+        await old.publish(params)
+        method = '/workspace/.skill_registry/versions/' + 'd' * 64 + '/skills/harness-stock-research-v4/references/finance.md'
+        old.methods = {method}
+        old.method_text = {method: '方法正文'}
+        files.files[method] = '方法正文'
+        old.review_records = {'old': {'status': 'UNKNOWN'}}
+        await old.checkpoint()
+        source = next(iter(old.sources))
+        saved = json.loads(files.files[old.sources[source]['path']])
+        saved['pages'].append({'page': 2, 'text': '后续'})
+        old.read_text[source].append('[第 1 页]\n营业收入100元\n\n[第 2 页]\n后续')
+        from hashlib import sha256
+        from plugins.finance.research.session import encoded
+        old.sources[source]['artifact_sha256'] = sha256(encoded(saved).encode()).hexdigest()
+        files.files[old.sources[source]['path']] = encoded(saved)
+        await old.checkpoint()
+        original = files.files[old.sources[source]['path']]
+        before = dict(files.files)
+        revision = ResearchSession(files, conversation_id='new-conversation', model='selected', allowed=True)
+        result = await revision.begin({'phase': '准备', 'revision_of': old.record['directory'] + '/research.json'})
+        self.assertNotEqual(result['research_id'], old.record['id'])
+        self.assertEqual(result['revision_of']['original_draft_path'], old.record['directory'] + '/model-original.md')
+        self.assertEqual(revision.sources, old.sources)
+        self.assertEqual(revision.read_text, old.read_text)
+        self.assertEqual(revision.method_text, {method: '方法正文'})
+        self.assertEqual(revision.review_records, {})
+        self.assertEqual(revision.evidence_requests, {})
+        self.assertIsNone(revision.published)
+        self.assertEqual(files.files[old.sources[source]['path']], original)
+        self.assertEqual(files.files[old.record['directory'] + '/research.json'], before[old.record['directory'] + '/research.json'])
+        files.files[old.sources[source]['path']] = '{"sha256":"changed","pages":[]}'
+        damaged = ResearchSession(files, conversation_id='new-conversation', model='selected', allowed=True)
+        with self.assertRaisesRegex(ValueError, '指纹已变化'):
+            await damaged.begin({'phase': '准备', 'revision_of': old.record['directory'] + '/research.json'})
+        self.assertIsNone(damaged.record)
+
+    async def test_revision_incomplete_without_draft_inherits_verified_sources_only(self):
+        files, old, _ = await self.prepare()
+        await old.incomplete()
+        old.review_records = {'old': {'status': 'UNKNOWN'}}
+        await old.checkpoint()
+        revision = ResearchSession(files, conversation_id='new-conversation', model='selected', allowed=True)
+        result = await revision.begin({'phase': '准备', 'revision_of': old.record['directory'] + '/research.json'})
+        self.assertEqual(result['revision_of']['previous_status'], 'DELIVERY_INCOMPLETE')
+        self.assertFalse(result['revision_of']['draft_inherited'])
+        self.assertNotIn('original_draft_path', result['revision_of'])
+        self.assertEqual(revision.sources, old.sources)
+        self.assertEqual(revision.review_records, {})
+        self.assertEqual(revision.evidence_requests, {})
+        await revision.incomplete()
+        chained = ResearchSession(files, conversation_id='third', model='selected', allowed=True)
+        await chained.begin({'phase': '准备', 'revision_of': revision.record['directory'] + '/research.json'})
+        self.assertEqual(chained.sources, old.sources)
+        await chained.incomplete()
+        fourth = ResearchSession(files, conversation_id='fourth', model='selected', allowed=True)
+        await fourth.begin({'phase': '准备', 'revision_of': chained.record['directory'] + '/research.json'})
+        self.assertEqual(fourth.sources, old.sources)
+        files.files[old.record['directory'] + '/model-original.md'] = '已发布草稿'
+        old.record['status'] = 'PUBLISHED'
+        await old.checkpoint()
+        restored = ResearchSession(files, conversation_id='another', model='selected', allowed=True)
+        result = await restored.begin({'phase': '准备', 'revision_of': old.record['directory'] + '/research.json'})
+        self.assertTrue(result['revision_of']['draft_inherited'])
+
+    async def test_revision_rejects_open_research_and_missing_published_draft(self):
+        files, old, _ = await self.prepare()
+        reference = old.record['directory'] + '/research.json'
+        with self.assertRaisesRegex(ValueError, '已结束为交付未完成'):
+            await ResearchSession(files, conversation_id='new', model='selected', allowed=True).begin({
+                'phase': '准备', 'revision_of': reference})
+        old.record['status'] = 'PUBLISHED'
+        await old.checkpoint()
+        with self.assertRaisesRegex(ValueError, '缺少可核验'):
+            await ResearchSession(files, conversation_id='new', model='selected', allowed=True).begin({
+                'phase': '准备', 'revision_of': reference})
+
+    async def test_multiple_script_receipts_bind_only_verified_excerpts(self):
+        _, run, _ = await self.prepare()
+        key, page = next(iter(run.sources)), run._source_pages[next(iter(run.sources))][0]['text']
+        rows = [{'source_id': key, 'sha256': run.sources[key]['sha256'],
+                 'page': 1, 'start': 0, 'end': 4, 'quote': page[:4]},
+                {'source_id': key, 'sha256': run.sources[key]['sha256'],
+                 'page': 1, 'start': 4, 'end': 8, 'quote': page[4:8]}]
+        output = '-----\n' + '\n非JSON分隔\n'.join(json.dumps({'source_excerpts': [row]}, ensure_ascii=False) for row in rows)
+        await run.source_excerpts({'stdout': output})
+        expected = [{k: row[k] for k in ('page', 'start', 'end', 'quote', 'sha256')} for row in rows]
+        self.assertEqual(run.excerpts[key], expected)
+        invalid = {**rows[0], 'quote': '篡改的摘录'}
+        await run.source_excerpts({'stdout': json.dumps({'source_excerpts': [invalid]})})
+        self.assertEqual(len(run.excerpts[key]), 2)
 
     async def test_directory_creation_failure_does_not_begin_research(self):
         class ReadOnly:
@@ -229,7 +324,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['status'], 'PUBLISHED')
 
     async def test_agent_continues_past_round_limit_and_expired_legacy_window(self):
-        from core.agent import Agent
+        from plugins.finance.loop import FinanceLoop as Agent
         from types import SimpleNamespace
         files, run, params = await self.prepare()
         calls = []
@@ -255,8 +350,8 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             {'type': 'function', 'function': {'name': n}} for n in ('code_exec', 'brief_publish', 'stock_research_submit')]),
             audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
-        agent.stock_window_seconds = -1
-        agent.quality_first_research = agent.stock_loop_enabled = True
+        agent.turn_window_seconds = -1
+        agent.quality_first_research = agent.turn_loop_enabled = True
         events = [e async for e in agent.run([{'role': 'user', 'content': '完成研究'}])]
         self.assertEqual(len(calls), 4)
         self.assertTrue(all('brief_publish' in c for c in calls))
@@ -265,7 +360,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('阅读简报', events[-1].text)
 
     async def test_no_progress_closes_research_with_visible_error(self):
-        from core.agent import Agent
+        from plugins.finance.loop import FinanceLoop as Agent
         from types import SimpleNamespace
         _, run, _ = await self.prepare()
         attempts = []
@@ -295,7 +390,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(run.published)
 
     async def test_stalled_research_can_finalize_but_phase_changes_cannot_reopen_search(self):
-        from core.agent import Agent
+        from plugins.finance.loop import FinanceLoop as Agent
         from types import SimpleNamespace
         for publish in (True, False):
             with self.subTest(publish=publish):
@@ -339,7 +434,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_finalization_can_read_edit_review_publish_without_reopening_network(self):
         from types import SimpleNamespace
-        from core.agent import Agent
+        from plugins.finance.loop import FinanceLoop as Agent
         _,run,draft=await self.prepare()
         await run.begin({'phase':'分析'})
         run.steps_without_progress=12
@@ -513,7 +608,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stop_preserves_material_and_records_incomplete(self):
         import asyncio
-        from core.agent import Agent
+        from plugins.finance.loop import FinanceLoop as Agent
         from types import SimpleNamespace
         files, run, _ = await self.prepare()
         saved_sources = copy.deepcopy(run.sources)

@@ -14,9 +14,13 @@ from decimal import DecimalException
 from html import escape
 import httpx
 
-from .brief_document import render_document
-from .research_visuals import render_charts, validate_publication, validate_visual_plan
-from .research_evidence import model_evidence
+from ..brief_document import render_document
+from ..evidence_steps import EVIDENCE
+from ..call_policy import FinanceCallPolicy
+from harness.runtime.evidence import model_evidence, fingerprint
+
+METHOD_FAMILIES = ('harness-stock-research-v1', 'harness-stock-research-v2',
+                   'harness-stock-research-v3', 'harness-stock-research-v4')
 
 PHASES = ('准备', '获取', '分析', '核对', '交付')
 # Research withholds only what can destroy data or change the harness. The old
@@ -43,9 +47,13 @@ def encoded(value):
 
 
 class ResearchSession:
-    def __init__(self, router, *, conversation_id, model, allowed):
+    def __init__(self, router, *, conversation_id, model, allowed,
+                 evidence=None, publication=None, method_families=None):
         self.router, self.conversation_id, self.model = router, conversation_id, model
         self.allowed = allowed
+        self.evidence = evidence or EVIDENCE
+        self.publication = publication or FinanceCallPolicy()
+        self.method_families = METHOD_FAMILIES if method_families is None else method_families
         self.record = None
         self.sources = {}
         self.read_text = {}
@@ -99,34 +107,39 @@ class ResearchSession:
         Downloaded pages are used only as verification material. They are never
         marked as read unless an exact excerpt was actually returned by a tool.
         """
-        try:
-            receipt = json.loads(result.get('stdout', ''))
-        except (ValueError, TypeError):
+        decoder = json.JSONDecoder()
+        text = result.get('stdout') or ''
+        if not isinstance(text, str):
             return
-        if not isinstance(receipt, dict) or not isinstance(receipt.get('source_excerpts'), list):
-            return
-        for row in receipt['source_excerpts']:
-            if not isinstance(row, dict):
+        for match in re.finditer(r'(?m)^[ \t]*(?=\{)', text):
+            try:
+                receipt, _ = decoder.raw_decode(text, match.end())
+            except ValueError:
                 continue
-            key = row.get('source_id')
-            if not isinstance(key, str) or key not in self.sources or row.get('sha256') != self.sources[key]['sha256']:
+            if not isinstance(receipt, dict) or not isinstance(receipt.get('source_excerpts'), list):
                 continue
-            if key not in self._source_pages:
-                # On manual continuation the original file is fingerprinted by
-                # the existing checkpoint; re-read for verification, not AI coverage.
-                saved = await self.read_json(self.sources[key]['path'])
-                if sha256(encoded(saved).encode()).hexdigest() != self.sources[key]['artifact_sha256']:
-                    raise ValueError('已保存来源指纹变化，不能绑定脚本摘录')
-                self._source_pages[key] = saved['pages']
-            page = next((p['text'] for p in self._source_pages[key] if p['page'] == row.get('page')), None)
-            start, end, quote = row.get('start'), row.get('end'), row.get('quote')
-            if (page is not None and type(row.get('page')) is int and type(start) is int and type(end) is int and
-                    0 <= start < end <= len(page) and isinstance(quote, str) and page[start:end] == quote):
-                self.received_text(key, quote)
-                excerpt = {k:row[k] for k in ('page','start','end','quote','sha256')}
-                rows = self.excerpts.setdefault(key, [])
-                if excerpt not in rows:
-                    rows.append(excerpt)
+            for row in receipt['source_excerpts']:
+                if not isinstance(row, dict):
+                    continue
+                key = row.get('source_id')
+                if not isinstance(key, str) or key not in self.sources or row.get('sha256') != self.sources[key]['sha256']:
+                    continue
+                if key not in self._source_pages:
+                    # On manual continuation the original file is fingerprinted by
+                    # the existing checkpoint; re-read for verification, not AI coverage.
+                    saved = await self.read_json(self.sources[key]['path'])
+                    if sha256(encoded(saved).encode()).hexdigest() != self.sources[key]['artifact_sha256']:
+                        raise ValueError('已保存来源指纹变化，不能绑定脚本摘录')
+                    self._source_pages[key] = saved['pages']
+                page = next((p['text'] for p in self._source_pages[key] if p['page'] == row.get('page')), None)
+                start, end, quote = row.get('start'), row.get('end'), row.get('quote')
+                if (page is not None and type(row.get('page')) is int and type(start) is int and type(end) is int and
+                        0 <= start < end <= len(page) and isinstance(quote, str) and page[start:end] == quote):
+                    self.received_text(key, quote)
+                    excerpt = {k:row[k] for k in ('page','start','end','quote','sha256')}
+                    rows = self.excerpts.setdefault(key, [])
+                    if excerpt not in rows:
+                        rows.append(excerpt)
 
     @property
     def active(self):
@@ -162,6 +175,37 @@ class ResearchSession:
             'methods': sorted(self.methods), 'trace': self.trace,
             'evidence_requests': self.evidence_requests, 'reviews': self.review_records, 'excerpts':self.excerpts})
         await self.write('evidence-index.json', self.evidence_index())
+
+    def checkpoint_state(self, archive):
+        if self.record is None:
+            return None
+        state = {key: getattr(self, key) for key in
+                 ('record', 'sources', 'trace', 'draft_count', 'publication_attempts')}
+        state['methods'] = sorted(self.methods)
+        state['method_fingerprints'] = self.method_fingerprints
+        state['milestones'] = sorted(self._milestones)
+        state['steps_without_progress'] = self.steps_without_progress
+        state.update({key: getattr(self, key) for key in
+                      ('pending_evidence', 'evidence_requests', 'evidence_notes', 'method_text',
+                       'review_records', 'excerpts')})
+        state['read_text'] = {key: [archive({'role': 'tool', 'content': text}) for text in spans]
+                              for key, spans in self.read_text.items()}
+        return state
+
+    def restore_state(self, state, load):
+        for key in ('record', 'sources', 'trace', 'draft_count', 'publication_attempts'):
+            setattr(self, key, state[key])
+        self.record = {**self.record, 'status': 'IN_PROGRESS'}
+        self.methods = set(state['methods'])
+        self.method_fingerprints = state.get('method_fingerprints', {})
+        self._milestones = {tuple(item) for item in state.get('milestones', [])}
+        self._observed_milestones = len(self._milestones)
+        self.steps_without_progress = state.get('steps_without_progress', 0)
+        for key in ('pending_evidence', 'evidence_requests', 'evidence_notes', 'method_text',
+                    'review_records', 'excerpts'):
+            setattr(self, key, state.get(key, [] if key == 'pending_evidence' else {}))
+        self.read_text = {key: [load(evidence_id)['content'] for evidence_id in spans]
+                          for key, spans in state['read_text'].items()}
 
     def evidence_index(self):
         return {'sources': {key: {**row, 'annotation': self.evidence_notes.get(key, {}),
@@ -201,12 +245,21 @@ class ResearchSession:
         requests = params.get('evidence_requests', [])
         if requests and not self.methods:
             raise ValueError('先读取适用方法，再提供已核实的证券与证据需求')
-        from .research_evidence import evidence_steps
+        previous, lineage = None, None
+        if params.get('revision_of') is not None:
+            if self.record is not None or phase != '准备' or requests:
+                raise ValueError('revision_of只用于首次准备阶段，不接收新取证；之后可继续推进新研究')
+            from .revision import previous_record
+            previous, lineage = await previous_record(self, params['revision_of'])
+            params = {'scope': previous['scope'], 'targets': previous.get('targets', []),
+                      'plan': previous['plan'], **params}
+        evidence_steps = self.evidence.steps
         planned = [(request, evidence_steps(request)) for request in requests]
         notes = params.get('evidence_notes', [])
-        for note in notes:
-            if note['source_id'] not in self.sources:
-                raise ValueError('证据标注只能引用本轮实际来源')
+        if previous is None:
+            for note in notes:
+                if note['source_id'] not in self.sources:
+                    raise ValueError('证据标注只能引用本轮实际来源')
         if self.record is None:
             if phase != '准备' or not params.get('scope') or not params.get('plan'):
                 raise ValueError('首次研究需提供范围和简短计划，并从准备阶段开始')
@@ -226,6 +279,16 @@ class ResearchSession:
                 'directory': directory}
         else:
             self.record['phase'] = phase
+        if previous is not None:
+            from .revision import inherit
+            try:
+                await inherit(self, previous, lineage)
+            except Exception:
+                self.record = None
+                raise
+            for note in notes:
+                if note['source_id'] not in self.sources:
+                    raise ValueError('证据标注只能引用已继承的实际来源')
         for request, steps in planned:
             key = sha256(json.dumps(request, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
             if key in self.evidence_requests:
@@ -243,13 +306,17 @@ class ResearchSession:
                          '在review.checks记录具体核对结果及位置，不写隐藏推理或泛化通过声明；完成后再brief_publish。')
         return {'research_id': self.record['id'], 'directory': self.record['directory'],
                 'phase': phase, 'model': self.model,
+                'revision_of': self.record.get('revision_of'),
                 'pending_evidence_steps': len(self.pending_evidence),
                 'sources': [{'source_id': key, 'saved_source': row['path']} for key, row in self.sources.items()],
                 'next': next_step}
 
     async def complete_evidence(self, step, result, status):
         """Advance only after the actual normal tool receipt has been recorded."""
-        from .research_evidence import catalogue, financial_read_step, report_read_step, quote_read_step
+        catalogue = self.evidence.catalogue
+        financial_read_step = self.evidence.financial_read_step
+        report_read_step = self.evidence.report_read_step
+        quote_read_step = self.evidence.quote_read_step
         self.pending_evidence.pop(0)
         entry = self.evidence_requests[step['request_key']]
         source = result.get('source_id')
@@ -276,7 +343,7 @@ class ResearchSession:
         await self.checkpoint()
 
     async def queue_review_reads(self, requests):
-        from .research_evidence import report_read_step
+        report_read_step = self.evidence.report_read_step
         # Validate the whole set before queuing any read. Paths come only from
         # this research's registered sources, never from model-supplied paths.
         for row in requests:
@@ -315,8 +382,8 @@ class ResearchSession:
             'purpose':'读取已选详情页实际返回的唯一PDF附件；沿原工具授权与事件执行'})
 
     async def queue_citation_reads(self, candidate):
-        from .research_visuals import literal_text
-        from .research_evidence import citation_read_step
+        literal_text = self.publication.literal_text
+        citation_read_step = self.evidence.citation_read_step
         needs=[]
         for row in candidate.get('sources',[]):
             key,quote=row.get('id'),row.get('quote')
@@ -360,7 +427,7 @@ class ResearchSession:
         success = event.get('status') == 'ok'
         path = params.get('path', '')
         if success and name == 'file_read' and any('/skills/'+version+'/references/' in path
-                for version in ('harness-stock-research-v1', 'harness-stock-research-v2', 'harness-stock-research-v3', 'harness-stock-research-v4')):
+                for version in self.method_families):
             self.methods.add(path)
             self.method_text[path] = result.get('content', '')
             self.progress('method', path)
@@ -430,7 +497,8 @@ class ResearchSession:
 
     async def publication_input(self, params):
         """Resolve the workspace draft, inline overrides and actually read excerpts."""
-        from .research_visuals import normalize_publication, literal_text
+        normalize_publication = self.publication.normalize_publication
+        literal_text = self.publication.literal_text
         if 'draft_path' in params:
             path = params['draft_path']
             root = PurePosixPath(self.record['directory'])
@@ -467,9 +535,9 @@ class ResearchSession:
         params = await self.publication_input(params)
         if not self.methods or not self.sources:
             raise ValueError('尚未实际读取方法或本轮公开原文；请补齐后再发布')
-        from .research_review import fingerprint
+        from harness.runtime.evidence import fingerprint
         if self.published:
-            checked = validate_publication(params, self.sources, self.read_text)
+            checked = self.publication.validate_publication(params, self.sources, self.read_text)
             if self.published['sha256'] != fingerprint(checked):
                 raise ValueError('本轮已经交付；不同内容须作为新的修订研究保存')
             return self.published
@@ -477,8 +545,8 @@ class ResearchSession:
         attempt = f'publication-attempts/{self.publication_attempts}.json'
         await self.write(attempt, params)
         try:
-            checked = validate_publication(params, self.sources, self.read_text)
-            render_charts(checked.get('charts', []))
+            checked = self.publication.validate_publication(params, self.sources, self.read_text)
+            self.publication.render_charts(checked.get('charts', []))
         except (ValueError, KeyError, TypeError, DecimalException) as exc:
             return {'error': str(exc), 'draft_path': self.record['directory'] + '/' + attempt,
                 'next': '原提交已保存。可修改本轮草稿JSON后传draft_path，或用内联字段覆盖。请定向修正，不删除有效反证。'}
@@ -520,13 +588,13 @@ class ResearchSession:
         return render_document(params['markdown']+self.references(params), title=params['title'],
             generated_at=datetime.now(timezone.utc).isoformat(), model=self.model,
             material_sha256=digest, as_of=params['as_of'], stance=params['stance'],
-            scope_label=self.record['scope'], charts_html=render_charts(params.get('charts', [])), review_html=notes,
+            scope_label=self.record['scope'], charts_html=self.publication.render_charts(params.get('charts', [])), review_html=notes,
             provenance='草稿 · 单独核对未完成' if draft else '聊天自主研究 · 模型生成',
             material_note=('草稿：单独核对未完成，本轮尚未正式发布。已有正文及来源保留，不自动重发未确认请求。' if draft else
                            '本轮使用公开来源；资料时点见来源。单独核对仅提供建议，不认证事实；待核事项见文末折叠区。'))
 
     async def save_review_draft(self, candidate):
-        from .research_review import fingerprint
+        from harness.runtime.evidence import fingerprint
         digest = fingerprint(candidate)
         path = 'drafts/review-incomplete-' + digest[:16] + '.html'
         await self.write(path, self.render_candidate(candidate, digest, self.review_records.get(digest, {}), draft=True))
@@ -537,8 +605,8 @@ class ResearchSession:
 
     def check_review(self, candidate):
         """Completion is required; findings are advisory unless explicitly enforced."""
-        from . import config
-        from .research_review import blocking_findings, fingerprint
+        from core import config
+        from plugins.finance.research_review import blocking_findings
         row = self.review_records.get(fingerprint(candidate), {})
         if row.get('status') != 'COMPLETE':
             raise ValueError('当前候选稿尚未完成单独核对，不能正式发布')

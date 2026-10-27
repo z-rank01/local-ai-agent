@@ -19,6 +19,9 @@ async def capabilities():
     environments = CapabilityStore(runtime.store._connect).list('__host__', 'plugin_environment')
     for row in rows:
         row['environment'] = environments.get(row['id'], {'state': 'NOT_PREPARED'})
+        adapter_error = getattr(runtime, 'adapter_errors', {}).get(row['id'])
+        if adapter_error:
+            row['error'] = row.get('error') or '服务适配器不可用：' + adapter_error
         prompt_error = getattr(getattr(runtime, 'prompt_builder', None), 'contribution_errors', {}).get(row['id'])
         if prompt_error:
             row['error'] = row.get('error') or '能力提示不可用：' + prompt_error
@@ -32,6 +35,27 @@ async def capabilities():
 
 class CapabilityAction(BaseModel):
     enabled: bool
+
+
+class CapabilityCommandRequest(BaseModel):
+    workspace_id: str = 'default'
+    arguments: dict = {}
+
+
+@router.post('/api/capabilities/{identity}/commands/{name}')
+async def execute_command(identity: str, name: str, body: CapabilityCommandRequest, request: Request):
+    from .app import require_local_control
+    from .deps import get_chat_service
+    require_local_control(request)
+    try:
+        return await get_chat_service().execute_capability_command(
+            identity, name, body.arguments, body.workspace_id)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 _preparations = {}

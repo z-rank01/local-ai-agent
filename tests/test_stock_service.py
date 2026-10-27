@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
-from core.stock_service import StockService
+from plugins.finance.service import StockService
 from core.tool_registry import ToolRegistry
 from core import config
 
@@ -32,10 +32,10 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_attach_updates_shared_registry_and_real_router(self):
         state = self.root / 'simulation'; state.mkdir()
         (state / '.paper-master-token').write_text('test-token')
-        registry = ToolRegistry(config.TOOLS_DIR, stock_bridge_url='')
+        registry = ToolRegistry(config.TOOLS_DIR)
         runtime = SimpleNamespace(stock_bridge=None, router=SimpleNamespace(bind_provider=Mock()), tool_registry=registry)
         await self.service.attach(runtime, True)
-        runtime.router.bind_provider.assert_called_with('stock-bridge', runtime.stock_bridge)
+        runtime.router.bind_provider.assert_any_call('stock-bridge', registry.turn_context['stock-bridge'])
         self.assertIn('stock_research_submit', registry.known_tools)
         self.assertIn('stock_candidate_screen', registry.known_tools)
         self.assertIn('stock_candidate_find', registry.known_tools)
@@ -43,7 +43,7 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('stock_research_submit', registry.known_tools)
         self.assertNotIn('stock_candidate_screen', registry.known_tools)
         self.assertNotIn('stock_candidate_find', registry.known_tools)
-        runtime.router.bind_provider.assert_called_with('stock-bridge', None)
+        runtime.router.bind_provider.assert_any_call('stock-bridge', None)
 
     async def test_busy_stop_keeps_bridge_and_settings(self):
         self.service.settings['enabled'] = True
@@ -71,12 +71,12 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
         registry.replace_owner('another-plugin', [
             {'name': 'stock_research_submit', 'backend': 'another-plugin'}])
         previous, candidate = SimpleNamespace(close=AsyncMock()), SimpleNamespace(close=AsyncMock())
-        runtime = SimpleNamespace(stock_bridge=previous, router=SimpleNamespace(bind_provider=Mock()),
-                                  tool_registry=registry)
+        registry.turn_context = {'stock-bridge': previous}
+        runtime = SimpleNamespace(router=SimpleNamespace(bind_provider=Mock()), tool_registry=registry)
         with patch('plugins.finance.service.StockBridge', return_value=candidate):
             with self.assertRaisesRegex(ValueError, 'already registered'):
                 await self.service.attach(runtime, True)
-        self.assertIs(runtime.stock_bridge, previous)
+        self.assertIs(registry.turn_context['stock-bridge'], previous)
         runtime.router.bind_provider.assert_not_called()
         previous.close.assert_not_awaited()
         candidate.close.assert_awaited_once()
@@ -166,7 +166,7 @@ class StockServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_safe_shutdown_does_not_kill_while_draining(self):
         from bff import app as module
-        from core.stock_service import stock_service
+        from plugins.finance.service import stock_service
         from types import SimpleNamespace
         with patch.object(module,'get_chat_service',return_value=SimpleNamespace(runs=SimpleNamespace(close=AsyncMock()))), \
 patch.object(stock_service, 'status', AsyncMock(return_value={'online': True})), \

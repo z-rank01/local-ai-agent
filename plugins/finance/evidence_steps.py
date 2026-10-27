@@ -1,17 +1,9 @@
 """Prepare evidence tools and model views; no financial interpretation."""
-from copy import deepcopy
 from datetime import date
 from importlib import import_module
 import json
 
-
-def model_evidence(index):
-    """Keep each source's full information without contained duplicate text."""
-    index=deepcopy(index)
-    for source in index.get('sources',{}).values():
-        texts=list(dict.fromkeys(source.get('received',[])))
-        source['received']=[text for text in texts if not any(text!=other and text in other for other in texts)]
-    return index
+from harness.runtime.evidence import model_evidence
 
 
 def evidence_steps(request):
@@ -106,3 +98,15 @@ def catalogue(pages):
                                 for row in data['list']], 'page_index': data.get('page_index'),
                     'total_hits': data.get('total_hits'), 'reading': '目录定位，不是公告全文；版本类别按实际标题核对'}
     return None
+
+
+class _Evidence:
+    steps = staticmethod(evidence_steps)
+    report_read_step = staticmethod(report_read_step)
+    quote_read_step = staticmethod(quote_read_step)
+    financial_read_step = staticmethod(financial_read_step)
+    citation_read_step = staticmethod(citation_read_step)
+    catalogue = staticmethod(catalogue)
+
+
+EVIDENCE = _Evidence()

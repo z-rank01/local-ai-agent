@@ -8,9 +8,6 @@ def environment(spec, snapshot, method):
     from harness.runtime.call_policies import contribution_versions
     prompts = {p.name: sha256(p.read_bytes()).hexdigest()
                for p in (config.PROMPTS_DIR/'modules').glob('*') if p.is_file()}
-    review_prompt = config.PROMPTS_DIR/'research_review.txt'
-    if review_prompt.is_file():
-        prompts[review_prompt.name] = sha256(review_prompt.read_bytes()).hexdigest()
     from harness.capabilities.prompts import load_prompts
     contributions, errors = load_prompts(config._PROJECT_ROOT / 'plugins')
     prompts.update({'plugin:' + item.identity: item.fingerprint for item in contributions})
@@ -28,21 +25,12 @@ def capture(agent, messages, frozen, response_id, archive):
     def save(message):
         clean = {k:v for k,v in message.items() if k not in ('reasoning_content','thinking')}
         return archive(clean)
-    research = getattr(agent.router, 'research', None)
-    state = None
-    if research is not None and research.record is not None:
-        state = {k:getattr(research,k) for k in ('record','sources','trace','draft_count','publication_attempts')}
-        state['methods'] = sorted(research.methods)
-        state['method_fingerprints'] = research.method_fingerprints
-        state['milestones'] = sorted(research._milestones)
-        state['steps_without_progress'] = research.steps_without_progress
-        state.update({key:getattr(research,key) for key in
-                      ('pending_evidence','evidence_requests','evidence_notes','method_text','review_records','excerpts')})
-        state['read_text'] = {key:[save({'role':'tool','content':text}) for text in spans]
-                              for key,spans in research.read_text.items()}
+    from harness.runtime.turns import NullTurn
+    turn = getattr(agent, 'turn', None) or NullTurn()
+    state = turn.checkpoint_state(save)
     return {'format':1, 'safe':True, 'blocker':'', 'frozen':frozen,
             'response_to_message_id':response_id,
-            'messages':[save(m) for m in messages], 'research':state,
+            'messages':[save(m) for m in messages], 'turn':state,
             'evidence_ids':sorted(agent.context_mgr.evidence_ids)}
 
 
@@ -69,20 +57,3 @@ def continuation_messages(checkpoint, load):
         '用户明确要求从已保存检查点继续同一研究。原工具回执和未执行请求已保留；'
         '不重复已完成步骤，不重发UNKNOWN，不改变模型或原问题。根据剩余缺口继续，发布仍须实际成功。'})
     return result
-
-
-def restore_research(research, state, load):
-    if state is None:
-        return
-    for key in ('record','sources','trace','draft_count','publication_attempts'):
-        setattr(research,key,state[key])
-    research.record = {**research.record,'status':'IN_PROGRESS'}
-    research.methods = set(state['methods'])
-    research.method_fingerprints = state.get('method_fingerprints',{})
-    research._milestones = {tuple(item) for item in state.get('milestones', [])}
-    research._observed_milestones = len(research._milestones)
-    research.steps_without_progress = state.get('steps_without_progress', 0)
-    for key in ('pending_evidence','evidence_requests','evidence_notes','method_text','review_records','excerpts'):
-        setattr(research,key,state.get(key, [] if key == 'pending_evidence' else {}))
-    research.read_text = {key:[load(evidence_id)['content'] for evidence_id in spans]
-                          for key,spans in state['read_text'].items()}

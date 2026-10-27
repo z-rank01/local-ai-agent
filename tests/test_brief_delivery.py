@@ -1,6 +1,7 @@
 """Local file delivery is persistent and never a model turn."""
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ from core.conversation_store import ConversationStore
 from core.workspaces import WorkspaceManager
 from bff.service import ChatSessionService
 from bff.app import app
+from plugins.finance.service import stock_service
 
 
 class BriefDeliveryTests(unittest.TestCase):
@@ -24,8 +26,12 @@ class BriefDeliveryTests(unittest.TestCase):
         self.conv = self.store.create_conversation(title='Existing research')
         self.service = object.__new__(ChatSessionService)
         self.service._store = self.store
+        self.service._runtime = SimpleNamespace(artifact_providers=None,
+            router=SimpleNamespace(provider_for=lambda owner: None),
+            capability_services={'finance': stock_service})
         self.service._active_conversations = set()
         self.service.workspaces = WorkspaceManager(self.store, self.root)
+        self.service._artifact_registry()
         self.file = self.root / 'report.html'
         self.file.write_text('<html><title>人工简报</title><p>已保存正文</p></html>', encoding='utf-8')
 
@@ -83,18 +89,18 @@ class BriefDeliveryTests(unittest.TestCase):
         row = self.store.add_message(conversation.id, role='tool', tool_name='stock_report_read',
                                      tool_result={'local_result': '第1页原研究材料'})
         before = vars(self.store.get_message(row.id)).copy()
-        path = self.service.archive_research_material(conversation.id, row.id, '第1页原研究材料')
+        path = self.service.archive_artifact(conversation.id, row.id, '第1页原研究材料')
         self.assertEqual(snapshot.resolve(path).read_text(encoding='utf-8'), '第1页原研究材料')
         self.assertFalse((self.root / 'reports').exists())
-        self.assertEqual(self.service.archive_research_material(conversation.id, row.id, '第1页原研究材料'), path)
+        self.assertEqual(self.service.archive_artifact(conversation.id, row.id, '第1页原研究材料'), path)
         self.assertEqual(vars(self.store.get_message(row.id)), before)
         with self.assertRaises(HTTPException):
-            self.service.archive_research_material(self.conv.id, row.id, 'other')
+            self.service.archive_artifact(self.conv.id, row.id, 'other')
 
     def test_archive_io_failure_keeps_original_database_material(self):
         row = self.store.add_message(self.conv.id, role='tool', tool_name='stock_report_read',
                                      tool_result={'local_result': '原资料'})
         with patch('pathlib.Path.open', side_effect=PermissionError('denied')):
             with self.assertRaises(PermissionError):
-                self.service.archive_research_material(self.conv.id, row.id, '原资料')
+                self.service.archive_artifact(self.conv.id, row.id, '原资料')
         self.assertIn('原资料', self.store.get_message(row.id).tool_result)

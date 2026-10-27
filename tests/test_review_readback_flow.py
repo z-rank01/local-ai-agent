@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from core import config
-from core.research_review import fingerprint, parse_review
+from plugins.finance.research_review import fingerprint, parse_review
 from tests import test_research_review as fixtures
 
 _enforcement = None
@@ -86,7 +86,7 @@ class ReviewReadbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls),1)
 
     def test_no_chart_needs_no_reason_and_numeric_error_is_actionable(self):
-        from core.research_visuals import validate_visual_plan, number
+        from plugins.finance.publication import validate_visual_plan, number
         from decimal import InvalidOperation
         validate_visual_plan({'charts':[]})
         validate_visual_plan({'charts':[],'visual_limitations':'资料只有定性观点，不绘制假数据'})
@@ -106,7 +106,7 @@ class ReviewReadbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls),1)
 
     async def test_chart_error_points_to_the_unbound_value(self):
-        from core.research_visuals import validate_publication
+        from plugins.finance.publication import validate_publication
         _,run,draft,_,_=await fixtures.ReviewTests().setup_review([])
         draft['charts'][0]['items'][0]['value']='200'
         with self.assertRaisesRegex(ValueError,r'charts\[0\].items\[0\].*200'):

@@ -173,8 +173,11 @@ class FileOps:
             payload = base64.b64decode(content, validate=True)
         else:
             payload = content.encode(encoding)
+        created = not resolved.exists()
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_bytes(payload)
+        if created:
+            os.chmod(resolved, 0o666)
         return {"written": str(resolved), "bytes": len(payload)}
 
     def edit(self, path, old_text, new_text, expected_sha256):
@@ -200,6 +203,11 @@ class FileOps:
                     os.fsync(stream.fileno())
                 if resolved.read_bytes() != original:
                     raise ValueError('文件在修改期间变化，请重新读取')
+                stat = resolved.stat()
+                mode = stat.st_mode & 0o777
+                if stat.st_uid == 0 and mode == 0o600:
+                    mode = 0o666
+                os.chmod(temporary, mode)
                 os.replace(temporary, resolved)
             finally:
                 if os.path.exists(temporary):

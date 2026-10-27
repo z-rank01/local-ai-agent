@@ -97,3 +97,30 @@ class LifecycleFlowTests(unittest.IsolatedAsyncioTestCase):
         await manager.deactivate('good')
         self.assertEqual(manager.status('good')['state'], 'INACTIVE')
         self.assertEqual(manager.status('broken')['state'], 'START_FAILED')
+
+    async def test_run_lease_covers_gaps_between_tool_calls(self):
+        events = []
+        manager = LifecycleManager()
+        manager.register('search', Provider('search', events))
+        await manager.activate('search')
+        entered, finish = asyncio.Event(), asyncio.Event()
+        async def turn():
+            async with manager.leases(manager.active()):
+                entered.set()
+                async with manager.call('search'):
+                    self.assertEqual(manager.status('search')['inflight'], 2)
+                self.assertEqual(manager.status('search')['inflight'], 1)
+                await finish.wait()
+        running = asyncio.create_task(turn())
+        await entered.wait()
+        stopping = asyncio.create_task(manager.deactivate('search'))
+        await asyncio.sleep(0)
+        self.assertEqual(manager.status('search')['state'], 'DRAINING')
+        with self.assertRaisesRegex(RuntimeError, '不接收'):
+            async with manager.call('search'):
+                pass
+        self.assertFalse(stopping.done())
+        finish.set()
+        await running
+        await stopping
+        self.assertEqual(events, ['start:search', 'stop:search'])

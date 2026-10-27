@@ -2,6 +2,7 @@
   "id": "websearch",
   "version": "1.0.0",
   "harness_api": 1,
+  "adapter": "plugins.websearch.service:skill_switches",
   "title": "联网搜索",
   "description": "检索公开网页并读取来源正文",
   "backends": [
@@ -16,6 +17,7 @@
   "ui": {
     "settings": "apps/web/src/plugins/websearch/index.tsx",
     "title": "联网搜索",
+    "group": "联网搜索",
     "description": "联网检索并读取网页正文",
     "order": 10
   },
@@ -33,5 +35,26 @@
       "web_search",
       "web_fetch"
     ]
+  },
+  "call_limits": {
+    "web_search": "WEB_SEARCH_BUDGET",
+    "web_fetch": "WEB_FETCH_BUDGET"
+  },
+  "commands": {
+    "search": {
+      "title": "联网检索",
+      "tool": "web_search",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "title": "检索内容"},
+          "page": {"type": "integer", "default": 1, "minimum": 1},
+          "offset": {"type": "integer", "default": 0, "minimum": 0},
+          "page_hash": {"type": "string"}
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      }
+    }
   }
 }

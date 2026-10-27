@@ -2,7 +2,7 @@ import copy
 import json
 import unittest
 
-from core.brief_material import prepare_material
+from plugins.finance.brief_material import prepare_material
 from tests.test_stock_financial_receipts import observation as financial
 from tests.test_stock_company_context import observation as comparison
 

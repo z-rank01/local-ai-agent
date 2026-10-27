@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from core import config
-from core.research_review import fingerprint
+from plugins.finance.research_review import fingerprint
 from tests import test_research_review as reviews, test_research_session as sessions
 
 

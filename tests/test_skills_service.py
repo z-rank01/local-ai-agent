@@ -9,14 +9,14 @@ from types import SimpleNamespace
 from unittest.mock import patch, AsyncMock
 
 from core import config
-from core.skills_service import SkillSwitches
+from plugins.websearch.service import SkillSwitches
 from core.tool_registry import ToolRegistry
 from core.tool_router import ToolRouter
 from types import MethodType
 
 
 def fake_runtime(enabled: bool = False):
-    registry = ToolRegistry(config.TOOLS_DIR, enable_websearch=enabled, stock_bridge_url='')
+    registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch',) if enabled else ())
     router = SimpleNamespace(_backend_urls={'skill-files': 'http://x', 'skill-runner': 'http://y'},
                              _stock_bridge=None)
     router.set_backend = MethodType(ToolRouter.set_backend, router)

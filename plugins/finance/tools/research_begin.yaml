@@ -24,6 +24,9 @@ parameters:
       type: array
       items: {type: string}
       description: 简短可观察计划，不含隐藏思维链
+    revision_of:
+      type: string
+      description: 仅首次准备阶段可用。已有研究目录内research.json的工作区路径；核验原稿、来源及固定方法版本后创建关联的新研究，不恢复旧任务、不继承旧审查或UNKNOWN。后续发布使用新目录草稿。
     evidence_requests:
       type: array
       description: 已选择的具体取证需求，相同参数不重复执行。目录仍需按标题/主体/期间选公告，不能当全文已读。

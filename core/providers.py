@@ -124,11 +124,13 @@ class CompatibleClient:
         return (self.spec.get('source_read_tool_choice', {}).get('mode') == 'named_non_thinking'
                 and self.spec.get('options', {}).get('enable_thinking') is False)
 
-    async def chat_stream_with_tools(self, messages, tools=None, *, selected_source_tool=None, request_observer=None):
+    async def chat_stream_with_tools(self, messages, tools=None, *, selected_source_tool=None,
+                                     allowed_source_tools=None, tool_purposes=None, request_observer=None):
         if selected_source_tool is not None:
             names = {item.get('function', {}).get('name') for item in tools or []}
-            if (not self.supports_source_read_choice or selected_source_tool not in names or
-                    selected_source_tool not in ('stock_public_evidence_find', 'stock_public_evidence_read')):
+            allowed = names if allowed_source_tools is None else set(allowed_source_tools)
+            if (not self.supports_source_read_choice or selected_source_tool not in names
+                    or selected_source_tool not in allowed):
                 raise RuntimeError('所选模型或当前授权工具不支持指定来源读取；未改变思考、模型或工具权限。')
         key = read_key(self.spec['api_key_env'])
         if not key:
@@ -168,9 +170,10 @@ class CompatibleClient:
                 'message_count': len(clean),
                 'input_chars': len(json.dumps(clean,ensure_ascii=False)),
                 'input_hash': hashlib.sha256(json.dumps(clean,ensure_ascii=False,sort_keys=True).encode()).hexdigest(),
-                **tool_schema_observation(payload)})
+                **tool_schema_observation(payload, tool_purposes)})
         accumulated = {'role': 'assistant', 'content': '', 'reasoning_content': ''}
         calls, finished, thinking_open = {}, False, False
+        probe, dsml = '', False
         try:
             async with self._client.stream('POST', self.spec['base_url'].rstrip('/') + '/chat/completions',
                 headers={'Authorization': f'Bearer {key}'}, json=payload) as response:
@@ -213,7 +216,13 @@ class CompatibleClient:
                                 yield '</think>', None
                                 thinking_open = False
                             accumulated['content'] += content
-                            yield content, None
+                            if not dsml:
+                                probe += content
+                                if probe.lstrip().startswith('<') and 'DSML' in probe:
+                                    dsml = True
+                                elif len(probe) >= 64 or not probe.lstrip().startswith('<'):
+                                    yield probe, None
+                                    probe = ''
                         for call in delta.get('tool_calls', []):
                             target = calls.setdefault(call['index'], {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}})
                             if call.get('id'):
@@ -231,9 +240,21 @@ class CompatibleClient:
             if not finished:
                 receipt.failure_category='EARLY_EOF'
                 raise RuntimeError('模型连接提前中断，已保留收到的内容。')
+            if probe and not dsml:
+                yield probe, None
             if calls:
                 accumulated['tool_calls'] = [calls[i] for i in sorted(calls)]
-            if not calls and re.match(r'^\s*<\uff5c+DSML\uff5c+\s+calls>', accumulated['content']):
+            if not calls:
+                from .dsml import parse_dsml
+                try:
+                    parsed = parse_dsml(accumulated['content'])
+                except ValueError as exc:
+                    receipt.failure_category = 'UNPARSED_TOOL_CALL'
+                    raise RuntimeError('模型把工具调用返回为正文，工具未执行，不能视为任务完成。已保留回执，未自动执行正文代码或重发。') from exc
+                if parsed is not None:
+                    accumulated = parsed
+                    calls = dict(enumerate(parsed['tool_calls']))
+            if not calls and dsml:
                 receipt.failure_category = 'UNPARSED_TOOL_CALL'
                 raise RuntimeError('模型把工具调用返回为正文，工具未执行，不能视为任务完成。已保留回执，未自动执行正文代码或重发。')
             if selected_source_tool and (not calls or any(call['function']['name'] != selected_source_tool for call in calls.values())):

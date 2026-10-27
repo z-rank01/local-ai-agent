@@ -61,7 +61,7 @@ function ReaderLayer({report, conversationId, onClose, zoomed, onToggleZoom, onP
     const start = report.readerDocument;
     void load(start?.page ?? 1, start?.section ?? 'body');
     return () => { ++sequence.current; };
-  }, [load, report.readerDocument]);
+  }, [report.sourceMessageId]);
   useEffect(() => {
     bodyRef.current?.scrollTo({top: 0});
     if (jump.current) {
@@ -75,7 +75,8 @@ function ReaderLayer({report, conversationId, onClose, zoomed, onToggleZoom, onP
     const page = current.source_pages?.[alias];
     if (page && !loading) void load(page, 'references', false, alias);
   };
-  const viewLabel = modern ? section === 'body' ? '正文' : '参考资料' : '整篇';
+  const sections = report.sections ?? ['body', 'references'];
+  const viewLabel = modern ? report.sectionLabels?.[section] ?? section : '整篇';
   return <section className={['reader', opened ? 'open' : '', zoomed ? 'zoomed' : ''].filter(Boolean).join(' ')}
     ref={layerRef} role="dialog" aria-modal="true" aria-label="报告阅读">
     <div className="reader-head">
@@ -84,8 +85,8 @@ function ReaderLayer({report, conversationId, onClose, zoomed, onToggleZoom, onP
       <button type="button" className="reader-btn" onClick={onClose}><Icon name="i-x" className="ico-sm" />关闭</button>
     </div>
     {modern ? <nav className="reader-sections" aria-label="报告阅读区域">
-      <button className="reader-btn" aria-pressed={section === 'body'} disabled={loading} onClick={() => switchSection('body')}>正文</button>
-      <button className="reader-btn" aria-pressed={section === 'references'} disabled={loading} onClick={() => switchSection('references')}>参考资料</button>
+      {sections.map(view => <button key={view} className="reader-btn" aria-pressed={section === view}
+        disabled={loading} onClick={() => switchSection(view)}>{report.sectionLabels?.[view] ?? view}</button>)}
     </nav> : null}
     {canRead ? <nav className="reader-pages" aria-label="报告分页">
       <button className="reader-btn" disabled={loading || current.page <= 1} onClick={() => void load(1, section)}>第一页</button>

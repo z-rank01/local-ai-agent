@@ -1,4 +1,4 @@
-export type ReportSection = 'body' | 'references';
+export type ReportSection = string;
 export type ReportBlock = {id: string; kind: 'markdown' | 'disclosure'; content: string;
   title?: string; stage?: boolean; technical?: boolean; source_alias?: number};
 export type ReportPage = {content: string; page: number; page_count: number; layout?: string;

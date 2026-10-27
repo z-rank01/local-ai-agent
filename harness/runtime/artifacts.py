@@ -5,14 +5,16 @@ import json
 
 class ArtifactRegistry:
     def __init__(self):
-        self.providers, self.errors = {}, {}
+        self.providers, self.errors, self.types, self.owners = {}, {}, {}, {}
 
-    def register(self, tools, provider):
+    def register(self, tools, provider, artifact_type='saved-text', owner=''):
         if not isinstance(tools, list) or not tools or any(not isinstance(t, str) or not t for t in tools):
             raise ValueError('成果提供者必须声明来源工具')
         if len(set(tools)) != len(tools) or any(t in self.providers for t in tools):
             raise ValueError('成果提供者登记冲突')
         self.providers.update(dict.fromkeys(tools, provider))
+        self.types.update(dict.fromkeys(tools, artifact_type))
+        self.owners.update(dict.fromkeys(tools, owner))
 
     @classmethod
     def bundled(cls, packages, transport_for):
@@ -33,7 +35,7 @@ class ArtifactRegistry:
                 if not module.startswith('plugins.' + identity + '.') or owner not in metadata.get('backends', []):
                     raise ValueError('成果提供者必须属于自身插件及已声明传输')
                 provider = getattr(importlib.import_module(module), name)(lambda owner=owner: transport_for(owner))
-                registry.register(declaration['tools'], provider)
+                registry.register(declaration['tools'], provider, declaration.get('type', identity), owner)
             except Exception as exc:
                 registry.errors[manifest.parent.name] = str(exc)
         return registry

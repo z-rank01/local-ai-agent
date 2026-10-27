@@ -89,15 +89,23 @@ try {
     function Invoke-DailyToolAndWebBuild {
     if (-not $SkipTools) {
         Write-Host '  [1/7] Docker & tool containers' -ForegroundColor Cyan
-        docker info *> $null
+        $dailyDockerLog = Join-Path $dailyLogs 'docker-info.log'
+        docker info *> $dailyDockerLog
         if ($LASTEXITCODE -ne 0) {
             Write-Step 'starting Docker Desktop...'
             $dailyDocker = Join-Path $env:ProgramFiles 'Docker/Docker/Docker Desktop.exe'
             if (-not (Test-Path -LiteralPath $dailyDocker)) { throw 'Docker Desktop is missing. Use -SkipTools for chat/control only.' }
-            Start-Process -FilePath $dailyDocker -WindowStyle Hidden
+            if (Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue) {
+                Write-Step 'Docker Desktop is already running; waiting for engine...'
+            } else {
+                Start-Process -FilePath $dailyDocker -WindowStyle Hidden
+            }
             $dailyDeadline = (Get-Date).AddSeconds(120)
-            do { Start-Sleep -Seconds 2; docker info *> $null } until ($LASTEXITCODE -eq 0 -or (Get-Date) -gt $dailyDeadline)
-            if ($LASTEXITCODE -ne 0) { throw 'Docker did not become ready.' }
+            do { Start-Sleep -Seconds 2; docker info *> $dailyDockerLog } until ($LASTEXITCODE -eq 0 -or (Get-Date) -gt $dailyDeadline)
+            if ($LASTEXITCODE -ne 0) {
+                $dailyDockerDetail = (Get-Content -LiteralPath $dailyDockerLog -Tail 8 -ErrorAction SilentlyContinue) -join ' '
+                throw "Docker did not become ready (exit $LASTEXITCODE): $dailyDockerDetail"
+            }
         }
         Write-Ok 'Docker is ready'
         & $dailyPython (Join-Path $PSScriptRoot "workspace_compose.py")
@@ -115,9 +123,35 @@ try {
             docker compose --project-directory $dailyRoot --profile websearch stop skill-websearch *>> $dailySearchBuildLog
             if ($LASTEXITCODE -ne 0) { throw 'Old web search container could not stop; see websearch-build.log.' }
         }
-        if ($Build) { docker compose --progress plain --project-directory $dailyRoot -f data/private/workspace-compose.json up -d --build skill-files skill-runner *> $dailyContainerLog } else { docker compose --project-directory $dailyRoot -f data/private/workspace-compose.json up -d skill-files skill-runner *> $dailyContainerLog }
+        if ($Build) {
+            $dailyWorkspaceServices = @(
+                Get-Content -LiteralPath (Join-Path $dailyRoot 'data/private/workspace-containers.json') -Raw -Encoding UTF8 |
+                    ConvertFrom-Json | ForEach-Object {
+                        if ($_.id -eq 'default') { @('skill-files', 'skill-runner') }
+                        elseif ($_.id -match '^[a-f0-9]{12}$') { @("ws-$($_.id)-files", "ws-$($_.id)-runner") }
+                        else { throw 'Invalid workspace id in saved configuration' }
+                    }
+            )
+            docker compose --progress plain --project-directory $dailyRoot -f data/private/workspace-compose.json build $dailyWorkspaceServices *> $dailyContainerLog
+            if ($LASTEXITCODE -ne 0) { throw 'Tool images failed to build.' }
+            $dailyExistingContainerSet = [System.Collections.Generic.HashSet[string]]::new([string[]](docker ps -a --format '{{.Names}}'))
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect existing workspace containers.' }
+            $dailyWorkspaceContext = @{ Root = $dailyRoot; Preparations = @{} }
+            $dailyWorkspaceIds = @(Get-Content -LiteralPath (Join-Path $dailyRoot 'data/private/workspace-containers.json') -Raw -Encoding UTF8 |
+                ConvertFrom-Json | ForEach-Object { $_.id })
+            foreach ($dailyWorkspaceId in $dailyWorkspaceIds) {
+                $present = if ($dailyWorkspaceId -eq 'default') { $dailyExistingContainerSet.Contains('skill-files') }
+                    else { $dailyExistingContainerSet.Contains("ws-$dailyWorkspaceId-files") }
+                if ($present) {
+                    Write-Step ('recreating workspace services: ' + $dailyWorkspaceId)
+                    Invoke-DailyDockerOperation $dailyWorkspaceContext 'workspace_sync' $dailyWorkspaceId
+                }
+            }
+        } else {
+            docker compose --project-directory $dailyRoot -f data/private/workspace-compose.json up -d skill-files skill-runner *> $dailyContainerLog
+        }
         if ($LASTEXITCODE -ne 0) { throw 'Tool containers failed to start.' }
-        Write-Ok 'containers up (skill-files, skill-runner; web search starts from the page toggle)'
+        Write-Ok 'workspace images rebuilt; existing containers up; web search starts from the page toggle'
     }
 
     # -- [2/7] Web build ------------------------------------------------------
@@ -306,12 +340,18 @@ if ($ollamaUp) {
 } elseif (Get-Command ollama -ErrorAction SilentlyContinue) {
     Write-Step 'starting ollama serve...'
     $dailyOldOllamaHost = $env:OLLAMA_HOST
+    $dailyOldOllamaContext = $env:OLLAMA_CONTEXT_LENGTH
     try {
         $env:OLLAMA_HOST = '127.0.0.1:' + $dailyOllamaUri.Port
+        # 48K keeps a dense 27B model fully on a 24GB card: KV 3.0GB + weights 15.3GB.
+        # 52K is the measured ceiling; 56K+ spills to CPU and decode collapses.
+        $env:OLLAMA_CONTEXT_LENGTH = '49152'
         Start-Process -FilePath 'ollama' -ArgumentList @('serve') -WindowStyle Hidden
     } finally {
         if ($null -eq $dailyOldOllamaHost) { Remove-Item Env:OLLAMA_HOST -ErrorAction SilentlyContinue }
         else { $env:OLLAMA_HOST = $dailyOldOllamaHost }
+        if ($null -eq $dailyOldOllamaContext) { Remove-Item Env:OLLAMA_CONTEXT_LENGTH -ErrorAction SilentlyContinue }
+        else { $env:OLLAMA_CONTEXT_LENGTH = $dailyOldOllamaContext }
     }
     $dailyDeadline = (Get-Date).AddSeconds(45)
     do {

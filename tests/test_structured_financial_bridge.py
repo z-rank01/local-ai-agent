@@ -17,7 +17,7 @@ class StructuredBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(step['action'],'public_evidence_find');self.assertNotIn('search',step)
 
     def test_schema_is_same_read_tool_without_new_write_access(self):
-        r=ToolRegistry(config.TOOLS_DIR,stock_bridge_url='http://paper.test')
+        r=ToolRegistry(config.TOOLS_DIR, enabled_backends=('stock-bridge',))
         fn=next(x['function'] for x in r.get_definitions(allow_write=False) if x['function']['name']=='stock_public_evidence_find')
         properties=fn['parameters']['properties']
         self.assertIn('assets',properties['financial_metric']['enum']);self.assertNotIn('DCF',properties['financial_metric']['enum'])

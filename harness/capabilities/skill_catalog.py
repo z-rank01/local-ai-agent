@@ -3,12 +3,15 @@ from copy import deepcopy
 
 
 class SkillCatalog:
-    def __init__(self, store, workspace_id, available=(), permissions=()):
+    def __init__(self, store, workspace_id, available=(), permissions=(), hidden_packages=()):
         self.store, self.workspace_id = store, workspace_id
         self.available, self.permissions = set(available), set(permissions)
+        self.hidden_packages = set(hidden_packages)
 
     def blockers(self, entry):
-        return ([f'缺少依赖：{name}' for name in entry.get('dependencies', []) if name not in self.available]
+        missing = [name for name in (*entry.get('dependencies', []), *entry.get('required', []))
+                   if name not in self.available]
+        return ([f'缺少依赖：{name}' for name in missing]
                 + [f'宿主未授权：{name}' for name in entry.get('permissions', []) if name not in self.permissions]
                 + list(entry.get('environment_errors', [])))
 
@@ -23,7 +26,7 @@ class SkillCatalog:
             if not active or active['revision'] != entry['revision']:
                 prior = active or {}
                 expanded = any(set(entry.get(key, [])) - set(prior.get(key, []))
-                               for key in ('permissions', 'dependencies', 'environment_dependencies'))
+                               for key in ('permissions', 'dependencies', 'environment_dependencies', 'required', 'optional'))
                 if state['follow_updates'] and not expanded and not self.blockers(entry):
                     self._activate(state, entry)
                 else:
@@ -77,7 +80,8 @@ class SkillCatalog:
         result = {**snapshot, 'versions': {}, 'invalid': list(snapshot.get('invalid', []))}
         for name, state in states.items():
             entry = state.get('active')
-            if not state['enabled'] or state.get('missing') or state.get('uninstalled') or not entry:
+            if (not state['enabled'] or state.get('missing') or state.get('uninstalled') or not entry
+                    or name in self.hidden_packages):
                 continue
             errors = self.blockers(entry)
             if errors:

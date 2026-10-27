@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 import unittest
 
-from core.research_material_view import ResearchMaterialView
+from plugins.finance.research_material_view import ResearchMaterialView
 
 
 class ResearchMaterialViewTests(unittest.TestCase):

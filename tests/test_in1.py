@@ -257,6 +257,28 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             async def close(self): pass
         self.runtime.models.clients['qwen:qwen3.5-flash'] = FakeModel()
 
+    async def test_explicit_new_local_model_refreshes_catalog_before_acceptance(self):
+        self.runtime.models.specs = list(self.runtime.models._static_specs)
+        self.runtime.memory = None
+        class LocalModel:
+            cloud = False
+            model = 'qwen3.8:27b'
+            think = None
+            async def chat_stream_with_tools(self, messages, tools=None):
+                self.messages = messages
+                yield 'hello', None
+                yield '', {'role': 'assistant', 'content': 'hello'}
+            async def close(self):
+                pass
+        self.runtime.models.clients['ollama:qwen3.8:27b'] = LocalModel()
+        with patch('core.providers._probe_ollama_models', return_value=['qwen3.8:27b']), \
+                patch('core.providers._probe_compatible_models', return_value=[]):
+            events = [event async for event in self.service.stream_chat(ChatRequest(
+                message='测试新模型', model='ollama:qwen3.8:27b'))]
+        self.assertEqual(self.service.get_conversation(events[0].conversation_id).model,
+                         'ollama:qwen3.8:27b')
+        self.assertNotIn('error', [event.event for event in events])
+
     async def test_history_model_and_refresh(self):
         req = ChatRequest(message='hi',provider_id='qwen',model='qwen3.5-flash')
         events = [e async for e in self.service.stream_chat(req)]
@@ -273,7 +295,8 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             def has_open_turn(self, _conversation_id): return False
             async def finish_turn(self, _conversation_id): return []
             async def close(self): pass
-        self.runtime.stock_bridge = StubBridge()
+        self.runtime.tool_registry.load_backend('config/tools', 'stock-bridge')
+        self.runtime.tool_registry.turn_context = {'stock-bridge': StubBridge()}
         request = ChatRequest(message='获取当前市场简报，不刷新，打开第 1、2 页与旧版对比。',
                               model='qwen:qwen3.5-flash')
         definitions = [{'type': 'function', 'function': {'name': name, 'parameters': {'type': 'object'}}}
@@ -292,7 +315,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_model_switch_routes_actual_client_and_edit(self):
         spec={'id':'alternate:mock','provider_id':'alternate','provider_name':'Test','model':'mock','kind':'cloud','base_url':'https://example.invalid','api_key_env':'IN1_FAKE_KEY'}
-        self.runtime.models.specs.append(spec)
+        self.runtime.models._static_specs.append(spec)
         parent=self
         class Alternate:
             cloud=True
@@ -474,16 +497,22 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1].kind,'error')
 
     async def test_stock_calls_continue_beyond_generic_round_limit(self):
+        from core.tool_registry import ToolRegistry
         calls = [{'id': f's{i}', 'type': 'function',
                   'function': {'name': 'stock_public_evidence_read', 'arguments': '{}'}}
                  for i in range(8)]
         agent = self.agent([{'role': 'assistant', 'content': '', 'tool_calls': [call]}
                             for call in calls] + [{'role': 'assistant', 'content': '证据已核对。'}],
-                           {'model_observation': {'evidence': 'public'}, 'status': 'TOOL_RETURNED'},
                            max_rounds=3)
-        agent.registry = SimpleNamespace(get_definitions=lambda **kw: [
-            {'function': {'name': 'stock_public_evidence_read'}}])
-        agent.stock_loop_enabled = True
+        async def distinct_receipts(*args):
+            self.runs += 1
+            yield {'event': 'result', 'result': {
+                'model_observation': {'evidence': f'public-{self.runs}'}, 'status': 'TOOL_RETURNED'}}
+        agent.router.dispatch_stream = distinct_receipts
+        registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch', 'stock-bridge'))
+        registry.get_definitions = lambda **kw: [{'function': {'name': 'stock_public_evidence_read'}}]
+        agent.registry = registry
+        agent.turn_loop_enabled = True
         with patch.object(config, 'WORKSPACE_CLOUD_ALLOWED', True):
             events = [event async for event in agent.run([{'role': 'user', 'content': '逐条读取公开证据'}])]
         self.assertEqual(self.runs, 8)
@@ -491,6 +520,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1].text, '证据已核对。')
 
     async def test_stock_time_boundary_keeps_completed_result_and_stops_new_calls(self):
+        from core.tool_registry import ToolRegistry
         clock = [100.0]
         calls = [{'id': 's1', 'type': 'function',
                   'function': {'name': 'stock_public_evidence_read', 'arguments': '{}'}}]
@@ -512,12 +542,13 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                                                    'status': 'TOOL_RETURNED'}}
         async def process(messages): return messages
         self.inputs = []; self.runs = 0
-        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(
-            get_definitions=lambda **kw: [{'function': {'name': 'stock_public_evidence_read'}}]),
+        registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch', 'stock-bridge'))
+        registry.get_definitions = lambda **kw: [{'function': {'name': 'stock_public_evidence_read'}}]
+        agent = Agent(llm=Model(), router=Router(), registry=registry,
             audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=3)
-        agent.stock_loop_enabled = True
-        with patch.object(config, 'WORKSPACE_CLOUD_ALLOWED', True), patch('core.agent.time.monotonic', side_effect=lambda: clock[0]):
+        agent.turn_loop_enabled = True
+        with patch.object(config, 'WORKSPACE_CLOUD_ALLOWED', True), patch('plugins.finance.loop.time.monotonic', side_effect=lambda: clock[0]):
             events = [event async for event in agent.run([{'role': 'user', 'content': '读取证据'}])]
         self.assertEqual(self.runs, 1)
         self.assertEqual(events[-1].kind, 'done')
@@ -544,7 +575,9 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 yield {'event':'result','result':{'total_results':1}}
         async def process(messages): return messages
         self.runs=0
-        agent=Agent(llm=Model(),router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[{'function':{'name':'web_search'}}]),
+        agent=Agent(llm=Model(),router=Router(), registry=SimpleNamespace(
+            get_definitions=lambda **kw:[{'function':{'name':'web_search'}}],
+            call_limits=lambda: {'web_search': config.WEB_SEARCH_BUDGET, 'web_fetch': config.WEB_FETCH_BUDGET}),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'))
         with patch.object(config,'WORKSPACE_CLOUD_ALLOWED',True), patch.object(config,'WEB_SEARCH_BUDGET',1):
@@ -570,7 +603,9 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 yield {'event':'result','result':{'total_results':1}}
         async def process(messages): return messages
         self.runs=0
-        agent=Agent(llm=Model(),router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw:[{'function':{'name':'web_search'}},{'function':{'name':'web_fetch'}}]),
+        agent=Agent(llm=Model(),router=Router(), registry=SimpleNamespace(
+            get_definitions=lambda **kw:[{'function':{'name':'web_search'}},{'function':{'name':'web_fetch'}}],
+            call_limits=lambda: {'web_search': config.WEB_SEARCH_BUDGET, 'web_fetch': config.WEB_FETCH_BUDGET}),
             audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw:'test'))
         with patch.object(config,'WORKSPACE_CLOUD_ALLOWED',True), patch.object(config,'WEB_SEARCH_BUDGET',2), patch.object(config,'WEB_FETCH_BUDGET',3):
@@ -599,6 +634,54 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen[0],['web_search','web_fetch'])
         messages = [e.data['message'] for e in events if e.kind=='message' and e.data['message'].get('role')=='tool']
         self.assertNotIn('还可 0 次',messages[0]['content'])
+
+    async def test_skill_discovery_survives_rejected_tool_in_both_loops(self):
+        from harness.capabilities.skill_session import SkillSession
+        from plugins.finance.loop import FinanceLoop
+        for loop in (Agent, FinanceLoop):
+            with self.subTest(loop=loop.__name__):
+                offered = []
+                class Model:
+                    cloud = False
+                    async def chat_stream_with_tools(self, messages, tools=None):
+                        names = [row['function']['name'] for row in tools or []]
+                        offered.append(names)
+                        step = len(offered)
+                        name, params = [('file_list', {}), ('skill_list', {}),
+                            ('skill_info', {'skill_name': 'meeting-notes'}),
+                            ('file_read', {'path': 'record.md'})][min(step - 1, 3)] if step < 5 else (None, {})
+                        yield '', {'role': 'assistant', 'content': '已完成' if name is None else '',
+                            'tool_calls': [] if name is None else [{'id': str(step), 'function': {
+                                'name': name, 'arguments': params}}]}
+                class Router:
+                    skill_session = SkillSession(httpx.AsyncClient(transport=httpx.MockTransport(
+                        lambda request: httpx.Response(200, json={'name': 'meeting-notes', 'body': '模板'}))),
+                        'http://runner', {}, {'versions': {'meeting-notes': {
+                        'name': 'meeting-notes', 'revision': 'fixed'}}, 'invalid': [],
+                        'capabilities': [{'id': 'document-index', 'tools': ['documents_find']}]})
+                    async def dispatch(self, name, params, session):
+                        if name in ('skill_info', 'skill_list'):
+                            return await self.skill_session.adapt(name, params, {'name': name})
+                        return {'content': '原文'}
+                async def process(messages):
+                    return messages
+                agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(
+                    get_definitions=lambda **kw: [{'function': {'name': name}} for name in
+                        ('file_read', 'skill_info', 'skill_list', 'documents_find')]),
+                    audit=SimpleNamespace(record=lambda *a: None),
+                    context_mgr=SimpleNamespace(process=process),
+                    prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=6)
+                if loop is FinanceLoop:
+                    from plugins.finance.turn import FinanceTurn
+                    agent.registry.create_turn = FinanceTurn
+                    agent.turn_loop_enabled = True
+                events = [event async for event in agent.run([{'role': 'user', 'content': '整理记录'}])]
+                self.assertEqual(set(offered[0]), {'skill_list', 'skill_info', 'documents_find'})
+                self.assertEqual(set(offered[1]), {'skill_list', 'skill_info', 'documents_find'})
+                self.assertIn('file_read', offered[2])
+                self.assertEqual([event.data['status'] for event in events if event.kind == 'tool_end'],
+                                 ['error', 'ok', 'ok', 'ok'])
+                self.assertEqual(events[-1].kind, 'done')
 
 class CompactTests(unittest.IsolatedAsyncioTestCase):
     async def test_compact_preserves_entire_recent_tool_turn(self):

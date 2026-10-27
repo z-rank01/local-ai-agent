@@ -1,6 +1,6 @@
 import unittest
 
-from core.brief_comparison import BriefComparison, requested
+from plugins.finance.brief_comparison import BriefComparison, requested
 
 
 class BriefComparisonTests(unittest.TestCase):

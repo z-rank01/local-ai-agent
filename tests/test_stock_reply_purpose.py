@@ -34,7 +34,7 @@ class PurposeViewTests(unittest.TestCase):
 class PurposeAgentTests(unittest.IsolatedAsyncioTestCase):
     def agent(self,model,router):
         a=SourceQuoteLoopTests.agent(self,model,router,['stock_report_read','stock_public_evidence_read','stock_research_submit'])
-        a.stock_reply_purpose_enabled=True
+        a.turn_reply_purpose_enabled=True
         return a
 
     async def test_semantic_analysis_choice_retains_full_history_and_is_not_answer(self):

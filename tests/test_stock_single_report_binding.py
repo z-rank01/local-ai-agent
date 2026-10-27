@@ -131,7 +131,7 @@ class SingleReportAgentTests(unittest.IsolatedAsyncioTestCase):
                 kw['request_observer']('native_model_request', {'parameters': {'enable_thinking': True}})
                 yield '', {'role': 'assistant', 'content': '{"reply_focus":"analysis"}' if len(captured) == 1 else '保留条件与部分成果。'}
         a = SourceQuoteLoopTests.agent(self, Model(), SimpleNamespace(), ['stock_report_read', 'stock_public_evidence_read'])
-        a.stock_reply_purpose_enabled = True
+        a.turn_reply_purpose_enabled = True
         def archive(row):
             eid = hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest(); saved[eid] = row; return eid
         async def process(rows): processed.append(copy.deepcopy(rows)); return rows
@@ -162,7 +162,7 @@ class SingleReportAgentTests(unittest.IsolatedAsyncioTestCase):
                         captured.append(copy.deepcopy(messages))
                         yield '', {'role': 'assistant', 'content': '原回答路径。'}
                 a = SourceQuoteLoopTests.agent(self, Model(), SimpleNamespace(), ['stock_report_read'])
-                a.stock_reply_purpose_enabled = False
+                a.turn_reply_purpose_enabled = False
                 async def process(rows): return rows
                 def fail(row): raise OSError('unavailable')
                 a.context_mgr = SimpleNamespace(archive=fail, reader=object(), evidence_ids=set(), process=process)
