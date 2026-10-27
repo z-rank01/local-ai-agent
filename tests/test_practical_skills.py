@@ -122,3 +122,51 @@ class PracticalSkillsTests(unittest.TestCase):
                 execute.assert_not_called()
             self.assertEqual(original.read_text(encoding='utf-8'), 'untouched')
             self.assertEqual(sorted(p.name for p in root.iterdir()), ['skills'])
+
+
+class HoldoutEvidenceTests(unittest.TestCase):
+    def test_index_receipt_requires_matching_source_hash_and_actual_text(self):
+        from hashlib import sha256
+        from scripts.harness_holdout import structure
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'cases/document-index/i1-v1/example.txt'
+            source.parent.mkdir(parents=True)
+            source.write_text('实际原文窗口', encoding='utf-8')
+            fingerprint = sha256(source.read_bytes()).hexdigest()
+            path = '/workspace/cases/document-index/i1-v1/example.txt'
+            task = {'capability': 'document-index', 'task': 'i1'}
+            inputs = [{'path': path, 'sha256': fingerprint}]
+            rows = [{'role': 'tool', 'tool_name': 'documents_index', 'tool_result': {'indexed': 1}},
+                    {'role': 'tool', 'tool_name': 'documents_find', 'tool_result': {
+                        'matches': [{'path': path, 'source_version': fingerprint, 'text': '实际原文窗口'}]}}]
+            self.assertTrue(structure(task, rows, inputs, root)['source_reread'])
+            rows[1]['tool_result']['matches'][0]['source_version'] = '0' * 64
+            self.assertFalse(structure(task, rows, inputs, root)['source_reread'])
+
+    def test_summary_preserves_all_attempts_unknowns_and_sample_kinds(self):
+        from scripts.harness_holdout import summarize
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = root / 'data/private/harness-holdout/local'
+            def row(variant, status, stream='STREAM_COMPLETE'):
+                return {'variant': variant, 'key': 'meeting-notes/m1', 'capability': 'meeting-notes',
+                        'task': 'm1', 'model': 'qwen', 'workspace_id': 'test', 'status': stream,
+                        'run': {'status': status}, 'checks': {'originals_unchanged': True,
+                            'required_tools_present': True, 'written_artifact_reread': True, 'source_reread': True}}
+            for variant, rows, kind in [('v1', [row('v1', 'SUCCEEDED'), row('v1', 'FAILED', 'UNKNOWN')], 'holdout'),
+                                        ('v2', [row('v2', 'SUCCEEDED')], None)]:
+                directory = base / variant
+                directory.mkdir(parents=True)
+                (directory / 'runs.json').write_text(json.dumps(rows), encoding='utf-8')
+                if kind:
+                    (directory / 'case.json').write_text(json.dumps({'sample_kind': kind}), encoding='utf-8')
+            result = summarize('local', root=root)
+            self.assertEqual(result['summary']['attempts'], 3)
+            self.assertEqual(result['summary']['by_model']['qwen']['run_succeeded'], 2)
+            self.assertEqual(result['summary']['by_model']['qwen']['unknown'], 1)
+            self.assertEqual(result['summary']['by_model']['qwen']['engineering_pass'], 2)
+            self.assertEqual(result['summary']['by_model']['qwen']['content_review_pending'], 3)
+            self.assertEqual(result['holdout_summary']['attempts'], 2)
+            self.assertEqual(result['summary']['sample_kinds'], {'development': 1, 'holdout': 2})
+            self.assertEqual(summarize('local', variants={'v1'}, root=root)['summary']['attempts'], 2)

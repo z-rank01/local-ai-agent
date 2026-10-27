@@ -28,6 +28,7 @@ class ToolSchemaTests(unittest.TestCase):
         payload={'tools': [definition()]};old=copy.deepcopy(payload)
         v=observe(payload)
         self.assertEqual(v['tools_sha256'],fingerprint(payload['tools']))
+        self.assertEqual(v['tool_schema_chars'],len(json.dumps(payload['tools'],ensure_ascii=False)))
         self.assertEqual(v['tool_schema_fingerprints'][0]['reply_focus_schema']['enum'],['analysis','calculation'])
         self.assertNotIn('private-definition-text',json.dumps(v))
         self.assertNotIn('private-default',json.dumps(v))

@@ -55,7 +55,7 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def prepare(role, variant):
+def prepare(role, variant, sample_kind=None, fresh=False):
     workspace, _ = WORKSPACES[role]
     root = ROOT / 'data/workspace/.harness' / workspace
     if not root.is_dir():
@@ -76,6 +76,8 @@ def prepare(role, variant):
                    'sha256': sha(path)} for path in sorted(directory.rglob('*')) if path.is_file()]
         tasks.append({'capability': capability, 'task': name, 'prompt': prompt, 'inputs': inputs})
 
+    if fresh:
+        case = fresh_case(case, variant)
     case('meeting-notes', 'm1',
          '把 /workspace/cases/meeting-notes/m1-{v}/record.md 整理成一份能交接的会议纪要。区分已决定、提议与待确认，待办保留负责人和期限；原文没给的不要猜。保存到同目录 minutes.md，回读核对后告诉我文件位置与主要待办。'.format(v=variant),
          {'docs/记录/2026-10-15-固定端口启动恢复.md': 'record.md'})
@@ -121,7 +123,61 @@ def prepare(role, variant):
     evidence = ROOT / 'data/private/harness-holdout' / role / variant
     evidence.mkdir(parents=True, exist_ok=True)
     (evidence / 'inputs.json').write_text(json.dumps(tasks, ensure_ascii=False, indent=2), encoding='utf-8')
+    if sample_kind:
+        case_path = evidence / 'case.json'
+        case = json.loads(case_path.read_text(encoding='utf-8')) if case_path.exists() else {}
+        case.update(sample_kind=sample_kind, role=role, variant=variant, model=WORKSPACES[role][1])
+        case_path.write_text(json.dumps(case, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({'role': role, 'workspace': workspace, 'tasks': len(tasks), 'evidence': str(evidence)}, ensure_ascii=False))
+
+
+def fresh_case(base_case, variant):
+    def case(capability, name, _prompt, _files):
+        left = 'order,amount,qty\nR100,80.00,1\nR200,120.00,2\nR300,18.00,1\nR400,6.00,1\nR500,9.00,1\nR700,5.00,1\n'
+        right = 'order,amount,qty\nR100,80.00,1\nR200,120.07,2\nR300,18.00,1\nR400,6.00,1\nR400,6.00,1\nR600,9.00,1\nR700,NA,1\n'
+        left2 = 'statement_id\trevenue\tcash\nB001\t80.00\t40.00\nB002\t1000.00\t600.00\nB003\t30.00\t6.00\nB004\t7.00\t1\n'
+        right2 = 'statement_id\trevenue\tcash\nB001\t80.00\t40.00\nB002\t1000.00\t600.02\nB003\t30.00\t6.00\nB003\t30.00\t6.00\nB004\tNA\t1\nB005\t11.00\t2\n'
+        tasks = {
+            ('meeting-notes', 'm1'): (
+                '请把 /workspace/cases/meeting-notes/m1-{v}/record.md 整理给后续接手的人：哪些是已经决定的事，哪些还要核实，谁在什么时候做什么。原文没有给的责任人不要补。保存 minutes.md，读完后再给我文件位置。',
+                {'docs/记录/2026-10-18-投研收敛与批量原文摘录.md': 'record.md'}),
+            ('meeting-notes', 'm2'): (
+                '读 /workspace/cases/meeting-notes/m2-{v}/record.md，做一份交接清单，分开“已经同意怎么做”和“还要再确认什么”。保留责任人和期限，原文没写的不要猜。保存 minutes.md 后自己读一遍再交付。',
+                {'docs/记录/2026-10-21-会话模型统一与本地委派.md': 'record.md'}),
+            ('table-reconcile', 't1'): (
+                '把 /workspace/cases/table-reconcile/t1-{v}/left.csv 和 right.csv 当作真实账目核对。按 order 对齐，金额元、数量件。把数值不同、只有一边有编号、重复编号和没法转成数字的行分开，缺行不要补零。结果写 reconciliation.json，确认能回读后告诉我差异。',
+                {'text:' + left: 'left.csv', 'text:' + right: 'right.csv'}),
+            ('table-reconcile', 't2'): (
+                '看看 /workspace/cases/table-reconcile/t2-{v}/left.tsv 和 right.tsv 里 revenue、cash 哪些行对不上。按 statement_id 对齐，单位都是元；重复键、缺失键和非数值分别列出，不要四舍五入掩盖差额。保存 reconciliation.json 并回读。',
+                {'text:' + left2: 'left.tsv', 'text:' + right2: 'right.tsv'}),
+            ('document-compare', 'c1'): (
+                '比较 /workspace/cases/document-compare/c1-{v}/local.md 与官网 https://docs.python.org/3/whatsnew/3.13.html 对 warnings.deprecated 的说明。它是哪个版本加的、使用时有什么条件？区分本地旧稿未提及和官网新增，保留来源位置，保存 comparison.md 并回读。',
+                {'data/tmp/harness-public/python-3.12.txt': 'local.md'}),
+            ('document-compare', 'c2'): (
+                '对照 /workspace/cases/document-compare/c2-{v}/local.md 和 https://docs.python.org/3/whatsnew/3.14.html 中 concurrent.interpreters 的说明。注意所属版本、标准库位置和适用范围，不把本地旧版本当最新事实。保存 comparison.md 并回读。',
+                {'data/tmp/harness-public/python-3.13.txt': 'local.md'}),
+            ('document-index', 'i1'): (
+                '只在 /workspace/cases/document-index/i1-{v}/ 的资料里找 PEP 695 和 PEP 702。分别说它们在哪份文件、哪个段落，回读真实原文，不要凭文件名或记忆回答。',
+                {'data/tmp/harness-public/python-3.12.txt': 'python-3.12.md',
+                 'data/tmp/harness-public/python-3.13.txt': 'python-3.13.md'}),
+            ('document-index', 'i2'): (
+                '只在 /workspace/cases/document-index/i2-{v}/ 中找约7.56亿元、“法院已立案受理，暂未开庭审理”和“被告之一”。告诉我对应公告编号、证券代码和原文位置，别用记忆中的公司或数字替换。',
+                {'verify/lawsuit_20260715.pdf': 'lawsuit.pdf',
+                 'data/tmp/harness-public/python-3.12.txt': 'other.md'}),
+            ('document-batch', 'o1'): (
+                '处理 /workspace/cases/document-batch/o1-{v}/chinese-report.png 和 english-report.png，让内容可以搜索，原件保持不动。处理完回读实际文本，告诉我两个文件的结果和成果位置，不要只提交任务。',
+                {'verify/farm-demand-top.png': 'chinese-report.png',
+                 'verify/auto-v1-top.png': 'english-report.png'}),
+            ('document-batch', 'o2'): (
+                '请识别 /workspace/cases/document-batch/o2-{v}/report.png 和 broken.pdf，保留原件。分别确认哪份成功、哪份失败及原因，并回读可搜索成果，不要把部分成功说成全部成功。',
+                {'verify/farm-model-top.png': 'report.png',
+                 'text:%PDF-1.4\n deliberately broken for per-file failure\n': 'broken.pdf'}),
+            ('ordinary-chat', 'n1'): ('为什么傍晚的太阳常常看起来偏红？给孩子解释，不要联网。', {}),
+            ('ordinary-chat', 'n2'): ('给喜欢安静过周末的朋友一句轻松祝福，别使用文件或网络。', {}),
+        }
+        prompt, files = tasks[(capability, name)]
+        return base_case(capability, name, prompt.format(v=variant), files)
+    return case
 
 
 def scrub(value):
@@ -202,11 +258,23 @@ def structure(task, messages, inputs, root, ocr_verifications=None):
                     return True
         return False
 
+    def indexed_read(path):
+        local = root / path.removeprefix('/workspace/')
+        if not local.is_file():
+            return False
+        fingerprint = sha(local)
+        return any(row.get('tool_name') == 'documents_find' and succeeded(row)
+                   and any(match.get('path') == path and match.get('source_version') == fingerprint
+                           and isinstance(match.get('text'), str) and match['text'].strip()
+                           for match in (row.get('tool_result') or {}).get('matches', []))
+                   for row in rows)
+
     expected_name = {'meeting-notes': 'minutes.md', 'table-reconcile': 'reconciliation.json',
                      'document-compare': 'comparison.md'}.get(task['capability'])
     expected = (inputs[0]['path'].rsplit('/', 1)[0] + '/' + expected_name) if expected_name else ''
     reread = bool(expected and path_read(expected))
-    source_reread = all(path_read(item['path']) for item in inputs) if task['capability'] != 'document-batch' else None
+    source_reread = all(path_read(item['path']) or indexed_read(item['path'])
+                        for item in inputs) if task['capability'] != 'document-batch' else None
     text_reads = [row for row in reads if (row['path'] or '').endswith('.txt')
                   and '/reports/document-batch/' in row['path']]
     batch = next(((row.get('tool_result') or {}) for row in reversed(rows)
@@ -532,6 +600,125 @@ def skill_lifecycle(role, variant, resume_from=''):
     print(json.dumps({'output': str(evidence), 'status': record['status'], 'error': record.get('error')}, ensure_ascii=False))
 
 
+def summarize(role, variants=None, root=ROOT):
+    from datetime import datetime, timezone
+    base = root / 'data/private/harness-holdout' / role
+    attempts = []
+    for directory in sorted(base.glob('v*'), key=lambda path: int(path.name[1:]) if path.name[1:].isdigit() else 0):
+        history_path = directory / 'runs.json'
+        if variants and directory.name not in variants or not history_path.is_file():
+            continue
+        case_path = directory / 'case.json'
+        case = json.loads(case_path.read_text(encoding='utf-8')) if case_path.exists() else {}
+        manifest_path = directory / 'inputs.json'
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8')) if manifest_path.exists() else []
+        for row in json.loads(history_path.read_text(encoding='utf-8')):
+            run = row.get('run') or {}
+            checks = row.get('checks') or {}
+            task = next((item for item in manifest if item['capability'] == row['capability']
+                         and item['task'] == row['task']), None)
+            if task:
+                messages = list(row.get('tool_calls', [])) + [
+                    {'role': 'assistant', 'content': content} for content in row.get('assistant', [])]
+                checks = structure(task, messages, task['inputs'],
+                    root / 'data/workspace/.harness' / row['workspace_id'], row.get('ocr_verifications'))
+            capability = row['capability']
+            if capability == 'ordinary-chat':
+                engineering = all(checks.get(key) for key in ('originals_unchanged', 'no_new_capability_used', 'answer_nonempty'))
+            else:
+                engineering = bool(checks.get('originals_unchanged') and checks.get('required_tools_present'))
+                if capability in ('meeting-notes', 'table-reconcile', 'document-compare'):
+                    engineering &= bool(checks.get('written_artifact_reread'))
+                if capability in ('meeting-notes', 'document-index', 'document-compare'):
+                    engineering &= bool(checks.get('source_reread'))
+                if capability == 'table-reconcile':
+                    engineering &= bool(checks.get('fixed_reconcile_script'))
+                if capability == 'document-compare':
+                    engineering &= bool(checks.get('external_read'))
+                if capability == 'document-batch':
+                    engineering &= bool(checks.get('ocr_receipt_and_text_layers_valid'))
+            run_status = run.get('status')
+            review_path = directory / (row['capability'] + '-' + row['task'] + '-review.json')
+            review = json.loads(review_path.read_text(encoding='utf-8')) if review_path.exists() else {}
+            attempts.append({'role': role, 'variant': row['variant'], 'key': row['key'],
+                'sample_kind': case.get('sample_kind', 'development'),
+                'model': row.get('model') or run.get('model'), 'run_id': row.get('run_id'),
+                'request_id': row.get('request_id'), 'conversation_id': row.get('conversation_id'),
+                'workspace_id': row.get('workspace_id'), 'stream_status': row.get('status'),
+                'run_status': run_status, 'unknown': bool(row.get('status') == 'UNKNOWN' or run_status == 'UNKNOWN'
+                    or run.get('resume_blocker') == '模型请求尚无确认终态'),
+                'active': run_status in LIVE or bool(row.get('run_id') and run_status is None),
+                'engineering_pass': bool(run_status == 'SUCCEEDED' and engineering),
+                'checks': checks, 'recorded_checks': row.get('checks') or {},
+                'check_source': 'saved_tool_receipts_no_model_replay' if task else 'recorded_run',
+                'error': row.get('error') or run.get('error'),
+                'content_review': review.get('status', 'PENDING'),
+                'evidence': str(history_path.relative_to(root)) + '#' + row['key'],
+                'review_evidence': str(review_path.relative_to(root)) if review_path.exists() else None})
+
+    def counts(rows):
+        by_model = {}
+        for model in sorted({row['model'] for row in rows}):
+            selected = [row for row in rows if row['model'] == model]
+            by_model[model] = {
+                'attempts': len(selected),
+                'run_succeeded': sum(row['run_status'] == 'SUCCEEDED' for row in selected),
+                'run_failed': sum(row['run_status'] in ('FAILED', 'STOPPED', 'INTERRUPTED') and not row['unknown'] for row in selected),
+                'unknown': sum(row['unknown'] for row in selected),
+                'active_or_incomplete': sum(row['active'] for row in selected),
+                'engineering_pass': sum(row['engineering_pass'] for row in selected),
+                'content_review_pending': sum(row['content_review'] != 'COMPLETED' for row in selected)}
+        return {'attempts': len(rows), 'by_model': by_model,
+                'sample_kinds': {kind: sum(row['sample_kind'] == kind for row in rows)
+                                 for kind in sorted({row['sample_kind'] for row in rows})}}
+
+    result = {'role': role, 'generated_at': datetime.now(timezone.utc).isoformat(),
+              'scope': '全部实际尝试；开发样本、留出样本、工程成功、UNKNOWN与内容检查分别记录，不用最后成功集合冒充整体通过率',
+              'summary': counts(attempts),
+              'holdout_summary': counts([row for row in attempts if row['sample_kind'] == 'holdout']),
+              'attempts': attempts}
+    (base / 'summary.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    return result
+
+
+def cloud_write_access(role, enabled, variant=None):
+    from contextlib import contextmanager
+    @contextmanager
+    def access():
+        if not enabled:
+            yield
+            return
+        if role != 'cloud':
+            raise ValueError('云端写入选项只适用于 cloud 工作区')
+        headers = {'X-Harness-Session': session_token(), 'Origin': BASE}
+        with httpx.Client(base_url=BASE, headers=headers, timeout=30, trust_env=False) as client:
+            active = [row['id'] for row in client.get('/api/runs').json()['runs'] if row.get('status') in LIVE]
+            if active:
+                raise RuntimeError('存在活跃运行，不能修改云端写入授权：' + ','.join(active))
+            record = next(row for row in client.get('/api/workspaces').json() if row['id'] == WORKSPACES[role][0])
+            grants = {'workspace_cloud_allowed': record['cloud_read'], 'workspace_cloud_write_allowed': record['cloud_write']}
+            body = {'model_id': WORKSPACES[role][1], 'workspace_id': record['id'], 'workspace_path': record['managed_path']}
+            client.patch('/api/model-settings', json={**body, 'workspace_cloud_allowed': True,
+                'workspace_cloud_write_allowed': True}).raise_for_status()
+            try:
+                yield
+            finally:
+                deadline = time.monotonic() + 3600
+                while any(row.get('status') in LIVE for row in client.get('/api/runs').json()['runs']):
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError('其他运行尚未结束，授权恢复未完成；请核对原设置')
+                    time.sleep(.5)
+                client.patch('/api/model-settings', json={**body, **grants}).raise_for_status()
+                if variant:
+                    current = next(row for row in client.get('/api/workspaces').json() if row['id'] == record['id'])
+                    restored = {'workspace_cloud_allowed': current['cloud_read'], 'workspace_cloud_write_allowed': current['cloud_write']}
+                    assert restored == grants, (grants, restored)
+                    output = ROOT / 'data/private/harness-holdout' / role / variant / 'access-restore.json'
+                    output.write_text(json.dumps({'workspace_id': record['id'], 'before': grants,
+                        'after': restored, 'status': 'RESTORED', 'new_model_requests': 0}, ensure_ascii=False, indent=2), encoding='utf-8')
+    return access()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('role', choices=tuple(WORKSPACES))
@@ -541,14 +728,25 @@ def main():
     parser.add_argument('--only', nargs='*', default=[])
     parser.add_argument('--skill-lifecycle', action='store_true')
     parser.add_argument('--resume-from', default='')
+    parser.add_argument('--summary', action='store_true')
+    parser.add_argument('--variants', nargs='*', default=[])
+    parser.add_argument('--sample-kind', choices=('development', 'holdout', 'regression', 'baseline'))
+    parser.add_argument('--fresh', action='store_true')
+    parser.add_argument('--cloud-write', action='store_true')
     args = parser.parse_args()
+    if args.summary:
+        result = summarize(args.role, set(args.variants))
+        print(json.dumps({'output': str(ROOT / 'data/private/harness-holdout' / args.role / 'summary.json'),
+                          'summary': result['summary'], 'holdout_summary': result['holdout_summary']}, ensure_ascii=False))
+        return
     if args.skill_lifecycle:
         skill_lifecycle(args.role, args.variant, args.resume_from)
         return
     if args.prepare:
-        prepare(args.role, args.variant)
+        prepare(args.role, args.variant, args.sample_kind, args.fresh)
     if args.run:
-        execute(args.role, args.variant, set(args.only))
+        with cloud_write_access(args.role, args.cloud_write, args.variant):
+            execute(args.role, args.variant, set(args.only))
     if not args.prepare and not args.run:
         parser.error('choose --prepare and/or --run')
 

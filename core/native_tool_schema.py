@@ -48,7 +48,8 @@ def tool_schema_observation(payload, purposes=None):
                 row['reply_focus_schema'] = purpose
             rows.append(row)
         return {**base, 'tool_schema_status': 'REPORTED',
-                'tool_schema_count': len(tools), 'tools_sha256': fingerprint(tools),
-                'tool_schema_fingerprints': rows}
+                'tool_schema_count': len(tools),
+                'tool_schema_chars': len(json.dumps(tools, ensure_ascii=False)),
+                'tools_sha256': fingerprint(tools), 'tool_schema_fingerprints': rows}
     except (TypeError, ValueError):
         return {**base, 'tool_schema_status': 'UNAVAILABLE'}
