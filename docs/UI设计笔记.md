@@ -80,7 +80,7 @@
 | 模式 | 做法 | 证据/位置 |
 | --- | --- | --- |
 | 折叠基元 | 所有折叠/展开统一走 `ui/Collapse`：`grid-template-rows: 0fr→1fr` + 内层 `.x-in`（overflow hidden、min-height 0），内容 padding 放再下一层；展开态由宿主 `data-open` / `data-collapsed` 的直接子选择器驱动 | `ui/Collapse.tsx`；禁用 max-height / height 过渡与条件卸载 |
-| 小节骨架 | Sheet 内小节统一 `ui/Panel`（标题 + meta + 操作区 + 折叠，状态存 `local-ai-agent.panel.{id}`）；**折叠时子组件保持挂载**，面板内轮询/滚动状态不因收起丢失；`forceOpenSignal` 可受控展开 | `ui/Panel.tsx`；Workspace/Skills 由 Sheet 用 Panel 包裹，StockPanel 在技能卡展开体内 |
+| 小节骨架 | Sheet 内小节统一 `ui/Panel`（标题 + meta + 操作区 + 折叠，状态存 `local-ai-agent.panel.{id}`）；**折叠时子组件保持挂载**，面板内轮询/滚动状态不因收起丢失；`forceOpenSignal` 可受控展开 | `ui/Panel.tsx`；Workspace/Skills 由 Sheet 用 Panel 包裹，StockPanel 在金融 Plugin 的设置栏目内 |
 | 浮层基座 | `ui/Popover` 必须 `createPortal` 到 `document.body`，fixed 贴锚点、横向夹在视口内、空间不足向上翻；滚动/外部点击/Escape 关闭并回焦锚点 | `ui/Popover.tsx`；**禁止给抽屉/Sheet 等祖先加 `will-change: transform`**——会为 fixed 后代创建包含块，令浮层定位整体偏移（`styles.css` 的 `.drawer,.sheet` 注释已标注） |
 | 其他基元 | `Dropdown`（Popover + listbox，方向键/Home/End）、`Switch`（role=switch）、`Accordion`（手风琴）、`Icon`（sprite 描边）、`Markdown`（react-markdown + gfm + highlight + katex） | `ui/*` |
 | 按钮分级 | `btn-primary`=主行动、`btn-secondary`=次行动、`btn-quiet`=弱操作、`btn-dark`=深色主行动、`btn-danger`=破坏操作；`btn-sm` 为小尺寸 | 确认分级：删文件/删会话/删消息/关闭股票后台/退出**必须确认**，其余不确认 |
@@ -177,3 +177,14 @@
 搜索与金融设置由各自 plugin.json 的 ui.settings 声明，代码归 apps/web/src/plugins/<id>/；宿主 SkillsPanel 只消费构建生成的登记项。CapabilityPanelProps 提供会话只读快照与变更通知，不暴露 App 状态对象。基础卡片仍使用原 skill / Collapse / Switch 与主题令牌。复杂插件面板独立资源包按需载入，局部渲染异常仅显示该插件错误。
 
 npm run build / typecheck / dev 自动生成 extensions/generated.ts；不能手工修改生成文件。登记功能检查：node --test apps/web/scripts/test-extensions.mjs。外部包自动安装及通用 schema 表单仍未完成，不能把源码构建贡献描述为运行中任意 UI 热插拔。
+
+## 能力管理交互（2026-10-29）
+
+| 区域 | 当前规则 |
+| --- | --- |
+| 工作台能力 | 搜索与类型筛选在一处；按类型＋ID唯一卡片；金融／搜索设置由构建登记的贡献模块提供，统一开关由宿主渲染 |
+| 卡片详情 | 同时只展开一项；概览、设置、文件、版本按内容显示；隐藏 Collapse 内容 inert；栏目方向键与 Home／End 可操作 |
+| 编辑与离开 | 现有文本编辑保留在 Sheet 内；未保存时复用全局确认框：继续编辑／放弃修改／保存并离开；错误内联，失败不清草稿 |
+| 状态与布局 | 运行、安装和候选错误分别表达；Plugin 本机、Skill 工作区；390px工具栏换行，代码和差异内部滚动；主题令牌与系统减少动效规则共用 |
+
+操作与截图见 [架构使用指南](./harness-architecture.html#actual-ui)，详细证据见 [本批记录](./记录/2026-10-29-能力管理交互与编辑器.md)；进度只维护股票仓库 docs/计划.md。

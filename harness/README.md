@@ -71,6 +71,8 @@ receipt = await gateway.generate(ModelRequest(
 
 模块默认导出接收 `CapabilityPanelProps` 的组件。只通过会话快照、变更回调、通用 HTTP 接口及公共基础组件协作，不读取 App 私有状态。`npm run build --prefix apps/web` 自动生成登记，独立资源按需载入；不用手工修改宿主导入清单，不进行任意远程 JavaScript 热加载。
 
+默认导出只渲染详情的设置内容，外层能力卡片、状态和开关由宿主统一渲染，不能再返回另一套插件卡片。`/api/capabilities` 返回 origin、scope、actions 与 action_note；通用启停接口也接受服务适配器，调用其公开 `set_enabled(runtime, enabled, active_check)`，复用原生命周期与专属保护，不在前端重写搜索／金融开关。
+
 命令已有带参数 schema 的公开接口，成果渲染器经清单构建登记；外部包资源构建由唯一启动器执行。设置面板仍使用 TSX 贡献，不提供任意 schema 自动生成设置页或远程 JavaScript 热加载。构建登记支持的字段以现有清单与 extensions/contracts.ts 为准。
 
 
@@ -144,3 +146,9 @@ Docker Desktop 下内部网络不保证发布主机端口，因此可选服务�
 `tool_roles.research_blocked` 声明该插件在聊天只读研究中应排除的操作；模型工具列表及实际调用边界使用同一集合，宿主的删除、安装和跨会话限制继续独立生效。可选 `accepted_handoff(tool, receipt)` 解释成功返回的真实交接回执；未实现或未确认受理时，不把后台任务视为已提交。声明和解释只作用于当前登记的工具所有者，不授予任何权限。
 
 首版每个运行只允许一个回合编排者和一个研究会话提供者。激活阶段的兼容性检查在提供者副作用前提示停用顺序；`create_turn` / `create_research` 按当前所有者选择，不静默覆盖。宿主通过 `Agent.derive` 显式派生冻结依赖和回合配置，普通工具分发复用宿主实现；金融只在自身钩子中保留专属发布、核对与展示。发现阶段可以列目录，但正文读取和执行仍需完成发现与授权。
+
+## Skill 源文件编辑
+
+工作区 Skill API 增加 `GET .../skills/{name}/source` 文件列表、`GET .../source-file?path=<相对路径>` 读取、`PUT .../source-file?path=...` 保存。保存体为 `{content, sha256}`，哈希来自实际读取回执；冲突返回 409，不自动覆盖或重发。BFF 经原工作区执行锁和已鉴权 Runner 转发，不能传本机路径或写入版本目录。
+
+仅编辑标准目录包内现有 UTF-8 文本，最大 256 KiB；目录／资源链接、越界和二进制拒绝，旧式 Python 兼容包只读。原 Runner 的 source-validate 校验候选包结构，BFF 再向同工作区文件服务的既有 file_edit 提交完整原文、新文和 expected_sha256；成功后经 Runner 回读并捕获新版本。这样无需改变源目录权限或提升 Runner 身份。权限和依赖沿原激活规则，不执行保存的脚本。此校验不等于所有脚本语言的语法检查。工具容器改动仍需唯一入口 `-Build`。
