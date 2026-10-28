@@ -3,10 +3,24 @@ import json
 from pathlib import Path
 import re
 import tempfile
+import time
 
 from harness.contracts.plugin_manifest import read_manifest
 from harness.contracts.plugin_payload import validate_payload
 from harness.infrastructure.plugin_archive import read_package, content_revision
+
+
+def rename_with_brief_hold_retry(package: Path, destination: Path):
+    # Windows AV/indexer may hold a freshly extracted tree for a moment; the
+    # staging TemporaryDirectory is still open, so retry instead of failing.
+    for attempt in range(5):
+        try:
+            package.rename(destination)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.1 * (attempt + 1))
 
 
 class PluginPackages:
@@ -40,7 +54,7 @@ class PluginPackages:
                     raise ValueError('已保存的插件版本内容校验失败')
             else:
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                package.rename(destination)
+                rename_with_brief_hold_retry(package, destination)
         states = self.store.list('__host__', 'plugin_package')
         state = states.get(identity, {'active': None, 'history': []})
         previous = state.get('pending')
