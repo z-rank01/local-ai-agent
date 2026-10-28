@@ -27,6 +27,7 @@ export function CapabilityEntry({entry, workspaceId, open, onOpen, refresh, ...p
   const trigger = useRef<HTMLButtonElement>(null);
   const state = entryState(entry);
   const {plugin, skill, install} = entry;
+  const sourcePath = (install?.active ?? install?.pending ?? install?.history[0])?.source ?? `plugins/${entry.id}`;
   const source = entry.kind === 'skill' ? skill?.active?.kind === 'python' ? '旧式 Python 兼容包' : '工作区目录包' : install ? '用户导入' : '内置';
   const tabs = ['概览', ...(entry.kind === 'plugin' && hasContribution(entry.id) ? ['设置'] : []),
     ...(skill ? ['文件'] : []), '版本'];
@@ -102,7 +103,7 @@ export function CapabilityEntry({entry, workspaceId, open, onOpen, refresh, ...p
           <p className="panel-hint">{skill ? '启停和版本选择影响后续运行；在途运行保持固定版本。移出目录保留原件和历史。' : plugin?.action_note ?? '本地包需审阅并确认版本，正常退出后部署构建。'}</p>
           {(plugin?.error || install?.error || skill?.candidate_error) && <p className="run-error">{plugin?.error || install?.error || skill?.candidate_error}</p>}
           {Object.entries(plugin?.lifecycle ?? {}).map(([owner, row]) => <p className="panel-hint" key={owner}>{stateLabels[row.state] ?? '状态待核对'} · 在途 {row.inflight}{row.error && ' · ' + row.error}</p>)}
-          {install && <><p className="panel-hint">源包：{(install.active ?? install.pending)?.source}</p><button className="btn" onClick={() => void navigator.clipboard.writeText((install.active ?? install.pending)?.source ?? '').then(() => notify('源位置已复制')).catch(cause => setError(formatBackendError(cause)))}>复制源位置</button></>}
+          {entry.kind === 'plugin' && <><p className="panel-hint">源位置{install ? '' : '（相对项目根目录）'}：{sourcePath}</p><button className="btn" onClick={() => void navigator.clipboard.writeText(sourcePath).then(() => notify('源位置已复制')).catch(cause => setError(formatBackendError(cause)))}>复制源位置</button></>}
           {plugin?.environment_required && <><p className="panel-hint">环境：{environmentLabels[plugin.environment?.state ?? 'NOT_PREPARED'] ?? '状态待核对'} {plugin.environment?.error}</p>
             <button className="btn" disabled={!!busy || state.enabled || plugin.environment?.state === 'PREPARING'} onClick={() => void perform(() => prepareCapability(entry.id), '准备执行环境')}>准备执行环境</button></>}
         </>}
