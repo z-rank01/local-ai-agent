@@ -44,7 +44,7 @@ const MAX_WIDTH = 760;
 const DEFAULT_WIDTH = 400;
 const WIDTH_STEP = 16;
 
-/* 右侧工作台：工作台视图（工作区 + 技能两个面板）与文档预览视图共用同一个 Sheet，
+/* 右侧工作台：工作台视图（工作区 + 能力两个面板）与文档预览视图共用同一个 Sheet，
    左缘拖宽柄改的是 --sheet-w，宽度值由 App 持有并落库。
    两个滚动容器始终挂载、只用 hidden 切换，切视图不丢滚动位置。 */
 export function Sheet({

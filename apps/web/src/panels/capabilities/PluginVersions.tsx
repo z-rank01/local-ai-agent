@@ -13,7 +13,7 @@ export function PluginVersions({row, busy, perform}: {row?: InstalledPackage; bu
         <strong>{item.revision === row.pending?.revision ? '候选' : '历史'} · {item.manifest.version}</strong>
         <p className="panel-hint">{item.revision.slice(0, 16)}<br/>来源：{item.source}<br/>权限：{item.manifest.permissions.join('、') || '无'}；依赖：{item.manifest.required.join('、') || '无'}</p>
         <button className="btn" disabled={busy} onClick={() => perform(async () => {const diff = await fetchPackageDiff(row.id, item.revision); setDiffs(previous => ({...previous, [item.revision]: diff}));})}>查看与已安装版本的差异</button>
-        {diffs[item.revision]?.files.map(file => <details key={file.path}><summary>{file.path} · {file.change}</summary>
+        {diffs[item.revision]?.files.map(file => <details key={file.path}><summary>{file.path} · {({added:'新增', removed:'删除', changed:'修改'} as Record<string, string>)[file.change] ?? '变更'}</summary>
           {file.diff && <pre className="cap-code">{file.diff}</pre>}{(file.truncated || file.binary) && <p className="panel-hint">有限预览，请核对完整源包。</p>}</details>)}
         <label className="cap-check"><input type="checkbox" checked={!!trusted[item.revision]} disabled={busy} onChange={event => setTrusted(previous => ({...previous, [item.revision]: event.target.checked}))}/>我信任此版本的代码及上述权限</label>
         <button className="btn" disabled={busy || !trusted[item.revision]} onClick={() => perform(() => changePackage(row.id, item.revision === row.pending?.revision ? 'activate' : 'rollback', item.revision, true))}>

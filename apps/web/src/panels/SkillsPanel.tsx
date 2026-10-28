@@ -1,4 +1,4 @@
-import {useRef, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {Icon} from '../ui/Icon';
 import {Popover} from '../ui/Popover';
 import type {CapabilityPanelProps} from '../extensions/contracts';
@@ -11,7 +11,7 @@ import {CapabilityImport} from './capabilities/CapabilityImport';
 export type SkillsPanelProps = CapabilityPanelProps & {workspaceId: string};
 
 export function SkillsPanel({workspaceId, ...props}: SkillsPanelProps): JSX.Element {
-  return <AbilityManager key={workspaceId} workspaceId={workspaceId} {...props}/>;
+  return <AbilityManager workspaceId={workspaceId} {...props}/>;
 }
 
 function AbilityManager({workspaceId, ...props}: CapabilityPanelProps & {workspaceId: string}) {
@@ -23,6 +23,7 @@ function AbilityManager({workspaceId, ...props}: CapabilityPanelProps & {workspa
   const [menu, setMenu] = useState(false);
   const [importKind, setImportKind] = useState<'plugin' | 'skill'>();
   const importAnchor = useRef<HTMLButtonElement>(null);
+  useEffect(() => {setImportKind(undefined); setExpanded(previous => previous.startsWith('skill:') ? '' : previous);}, [workspaceId]);
   const rows = inventory(data.plugins, data.packages, data.skills);
   const matched = rows.filter(row => (history || !row.removed) &&
     (row.title + ' ' + row.id + ' ' + row.description).toLowerCase().includes(query.trim().toLowerCase()));
@@ -49,8 +50,8 @@ function AbilityManager({workspaceId, ...props}: CapabilityPanelProps & {workspa
     {data.error && <p className="run-error" role="alert">{data.error}</p>}
     {data.invalid.map(row => <p className="run-error" key={row.name} role="status">{row.name}：{row.error}</p>)}
     {!data.loading && !visible.length && <div className="ws-empty"><p>没有匹配的能力。</p><button className="btn" onClick={() => {setQuery(''); setFilter('all');}}>清除筛选</button></div>}
-    <div className="cap-list">{visible.map(row => <CapabilityEntry key={row.key} entry={row} workspaceId={workspaceId} open={expanded === row.key}
+    <div className="cap-list">{visible.map(row => <CapabilityEntry key={row.kind === 'skill' ? workspaceId + ':' + row.key : row.key} entry={row} workspaceId={workspaceId} open={expanded === row.key}
       onOpen={() => void change(() => setExpanded(expanded === row.key ? '' : row.key))} refresh={() => data.refresh()} {...props}/>)}</div>
-    <p className="panel-hint">Plugin 为本机能力，Skill 属于当前工作区。启停等待服务确认；安装、回退与卸载按卡片提示重启生效。</p>
+    <p className="panel-hint">Plugin 为本机能力，Skill 属于当前工作区。启停等待服务确认；Skill 版本影响后续运行，Plugin 安装、回退与卸载按卡片提示重启生效。</p>
   </div>;
 }

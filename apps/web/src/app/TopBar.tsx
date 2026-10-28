@@ -127,7 +127,7 @@ export function TopBar({
             type="button"
             className="tb-btn"
             aria-expanded={sheetOpen}
-            title="工作台 · 技能与工作区"
+            title="工作台 · 能力与工作区"
             aria-label="打开工作台"
             onClick={onToggleSheet}
           >

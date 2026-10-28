@@ -133,6 +133,9 @@ function ConfirmHost({task}: {task: ConfirmTask}): JSX.Element {
         <button type="button" className="btn btn-secondary" onClick={cancel}>
           {request.cancelLabel ?? '取消'}
         </button>
+        {request.alternateLabel && <button type="button" className="btn btn-secondary" onClick={() => settleDialog(task.id, 'alternate')}>
+          {request.alternateLabel}
+        </button>}
         <button
           type="button"
           className={request.danger ? 'btn btn-danger' : 'btn btn-primary'}

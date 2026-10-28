@@ -7,6 +7,7 @@ export function useInventory(workspaceId: string) {
   const [plugins, setPlugins] = useState<CapabilitySummary[]>([]);
   const [packages, setPackages] = useState<InstalledPackage[]>([]);
   const [skills, setSkills] = useState<ManagedSkill[]>([]);
+  const [skillsWorkspace, setSkillsWorkspace] = useState(workspaceId);
   const [invalid, setInvalid] = useState<{name: string; error: string}[]>([]);
   const [pluginError, setPluginError] = useState('');
   const [skillError, setSkillError] = useState('');
@@ -23,7 +24,7 @@ export function useInventory(workspaceId: string) {
       if (installs.status === 'fulfilled') setPackages(installs.value.packages);
       setPluginError([capabilities, installs].filter((r): r is PromiseRejectedResult => r.status === 'rejected').map(r => formatBackendError(r.reason)).join('；'));
     }
-    if (skillSerial === sequence.current.skills && content.status === 'fulfilled' && content.value) {setSkills(content.value.skills); setInvalid(content.value.invalid);}
+    if (skillSerial === sequence.current.skills && content.status === 'fulfilled' && content.value) {setSkills(content.value.skills); setInvalid(content.value.invalid); setSkillsWorkspace(workspaceId);}
     if (includeSkills && skillSerial === sequence.current.skills) setSkillError(content.status === 'rejected' ? formatBackendError(content.reason) : '');
     if (includeSkills && skillSerial === sequence.current.skills) setLoading(false);
   }, [workspaceId]);
@@ -36,5 +37,6 @@ export function useInventory(workspaceId: string) {
     const timer = window.setInterval(() => {if (!document.hidden) void refresh(false);}, 5000);
     return () => window.clearInterval(timer);
   }, [refresh]);
-  return {plugins, packages, skills, invalid, error: [pluginError, skillError].filter(Boolean).join('；'), loading, refresh};
+  return {plugins, packages, skills: skillsWorkspace === workspaceId ? skills : [], invalid: skillsWorkspace === workspaceId ? invalid : [],
+    error: [pluginError, skillError].filter(Boolean).join('；'), loading, refresh};
 }

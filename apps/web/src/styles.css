@@ -1573,12 +1573,14 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .cap-filters button span { color: var(--meta); font-size: var(--text-xs); }
 .cap-check { display: flex; align-items: center; gap: var(--space-2); margin-block: var(--space-2); font-size: var(--text-xs); color: var(--fg-2); }
 .cap-list { display: grid; gap: var(--space-3); margin-block: var(--space-3); animation: cap-appear var(--motion-fast) var(--ease-standard); }
-.cap-entry { min-width: 0; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface); }
-.cap-entry-head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); }
+.cap-entry { animation: cap-appear var(--motion-fast) var(--ease-standard); min-width: 0; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface); }
+.cap-entry-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-3); }
 .cap-entry-title { text-align: left; display: grid; gap: var(--space-2); flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
-.cap-entry-title strong { font-size: var(--text-md); }
+.cap-entry-title strong { font-size: var(--text-md); overflow-wrap: anywhere; }
 .cap-entry-title .panel-hint { margin: 0; overflow-wrap: anywhere; }
-.cap-meta { color: var(--meta); font-size: var(--text-xs); }
+.cap-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); color: var(--meta); font-size: var(--text-xs); }
+.cap-entry-summary { grid-column: 1 / -1; min-width: 0; }
+.cap-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin-block: 0 var(--space-2); }
 .cap-entry-controls { margin-left: auto; }
 .cap-entry .chip-danger { color: var(--danger-text); background: var(--danger-soft); }
 .cap-body { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--motion-base) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard); }
@@ -1594,7 +1596,6 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .cap-menu button:hover { background: var(--fg-soft); }
 .cap-editor { width: 100%; min-height: calc(var(--space-6) * 8); max-height: 55vh; resize: vertical; font-family: var(--code-font); font-size: var(--text-sm); tab-size: 2; }
 .cap-code { max-width: 100%; max-height: 45vh; overflow: auto; white-space: pre; font-family: var(--code-font); font-size: var(--text-xs); }
-.cap-leave { position: sticky; bottom: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-warm); box-shadow: var(--shadow-pop); }
 .cap-actions { margin-block: var(--space-2); }
 @keyframes cap-appear { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .cap-body { transition: none; } .cap-list { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .cap-body { transition: none; } .cap-list, .cap-entry { animation: none; } }

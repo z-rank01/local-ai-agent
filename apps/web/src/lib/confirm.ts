@@ -7,6 +7,7 @@ export type ConfirmRequest = {
   okLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  alternateLabel?: string;
 };
 
 export type FormField = {
@@ -34,7 +35,7 @@ export type PendingDialog =
   | {id: number; kind: 'confirm'; request: ConfirmRequest}
   | {id: number; kind: 'form'; request: FormRequest};
 
-type DialogResult = boolean | Record<string, string> | null;
+type DialogResult = boolean | 'alternate' | Record<string, string> | null;
 
 type Task = PendingDialog & {settle: (value: DialogResult) => void};
 
@@ -56,6 +57,14 @@ export function askConfirm(request: ConfirmRequest): Promise<boolean> {
       request,
       settle: (value) => resolve(value === true),
     });
+    emit();
+  });
+}
+
+export function askChoice(request: ConfirmRequest & {alternateLabel: string}): Promise<'confirm' | 'alternate' | 'cancel'> {
+  return new Promise(resolve => {
+    queue.push({id: ++seq, kind: 'confirm', request,
+      settle: value => resolve(value === true ? 'confirm' : value === 'alternate' ? 'alternate' : 'cancel')});
     emit();
   });
 }

@@ -57,15 +57,20 @@ export function CapabilityEntry({entry, workspaceId, open, onOpen, refresh, ...p
   const canToggle = skill ? !skill.missing : Boolean(plugin?.actions?.toggle);
   const updating = install?.deployment === 'PENDING_RESTART' || install?.deployment === 'BUILD_REQUIRED';
   const failedUpdate = install?.deployment === 'BUILD_FAILED' || install?.deployment === 'DEPLOY_FAILED';
+  const stateLabels: Record<string, string> = {ACTIVE:'已激活', INACTIVE:'已停用', STARTING:'启动中', DRAINING:'等待收尾', START_FAILED:'启动失败', STOP_FAILED:'收尾未确认'};
+  const environmentLabels: Record<string, string> = {NOT_PREPARED:'尚未准备', PREPARING:'准备中', PREPARED:'已准备', PREPARE_FAILED:'准备失败', INTERRUPTED:'准备中断'};
   return <article className="cap-entry" data-open={open ? 'true' : 'false'}>
     <div className="cap-entry-head">
       <button ref={trigger} className="cap-entry-title" onClick={onOpen} aria-expanded={open} aria-label={`${open ? '收起' : '展开'}${entry.title}详情`}>
-        <strong>{entry.title}</strong><span className="panel-hint">{entry.description}</span>
-        <span className="cap-meta">{entry.kind === 'plugin' ? 'Plugin · 本机能力' : 'Skill · 当前工作区'} · {source}</span>
+        <strong>{entry.title}</strong>
       </button>
-      <div className="cap-entry-controls"><span className={`chip chip-${busy ? 'warn' : state.tone}`} role="status">{busy || state.label}</span>
+      <div className="cap-entry-controls">
         <Switch label={`启用${entry.title}`} checked={state.enabled} disabled={Boolean(busy) || !canToggle} onChange={next => void toggle(next)}/>
         <button ref={anchor} className="tb-btn" aria-label={`${entry.title}更多操作`} aria-expanded={menu} onClick={() => setMenu(!menu)}><Icon name="i-menu"/></button>
+      </div>
+      <div className="cap-entry-summary"><p className="panel-hint cap-description">{entry.description}</p>
+        <div className="cap-meta"><span className={`chip chip-${busy ? 'warn' : state.tone}`} role="status">{busy || state.label}</span>
+          <span>{entry.kind === 'plugin' ? 'Plugin · 本机能力' : 'Skill · 当前工作区'} · {source}</span></div>
       </div>
     </div>
     {updating && <p className="panel-hint cap-inline">{install?.deployment === 'BUILD_REQUIRED' ? '等待启动器构建确认' : '已安排变更，正常退出后重启生效'}</p>}
@@ -90,14 +95,15 @@ export function CapabilityEntry({entry, workspaceId, open, onOpen, refresh, ...p
         }} onClick={() => void selectTab(label)}>{label}</button>)}</div>
       {<div className="cap-tab-content" role="tabpanel" aria-label={tab}>
         {tab === '概览' && <>
+          <p className="panel-hint">{entry.description}</p>
           <p className="panel-hint">ID：{entry.id}<br/>版本：{plugin?.version ?? skill?.active?.version ?? install?.active?.manifest.version ?? '未标注'}</p>
           <p className="panel-hint">权限：{(plugin?.permissions ?? skill?.pending?.permissions ?? skill?.active?.permissions ?? []).join('、') || '无额外声明'}<br/>
             必需依赖：{(plugin?.required ?? skill?.active?.dependencies ?? []).join('、') || '无'}<br/>可选依赖：{plugin?.optional?.join('、') || '无'}</p>
           <p className="panel-hint">{skill ? '启停和版本选择影响后续运行；在途运行保持固定版本。移出目录保留原件和历史。' : plugin?.action_note ?? '本地包需审阅并确认版本，正常退出后部署构建。'}</p>
           {(plugin?.error || install?.error || skill?.candidate_error) && <p className="run-error">{plugin?.error || install?.error || skill?.candidate_error}</p>}
-          {Object.entries(plugin?.lifecycle ?? {}).map(([owner, row]) => <p className="panel-hint" key={owner}>{owner} · {row.state} · 在途 {row.inflight}{row.error && ' · ' + row.error}</p>)}
+          {Object.entries(plugin?.lifecycle ?? {}).map(([owner, row]) => <p className="panel-hint" key={owner}>{stateLabels[row.state] ?? '状态待核对'} · 在途 {row.inflight}{row.error && ' · ' + row.error}</p>)}
           {install && <><p className="panel-hint">源包：{(install.active ?? install.pending)?.source}</p><button className="btn" onClick={() => void navigator.clipboard.writeText((install.active ?? install.pending)?.source ?? '').then(() => notify('源位置已复制')).catch(cause => setError(formatBackendError(cause)))}>复制源位置</button></>}
-          {plugin?.environment_required && <><p className="panel-hint">环境：{plugin.environment?.state ?? 'NOT_PREPARED'} {plugin.environment?.error}</p>
+          {plugin?.environment_required && <><p className="panel-hint">环境：{environmentLabels[plugin.environment?.state ?? 'NOT_PREPARED'] ?? '状态待核对'} {plugin.environment?.error}</p>
             <button className="btn" disabled={!!busy || state.enabled || plugin.environment?.state === 'PREPARING'} onClick={() => void perform(() => prepareCapability(entry.id), '准备执行环境')}>准备执行环境</button></>}
         </>}
         {tab === '设置' && <ContributionSettings identity={entry.id} {...props}/>}
