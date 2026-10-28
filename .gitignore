@@ -42,3 +42,13 @@ apps/web/src/extensions/generated.ts
 !/plugins/websearch/
 !/plugins/document-index/
 !/plugins/document-batch/
+
+# Local acceptance evidence stays untracked except the four holdout inputs referenced by scripts/harness_holdout.py
+/verify/*
+!/verify/lawsuit_20260715.pdf
+!/verify/farm-demand-top.png
+!/verify/auto-v1-top.png
+!/verify/farm-model-top.png
+
+# Agent session workspace
+/.zcode/
