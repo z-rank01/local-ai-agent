@@ -1,3 +1,4 @@
+import {confirmCapabilityLeave} from '../lib/capabilityLeave';
 import {BriefReaderContext} from '../lib/briefReader';
 import {prepareHtmlBrief} from '../lib/htmlBrief';
 import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
@@ -110,7 +111,9 @@ export default function App(): JSX.Element {
   /* 沉浸会话：会话列表与工作台都是按需唤出的覆盖层，默认一律收起 */
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetView, setSheetView] = useState<SheetView>('workbench');
+  const requestSheetClose = useCallback(() => {void confirmCapabilityLeave().then(ok => {if (ok) setSheetOpen(false);});}, []);
+  const [sheetView, setSheetViewRaw] = useState<SheetView>('workbench');
+  const setSheetView = useCallback((next: SheetView) => {void confirmCapabilityLeave().then(ok => {if (ok) setSheetViewRaw(next);});}, []);
   const [sheetWidth, setSheetWidth] = useState(() => {
     const stored = Number.parseInt(readString(STORAGE_KEYS.sheetWidth) ?? '', 10);
     return Number.isFinite(stored) ? clamp(stored, SHEET_MIN_WIDTH, SHEET_MAX_WIDTH) : SHEET_DEFAULT_WIDTH;
@@ -300,6 +303,7 @@ export default function App(): JSX.Element {
   },[flushDeltaBuffer]);
 
   const openConversation = useCallback(async (targetId: string) => {
+    if (!await confirmCapabilityLeave()) return;
     detachObserver();
     persistDraft();
     const sequence = ++loadSequenceRef.current;
@@ -1125,7 +1129,7 @@ export default function App(): JSX.Element {
   const openConversationReport = useCallback((report: ReadingReport) => {
     reportTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     readerReturnToSheetRef.current = false;
-    setSheetOpen(false);
+    requestSheetClose();
     setReaderZoomed(true);
     setReadingReport(report.sourceMessageId ? reportReadingPositionsRef.current.get(report.sourceMessageId) ?? report : report);
   }, []);
@@ -1155,7 +1159,7 @@ export default function App(): JSX.Element {
     if (activeConversationIdRef.current === target) {
       setBlocks(current => current.some(block => block.messageId === message.id)
         ? current : [...current, ...buildBlocksFromMessages([message])]);
-      setSheetOpen(false);
+      requestSheetClose();
       notify('简报已交付，可直接在本对话阅读', 'ok');
     }
     await refreshConversations();
@@ -1167,7 +1171,7 @@ export default function App(): JSX.Element {
     }
     reportTriggerRef.current = null;
     readerReturnToSheetRef.current = true;
-    setSheetOpen(false);
+    requestSheetClose();
     setReaderZoomed(false);
     setReadingReport(sheetDoc);
   };
@@ -1241,7 +1245,8 @@ export default function App(): JSX.Element {
 
   useEffect(() => { persistDraft(); }, [input, attachedPaths, conversationId, workspaceId, persistDraft]);
   useEffect(() => { writeString('local-ai-agent.workspace', workspaceId); void refreshConversations().catch(() => {}); }, [workspaceId, refreshConversations]);
-  const selectWorkspace = useCallback((id: string) => {
+  const selectWorkspace = useCallback(async (id: string) => {
+    if (!await confirmCapabilityLeave()) return;
     if (uploading || workspaceFilesBusy || versionBusy) return;
     detachObserver();
     persistDraft(); ++loadSequenceRef.current; ++searchSequenceRef.current;
@@ -1364,7 +1369,7 @@ export default function App(): JSX.Element {
         return;
       }
       if (sheetOpen) {
-        setSheetOpen(false);
+        requestSheetClose();
         return;
       }
       if (drawerOpen) {
@@ -1406,7 +1411,7 @@ export default function App(): JSX.Element {
         onExport={handleExportCurrent}
         onOpenModelSettings={() => openSettings('model')}
         sheetOpen={sheetOpen}
-        onToggleSheet={() => setSheetOpen((current) => !current)}
+        onToggleSheet={() => sheetOpen ? requestSheetClose() : setSheetOpen(true)}
         onOpenSettings={() => openSettings('appearance')}
       />
       <Transcript
@@ -1474,8 +1479,7 @@ export default function App(): JSX.Element {
           void openConversation(id);
         }}
         onNew={() => {
-          setDrawerOpen(false);
-          resetConversation();
+          void confirmCapabilityLeave().then(ok => {if (ok) {setDrawerOpen(false); resetConversation();}});
         }}
         onRename={(item) => { void renameConversation(item).catch(err => notify(formatBackendError(err), 'error')); }}
         onDelete={(item) => { void removeConversation(item).catch(err => notify(formatBackendError(err), 'error')); }}
@@ -1485,9 +1489,9 @@ export default function App(): JSX.Element {
         shutdownPending={shutdownPending}
       />
       <Sheet
-        runs={{data:runList,error:runError,onOpen:id=>{setSheetOpen(false);void openConversation(id);},onControl:controlExecution}}
+        runs={{data:runList,error:runError,onOpen:id=>{requestSheetClose();void openConversation(id);},onControl:controlExecution}}
         open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
+        onClose={requestSheetClose}
         view={sheetView}
         onViewChange={setSheetView}
         width={sheetWidth}

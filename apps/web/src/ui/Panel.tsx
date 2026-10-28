@@ -12,6 +12,7 @@ export type PanelProps = {
   defaultOpen?: boolean;
   forceOpenSignal?: number;
   children: ReactNode;
+  beforeToggle?: () => Promise<boolean>;
 };
 
 /* Sheet 内小节：折叠只切 CSS 轨道（grid-template-rows 0fr→1fr），
@@ -24,6 +25,7 @@ export function Panel({
   defaultOpen = true,
   forceOpenSignal,
   children,
+  beforeToggle,
 }: PanelProps): JSX.Element {
   const storageKey = STORAGE_KEYS.panel(id);
   const bodyId = useId();
@@ -42,7 +44,8 @@ export function Panel({
     writeString(storageKey, 'true');
   }, [forceOpenSignal, storageKey]);
 
-  const toggle = () => {
+  const toggle = async () => {
+    if (beforeToggle && !await beforeToggle()) return;
     const next = !open;
     setOpen(next);
     writeString(storageKey, next ? 'true' : 'false');

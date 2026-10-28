@@ -24,7 +24,9 @@ export type CapabilitySummary = {
   required?: string[]; optional?: string[]; permissions?: string[];
   tools: string[]; error: string | null;
   lifecycle?: Record<string, {state: string; error: string; inflight: number; accepting: boolean}>;
-  management?: 'managed' | 'legacy_adapter';
+  management?: 'managed' | 'managed_service' | 'legacy_adapter';
+  origin?: 'builtin' | 'local'; scope?: 'host';
+  actions?: {toggle: boolean; uninstall: boolean; edit: boolean}; action_note?: string;
   environment_required?: boolean;
   environment?: {state: string; error?: string};
 };
@@ -44,7 +46,7 @@ export function fetchCapabilities(): Promise<{api_version: number; capabilities:
 export type SkillRevision = {name: string; description: string; version?: string; revision: string;
   permissions: string[]; dependencies: string[]; required?: string[]; optional?: string[];
   entrypoints?: {path: string; kind: string}[]; environment_dependencies?: string[]; kind?: string; path: string};
-export type ManagedSkill = {id: string; enabled: boolean; missing?: boolean; uninstalled?: boolean;
+export type ManagedSkill = {id: string; enabled: boolean; missing?: boolean; uninstalled?: boolean; candidate_error?: string;
   active: SkillRevision | null; pending?: SkillRevision | null; history: SkillRevision[]; blockers: string[]};
 export type SkillDiff = {files: {path: string; change: string; before_bytes: number; after_bytes: number;
   diff?: string; truncated?: boolean; preview?: string}[]};
@@ -62,6 +64,19 @@ export function importManagedSkill(workspaceId: string, path: string): Promise<{
   return requestJson(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills-import`,
     {method: 'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({path})});
 }
+
+export type SkillSourceFile = {path: string; size: number; sha256: string | null; writable: boolean; reason: string};
+export type SkillSourceText = SkillSourceFile & {content: string | null; revision?: string; activation?: string};
+const skillSourceUrl = (workspaceId: string, name: string) =>
+  `/api/workspaces/${encodeURIComponent(workspaceId)}/skills/${encodeURIComponent(name)}`;
+export const fetchSkillSourceFiles = (workspaceId: string, name: string) =>
+  requestJson<{files: SkillSourceFile[]}>(skillSourceUrl(workspaceId, name) + '/source');
+export const fetchSkillSourceFile = (workspaceId: string, name: string, path: string) =>
+  requestJson<SkillSourceText>(skillSourceUrl(workspaceId, name) + '/source-file?path=' + encodeURIComponent(path));
+export const saveSkillSourceFile = (workspaceId: string, name: string, path: string, content: string, sha256: string) =>
+  requestJson<SkillSourceText>(skillSourceUrl(workspaceId, name) + '/source-file?path=' + encodeURIComponent(path), {
+    method: 'PUT', headers: {'content-type': 'application/json'}, body: JSON.stringify({content, sha256}),
+  });
 
 // Same-origin by default (BFF serves the production build); the Vite dev
 // server on 5173 still talks to the BFF on 9510 unless overridden.

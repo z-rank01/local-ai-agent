@@ -1560,3 +1560,41 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 @container (max-width: 480px) {
   .tb-actions .tb-export, .tb-actions [data-compact-hide] { display: none; }
 }
+
+/* Capability management: one card per capability, existing theme/motion tokens. */
+.cap-manager { min-width: 0; }
+.cap-toolbar, .cap-actions, .cap-entry-controls, .cap-tabs, .cap-filters { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.cap-toolbar { margin-bottom: var(--space-3); }
+.cap-search { display: flex; align-items: center; flex: 1; min-width: 0; gap: var(--space-2); }
+.cap-search input { min-width: 0; width: 100%; }
+.cap-filters { margin-bottom: var(--space-2); }
+.cap-filters button, .cap-tabs button { border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-2); padding: var(--space-2); font: inherit; cursor: pointer; }
+.cap-filters button[aria-pressed="true"], .cap-tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.cap-filters button span { color: var(--meta); font-size: var(--text-xs); }
+.cap-check { display: flex; align-items: center; gap: var(--space-2); margin-block: var(--space-2); font-size: var(--text-xs); color: var(--fg-2); }
+.cap-list { display: grid; gap: var(--space-3); margin-block: var(--space-3); animation: cap-appear var(--motion-fast) var(--ease-standard); }
+.cap-entry { min-width: 0; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface); }
+.cap-entry-head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); }
+.cap-entry-title { text-align: left; display: grid; gap: var(--space-2); flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
+.cap-entry-title strong { font-size: var(--text-md); }
+.cap-entry-title .panel-hint { margin: 0; overflow-wrap: anywhere; }
+.cap-meta { color: var(--meta); font-size: var(--text-xs); }
+.cap-entry-controls { margin-left: auto; }
+.cap-entry .chip-danger { color: var(--danger-text); background: var(--danger-soft); }
+.cap-body { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--motion-base) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard); }
+.cap-body[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
+.cap-body-in { overflow: hidden; min-height: 0; }
+.cap-detail { padding: 0 var(--space-3) var(--space-3); border-top: 1px solid var(--border-soft); }
+.cap-tabs { padding-block: var(--space-2); }
+.cap-tab-content { min-width: 0; overflow-wrap: anywhere; }
+.cap-inline { padding-inline: var(--space-3); }
+.cap-import, .cap-version { padding-block: var(--space-3); border-block-start: 1px solid var(--border-soft); }
+.cap-menu { display: grid; gap: var(--space-2); }
+.cap-menu button { text-align: left; padding: var(--space-2); color: var(--fg); background: transparent; border: 0; border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
+.cap-menu button:hover { background: var(--fg-soft); }
+.cap-editor { width: 100%; min-height: calc(var(--space-6) * 8); max-height: 55vh; resize: vertical; font-family: var(--code-font); font-size: var(--text-sm); tab-size: 2; }
+.cap-code { max-width: 100%; max-height: 45vh; overflow: auto; white-space: pre; font-family: var(--code-font); font-size: var(--text-xs); }
+.cap-leave { position: sticky; bottom: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-warm); box-shadow: var(--shadow-pop); }
+.cap-actions { margin-block: var(--space-2); }
+@keyframes cap-appear { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cap-body { transition: none; } .cap-list { animation: none; } }

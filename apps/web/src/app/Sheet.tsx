@@ -11,6 +11,7 @@ import {Icon} from '../ui/Icon';
 import {Markdown} from '../ui/Markdown';
 import {Panel} from '../ui/Panel';
 import {RunsPanel} from '../panels/RunsPanel';
+import {confirmCapabilityLeave} from '../lib/capabilityLeave';
 
 export type SheetView = 'workbench' | 'doc' | 'runs';
 
@@ -163,8 +164,8 @@ export function Sheet({
           <WorkspaceManager {...workspaceManager} />
           <WorkspacePanel key={workspace.workspaceId} {...workspace} />
         </Panel>
-        <Panel id="skills" title="技能">
-          <SkillsPanel {...skills} />
+        <Panel id="skills" title="能力" beforeToggle={confirmCapabilityLeave}>
+          <SkillsPanel workspaceId={workspace.workspaceId} {...skills} />
         </Panel>
       </div>
       <div className="sheet-doc" hidden={view !== 'doc'}>

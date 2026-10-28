@@ -16,13 +16,14 @@ class ContributionBoundary extends Component<{title: string; children: ReactNode
   }
 }
 
-export function ContributionPanels({filter, ...props}: CapabilityPanelProps & {filter: string}) {
-  const keyword = filter.trim().toLowerCase();
-  const visible = panels.filter(entry => !keyword || (entry.title + entry.description).toLowerCase().includes(keyword));
-  return <div className="skill-list">
-    {visible.map(({id, title, Panel}) => <ContributionBoundary key={id} title={title}>
-      <Suspense fallback={<p className="panel-hint">正在加载{title}…</p>}><Panel {...props}/></Suspense>
-    </ContributionBoundary>)}
-    {!visible.length && <p className="ws-empty">没有匹配的技能</p>}
-  </div>;
+export function hasContribution(identity: string) {
+  return panels.some(entry => entry.id === identity);
+}
+
+export function ContributionSettings({identity, ...props}: CapabilityPanelProps & {identity: string}) {
+  const entry = panels.find(entry => entry.id === identity);
+  if (!entry) return null;
+  return <ContributionBoundary title={entry.title}>
+    <Suspense fallback={<p className="panel-hint">正在加载设置…</p>}><entry.Panel {...props}/></Suspense>
+  </ContributionBoundary>;
 }
