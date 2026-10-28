@@ -98,6 +98,12 @@ class SkillSwitches:
         runtime.router.capabilities = manager
         return manager
 
+    async def set_enabled(self, runtime, enabled: bool, active_check=None):
+        if active_check and active_check():
+            raise ValueError('聊天正在执行，请等待本轮结束后再切换能力')
+        await self.set_websearch(runtime, enabled, active_check)
+        return self.lifecycle(runtime).status('websearch')
+
     async def set_websearch(self, runtime, enabled: bool, active_check=None) -> dict:
         async with self.lock:
             if enabled and active_check and active_check():

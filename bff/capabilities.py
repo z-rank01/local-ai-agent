@@ -17,7 +17,19 @@ async def capabilities():
     rows = package_catalog(config._PROJECT_ROOT / 'plugins', runtime.tool_registry.ownership())
     manager = getattr(runtime, 'capabilities', None)
     environments = CapabilityStore(runtime.store._connect).list('__host__', 'plugin_environment')
+    installs = CapabilityStore(runtime.store._connect).list('__host__', 'plugin_package')
     for row in rows:
+        imported = row['id'] in installs
+        row['origin'] = 'local' if imported else 'builtin'
+        row['scope'] = 'host'
+        service = getattr(runtime, 'capability_services', {}).get(row['id'])
+        row['actions'] = {
+            'toggle': row.get('management') == 'managed' or callable(getattr(service, 'set_enabled', None)),
+            'uninstall': imported,
+            'edit': False,
+        }
+        row['action_note'] = ('通过源包更新；安装、回退和卸载需正常退出后重启生效' if imported
+                              else '内置插件随项目部署更新；支持设置与停用，不提供安装副本卸载')
         row['environment'] = environments.get(row['id'], {'state': 'NOT_PREPARED'})
         adapter_error = getattr(runtime, 'adapter_errors', {}).get(row['id'])
         if adapter_error:
@@ -94,11 +106,20 @@ async def change_capability(identity: str, body: CapabilityAction, request: Requ
     require_local_control(request)
     runtime = get_runtime()
     rows = package_catalog(config._PROJECT_ROOT / 'plugins', runtime.tool_registry.ownership())
-    if not any(row['id'] == identity and row.get('management') == 'managed' for row in rows):
+    row = next((row for row in rows if row['id'] == identity), None)
+    service = getattr(runtime, 'capability_services', {}).get(identity)
+    setter = getattr(service, 'set_enabled', None)
+    if row is None or (row.get('management') != 'managed' and not callable(setter)):
         raise HTTPException(404, '未登记可管理插件')
     manager = runtime.capabilities
     if manager is None or not manager.manages(identity):
         raise HTTPException(409, '插件尚未加载，请通过唯一入口重启')
+    if setter:
+        from .deps import get_chat_service
+        try:
+            return await setter(runtime, body.enabled, lambda: bool(get_chat_service()._active_conversations))
+        except (ValueError, RuntimeError, OSError, httpx.HTTPError, TimeoutError) as exc:
+            raise HTTPException(409, str(exc)) from exc
     store = CapabilityStore(runtime.store._connect)
     # Keep the explicit intent even if activation or drain fails; state shows the error.
     store.save('__host__', identity, {'enabled': body.enabled}, 'plugin')

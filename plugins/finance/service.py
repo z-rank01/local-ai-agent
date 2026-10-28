@@ -240,6 +240,10 @@ class StockService:
         self.settings['enabled'] = False
         self.save()
 
+    async def set_enabled(self, runtime, enabled: bool, active_check=None):
+        await self.action(runtime, {'action': 'start' if enabled else 'stop'}, active_check)
+        return self.lifecycle(runtime).status('finance')
+
     async def action(self, runtime, body, active_check=None):
         async with self.lock:
             if active_check and active_check():

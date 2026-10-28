@@ -56,6 +56,51 @@ class SkillImport(BaseModel):
     path: str
 
 
+class SkillSourceSave(BaseModel):
+    content: str
+    sha256: str
+
+
+async def source_operation(workspace_id, name, operation, body):
+    service = get_chat_service().for_workspace(workspace_id)
+    snapshot = await service.workspaces.ensure(workspace_id)
+    lease = service.workspaces.acquire(snapshot, '__skills__') if operation == 'source-save' else None
+    try:
+        async with httpx.AsyncClient(trust_env=False, timeout=30) as client:
+            response = await client.post(
+                f"http://127.0.0.1:{snapshot.record['runner_port']}/capabilities/skills/{operation}",
+                headers={'X-Workspace-Token': tool_token(workspace_id)}, json={'name': name, **body})
+            if response.is_error:
+                raise HTTPException(response.status_code, response.json().get('detail', '源文件操作未完成'))
+            result = response.json()
+        if operation == 'source-save':
+            state = catalog_for(get_runtime(), workspace_id).reconcile(await snapshot_for(workspace_id)).get(name)
+            result['activation'] = 'pending' if state and state.get('pending') else 'next_run'
+        return result
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, '源文件操作未确认，请保留草稿并刷新核对；不会自动重发') from exc
+    finally:
+        if lease is not None:
+            service.workspaces.active.pop(lease, None)
+
+
+@router.get('/api/workspaces/{workspace_id}/skills/{name}/source')
+async def source_files(workspace_id: str, name: str):
+    return await source_operation(workspace_id, name, 'source-files', {})
+
+
+@router.get('/api/workspaces/{workspace_id}/skills/{name}/source-file')
+async def source_read(workspace_id: str, name: str, path: str):
+    return await source_operation(workspace_id, name, 'source-read', {'path': path})
+
+
+@router.put('/api/workspaces/{workspace_id}/skills/{name}/source-file')
+async def source_save(workspace_id: str, name: str, path: str, body: SkillSourceSave, request: Request):
+    from .app import require_local_control
+    require_local_control(request)
+    return await source_operation(workspace_id, name, 'source-save', {'path': path, **body.model_dump()})
+
+
 @router.get('/api/workspaces/{workspace_id}/skills/{name}/diff')
 async def skill_diff(workspace_id: str, name: str, after: str, before: str | None = None):
     service = get_chat_service().for_workspace(workspace_id)

@@ -26,6 +26,43 @@ class DiffRequest(BaseModel):
     after: str
 
 
+class SourceRequest(BaseModel):
+    name: str
+    path: str = 'SKILL.md'
+
+
+class SourceSave(SourceRequest):
+    content: str
+    sha256: str
+
+
+@router.post('/capabilities/skills/source-files')
+def source_files(request: SourceRequest):
+    from skill_source import list_files
+    try:
+        return list_files(storage().source, request.name)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post('/capabilities/skills/source-read')
+def source_read(request: SourceRequest):
+    from skill_source import read_file
+    try:
+        return read_file(storage().source, request.name, request.path)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post('/capabilities/skills/source-save')
+def source_save(request: SourceSave):
+    from skill_source import save_file
+    try:
+        return save_file(storage(), request.name, request.path, request.content, request.sha256)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @router.post('/capabilities/skills/diff')
 def diff(request: DiffRequest):
     from skill_diff import compare_versions
