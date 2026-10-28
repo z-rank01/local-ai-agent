@@ -22,8 +22,24 @@ class FinanceLoop(Agent):
     def __init__(self, host=None, **kwargs):
         if host is not None:
             host.derive(self)
+            self._finance_host = host
         else:
+            self._finance_host = None
             super().__init__(**kwargs)
+
+    @property
+    def pending_review(self) -> str:
+        # The buffered 原文引述 partial must be readable on the host Agent while
+        # this generator is still streaming (bff service drains it on error/cancel).
+        if self._finance_host is not None and hasattr(self._finance_host, 'pending_review'):
+            return self._finance_host.pending_review
+        return getattr(self, '_pending_review', '')
+
+    @pending_review.setter
+    def pending_review(self, value: str):
+        self._pending_review = value
+        if self._finance_host is not None:
+            self._finance_host.pending_review = value
 
     # ── Public API ──────────────────────────────────────────────────────
 

@@ -119,7 +119,8 @@ class Agent:
             memory=self.memory, tool_tier=self.tool_tier, max_rounds=self.max_rounds)
         for name in ('allow_tools', 'workspace_cloud_allowed', 'cloud_write_allowed',
                      'turn', 'run_control', 'turn_reply_purpose_enabled', 'turn_loop_enabled',
-                     'turn_window_seconds', 'quality_first_research', 'continuing_checkpoint'):
+                     'turn_source_review_enabled', 'turn_window_seconds',
+                     'quality_first_research', 'continuing_checkpoint'):
             if hasattr(self, name):
                 setattr(target, name, getattr(self, name))
         target.tool_descriptions = dict(getattr(self, 'tool_descriptions', {}))
