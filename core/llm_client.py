@@ -336,6 +336,13 @@ class LLMClient:
             yield ("", accumulated)
 
         except httpx.HTTPStatusError as exc:
+            try:
+                payload = exc.response.json()
+                detail = payload.get('error') or payload.get('detail') if isinstance(payload, dict) else ''
+            except (ValueError, RuntimeError):
+                detail = ''
+            if isinstance(detail, str) and detail.strip():
+                logger.warning('Ollama HTTP %s: %s', exc.response.status_code, detail[:240])
             raise RuntimeError(f'本地模型请求失败（HTTP {exc.response.status_code}），未切换模型或禁用工具。') from None
         except httpx.RequestError:
             raise RuntimeError('本地模型连接失败或超时，已保留收到的内容。') from None
