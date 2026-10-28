@@ -112,7 +112,7 @@ class NullTurn:
     def allowed_tools(self):
         if self.discovery is None or not self.discovery.requires_discovery:
             return None
-        names = ['skill_list', 'skill_info']
+        names = ['skill_list', 'skill_info', 'file_list']
         for capability in self.discovery.snapshot.get('capabilities', []):
             names.extend(capability.get('tools', []))
         return tuple(dict.fromkeys(names))

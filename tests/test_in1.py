@@ -647,7 +647,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                         names = [row['function']['name'] for row in tools or []]
                         offered.append(names)
                         step = len(offered)
-                        name, params = [('file_list', {}), ('skill_list', {}),
+                        name, params = [('file_read', {'path': 'record.md'}), ('skill_list', {}),
                             ('skill_info', {'skill_name': 'meeting-notes'}),
                             ('file_read', {'path': 'record.md'})][min(step - 1, 3)] if step < 5 else (None, {})
                         yield '', {'role': 'assistant', 'content': '已完成' if name is None else '',
@@ -667,7 +667,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                     return messages
                 agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(
                     get_definitions=lambda **kw: [{'function': {'name': name}} for name in
-                        ('file_read', 'skill_info', 'skill_list', 'documents_find')]),
+                        ('file_list', 'file_read', 'skill_info', 'skill_list', 'documents_find')]),
                     audit=SimpleNamespace(record=lambda *a: None),
                     context_mgr=SimpleNamespace(process=process),
                     prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=6)
@@ -676,8 +676,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                     agent.registry.create_turn = FinanceTurn
                     agent.turn_loop_enabled = True
                 events = [event async for event in agent.run([{'role': 'user', 'content': '整理记录'}])]
-                self.assertEqual(set(offered[0]), {'skill_list', 'skill_info', 'documents_find'})
-                self.assertEqual(set(offered[1]), {'skill_list', 'skill_info', 'documents_find'})
+                self.assertEqual(set(offered[0]), {'skill_list', 'skill_info', 'file_list', 'documents_find'})
+                self.assertEqual(set(offered[1]), {'skill_list', 'skill_info', 'file_list', 'documents_find'})
                 self.assertIn('file_read', offered[2])
                 self.assertEqual([event.data['status'] for event in events if event.kind == 'tool_end'],
                                  ['error', 'ok', 'ok', 'ok'])
