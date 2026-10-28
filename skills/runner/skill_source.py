@@ -1,9 +1,7 @@
 """Edit existing package text without executing it or touching frozen revisions."""
 import hashlib
-import os
 from pathlib import Path, PurePosixPath
 import tempfile
-import threading
 
 from skill_paths import checked_child, validate_name
 from skill_md import parse_package
@@ -11,7 +9,6 @@ from skill_versions import _contents
 
 LIMIT = 256 * 1024
 TEXT = {'.md', '.txt', '.json', '.yaml', '.yml', '.toml', '.py', '.js', '.ts', '.sh', '.ps1', '.csv'}
-_lock = threading.RLock()
 
 
 class SourceConflict(ValueError):
@@ -43,13 +40,18 @@ def read_file(source, name, relative):
     size = path.stat().st_size
     reason = ''
     content = None
+    raw = None
     if size > LIMIT:
         reason = '文件超过 256 KiB，请使用源文件编辑器'
     else:
-        raw = path.read_bytes()
+        with path.open('rb') as file:
+            raw = file.read(LIMIT + 1)
         try:
             content = raw.decode('utf-8')
-            if '\x00' in content:
+            if len(raw) > LIMIT:
+                raw, content = None, None
+                reason = '文件读取期间超过 256 KiB，请重新检查'
+            elif '\x00' in content:
                 content = None
                 reason = '二进制资源只读'
         except UnicodeDecodeError:
@@ -57,7 +59,7 @@ def read_file(source, name, relative):
     if not reason and path.suffix.lower() not in TEXT:
         reason = '此文件类型只读'
     return {'path': relative, 'content': content, 'size': size,
-            'sha256': hashlib.sha256(path.read_bytes()).hexdigest() if size <= LIMIT else None,
+            'sha256': hashlib.sha256(raw).hexdigest() if raw is not None else None,
             'writable': not reason, 'reason': reason}
 
 
@@ -71,40 +73,30 @@ def list_files(source, name):
     return {'files': rows}
 
 
-def save_file(versions, name, relative, content, expected_sha256):
+def prepare_save(versions, name, relative, content, expected_sha256):
+    """Validate in Runner; the existing file service owns the actual CAS write."""
     raw = content.encode('utf-8')
     if len(raw) > LIMIT or '\x00' in content:
         raise ValueError('仅可保存不超过 256 KiB 的 UTF-8 文本')
-    with _lock:
-        before = read_file(versions.source, name, relative)
-        if not before['writable']:
-            raise ValueError(before['reason'])
-        if before['sha256'] != expected_sha256:
-            raise SourceConflict('源文件已被其他操作修改；草稿保留，请重新加载后比较')
-        root = package_root(versions.source, name)
-        contents = _contents(root)
-        contents[relative] = raw
-        with tempfile.TemporaryDirectory() as temporary:
-            candidate = Path(temporary) / name
-            for file, data in contents.items():
-                target = candidate / file
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-            _, error = parse_package(candidate)
-            if error:
-                raise ValueError('未保存：' + error)
-        path = source_file(versions.source, name, relative)
-        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha256:
-            raise SourceConflict('校验期间源文件发生变化；未覆盖源文件')
-        temporary_path = None
-        try:
-            with tempfile.NamedTemporaryFile(dir=path.parent, prefix='.source-', delete=False) as file:
-                temporary_path = Path(file.name)
-                file.write(raw)
-            temporary_path.chmod(path.stat().st_mode & 0o777)
-            os.replace(temporary_path, path)
-        finally:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
-        revision = versions.capture(name)
-        return {**read_file(versions.source, name, relative), 'revision': revision['revision']}
+    before = read_file(versions.source, name, relative)
+    if not before['writable']:
+        raise ValueError(before['reason'])
+    if before['sha256'] != expected_sha256:
+        raise SourceConflict('源文件已被其他操作修改；草稿保留，请重新加载后比较')
+    root = package_root(versions.source, name)
+    contents = _contents(root)
+    contents[relative] = raw
+    with tempfile.TemporaryDirectory() as temporary:
+        candidate = Path(temporary) / name
+        for file, data in contents.items():
+            target = candidate / file
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        _, error = parse_package(candidate)
+        if error:
+            raise ValueError('未保存：' + error)
+    path = source_file(versions.source, name, relative)
+    if hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha256:
+        raise SourceConflict('校验期间源文件发生变化；未覆盖源文件')
+    return {'validated': True, 'source_path': path.as_posix(),
+            'old_text': before['content'], 'new_text': content, 'expected_sha256': expected_sha256}

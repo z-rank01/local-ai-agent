@@ -161,7 +161,7 @@ try {
             foreach ($dailyWorkspaceId in $dailyWorkspaceIds) {
                 $present = if ($dailyWorkspaceId -eq 'default') { $dailyExistingContainerSet.Contains('skill-files') }
                     else { $dailyExistingContainerSet.Contains("ws-$dailyWorkspaceId-files") }
-                if ($present) {
+                if ($present -or $dailyWorkspaceId -eq 'default') {
                     Write-Step ('recreating workspace services: ' + $dailyWorkspaceId)
                     Invoke-DailyDockerOperation $dailyWorkspaceContext 'workspace_sync' $dailyWorkspaceId
                 }

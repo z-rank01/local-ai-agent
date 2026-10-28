@@ -54,11 +54,11 @@ def source_read(request: SourceRequest):
         raise HTTPException(409, str(exc)) from exc
 
 
-@router.post('/capabilities/skills/source-save')
+@router.post('/capabilities/skills/source-validate')
 def source_save(request: SourceSave):
-    from skill_source import save_file
+    from skill_source import prepare_save
     try:
-        return save_file(storage(), request.name, request.path, request.content, request.sha256)
+        return prepare_save(storage(), request.name, request.path, request.content, request.sha256)
     except (ValueError, OSError) as exc:
         raise HTTPException(409, str(exc)) from exc
 

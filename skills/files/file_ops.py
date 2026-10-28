@@ -186,7 +186,7 @@ class FileOps:
             original = resolved.read_bytes()
             if hashlib.sha256(original).hexdigest() != expected_sha256:
                 raise ValueError('文件已变化，请重新读取后再修改')
-            if not old_text:
+            if not old_text and original:
                 raise ValueError('old_text 不能为空')
             try:
                 text = original.decode('utf-8')

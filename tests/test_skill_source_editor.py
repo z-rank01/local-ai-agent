@@ -10,12 +10,20 @@ from fastapi import FastAPI
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skills/runner'))
-from skill_source import list_files, read_file, save_file, SourceConflict, LIMIT
+from skill_source import list_files, read_file, prepare_save, SourceConflict, LIMIT
 from skill_versions import SkillVersions
 import skill_version_api
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skills/files'))
+from file_ops import FileOps
+from path_guard import PathGuard
 
 
 class SkillSourceEditorTests(unittest.TestCase):
+    def commit(self, versions, name, relative, content, digest):
+        plan = prepare_save(versions, name, relative, content, digest)
+        FileOps(PathGuard(str(versions.source))).edit(plan['source_path'], plan['old_text'], plan['new_text'], plan['expected_sha256'])
+        return {**read_file(versions.source, name, relative), 'revision': versions.capture(name)['revision']}
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -29,7 +37,7 @@ class SkillSourceEditorTests(unittest.TestCase):
     def test_save_validates_captures_new_revision_and_keeps_existing_run_version(self):
         old = self.versions.capture('meeting')
         source = read_file(self.versions.source, 'meeting', 'SKILL.md')
-        result = save_file(self.versions, 'meeting', 'SKILL.md', self.text.replace('旧内容', '新内容'), source['sha256'])
+        result = self.commit(self.versions, 'meeting', 'SKILL.md', self.text.replace('旧内容', '新内容'), source['sha256'])
         self.assertNotEqual(old['revision'], result['revision'])
         self.assertIn('旧内容', self.versions.read('meeting', old['revision']).body)
         self.assertIn('新内容', self.versions.read('meeting', result['revision']).body)
@@ -38,11 +46,11 @@ class SkillSourceEditorTests(unittest.TestCase):
     def test_invalid_package_and_stale_hash_never_overwrite_source(self):
         original = read_file(self.versions.source, 'meeting', 'SKILL.md')
         with self.assertRaisesRegex(ValueError, '未保存'):
-            save_file(self.versions, 'meeting', 'SKILL.md', 'missing frontmatter', original['sha256'])
+            self.commit(self.versions, 'meeting', 'SKILL.md', 'missing frontmatter', original['sha256'])
         self.assertEqual((self.package / 'SKILL.md').read_text(encoding='utf-8'), self.text)
         (self.package / 'SKILL.md').write_text(self.text + '外部编辑', encoding='utf-8')
         with self.assertRaises(SourceConflict):
-            save_file(self.versions, 'meeting', 'SKILL.md', self.text, original['sha256'])
+            self.commit(self.versions, 'meeting', 'SKILL.md', self.text, original['sha256'])
         self.assertIn('外部编辑', (self.package / 'SKILL.md').read_text(encoding='utf-8'))
 
     def test_boundaries_binary_limits_and_scripts_are_not_executed(self):
@@ -56,7 +64,10 @@ class SkillSourceEditorTests(unittest.TestCase):
         self.assertFalse(rows['large.txt']['writable'])
         self.assertFalse(rows['assets/data.bin']['writable'])
         data = read_file(self.versions.source, 'meeting', 'scripts/run.py')
-        save_file(self.versions, 'meeting', 'scripts/run.py', 'raise RuntimeError("still not run")', data['sha256'])
+        self.commit(self.versions, 'meeting', 'scripts/run.py', 'raise RuntimeError("still not run")', data['sha256'])
+        (self.package / 'empty.txt').write_text('', encoding='utf-8')
+        empty = read_file(self.versions.source, 'meeting', 'empty.txt')
+        self.commit(self.versions, 'meeting', 'empty.txt', 'new text', empty['sha256'])
         for path in ('../SKILL.md', '/workspace/skills/meeting/SKILL.md', 'scripts/../../SKILL.md', '.skill_registry/file'):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 read_file(self.versions.source, 'meeting', path)
@@ -88,7 +99,10 @@ class SkillSourceApiTests(unittest.IsolatedAsyncioTestCase):
             versions = SkillVersions(source.parent, root / 'versions')
             runner = FastAPI()
             runner.include_router(skill_version_api.router)
-            snapshot = SimpleNamespace(record={'runner_port': 12345})
+            @runner.post('/tool/file_edit')
+            async def edit(payload: dict):
+                return FileOps(PathGuard(str(root))).edit(**payload)
+            snapshot = SimpleNamespace(record={'runner_port': 12345, 'files_port': 12346})
             workspaces = SimpleNamespace(ensure=AsyncMock(return_value=snapshot),
                 acquire=Mock(return_value='lease'), active={'lease': object()})
             service = SimpleNamespace(workspaces=workspaces)

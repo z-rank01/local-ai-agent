@@ -67,12 +67,23 @@ async def source_operation(workspace_id, name, operation, body):
     lease = service.workspaces.acquire(snapshot, '__skills__') if operation == 'source-save' else None
     try:
         async with httpx.AsyncClient(trust_env=False, timeout=30) as client:
+            upstream = 'source-validate' if operation == 'source-save' else operation
             response = await client.post(
-                f"http://127.0.0.1:{snapshot.record['runner_port']}/capabilities/skills/{operation}",
+                f"http://127.0.0.1:{snapshot.record['runner_port']}/capabilities/skills/{upstream}",
                 headers={'X-Workspace-Token': tool_token(workspace_id)}, json={'name': name, **body})
             if response.is_error:
                 raise HTTPException(response.status_code, response.json().get('detail', '源文件操作未完成'))
             result = response.json()
+            if operation == 'source-save':
+                committed = await client.post(f"http://127.0.0.1:{snapshot.record['files_port']}/tool/file_edit",
+                    headers={'X-Workspace-Token': tool_token(workspace_id)},
+                    json={key: result[key] for key in ('old_text', 'new_text', 'expected_sha256')} | {'path': result['source_path']})
+                if committed.is_error:
+                    raise HTTPException(committed.status_code, committed.json().get('detail', '文件服务未确认保存'))
+                reread = await client.post(f"http://127.0.0.1:{snapshot.record['runner_port']}/capabilities/skills/source-read",
+                    headers={'X-Workspace-Token': tool_token(workspace_id)}, json={'name': name, 'path': body['path']})
+                reread.raise_for_status()
+                result = reread.json()
         if operation == 'source-save':
             state = catalog_for(get_runtime(), workspace_id).reconcile(await snapshot_for(workspace_id)).get(name)
             result['activation'] = 'pending' if state and state.get('pending') else 'next_run'
