@@ -66,3 +66,31 @@ class StackLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Invoke-DailyDockerOperation $dailyWorkspaceContext 'workspace_sync' $dailyWorkspaceId", source)
         self.assertIn("'--force-recreate'", (Path(__file__).resolve().parents[1] / 'scripts/service-supervisor.ps1').read_text(encoding='utf-8'))
 
+
+class ProcessIdentityTests(unittest.TestCase):
+    def test_recorded_process_ids_determine_host_memory_without_port_guesses(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from scripts.measure_harness_performance import process_memory
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata = root / 'data/private/runtime-processes.json'
+            metadata.parent.mkdir(parents=True)
+            metadata.write_text(json.dumps({'bff_pid': 11, 'stock_pid': 22,
+                'stock_server_pid': 22, 'launcher_pid': 44}), encoding='utf-8')
+            rows = [{'Id': 11, 'WorkingSet64': 1000}, {'Id': 22, 'WorkingSet64': 2000},
+                    {'Id': 44, 'WorkingSet64': 4000}]
+            with patch('scripts.measure_harness_performance.ROOT', root), \
+                    patch('scripts.measure_harness_performance.subprocess.run',
+                          return_value=SimpleNamespace(returncode=0, stdout=json.dumps(rows), stderr='')):
+                result = process_memory(0, 17665)
+            self.assertEqual(result['stock'], 2000)
+            self.assertEqual(result['total_rss_bytes'], 7000)
+            self.assertEqual({row['role'] for row in result['processes']}, {'bff', 'stock', 'launcher'})
+            metadata.write_text(json.dumps({'bff_pid': 11, 'launcher_pid': 44}), encoding='utf-8')
+            with patch('scripts.measure_harness_performance.ROOT', root):
+                with self.assertRaisesRegex(RuntimeError, 'stock_pid'):
+                    process_memory(0, 17665)
+

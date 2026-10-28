@@ -13,6 +13,25 @@ function Write-Warn2([string]$Message) { Write-Host "      [!!] $Message" -Foreg
 $dailyRoot = Split-Path -Parent $PSScriptRoot
 Assert-DailyAcceptanceState $dailyRoot $AcceptanceState
 Assert-DailyStartupPorts
+# Process identity registration stays textually after the launch guards above:
+# the acceptance contract requires every guard check to precede the first side effect.
+function Write-DailyProcessIdentity([string]$Name, [int]$ProcessId) {
+    $path = Join-Path $dailyRoot 'data/private/runtime-processes.json'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+    $identity = [ordered]@{}
+    if (Test-Path -LiteralPath $path) {
+        $previous = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($previous) {
+            foreach ($property in $previous.PSObject.Properties) { $identity[$property.Name] = $property.Value }
+        }
+    }
+    $identity[$Name] = $ProcessId
+    $identity['launcher_pid'] = [int]$PID
+    $identity['updated_at'] = [DateTime]::UtcNow.ToString('o')
+    $temporary = $path + '.tmp'
+    $identity | ConvertTo-Json -Compress | Set-Content -LiteralPath $temporary -Encoding UTF8
+    Move-Item -LiteralPath $temporary -Destination $path -Force
+}
 $dailyPython = Join-Path $dailyRoot '.conda/python.exe'
 $env:PYTHONDONTWRITEBYTECODE = '1' # Installed plugin snapshots must not acquire host-generated cache files.
 if (-not (Test-Path -LiteralPath $dailyPython)) {
@@ -283,6 +302,9 @@ try {
                 } until ($dailyStockUp -or (Get-Date) -gt $dailyStockDeadline)
                 if ($dailyStockUp) {
                     Write-Ok "started on 127.0.0.1:$dailyStockPort"
+                    Write-DailyProcessIdentity 'stock_pid' $dailyStockProc.Id
+                    $dailyStockServer = Select-String -LiteralPath (Join-Path $dailyLogs 'stock-service.err.log') -Pattern 'Started server process \[(\d+)\]'
+                    if ($dailyStockServer) { Write-DailyProcessIdentity 'stock_server_pid' $dailyStockServer.Matches[0].Groups[1].Value }
                     if ($dailyStock.worker) {
                         try {
                             $dailyToken = (Get-Content -LiteralPath (Join-Path $dailyStockState '.paper-control-token') -Raw).Trim()
@@ -314,6 +336,7 @@ try {
         }
         Write-Step 'starting chat service...'
         $dailyBackendProcess = Start-Process -FilePath $dailyPython -ArgumentList @('scripts/run_daily.py') -WorkingDirectory $dailyRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $dailyLogs 'daily-bff.log') -RedirectStandardError (Join-Path $dailyLogs 'daily-bff.err.log')
+        Write-DailyProcessIdentity 'bff_pid' $dailyBackendProcess.Id
         $dailyReady = $false
         for ($dailyAttempt = 0; $dailyAttempt -lt 60; $dailyAttempt++) {
             if ($dailyController) { Invoke-DailyServiceSupervisorRequest $dailyController }
