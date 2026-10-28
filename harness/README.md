@@ -35,7 +35,7 @@ class Provider:
 
 `ExecutionContext` 来自对应工作区服务，插件不能自行构造另一工作区的授权。代码只在已构建镜像内延迟加载；宿主激活前核验资源哈希、版本和已有鉴权接口。源码更新使用唯一入口 `启动.bat` 对应的 `start-daily.ps1 -Build` 部署。
 
-这是显式随源码安装的执行机制。外部目录/压缩包的完整安装、信任确认、环境准备和版本回退尚不能靠直接复制到扫描目录代替。
+随源码包与已信任的本地目录/ZIP 包共用此执行机制。本地包须在工作台导入、查看差异并确认具体版本，正常退出后由唯一启动器部署构建，再准备可选环境并启用；支持更新、历史回退及卸载。直接复制到扫描目录不能替代该安装链路。
 
 ## 服务与任务
 
@@ -71,7 +71,7 @@ receipt = await gateway.generate(ModelRequest(
 
 模块默认导出接收 `CapabilityPanelProps` 的组件。只通过会话快照、变更回调、通用 HTTP 接口及公共基础组件协作，不读取 App 私有状态。`npm run build --prefix apps/web` 自动生成登记，独立资源按需载入；不用手工修改宿主导入清单，不进行任意远程 JavaScript 热加载。
 
-普通 schema 表单、命令、成果渲染器以及外部包安装后的资源构建仍需继续实现。现有设置贡献不能代表全部 UIContribution 范围。
+命令已有带参数 schema 的公开接口，成果渲染器经清单构建登记；外部包资源构建由唯一启动器执行。设置面板仍使用 TSX 贡献，不提供任意 schema 自动生成设置页或远程 JavaScript 热加载。构建登记支持的字段以现有清单与 extensions/contracts.ts 为准。
 
 
 ## 能力提示贡献
@@ -91,7 +91,7 @@ receipt = await gateway.generate(ModelRequest(
 
 工具回执中的 `local_result` 仍保存在原消息记录。宿主先核验会话归属和有效记录，再构造 `SavedArtifact`。`GET /api/conversations/{id}/artifacts/{message_id}` 返回已保存正文、内容哈希修订号和 `conversation-local-ui` 可见范围；不把内部参数返回页面，也不把片段完整度猜成 COMPLETE。传入旧 `revision` 时返回 409，不替换为另一个版本。
 
-插件声明 `artifacts: {provider, owner, tools}`，实现 `ArtifactProvider.read_page(saved, request)`。提供者只取得已授权记录和自身声明的已登记传输；金融包负责原任务引用、分页与业务修订冲突。旧 report-page 页面接口沿通用提供者路由，保存正文的读取不依赖插件在线。完整成果类型、历史全部修订保留以及前端自定义成果渲染贡献仍待继续；不能将这一步等同于全部 ArtifactProvider 验收。
+插件声明 `artifacts: {provider, owner, tools}`，实现 `ArtifactProvider.read_page(saved, request)`。提供者只取得已授权记录和自身声明的已登记传输；金融包负责原任务引用、分页与业务修订冲突。旧 report-page 页面接口沿通用提供者路由，保存正文的读取不依赖插件在线。前端自定义成果渲染贡献已接入构建登记，保存正文可通用回退展示。修订冲突会明确拒绝；历史正文保留范围由所属提供者决定，不保证任意类型成果的全部历史正文均可重建。
 
 
 Skill 的运行快照摘要通过宿主的 `tool_descriptions` 注入本轮 `skill_info` 工具说明，正文仍由实际调用按需读取。说明不改 schema、工具登记或权限，也不改共享注册表；新包不需要新增工具或 Agent 分支。仅摘要进入选择面不代表模型必然选择，必须保留真实调用与成果验收。
@@ -132,10 +132,10 @@ Docker Desktop 下内部网络不保证发布主机端口，因此可选服务�
 
 已安装插件可用 `call_policy: plugins.<id>.<module>:<Class>` 提供 `CallPolicy`。`validate(tool, arguments, phase=...)` 在调用前检查所属业务规则；`ends_window(tool, receipt)` 仅解释实际回执是否结束本批调用。宿主仍负责授权、执行、取消与账本，策略不会授予权限或另起执行器。策略按实际工具所有者选择，不按工具名前缀识别业务。
 
-清单 `tool_roles` 声明 `research`、`source_read`、`handoff`、`handoff_lookup`、`windowed` 对应的工具列表，解析时只保留本插件实际登记的工具。插件内规则与分组变化随原入口重启生效；不是运行中热替换。金融专用上下文与来源核对尚有后续迁移，不能把此接口接入视为整个循环已通用化。
+清单 `tool_roles` 声明 `research`、`source_read`、`handoff`、`handoff_lookup`、`windowed` 对应的工具列表，解析时只保留本插件实际登记的工具。插件内规则与分组变化随原入口重启生效；不是运行中热替换。金融专用上下文、来源核对和发布编排已归金融包；普通工具执行由宿主统一实现，领域钩子遵循同一授权与回执边界。
 
 
-调用策略可选实现 `project_history(history, archive)`，返回 `HistoryProjection`：替换后的消息、已归档证据 ID、显示标记及审计摘要。宿主先检查本轮工作区授权，并登记证据后交给模型；只有当前登记工具的历史回执才选择所属提供者。金融历史报告、原文与重复回执整理在 `plugins/finance/history.py`、`material_view.py`；原 `core/stock_material_view.py` 只保留旧导入兼容。插件调用规则、工具角色和包内 Python 源码加入检查点兼容信息，改规则后不能直接继续旧环境检查点。
+调用策略可选实现 `project_history(history, archive)`，返回 `HistoryProjection`：替换后的消息、已归档证据 ID、显示标记及审计摘要。宿主先检查本轮工作区授权，并登记证据后交给模型；只有当前登记工具的历史回执才选择所属提供者。金融历史报告、原文与重复回执整理在 `plugins/finance/history.py`、`material_view.py`；旧导入兼容在 core 的模块别名层保留，不包含另一套业务实现。插件调用规则、工具角色和包内 Python 源码加入检查点兼容信息，改规则后不能直接继续旧环境检查点。
 
 调用策略也可实现 `ReceiptPresenter.present_receipt(tool, arguments, receipt, question=..., read_receipts=...)`：对单个已授权且成功返回的调用生成确定性展示，或返回 `None` 继续普通模型处理。`ReceiptPresentation` 保存正文、审计事件和版本；不运行工具、不扩大授权。宿主只按实际所有者分派，并保留自主研究的发布流程优先级。金融来源范围与算术展示的核验实现均在金融包，宿主不再按这两个工具名分别输出。
 

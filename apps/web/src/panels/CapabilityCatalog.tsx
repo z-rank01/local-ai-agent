@@ -47,6 +47,8 @@ export function CapabilityCatalog(): JSX.Element {
     {error ? <p role="alert" className="panel-hint">{error}</p> : null}
     {rows.map(row => <div key={row.id} className="field">
       <span className="field-label">{row.title ?? row.id}{row.version ? ` · ${row.version}` : ''}</span>
+      <span className="panel-hint">ID：{row.id} · 必需依赖：{row.required?.join('、') || '无'}</span>
+      <span className="panel-hint">声明权限：{row.permissions?.join('、') || '无额外声明'}；实际调用仍受工作区授权约束。</span>
       <span className="panel-hint">{row.error ?? row.description}</span>
       <span className="panel-hint">{row.registration === 'invalid' ? '清单无效' :
         row.registration === 'registered' ? `已登记 ${row.tools.length} 个工具` : '工具未登记'}</span>
