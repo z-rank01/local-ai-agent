@@ -125,7 +125,7 @@ powershell Start-Process …（由聊天后端调用）
 
 一次性恢复不得持久化 `daily-services.json.worker=true`；网络回执未知也保持下次启动不自动领取任务。镜像内插件资源在 `plugins/*/runtime`、`tools` 及清单中维护，修改后仍由唯一入口 `-Build` 生效。文件服务构建使用根目录白名单 `.dockerignore`，只复制服务与插件代码/契约，不把 data、密钥或整个宿主仓库挂载给容器。资料索引缓存属于工作区 `.capabilities/document-index`，可重建，不能成为第二份原始资料库。
 
-Harness 当前实现：正式聊天的方法型 Skill 通过 Runner 的版本接口复制内容快照，运行检查点保存版本引用；更新原目录不影响该快照，旧式 Python Skill 暂沿兼容通路。`bff/skill_management.py` 的目录、差异和导入先走原工作区恢复流程；历史差异接受 before/after，卸载后仍可比较保留版本。`plugins/finance/loop.py` 承接金融聊天编排，通用宿主通过公开契约调用；core 中旧导入兼容保留，不另建执行后端。skills/** 改动须唯一入口 `-Build` 重建并重启 BFF；部署与真实模型验收状态只看股票仓库 `docs/计划.md`。
+Harness 当前实现：正式聊天的方法型 Skill 通过 Runner 的版本接口复制内容快照，运行检查点保存版本引用；更新原目录不影响该快照，旧式 Python Skill 暂沿兼容通路。`bff/skill_management.py` 的目录、差异和导入先走原工作区恢复流程；历史差异接受 before/after，卸载后仍可比较保留版本。`core/agent.py` 通过 `derive` 显式派生冻结依赖与回合配置，禁止以 `__dict__` 共享宿主内部状态；普通工具执行由宿主统一实现，`plugins/finance/loop.py` 仅在钩子中保留金融专属分发与发布。首版每个运行只允许一个回合编排者和一个研究会话提供者，冲突在激活时提示停用顺序，不静默覆盖。core 中旧导入兼容保留，不另建执行后端。skills/** 改动须唯一入口 `-Build` 重建并重启 BFF；部署与真实模型验收状态只看股票仓库 `docs/计划.md`。
 
 模型选择属于conversation.model，顶栏修改立即持久化，不影响其他会话。每项运行冻结模型和实际生成参数；兼容续行也使用该快照。分析、写作、单独核对及新股票后台任务统一继承会话模型，不再读取股票独立简报模型或Qwen开关。可信execution_profile由BFF建立，经现有已鉴权内部通路使用，模型工具参数不能覆盖。云读授权仍按冻结授权和当前工作区共同核验，账户/交易规则不变。
 
