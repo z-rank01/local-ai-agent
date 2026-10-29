@@ -339,7 +339,8 @@ async def research_methods():
     return {'methods': await get_chat_service().research_methods()}
 @app.post("/api/conversations", response_model=ConversationSummary, status_code=201)
 async def create_conversation(request: CreateConversationRequest) -> ConversationSummary:
-    return get_chat_service().create_conversation(request.title, request.model, request.workspace_id)
+    return get_chat_service().create_conversation(
+        request.title, request.model, request.workspace_id, request.capability_ids)
 @app.get("/api/conversations/{conversation_id}", response_model=ConversationSummary)
 async def get_conversation(conversation_id: str) -> ConversationSummary:
     return get_chat_service().get_conversation(conversation_id)
@@ -348,7 +349,9 @@ async def update_conversation(
     conversation_id: str,
     request: UpdateConversationRequest,
 ) -> ConversationSummary:
-    return get_chat_service().update_conversation(conversation_id, title=request.title, model=request.model)
+    return get_chat_service().update_conversation(
+        conversation_id, title=request.title, model=request.model,
+        capability_ids=request.capability_ids)
 
 @app.put('/api/conversations/{conversation_id}/research-method', response_model=ConversationSummary)
 async def update_research_method(conversation_id: str, request: ResearchMethodChoice) -> ConversationSummary:
@@ -400,6 +403,7 @@ async def edit_message(
             content=request.content,
             provider_id=request.provider_id, model=request.model,
             request_id=request.request_id,
+            capability_ids=request.capability_ids,
         ),
         conversation_id=conversation_id,
     )
@@ -410,7 +414,8 @@ async def regenerate_conversation(
     service = get_chat_service()
     payload = request or RegenerateRequest()
     return await _stream_ndjson(
-        service.regenerate_chat(conversation_id, message_id=payload.message_id, provider_id=payload.provider_id, model=payload.model, request_id=payload.request_id),
+        service.regenerate_chat(conversation_id, message_id=payload.message_id, provider_id=payload.provider_id,
+            model=payload.model, request_id=payload.request_id, capability_ids=payload.capability_ids),
         conversation_id=conversation_id,
     )
 @app.get("/api/conversations/{conversation_id}/export")

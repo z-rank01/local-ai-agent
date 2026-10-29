@@ -14,6 +14,7 @@ class ConversationSummary(BaseModel):
     created_at: str
     updated_at: str
     research_method: str = "auto"
+    capability_ids: list[str] = Field(default_factory=list)
     workspace_id: str = "default"
     workspace_name: str = "默认工作区"
     search_snippet: str | None = None
@@ -132,6 +133,7 @@ class CreateConversationRequest(BaseModel):
     workspace_id: str = "default"
     title: str = "新对话"
     model: str | None = None
+    capability_ids: list[str] | None = None
 
 
 class BriefDeliveryRequest(BaseModel):
@@ -142,6 +144,7 @@ class BriefDeliveryRequest(BaseModel):
 class UpdateConversationRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
     model: str | None = None
+    capability_ids: list[str] | None = None
 
 
 class RegenerateRequest(BaseModel):
@@ -149,6 +152,7 @@ class RegenerateRequest(BaseModel):
     model: str | None = None
     message_id: str | None = None
     request_id: str | None = Field(default=None, min_length=8, max_length=128)
+    capability_ids: list[str] | None = None
 
 
 class EditMessageRequest(BaseModel):
@@ -156,6 +160,7 @@ class EditMessageRequest(BaseModel):
     model: str | None = None
     content: str = Field(min_length=1)
     request_id: str | None = Field(default=None, min_length=8, max_length=128)
+    capability_ids: list[str] | None = None
 
 
 class ActivateMessageVersionRequest(BaseModel):
@@ -173,6 +178,7 @@ class ChatRequest(BaseModel):
     model: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)
     allow_tools: bool = True
+    capability_ids: list[str] | None = None
 
 
 class WorkspaceImportRequest(BaseModel):

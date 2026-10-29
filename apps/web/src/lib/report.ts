@@ -50,6 +50,9 @@ export function readConversationSummary(event: UIStreamEvent): ConversationSumma
         created_at: item.created_at,
         updated_at: item.updated_at,
         research_method: item.research_method ?? 'auto',
+        capability_ids: Array.isArray(item.capability_ids)
+          ? item.capability_ids.filter((id): id is string => typeof id === 'string')
+          : [],
         workspace_id: item.workspace_id ?? 'default',
         workspace_name: item.workspace_name ?? '默认工作区',
       }

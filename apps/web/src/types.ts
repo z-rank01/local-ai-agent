@@ -26,6 +26,7 @@ export type ConversationSummary = {
   created_at: string;
   updated_at: string;
   research_method: string;
+  capability_ids: string[];
   workspace_id: string;
   workspace_name: string;
   search_snippet?: string | null;
@@ -85,6 +86,7 @@ export type ChatRequest = {
   provider_id?: string | null;
   model?: string | null;
   options?: Record<string, unknown>;
+  capability_ids?: string[];
 };
 
 export type ImportedAttachment = {

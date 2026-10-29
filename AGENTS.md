@@ -25,7 +25,7 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 962 项、20 项跳过（2026-10-28））
+.\.conda\python.exe -m unittest discover -s tests   # 离线测试（当前 980 项、21 项跳过（2026-10-29 实测））
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -88,7 +88,7 @@ powershell Start-Process …（由聊天后端调用）
 - `bff/app.py`：HTTP 层（聊天、会话、工作区、模型、技能开关、股票服务管理、心跳、退出）。退出语义：**停止新运行 → 聊天与股票收尾落盘 → 唯一启动器确认停容器 → BFF退出**；失败保留服务和错误。
 - `core/runtime.py`：`build_runtime()` 组装工具注册表/路由/模型目录；技能开关通过公开的 `load_backend` / `unregister_owner` 与 `set_backend` 更新自身贡献，保留其他提供者的工具及 registry 对象同一性。禁止重建整张注册表覆盖其他能力。当前仍有旧业务接线，不能将此适配步骤视为完整插件迁移。
 - `bff/service.py`：`ChatSessionService` 是会话/工作区/流式门面；`exclusive_turn` 保证同工作区及目录重叠工作区串行执行，返回 409 与执行会话；不同目录的工作区可并行。技能切换期间聊天 409。目录配置每轮冻结，失败保留有效配置，用户明确检查应用后激活待生效配置。
-- 前端 `apps/web/src/` 为组件化结构：`app/`（App.tsx 编排层 + 顶栏/会话抽屉/输入胶囊/阅读栏/工作台 Sheet/设置/阅读器等区块）、`panels/`（工作区、技能、股票、打包任务）、`ui/`（Collapse/Panel/Popover 等基元）、`lib/`（storage/format/appearance/transcript/report/notify/confirm）；`styles.css` 是唯一令牌来源（Apple 设计系统，旧三栏紫系已废弃）。界面无常驻侧栏：顶栏细条 + 全屏阅读栏 + 底部悬浮输入胶囊；会话抽屉与工作台 Sheet 两级浮层默认收起；唯一"退出"按钮在会话抽屉底部。
+- 前端 `apps/web/src/` 为组件化结构：`app/`（App.tsx 编排层 + 顶栏/会话抽屉/输入胶囊（含 A 能力栏）/阅读栏/工作台 Sheet/设置/阅读器等区块）、`panels/`（工作区、技能、股票、打包任务）、`ui/`（Collapse/Panel/Popover 等基元）、`lib/`（storage/format/appearance/transcript/report/notify/confirm/flags）；`styles.css` 是唯一令牌来源（Apple 设计系统，旧三栏紫系已废弃）。能力管理侧栏 v2 在 `panels/capabilities/CapabilityManager.tsx`，旧界面保留为 `SkillsPanelLegacy.tsx`；两侧与 Composer 共用 App 的 `useCapabilityRegistry` 与 selection，`VITE_CAPABILITY_BAR_A` 是能力面总开关，关闭时同时回退 Composer 与侧栏。界面无常驻侧栏：顶栏细条 + 全屏阅读栏 + 底部悬浮输入胶囊；会话抽屉与工作台 Sheet 两级浮层默认收起；唯一"退出"按钮在会话抽屉底部。
 - 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。普通聊天通用系统内容维护在 `prompts/modules/01..07`；搜索与金融专属内容在各自 `plugins/<id>/prompts/`，由清单 `prompts` 声明并按本轮登记工具选择。新增能力提示不改通用 Agent 分支。插件提示文件和触发声明一起进入检查点兼容指纹；`prompts/system.txt` 只是 modules 缺失时的兜底占位。自主研究的单独核对角色使用 `plugins/finance/prompts/review.txt`，不作为普通聊天模块注入；它与原模块一起进入检查点兼容指纹。
 
 聊天自主研究的evidence_requests由程序展开为原工具调用，不另起执行后端。evidence-index.json只登记实际收到的资料及模型标注；reviews保存同模型单独核对的候选稿/可见结果，不保存隐藏思维链、不进入正文。发布关联当前稿及证据指纹，不认证语义；核对UNKNOWN停止本轮且不重发。无进展收尾保留已有资料回读、改稿及核对，禁止新增联网需求；不能把阶段限制报成供应商额度不足。
@@ -119,7 +119,7 @@ powershell Start-Process …（由聊天后端调用）
 
 ## 会话模型统一（2026-10-21）
 
-能力安装状态增量保存于原 `conversations.db` 的 v10 `capability_installs`；升级前自动生成 `.before-v10.sqlite`。回退代码不能用旧备份覆盖升级后新消息。方法包的启停、待激活版本和回退按工作区隔离；运行中的版本引用不随目录更新而改变。
+能力安装状态增量保存于原 `conversations.db` 的 v10 `capability_installs`，会话级能力选择为 v11 `conversations.capability_ids`（`skill:<name>` / `plugin:<id>` JSON）；升级前自动生成 `.before-v11.sqlite`。回退代码不能用旧备份覆盖升级后新消息。空选择不缩窄运行目录，非空只收窄本轮 Skill/Plugin 发现目录，不摘工具 schema、不改权限。方法包的启停、待激活版本和回退按工作区隔离；运行中的版本引用不随目录更新而改变。
 
 恢复按钮使用原股票工作进程的 `recovery_only_worker` 范围，只执行恢复核对，不领取普通任务，也不修改 `research_only_worker` 或限定任务列表。完成或阻断后暂停，账户恢复确认仍由页面人工完成；重启沿唯一启动器，不另起恢复执行器。
 

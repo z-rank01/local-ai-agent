@@ -29,6 +29,7 @@ export function Panel({
 }: PanelProps): JSX.Element {
   const storageKey = STORAGE_KEYS.panel(id);
   const bodyId = useId();
+  const headRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(() => {
     const raw = readString(storageKey);
     if (raw === 'true') return true;
@@ -42,6 +43,7 @@ export function Panel({
     signalRef.current = forceOpenSignal;
     setOpen(true);
     writeString(storageKey, 'true');
+    window.requestAnimationFrame(() => headRef.current?.focus({preventScroll: true}));
   }, [forceOpenSignal, storageKey]);
 
   const toggle = async () => {
@@ -54,6 +56,7 @@ export function Panel({
   return (
     <section className="panel" data-collapsed={open ? 'false' : 'true'}>
       <button
+        ref={headRef}
         type="button"
         className="panel-head"
         aria-expanded={open}

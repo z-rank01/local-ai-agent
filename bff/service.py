@@ -28,6 +28,8 @@ from core.input_utils import ImportedFile, ingest_local_file_paths
 from core.providers import thinking_capability
 from core.runtime import RuntimeServices
 from core.workspaces import WorkspaceManager, WorkspaceSnapshot, tool_token
+from harness.capabilities.selection import filter_capability_snapshot
+from harness.contracts.capabilities import normalize_capability_ids
 
 from .schemas import (
     AppStatus,
@@ -241,12 +243,15 @@ class ChatSessionService:
             for conv in self._store.list_conversations(limit=limit, offset=offset, query=query, workspace_id=workspace_id)
         ]
 
-    def create_conversation(self, title: str, model: str | None = None, workspace_id: str = "default") -> ConversationSummary:
+    def create_conversation(self, title: str, model: str | None = None, workspace_id: str = "default",
+                            capability_ids=None) -> ConversationSummary:
         self.workspaces.get(workspace_id)
+        selected = self._normalized_capabilities(capability_ids) if capability_ids is not None else []
         conv = self._store.create_conversation(
             workspace_id=workspace_id,
             title=title,
             model=self._runtime.models.resolve(model=model)[0]['id'],
+            capability_ids=selected,
         )
         return self._conversation_summary(conv)
 
@@ -259,10 +264,25 @@ class ChatSessionService:
         self._store.update_conversation_title(conversation_id, title)
         return self.get_conversation(conversation_id)
 
-    def update_conversation(self, conversation_id, *, title=None, model=None):
+    @staticmethod
+    def _normalized_capabilities(values) -> list[str]:
+        try:
+            return normalize_capability_ids(values)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    def _apply_capability_ids(self, conversation: Conversation, values) -> Conversation:
+        selected = self._normalized_capabilities(values)
+        if selected != conversation.capability_ids:
+            self._store.set_capability_ids(conversation.id, selected)
+            conversation.capability_ids = selected
+        return conversation
+
+    def update_conversation(self, conversation_id, *, title=None, model=None, capability_ids=None):
         self._require_conversation(conversation_id)
-        if title is None and model is None:
-            raise HTTPException(422, '请提供会话标题或模型')
+        if title is None and model is None and capability_ids is None:
+            raise HTTPException(422, '请提供会话标题、模型或能力选择')
+        selected = self._normalized_capabilities(capability_ids) if capability_ids is not None else None
         if model is not None:
             try:
                 spec, _ = self._runtime.models.resolve(model=model)
@@ -271,6 +291,8 @@ class ChatSessionService:
             self._store.set_model(conversation_id, spec['id'])
         if title is not None:
             self._store.update_conversation_title(conversation_id, title)
+        if selected is not None:
+            self._store.set_capability_ids(conversation_id, selected)
         return self.get_conversation(conversation_id)
 
     async def research_methods(self) -> list[dict]:
@@ -608,11 +630,14 @@ class ChatSessionService:
         if not message:
             raise HTTPException(status_code=422, detail="message cannot be empty")
 
-        conversation = self._ensure_conversation(request.conversation_id, request.title)
+        conversation = self._ensure_conversation(
+            request.conversation_id, request.title, request.capability_ids)
         if request.conversation_id:
             # Admission already checked the request against the stored choice.
             # A later selection change must not alter this admitted run.
             conversation.model = self._frozen_model[0]['id']
+            if request.capability_ids is not None:
+                conversation = self._apply_capability_ids(conversation, request.capability_ids)
         run_id = self._run_control.id
         yield UIStreamEvent(
             event="session.started",
@@ -660,12 +685,15 @@ class ChatSessionService:
 
     @exclusive_turn
     async def regenerate_chat(
-        self, conversation_id: str, *, message_id: str | None = None, provider_id=None, model=None, request_id: str | None = None
+        self, conversation_id: str, *, message_id: str | None = None, provider_id=None, model=None,
+        request_id: str | None = None, capability_ids=None,
     ) -> AsyncGenerator[UIStreamEvent, None]:
         if request_id and not self._store.claim_chat_request(request_id):
             raise HTTPException(409, '该请求已受理，请刷新查看已有结果；如需再次执行请发送新消息。')
         conversation = self._require_conversation(conversation_id)
         conversation.model = self._frozen_model[0]['id']
+        if capability_ids is not None:
+            conversation = self._apply_capability_ids(conversation, capability_ids)
         messages = self._store.get_messages(conversation_id)
 
         # Locate the user message we will regenerate from. Default: most recent.
@@ -743,12 +771,14 @@ class ChatSessionService:
         *,
         message_id: str,
         content: str,
-        provider_id=None, model=None, request_id: str | None = None,
+        provider_id=None, model=None, request_id: str | None = None, capability_ids=None,
     ) -> AsyncGenerator[UIStreamEvent, None]:
         if request_id and not self._store.claim_chat_request(request_id):
             raise HTTPException(409, '该请求已受理，请刷新查看已有结果；如需再次执行请发送新消息。')
         conversation = self._require_conversation(conversation_id)
         conversation.model = self._frozen_model[0]['id']
+        if capability_ids is not None:
+            conversation = self._apply_capability_ids(conversation, capability_ids)
         target = self._store.get_message(message_id)
         if target is None or target.conversation_id != conversation_id:
             raise HTTPException(status_code=404, detail="message not found")
@@ -1182,6 +1212,9 @@ class ChatSessionService:
                 router.skill_session.snapshot = catalog_for(self._runtime, self._snapshot.id,
                     allow_write=not cloud or cloud_write_allowed).effective(router.skill_session.snapshot)
                 router.skill_session.snapshot['capabilities'] = self._runtime.tool_registry.capability_catalog()
+                if conversation.capability_ids:
+                    router.skill_session.snapshot = filter_capability_snapshot(
+                        router.skill_session.snapshot, conversation.capability_ids)
         if resume:
             from core.run_checkpoint import load_message, continuation_messages
             load = lambda evidence_id: load_message(self._store,conversation.id,evidence_scope,evidence_id)
@@ -1399,13 +1432,16 @@ class ChatSessionService:
             if emit is not None:
                 yield emit('tool.local_result', block_id=call_id, message_id=message_id, data={'local_result': text})
 
-    def _ensure_conversation(self, conversation_id: str | None, title: str | None) -> Conversation:
+    def _ensure_conversation(self, conversation_id: str | None, title: str | None,
+                             capability_ids=None) -> Conversation:
         if conversation_id:
             return self._require_conversation(conversation_id)
+        selected = self._normalized_capabilities(capability_ids) if capability_ids is not None else []
         created = self._store.create_conversation(
             title=title or "新对话",
             model=self._frozen_model[0]['id'],
             workspace_id=self._snapshot.id,
+            capability_ids=selected,
         )
         return self._require_conversation(created.id)
 
@@ -1440,6 +1476,7 @@ class ChatSessionService:
             created_at=conversation.created_at,
             updated_at=conversation.updated_at,
             research_method=conversation.research_method,
+            capability_ids=list(conversation.capability_ids),
         )
 
     @staticmethod

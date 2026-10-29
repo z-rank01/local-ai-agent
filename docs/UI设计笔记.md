@@ -104,7 +104,9 @@
 | 长任务 | `pulse-ring`(1.4s) / `dots`(1.2s) / `spin`(900ms) 三个持续指示 | 禁止百分比编造；新增持续动画前先看能否复用 |
 | reduced-motion | 文件末尾全局规则（1ms + 单次） | 新增动画**不需要**再登记清单，但必须被全局规则覆盖有效 |
 
-新 keyframes 用语义名（`rise` / `fade` / `pop-in` / `dots` / `spin` / `pulse-ring`）；时长与曲线只引用 `--motion-*` / `--ease-standard`。
+新 keyframes 用语义名（`rise` / `centered-rise` / `fade` / `pop-in` / `dots` / `spin` / `pulse-ring`）；时长与曲线只引用 `--motion-*` / `--ease-standard`。
+
+居中固定元素（toast、notice-bar）必须用 `centered-rise`：`rise` 的 `transform` 会覆盖静态 `translateX(-50%)`，造成入场时先偏右再跳回中间。
 
 ## 6. 可访问性 checklist（新交互必过）
 
@@ -188,3 +190,42 @@ npm run build / typecheck / dev 自动生成 extensions/generated.ts；不能手
 | 状态与布局 | 运行、安装和候选错误分别表达；Plugin 本机、Skill 工作区；390px工具栏换行，代码和差异内部滚动；主题令牌与系统减少动效规则共用 |
 
 操作与截图见 [架构使用指南](./harness-architecture.html#actual-ui)，详细证据见 [本批记录](./记录/2026-10-29-能力管理交互与编辑器.md)；进度只维护股票仓库 docs/计划.md。
+
+## 能力栏 A（2026-10-29）
+
+| 项目 | 规则 |
+| --- | --- |
+| 位置 | `Composer.tsx` 内、运行状态行之后、附件之前；固定 40px 单行（触屏粗指针 52px），不推动输入框 |
+| 结构 | 左侧已选胶囊（最多 2 项 + `+N`），右侧唯一「能力」触发器；浮层 374px，portal 到 body，空间不足上翻 |
+| 响应式 | ≤540 隐藏 `Ctrl K`；≤380 胶囊最大宽 124px；≤340 触发器图标化；320px 实测 `scrollWidth=320`；触屏粗指针 bar 52 / 控件 44 |
+| 组件 | `app/CapabilityBar.tsx` 展示、`app/CapabilityPopover.tsx` 浮层、`app/CapabilityBarContainer.tsx` 注册表/最近使用适配；纯映射在 `panels/capabilities/capabilityModel.ts` |
+| 样式 | `.capbar*` 作用域；颜色/字号/圆角/动效只引用 `styles.css :root` 令牌；不写裸 hex、不加依赖 |
+| 焦点 | 搜索框蓝色环由 `.capbar-pop-search:focus-within` 唯一绘制；用 2px `--focus-ring-sm`（其余焦点仍 4px）；内部 input 清掉全局 `:focus-visible` 的 `box-shadow`，避免双环 |
+| 语义 | 已选区 `role=group`；触发器 `aria-haspopup/expanded/controls`；浮层 `role=dialog aria-modal=false`；筛选 tablist + `aria-controls`；行 `aria-pressed`；不可用行 `aria-disabled` 且保留焦点 |
+| 键盘 | 打开聚焦搜索；Tab 循环；↑/↓ 移动；Esc 关闭回焦；`Ctrl/Cmd K` 开合；胶囊移除后焦点到下一项或触发器 |
+| 状态 | 骨架/空库/无结果/加载失败/不可用/禁用齐全；搜索与筛选可组合；无结果不关闭浮层 |
+| 选择语义 | 会话级 `capability_ids`；**空选择不缩窄**，沿用全部已启用能力；非空只收窄本轮 Skill/Plugin 发现目录，不摘工具 schema、不改权限、不启停插件 |
+| 持久化 | 原 `conversations.db` v11；切换能力不更新 `updated_at`；刷新/重开恢复，新任务为空 |
+| 管理入口 | 浮层「管理能力」打开工作台能力面板；安装/版本/权限不进入 Composer |
+| 回滚 | 构建 `VITE_CAPABILITY_BAR_A=off`；旧 Composer、旧能力管理侧栏、不写选择；数据库列与已有值保留 |
+| 测试 | `npm run test:capability-bar --prefix apps/web`；后端 `tests.test_capability_selection`；迁移用 `.before-v11.sqlite` |
+
+设计依据：[能力栏 A 规范](./capability-bar-a-final.md)与[定稿原型](./原型/capability-bar-review.html)；实现与验证证据见[本批记录](./记录/2026-10-29-能力栏A落地.md)。
+
+## 能力管理侧边栏 v2（2026-10-29）
+
+| 项目 | 规则 |
+| --- | --- |
+| 位置 | 右侧 Sheet → Panel「能力」内；宿主已有 Sheet/Panel 两层 chrome，不复制原型的独立 drawer 顶栏 |
+| 结构 | Panel 内 `.capm-hero`（工作区 · 能力 / 能力管理 / 副标题 + 导入/刷新）、搜索、类型筛选+计数、启用汇总、单张能力组、页脚统计/历史 |
+| 视觉适配 | 原型 720px 深色 drawer → 现有主题令牌；hero `--text-lg`、行标题 `--text-sm`、描述/meta `--text-xs`；search 38px、行 min 84px、icon 32px、Switch 复用 40×24；不新增裸 hex |
+| 行 | 32px 图标、display name、`对话中`/状态 badge、2 行描述、`技能/插件 · source · origin`、Switch、更多菜单、展开 chevron；详情保留概览/设置/文件/版本 |
+| 状态分工 | 侧栏 Switch 只改 `enabled`；Composer 胶囊只改 `selected`；正常启用/停用不堆 chip，warn/danger 才显示状态 badge |
+| 同步 | 侧栏与 Composer 共用 App 的 selection 与共享 registry；停用已选 → 当前会话移除；Toast 撤销 → 重新启用并恢复选择；切换会话/工作区清除可撤销 Toast |
+| 历史/无效 | 已移除历史放页脚文字开关；无效 Skill 单独错误块，不混入正常计数；空库/无结果/加载/错误分开 |
+| 响应式 | `.capm` 用 container query；≤360 收紧行/页脚，≤310 隐藏启用汇总，≤300 Switch/菜单纵向堆叠；320 实测 `scrollWidth=320`、控件不遮挡 |
+| 语义 | 筛选 `role=group` + `aria-pressed/controls`；列表 `role=list`，行 `role=listitem`；行展开 `aria-expanded/controls`；Switch `role=switch`；错误/对话中 badge 有文本 |
+| 回滚 | 复用 `VITE_CAPABILITY_BAR_A` 作为能力面总开关；关闭时旧 Composer + `SkillsPanelLegacy`，新 manager 不渲染；无数据迁移 |
+| 测试 | `npm run test:capability-bar`（含 manager model）；typecheck/build；记录见[本批记录](./记录/2026-10-29-能力管理侧边栏视觉更新.md) |
+
+设计依据：[能力管理原型](./原型/capability-manager.html)与[落地计划](./capability-manager-rollout-plan.md)。

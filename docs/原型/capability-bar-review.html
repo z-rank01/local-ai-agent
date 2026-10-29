@@ -1,0 +1,1673 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>能力栏 A 方案定稿 · Open Design</title>
+  <style>
+    /* ─────────────────────────────────────────────────────────────────────
+     * design-systems/apple/tokens.css — pasted verbatim as the visual contract
+     * ───────────────────────────────────────────────────────────────────── */
+    :root {
+      /* ─── Surface (3 levels) ────────────────────────────────────────── */
+      --bg: #ffffff;
+      --surface: #f5f5f7;
+      --surface-warm: #fbfbfd;
+
+      /* ─── Foreground ramp (4 levels) ───────────────────────────────── */
+      --fg: #1d1d1f;
+      --fg-2: #424245;
+      --muted: #6e6e73;
+      --meta: #86868b;
+
+      /* ─── Border (2 levels) ────────────────────────────────────────── */
+      --border: #d2d2d7;
+      --border-soft: #e8e8ed;
+
+      /* ─── Accent ───────────────────────────────────────────────────── */
+      --accent: #0071e3;
+      --accent-on: #ffffff;
+      --accent-hover: #0077ed;
+      --accent-active: #0066cc;
+
+      /* ─── Semantic ──────────────────────────────────────────────────── */
+      --success: #16a34a;
+      --warn:    #eab308;
+      --danger:  #dc2626;
+
+      /* ─── Typography ────────────────────────────────────────────────── */
+      --font-display:
+        "SF Pro Display", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --font-body:
+        "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --font-mono:
+        "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+
+      --text-xs:   12px;
+      --text-sm:   14px;
+      --text-base: 17px;
+      --text-lg:   21px;
+      --text-xl:   28px;
+      --text-2xl:  40px;
+      --text-3xl:  56px;
+      --text-4xl:  80px;
+
+      --leading-body:  1.47;
+      --leading-tight: 1.05;
+      --tracking-display: -0.015em;
+
+      /* ─── Spacing ───────────────────────────────────────────────────── */
+      --space-1:  4px;
+      --space-2:  8px;
+      --space-3:  12px;
+      --space-4:  16px;
+      --space-5:  20px;
+      --space-6:  24px;
+      --space-8:  32px;
+      --space-12: 48px;
+
+      /* ─── Section rhythm ────────────────────────────────────────────── */
+      --section-y-desktop: 100px;
+      --section-y-tablet:  64px;
+      --section-y-phone:   40px;
+
+      /* ─── Radius ────────────────────────────────────────────────────── */
+      --radius-sm:   8px;
+      --radius-md:   12px;
+      --radius-lg:   18px;
+      --radius-pill: 980px;
+
+      /* ─── Elevation (3 levels) ──────────────────────────────────────── */
+      --elev-flat:   none;
+      --elev-ring:   0 0 0 1px var(--border);
+      --elev-raised: 0 12px 32px rgba(0, 0, 0, 0.08);
+
+      /* ─── Focus ring ────────────────────────────────────────────────── */
+      --focus-ring: 0 0 0 4px color-mix(in oklab, var(--accent), transparent 65%);
+
+      /* ─── Motion ────────────────────────────────────────────────────── */
+      --motion-fast:   150ms;
+      --motion-base:   220ms;
+      --ease-standard: cubic-bezier(0.28, 0, 0.22, 1);
+
+      /* ─── Layout ────────────────────────────────────────────────────── */
+      --container-max:            1024px;
+      --container-gutter-desktop: 22px;
+      --container-gutter-tablet:  18px;
+      --container-gutter-phone:   16px;
+    }
+
+*, *::before, *::after { box-sizing: border-box;}
+html { -webkit-text-size-adjust: 100%;}
+body { margin: 0; min-width: 320px; background: var(--surface); color: var(--fg); font-family: var(--font-body), "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 14px; line-height: var(--leading-body); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;}
+button, input, textarea { font: inherit; color: inherit;}
+button { padding: 0; border: 0; background: none; cursor: pointer;}
+svg { display: block;}
+p { margin: 0; text-wrap: pretty;}
+h1, h2, h3, h4 { margin: 0; text-wrap: balance;}
+::selection { background: color-mix(in oklab, var(--accent) 20%, transparent);}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px;}
+.ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;}
+.ico-sm { width: 14px; height: 14px;}
+.icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden;}
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;}
+::-webkit-scrollbar { width: 8px; height: 8px;}
+::-webkit-scrollbar-thumb { background: color-mix(in oklab, var(--meta) 36%, transparent); border-radius: 99px;}
+::-webkit-scrollbar-track { background: transparent;}
+.review-shell { min-height: 100vh; display: flex; flex-direction: column;}
+.review-top { position: relative; z-index: 40; height: 64px; flex: 0 0 64px; display: flex; align-items: center; gap: 24px; padding: 0 28px; border-bottom: 1px solid var(--border-soft); background: color-mix(in oklab, var(--bg) 88%, transparent); backdrop-filter: blur(20px) saturate(1.4);}
+.review-brand { min-width: 236px; display: flex; align-items: center; gap: 12px;}
+.brand-word { font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: -0.012em; white-space: nowrap;}
+.review-divider { width: 1px; height: 16px; background: var(--border);}
+.review-title { font-size: 11.5px; color: var(--muted); letter-spacing: 0.02em; white-space: nowrap;}
+.variant-tabs { margin-inline: auto; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface);}
+.variant-tab { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 12px 0 8px; border-radius: 9px; color: var(--muted); transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);}
+.variant-tab:hover { color: var(--fg); background: color-mix(in oklab, var(--fg) 5%, transparent);}
+.variant-tab.is-active { color: var(--bg); background: var(--fg);}
+.variant-tab.is-active:hover { color: var(--bg); background: var(--fg);}
+.tab-key { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: color-mix(in oklab, var(--fg) 7%, transparent); font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;}
+.variant-tab.is-active .tab-key { background: color-mix(in oklab, var(--bg) 16%, transparent);}
+.tab-label { font-size: 11.5px; font-weight: 500; white-space: nowrap;}
+.tab-note { color: var(--muted); font-size: 9.5px; white-space: nowrap;}
+.variant-tab.is-active .tab-note { color: var(--bg); opacity: 0.7;}
+.review-actions { min-width: 236px; display: flex; align-items: center; justify-content: flex-end; gap: 12px;}
+.review-count { font-family: var(--font-mono); font-size: 10px; color: var(--muted); letter-spacing: 0.04em; white-space: nowrap;}
+.notes-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--bg); color: var(--fg-2); font-size: 11.5px; transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);}
+.notes-btn:hover { background: var(--surface); border-color: var(--border); color: var(--fg);}
+.notes-btn[aria-expanded="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg);}
+.review-strip { height: 38px; flex: 0 0 38px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 28px; border-bottom: 1px solid var(--border-soft); background: var(--bg); font-size: 10.5px; color: var(--muted);}
+.review-strip p { display: flex; align-items: center; gap: 8px;}
+.strip-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--fg);}
+.strip-meta { font-family: var(--font-mono); font-size: 9.5px; color: var(--muted); letter-spacing: 0.03em; white-space: nowrap;}
+.review-stage { flex: 1; min-height: 0; padding: 18px 24px 24px; position: relative;}
+.app-window { width: 100%; max-width: 1520px; height: 100%; min-height: 620px; margin-inline: auto; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); box-shadow: 0 26px 80px color-mix(in oklab, var(--fg) 12%, transparent), 0 2px 8px color-mix(in oklab, var(--fg) 5%, transparent);}
+.app-titlebar { height: 46px; flex: 0 0 46px; display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid var(--border-soft); background: var(--surface-warm);}
+.traffic { display: flex; align-items: center; gap: 6px; width: 64px;}
+.traffic span { width: 10px; height: 10px; border-radius: 50%; background: var(--border);}
+.traffic span:nth-child(2) { background: color-mix(in oklab, var(--border) 72%, var(--bg));}
+.traffic span:nth-child(3) { background: color-mix(in oklab, var(--border) 88%, var(--bg));}
+.app-crumbs { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted); font-size: 10.5px;}
+.app-crumbs strong { color: var(--fg-2); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.app-crumbs .ico { width: 11px; height: 11px; color: var(--muted);}
+.app-title-actions { margin-left: auto; display: flex; align-items: center; gap: 6px;}
+.save-state { margin-right: 4px; display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); white-space: nowrap;}
+.save-state::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--meta);}
+.icon-btn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--radius-sm); color: var(--muted); transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);}
+.icon-btn:hover { background: color-mix(in oklab, var(--fg) 7%, transparent); color: var(--fg);}
+.share-btn { height: 28px; padding: 0 12px; border-radius: var(--radius-pill); background: var(--fg); color: var(--bg); font-size: 10.5px; font-weight: 500; transition: background var(--motion-fast) var(--ease-standard);}
+.share-btn:hover { background: color-mix(in oklab, var(--fg) 86%, var(--bg));}
+.app-body { flex: 1; min-height: 0; display: flex;}
+.sidebar { width: 220px; flex: 0 0 220px; min-height: 0; display: flex; flex-direction: column; padding: 12px 10px 10px; border-right: 1px solid var(--border-soft); background: var(--surface-warm);}
+.workspace-row { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 6px; border-radius: 8px; color: var(--fg);}
+.workspace-row:hover { background: color-mix(in oklab, var(--fg) 5%, transparent);}
+.workspace-avatar { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 7px; background: var(--fg); color: var(--bg); font-family: var(--font-display); font-size: 10px; font-weight: 600;}
+.workspace-copy { min-width: 0; flex: 1;}
+.workspace-copy strong { display: block; font-size: 11.5px; font-weight: 600; line-height: 1.25;}
+.workspace-copy small { display: block; margin-top: 1px; font-size: 9px; color: var(--muted); line-height: 1.2;}
+.workspace-row .ico { width: 12px; height: 12px; color: var(--muted);}
+.new-project { width: 100%; height: 34px; margin: 8px 0 12px; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; background: var(--fg); color: var(--bg); font-size: 11px; font-weight: 500; transition: background var(--motion-fast) var(--ease-standard);}
+.new-project:hover { background: color-mix(in oklab, var(--fg) 86%, var(--bg));}
+.new-project .ico { width: 13px; height: 13px;}
+.side-label { margin: 14px 8px 5px; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);}
+.side-nav { display: flex; flex-direction: column; gap: 1px;}
+.side-item { width: 100%; min-height: 31px; display: flex; align-items: center; gap: 9px; padding: 0 8px; border-radius: 7px; color: var(--muted); font-size: 11.5px; text-align: left; transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);}
+.side-item:hover { background: color-mix(in oklab, var(--fg) 5%, transparent); color: var(--fg);}
+.side-item.is-active { background: color-mix(in oklab, var(--fg) 6%, transparent); color: var(--fg); font-weight: 500;}
+.side-item .ico { width: 14px; height: 14px; color: var(--muted);}
+.side-item.is-active .ico { color: var(--fg-2);}
+.side-count { margin-left: auto; font-family: var(--font-mono); font-size: 8.5px; color: var(--muted);}
+.project-list { display: flex; flex-direction: column; gap: 1px;}
+.project-item { min-height: 31px; width: 100%; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 7px; color: var(--muted); font-size: 10.5px; text-align: left; transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);}
+.project-item:hover { background: color-mix(in oklab, var(--fg) 5%, transparent); color: var(--fg);}
+.project-item.is-current { color: var(--fg);}
+.project-dot { width: 6px; height: 6px; border-radius: 2px; background: var(--border); flex: 0 0 auto;}
+.project-item.is-current .project-dot { background: var(--fg);}
+.project-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.side-profile { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 10px 6px 2px; border-top: 1px solid var(--border-soft);}
+.profile-avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); color: var(--fg-2); font-size: 9px; font-weight: 600; border: 1px solid var(--border-soft);}
+.profile-copy { min-width: 0; flex: 1;}
+.profile-copy strong { display: block; font-size: 10.5px; font-weight: 500; line-height: 1.2;}
+.profile-copy small { display: block; font-size: 8.5px; color: var(--muted); margin-top: 1px;}
+.profile-more { color: var(--muted);}
+.conversation { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; background: var(--bg);}
+.conv-head { height: 59px; flex: 0 0 59px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 22px; border-bottom: 1px solid var(--border-soft);}
+.conv-head h1 { font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2;}
+.conv-head p { margin-top: 3px; font-size: 9.5px; color: var(--muted);}
+.conv-actions { display: flex; align-items: center; gap: 2px;}
+.thread { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 26px 12px; scroll-behavior: smooth;}
+.chat-date { text-align: center; font-size: 9px; color: var(--muted); margin: 2px 0 18px;}
+.msg + .msg { margin-top: 18px;}
+.msg-user { display: flex; flex-direction: column; align-items: flex-end;}
+.msg-meta { display: flex; align-items: center; gap: 6px; font-size: 9px; color: var(--muted); margin-bottom: 5px;}
+.msg-meta strong { font-weight: 500; color: var(--muted);}
+.user-bubble { max-width: 78%; padding: 10px 13px; border: 1px solid var(--border-soft); border-radius: 14px 14px 4px 14px; background: var(--surface); font-size: 12px; line-height: 1.55;}
+.msg-agent { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; align-items: start;}
+.agent-avatar { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; background: var(--fg); color: var(--bg); font-family: var(--font-display); font-size: 8px; font-weight: 600; letter-spacing: -0.02em;}
+.agent-copy { min-width: 0; font-size: 12px; line-height: 1.65; color: var(--fg-2);}
+.agent-copy p + p { margin-top: 6px;}
+.artifact-card { width: 100%; max-width: 424px; margin-top: 11px; display: flex; align-items: center; gap: 10px; padding: 7px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-warm); transition: border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);}
+.artifact-card:hover { border-color: var(--border); background: var(--bg);}
+.artifact-thumb { width: 88px; height: 58px; flex: 0 0 88px; padding: 9px 8px; border-radius: 8px; background: var(--fg); overflow: hidden; position: relative;}
+.thumb-word { display: block; color: var(--bg); font-size: 5px; letter-spacing: 0.06em; opacity: 0.66;}
+.thumb-line { display: block; height: 3px; border-radius: 2px; background: var(--bg); opacity: 0.9; margin-top: 10px;}
+.thumb-line.w70 { width: 70%;}
+.thumb-line.w46 { width: 46%; margin-top: 4px; opacity: 0.55;}
+.thumb-pill { display: block; width: 27px; height: 7px; margin-top: 8px; border-radius: 9px; background: var(--bg); opacity: 0.3;}
+.artifact-info { min-width: 0; flex: 1;}
+.artifact-info strong { display: block; font-family: var(--font-mono); font-size: 9.5px; font-weight: 500; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.artifact-info span { display: block; margin-top: 3px; font-size: 9px; color: var(--muted);}
+.artifact-open { width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 7px; color: var(--muted);}
+.artifact-open:hover { background: color-mix(in oklab, var(--fg) 7%, transparent); color: var(--fg);}
+.run-status { display: flex; align-items: center; gap: 6px; margin-top: 9px; font-size: 9.5px; color: var(--muted);}
+.run-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--meta); animation: pulse 1.8s var(--ease-standard) infinite;}
+@keyframes pulse { 0%, 100% { opacity: 0.35;}
+50% { opacity: 1;}
+}
+.composer-wrap { position: relative; z-index: 20; flex: 0 0 auto; padding: 8px 20px 14px; border-top: 1px solid var(--border-soft); background: var(--bg);}
+.variant-ui { display: none; position: relative;}
+.variant-ui.is-active { display: block; animation: variantIn var(--motion-base) var(--ease-standard) both;}
+@keyframes variantIn { from { opacity: 0; transform: translateY(4px);}
+to { opacity: 1; transform: translateY(0);}
+}
+.composer-box { position: relative; background: var(--bg); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 5px 18px color-mix(in oklab, var(--fg) 4%, transparent); transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);}
+.composer-box:focus-within { border-color: var(--muted); box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 9%, transparent), 0 6px 20px color-mix(in oklab, var(--fg) 5%, transparent);}
+.composer-input { display: block; width: 100%; min-height: 54px; max-height: 120px; padding: 13px 15px 4px; border: 0; outline: 0; resize: none; background: transparent; color: var(--fg); font-size: 12.5px; line-height: 1.55;}
+.composer-input::placeholder { color: var(--muted);}
+.composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 42px; padding: 3px 8px 7px 10px;}
+.foot-left, .foot-right { display: flex; align-items: center; gap: 3px;}
+.model-btn { height: 28px; display: flex; align-items: center; gap: 5px; padding: 0 7px; border-radius: 7px; color: var(--muted); font-size: 10px; transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);}
+.model-btn:hover { background: color-mix(in oklab, var(--fg) 6%, transparent); color: var(--fg);}
+.model-btn .ico { width: 11px; height: 11px; color: var(--muted);}
+.token-count { font-family: var(--font-mono); font-size: 8.5px; color: var(--muted); margin-right: 3px; white-space: nowrap;}
+.send-btn { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--accent-on); transition: background var(--motion-fast) var(--ease-standard), transform 100ms var(--ease-standard);}
+.send-btn:hover { background: var(--accent-hover);}
+.send-btn:active { background: var(--accent-active); transform: scale(0.95);}
+.send-btn .ico { width: 14px; height: 14px; stroke-width: 2;}
+.capbar-a { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 3px 6px;}
+.cap-selected { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px;}
+.cap-chip { height: 28px; display: inline-flex; align-items: center; gap: 5px; max-width: 190px; padding: 0 6px 0 8px; border: 1px solid transparent; border-radius: var(--radius-pill); background: color-mix(in oklab, var(--fg) 5%, var(--bg)); color: var(--fg-2); font-size: 10.5px; font-weight: 500; white-space: nowrap; transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard); animation: chipIn 180ms var(--ease-standard) both;}
+@keyframes chipIn { from { opacity: 0; transform: scale(0.96);}
+to { opacity: 1; transform: scale(1);}
+}
+.cap-chip:hover { background: color-mix(in oklab, var(--fg) 9%, var(--bg)); color: var(--fg);}
+.cap-chip .ico { width: 12px; height: 12px; color: var(--muted); flex: 0 0 auto;}
+.chip-name { overflow: hidden; text-overflow: ellipsis;}
+.chip-x { width: 14px; height: 14px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);}
+.cap-chip:hover .chip-x, .cap-chip:focus-visible .chip-x { opacity: 1;}
+.chip-x:hover { background: var(--fg); color: var(--bg);}
+.chip-x .ico { width: 8px; height: 8px; color: currentColor;}
+.cap-overflow { display: inline-flex; height: 26px; padding: 0 6px; align-items: center; border: 1px solid var(--border-soft); border-radius: var(--radius-pill); color: var(--muted); font-family: var(--font-mono); font-size: 8.5px; white-space: nowrap;}
+.cap-empty { padding-left: 4px; color: var(--muted); font-size: 10.5px;}
+.cap-add { flex: 0 0 auto; height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border-radius: 7px; color: var(--muted); font-size: 10.5px; transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);}
+.cap-add:hover { background: color-mix(in oklab, var(--fg) 6%, transparent); color: var(--fg);}
+.cap-add .ico { width: 12px; height: 12px;}
+.cap-add kbd, .ability-trigger kbd { font-family: var(--font-mono); font-size: 8px; color: var(--muted); border: 1px solid var(--border-soft); border-radius: 4px; background: var(--surface-warm); padding: 1px 4px; line-height: 1.2;}
+.cap-popover { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 60; width: 374px; max-height: min(418px, calc(100vh - 430px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: color-mix(in oklab, var(--bg) 96%, transparent); backdrop-filter: blur(24px) saturate(1.3); box-shadow: 0 22px 68px color-mix(in oklab, var(--fg) 18%, transparent), 0 2px 8px color-mix(in oklab, var(--fg) 6%, transparent); opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(7px) scale(0.985); transform-origin: bottom left; transition: opacity 180ms var(--ease-standard), transform 180ms var(--ease-standard), visibility 180ms;}
+.cap-popover.is-open { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1);}
+.pop-head { padding: 13px 13px 9px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;}
+.pop-head strong { font-family: var(--font-display); font-size: 14px; font-weight: 600; letter-spacing: -0.01em; display: block;}
+.pop-head span { display: block; margin-top: 2px; font-size: 9.5px; color: var(--muted);}
+.pop-close { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: var(--muted);}
+.pop-close:hover { background: var(--surface); color: var(--fg);}
+.pop-search { height: 31px; margin: 0 12px 8px; display: flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--surface-warm);}
+.pop-search:focus-within { border-color: var(--muted); background: var(--bg); box-shadow: var(--focus-ring);}
+.pop-search .ico { width: 13px; height: 13px; color: var(--muted); flex: 0 0 auto;}
+.pop-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 10.5px; color: var(--fg);}
+.pop-search input::placeholder { color: var(--muted);}
+.pop-tabs { display: flex; gap: 2px; padding: 0 12px 7px;}
+.pop-tab { height: 24px; padding: 0 8px; border-radius: 6px; color: var(--muted); font-size: 9.5px;}
+.pop-tab:hover { background: var(--surface); color: var(--fg);}
+.pop-tab.is-active { background: color-mix(in oklab, var(--fg) 7%, transparent); color: var(--fg); font-weight: 500;}
+.pop-list { overflow-y: auto; padding: 2px 6px 6px; min-height: 0;}
+.cap-row { width: 100%; min-height: 50px; display: flex; align-items: center; gap: 9px; padding: 6px 7px; border-radius: 9px; text-align: left; transition: background var(--motion-fast) var(--ease-standard);}
+.cap-row:hover, .cap-row.is-focused { background: var(--surface);}
+.cap-icon { width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--surface-warm); color: var(--fg-2);}
+.cap-icon .ico { width: 14px; height: 14px;}
+.cap-copy { flex: 1; min-width: 0;}
+.cap-copy strong { display: flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 500; color: var(--fg); line-height: 1.3;}
+.cap-copy small { display: block; margin-top: 2px; font-size: 9px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.cap-type { display: inline-flex; align-items: center; height: 14px; padding: 0 4px; border: 1px solid var(--border-soft); border-radius: 4px; font-family: var(--font-mono); font-size: 7.5px; font-weight: 400; color: var(--muted); letter-spacing: 0.02em;}
+.cap-state { width: 21px; height: 21px; flex: 0 0 21px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--border); color: var(--muted);}
+.cap-row.is-active .cap-state { background: var(--fg); border-color: var(--fg); color: var(--bg);}
+.cap-state .ico { width: 10px; height: 10px;}
+.pop-empty { padding: 29px 12px; text-align: center; color: var(--muted); font-size: 10px;}
+.pop-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 8.5px;}
+.pop-foot kbd { font-family: var(--font-mono); font-size: 8px;}
+.capdock { height: 56px; display: flex; align-items: center; gap: 8px; margin-bottom: 7px; padding: 0 8px 0 11px; border: 1px solid var(--border-soft); border-radius: 14px; background: var(--surface-warm);}
+.dock-label { height: 26px; display: flex; align-items: center; gap: 6px; padding-right: 10px; border-right: 1px solid var(--border); flex: 0 0 auto;}
+.dock-glyph { width: 16px; height: 16px; display: grid; place-items: center; border-radius: 5px; background: var(--fg); color: var(--bg);}
+.dock-glyph .ico { width: 9px; height: 9px;}
+.dock-label strong { font-size: 10.5px; font-weight: 600; white-space: nowrap;}
+.dock-count { font-family: var(--font-mono); font-size: 8px; color: var(--muted); padding: 1px 4px; border: 1px solid var(--border-soft); border-radius: var(--radius-pill); background: var(--bg); white-space: nowrap;}
+.dock-active { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px;}
+.dock-cap { position: relative; height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px 0 6px; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--bg); white-space: nowrap; animation: chipIn 180ms var(--ease-standard) both;}
+.dock-cap:hover { border-color: var(--border);}
+.dock-cap-icon { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 6px; background: var(--surface); color: var(--fg-2);}
+.dock-cap-icon .ico { width: 12px; height: 12px;}
+.dock-cap-copy { text-align: left;}
+.dock-cap-copy strong { display: block; font-size: 9.5px; font-weight: 500; line-height: 1.25;}
+.dock-cap-copy small { display: block; margin-top: 1px; font-size: 8px; color: var(--muted); line-height: 1.2;}
+.dock-cap-x { position: absolute; top: 3px; right: 3px; width: 13px; height: 13px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);}
+.dock-cap:hover .dock-cap-x, .dock-cap:focus-visible .dock-cap-x { opacity: 1;}
+.dock-cap-x:hover { background: var(--fg); color: var(--bg);}
+.dock-cap-x .ico { width: 7px; height: 7px;}
+.dock-overflow { display: inline-flex; color: var(--muted); font-family: var(--font-mono); font-size: 8px;}
+.dock-add { height: 30px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 7px; color: var(--muted); font-size: 9.5px;}
+.dock-add:hover { background: color-mix(in oklab, var(--fg) 6%, transparent); color: var(--fg);}
+.dock-add .ico { width: 11px; height: 11px;}
+.dock-toggle { height: 30px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 7px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--bg); color: var(--fg-2); font-size: 9.5px;}
+.dock-toggle:hover { border-color: var(--border); color: var(--fg);}
+.dock-toggle .ico { width: 10px; height: 10px; transition: transform var(--motion-base) var(--ease-standard);}
+.dock-toggle[aria-expanded="true"] .ico { transform: rotate(180deg);}
+.shelf { display: grid; grid-template-rows: 0fr; opacity: 0; margin-bottom: 0; transition: grid-template-rows 260ms var(--ease-standard), opacity 180ms var(--ease-standard), margin-bottom 260ms var(--ease-standard);}
+.shelf.is-open { grid-template-rows: 1fr; opacity: 1; margin-bottom: 7px;}
+.shelf-clip { min-height: 0; overflow: hidden;}
+.shelf-inner { padding: 12px; border: 1px solid var(--border-soft); border-radius: 14px; background: var(--bg); box-shadow: 0 14px 44px color-mix(in oklab, var(--fg) 8%, transparent); visibility: hidden; transition: visibility 0ms 260ms;}
+.shelf.is-open .shelf-inner { visibility: visible; transition-delay: 0ms;}
+.shelf-top { display: flex; align-items: center; gap: 10px; margin-bottom: 9px;}
+.shelf-title { flex: 1; min-width: 0;}
+.shelf-title strong { display: block; font-size: 10px; font-weight: 500; color: var(--fg-2);}
+.shelf-title span { display: block; font-size: 8.5px; color: var(--muted); margin-top: 1px;}
+.shelf-search { width: 168px; height: 27px; display: flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface-warm);}
+.shelf-search:focus-within { border-color: var(--muted); box-shadow: var(--focus-ring);}
+.shelf-search .ico { width: 11px; height: 11px; color: var(--muted);}
+.shelf-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 9.5px;}
+.shelf-search input::placeholder { color: var(--muted);}
+.shelf-manage { font-size: 8.5px; color: var(--muted); white-space: nowrap;}
+.shelf-manage:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 2px;}
+.shelf-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;}
+.shelf-card { min-height: 82px; display: flex; flex-direction: column; align-items: flex-start; padding: 8px; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--surface-warm); text-align: left; transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);}
+.shelf-card:hover { background: var(--bg); border-color: var(--border);}
+.shelf-card.is-active { background: var(--bg); border-color: var(--border);}
+.shelf-card-top { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 5px;}
+.shelf-card-icon { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; background: color-mix(in oklab, var(--fg) 5%, var(--bg)); color: var(--fg-2);}
+.shelf-card-icon .ico { width: 11px; height: 11px;}
+.shelf-check { width: 15px; height: 15px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--muted);}
+.shelf-check .ico { width: 8px; height: 8px;}
+.shelf-card.is-active .shelf-check { background: var(--fg); border-color: var(--fg); color: var(--bg);}
+.shelf-card strong { display: block; width: 100%; margin-top: 6px; font-size: 9.5px; font-weight: 500; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.shelf-card small { display: block; width: 100%; margin-top: 2px; font-size: 8px; line-height: 1.35; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.shelf-empty { grid-column: 1 / -1; padding: 20px; text-align: center; font-size: 9.5px; color: var(--muted);}
+.prompt-line { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 5px; padding: 11px 13px 2px; min-height: 59px;}
+.mentions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 2px;}
+.mention { display: inline-flex; align-items: center; gap: 3px; height: 23px; padding: 0 3px 0 7px; border: 1px solid var(--border-soft); border-radius: 6px; background: color-mix(in oklab, var(--fg) 5%, var(--surface-warm)); color: var(--fg-2); font-size: 9.5px; white-space: nowrap;}
+.mention-x { width: 14px; height: 14px; display: grid; place-items: center; border-radius: 4px; color: var(--muted);}
+.mention-x:hover { background: var(--fg); color: var(--bg);}
+.mention-x .ico { width: 7px; height: 7px;}
+.mention-overflow { display: inline-flex; align-items: center; height: 23px; padding: 0 6px; border: 1px solid var(--border-soft); border-radius: 6px; color: var(--muted); font-family: var(--font-mono); font-size: 8px; white-space: nowrap;}
+.prompt-editor { flex: 1; min-width: 140px; min-height: 47px; padding: 4px 2px 3px; outline: 0; color: var(--fg); font-size: 12.5px; line-height: 1.55;}
+.prompt-editor:empty::before { content: attr(data-placeholder); color: var(--muted);}
+.ability-trigger { height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border-radius: 7px; color: var(--muted); font-size: 10px;}
+.ability-trigger:hover { background: color-mix(in oklab, var(--fg) 6%, transparent); color: var(--fg);}
+.ability-trigger .ico { width: 12px; height: 12px;}
+.ability-trigger kbd { margin-left: 1px;}
+.command-layer { position: absolute; inset: 0; z-index: 70; display: flex; align-items: flex-end; justify-content: center; padding: 20px 22px 116px; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 180ms var(--ease-standard), visibility 180ms;}
+.command-layer.is-open { opacity: 1; visibility: visible; pointer-events: auto;}
+.command-scrim { position: absolute; inset: 0; background: color-mix(in oklab, var(--fg) 14%, transparent); backdrop-filter: blur(3px);}
+.command-palette { position: relative; width: min(590px, 100%); max-height: 432px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 17px; background: color-mix(in oklab, var(--bg) 96%, transparent); backdrop-filter: blur(26px) saturate(1.3); box-shadow: 0 30px 90px color-mix(in oklab, var(--fg) 24%, transparent), 0 2px 10px color-mix(in oklab, var(--fg) 8%, transparent); transform: translateY(9px) scale(0.992); transition: transform 200ms var(--ease-standard);}
+.command-layer.is-open .command-palette { transform: translateY(0) scale(1);}
+.cmd-head { display: flex; align-items: center; gap: 9px; padding: 12px 13px; border-bottom: 1px solid var(--border-soft);}
+.cmd-head .ico { width: 15px; height: 15px; color: var(--muted); flex: 0 0 auto;}
+.cmd-head input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font-size: 12px;}
+.cmd-head input::placeholder { color: var(--muted);}
+.cmd-head kbd { font-family: var(--font-mono); font-size: 8px; color: var(--muted); border: 1px solid var(--border-soft); border-radius: 4px; padding: 2px 5px; background: var(--surface-warm);}
+.cmd-body { min-height: 0; overflow-y: auto; padding: 7px;}
+.cmd-section { margin: 8px 8px 4px; color: var(--muted); font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.09em; text-transform: uppercase;}
+.cmd-section:first-child { margin-top: 2px;}
+.cmd-item { width: 100%; min-height: 47px; display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 9px; text-align: left; transition: background var(--motion-fast) var(--ease-standard);}
+.cmd-item:hover, .cmd-item.is-focused { background: var(--surface);}
+.cmd-item .cap-state { margin-left: 2px;}
+.cmd-shortcut { margin-left: 3px; font-family: var(--font-mono); font-size: 7.5px; color: var(--muted); border: 1px solid var(--border-soft); border-radius: 4px; padding: 1px 4px; white-space: nowrap;}
+.cmd-foot { display: flex; align-items: center; gap: 13px; padding: 8px 13px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 8px;}
+.cmd-foot span { display: flex; align-items: center; gap: 4px;}
+.cmd-foot kbd { font-family: var(--font-mono); color: var(--muted);}
+.preview-pane { width: 382px; flex: 0 0 382px; min-width: 300px; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border-soft); background: var(--surface);}
+.preview-head { height: 52px; flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--border-soft); background: var(--surface);}
+.preview-title { display: flex; align-items: center; gap: 7px; min-width: 0;}
+.preview-title strong { font-size: 10.5px; font-weight: 500; color: var(--fg-2); white-space: nowrap;}
+.preview-title span { font-family: var(--font-mono); font-size: 8px; color: var(--muted); white-space: nowrap;}
+.device-switch { display: flex; align-items: center; gap: 1px; padding: 2px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--bg);}
+.device-btn { width: 24px; height: 22px; display: grid; place-items: center; border-radius: 5px; color: var(--muted);}
+.device-btn:hover { color: var(--fg); background: var(--surface);}
+.device-btn.is-active { background: var(--fg); color: var(--bg);}
+.device-btn .ico { width: 11px; height: 11px;}
+.preview-stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 18px; overflow: hidden;}
+.artboard { width: min(100%, 326px); max-height: 100%; aspect-ratio: 4 / 5; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); box-shadow: 0 12px 32px color-mix(in oklab, var(--fg) 9%, transparent); transition: box-shadow 250ms var(--ease-standard), transform 250ms var(--ease-standard);}
+.artboard.is-flashing { box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 28%, transparent), 0 18px 40px color-mix(in oklab, var(--fg) 12%, transparent); transform: translateY(-1px);}
+.artboard.is-mobile { width: min(72%, 186px); aspect-ratio: 9 / 18.5;}
+.artboard.is-mobile .art-hero { padding: 14px 12px;}
+.artboard.is-mobile .art-nav span:last-child { display: none;}
+.artboard.is-mobile .art-kicker { margin-top: 31px;}
+.artboard.is-mobile .art-title { font-size: 19px;}
+.artboard.is-mobile .art-sub { max-width: 130px; font-size: 5.5px;}
+.artboard.is-mobile .art-body { display: none;}
+.art-page { height: 100%; display: flex; flex-direction: column; background: var(--bg);}
+.art-hero { flex: 1; min-height: 0; padding: 17px 16px 15px; background: var(--fg); color: var(--bg);}
+.art-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 5.5px; letter-spacing: 0.01em; opacity: 0.62;}
+.art-wordmark { font-family: var(--font-display); font-size: 7px; font-weight: 600; letter-spacing: -0.01em; opacity: 1;}
+.art-kicker { margin-top: 29px; font-family: var(--font-mono); font-size: 5px; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.48;}
+.art-title { margin-top: 5px; font-family: var(--font-display); font-size: clamp(24px, 2.2vw, 29px); font-weight: 600; line-height: 1.04; letter-spacing: -0.025em;}
+.art-sub { margin-top: 7px; max-width: 190px; font-size: 6.5px; line-height: 1.55; opacity: 0.62;}
+.art-cta { display: inline-flex; align-items: center; height: 17px; margin-top: 11px; padding: 0 9px; border-radius: 99px; background: var(--accent); color: var(--accent-on); font-size: 5.5px;}
+.art-body { flex: 0 0 37%; padding: 13px 14px; background: var(--surface-warm);}
+.art-section-kicker { font-family: var(--font-mono); font-size: 4.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);}
+.art-section-title { margin-top: 4px; font-family: var(--font-display); font-size: 10px; font-weight: 600; line-height: 1.15; letter-spacing: -0.01em; color: var(--fg);}
+.art-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 9px;}
+.art-card { min-height: 47px; padding: 7px 6px; border: 1px solid var(--border-soft); border-radius: 4px; background: var(--bg);}
+.art-card-num { display: block; font-family: var(--font-mono); font-size: 4.5px; color: var(--muted);}
+.art-card strong { display: block; margin-top: 7px; font-family: var(--font-display); font-size: 7px; font-weight: 600; color: var(--fg);}
+.art-card span { display: block; margin-top: 1px; font-size: 4.5px; line-height: 1.4; color: var(--muted);}
+.preview-foot { height: 31px; flex: 0 0 31px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 14px; border-top: 1px solid var(--border-soft); color: var(--muted); font-family: var(--font-mono); font-size: 7.5px; background: var(--surface);}
+.preview-foot .sync { display: flex; align-items: center; gap: 5px;}
+.preview-foot .sync::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--meta);}
+.notes-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 90; width: min(404px, 100vw); display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--bg); box-shadow: -24px 0 80px color-mix(in oklab, var(--fg) 12%, transparent); transform: translateX(104%); visibility: hidden; transition: transform 260ms var(--ease-standard), visibility 260ms; overflow-wrap: anywhere;}
+.notes-panel.is-open { transform: translateX(0); visibility: visible;}
+.notes-top { height: 64px; flex: 0 0 64px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0 18px 0 24px; border-bottom: 1px solid var(--border-soft);}
+.notes-top span { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.1em; color: var(--muted);}
+.notes-close { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; color: var(--muted);}
+.notes-close:hover { background: var(--surface); color: var(--fg);}
+.notes-scroll { overflow-y: auto; padding: 24px 24px 34px;}
+.notes-kicker { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);}
+.notes-title { margin-top: 10px; font-family: var(--font-display); font-size: 27px; font-weight: 600; line-height: 1.12; letter-spacing: -0.02em; color: var(--fg);}
+.notes-lead { margin-top: 12px; font-size: 12px; line-height: 1.65; color: var(--muted);}
+.note-block { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--border-soft);}
+.note-block h3 { font-family: var(--font-display); font-size: 13px; font-weight: 600; letter-spacing: -0.01em;}
+.issue-list { list-style: none; padding: 0; margin: 10px 0 0;}
+.issue-list li { display: grid; grid-template-columns: 23px 1fr; gap: 8px; padding: 9px 0; border-top: 1px solid var(--border-soft);}
+.issue-list li:first-child { border-top: 0;}
+.issue-num { font-family: var(--font-mono); font-size: 8px; color: var(--muted); padding-top: 2px;}
+.issue-list strong { display: block; font-size: 11.5px; font-weight: 500; color: var(--fg);}
+.issue-list p { margin-top: 2px; font-size: 11px; line-height: 1.6; color: var(--muted);}
+.spec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin-top: 10px; border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden; background: var(--border-soft);}
+.spec-cell { padding: 9px 10px; background: var(--bg);}
+.spec-cell span { display: block; font-family: var(--font-mono); font-size: 7.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);}
+.spec-cell strong { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 500; color: var(--fg);}
+.variant-note-kicker { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 8px; color: var(--muted); letter-spacing: 0.04em;}
+.variant-note-kicker::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--fg);}
+.variant-note-title { margin-top: 8px; font-family: var(--font-display); font-size: 17px; font-weight: 600; line-height: 1.25; letter-spacing: -0.012em;}
+.variant-note-body { margin-top: 7px; font-size: 11.5px; line-height: 1.65; color: var(--muted);}
+.tradeoff { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;}
+.tradeoff div { padding: 8px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--surface-warm);}
+.tradeoff span { display: block; font-family: var(--font-mono); font-size: 7.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;}
+.tradeoff p { margin-top: 3px; font-size: 10.5px; line-height: 1.5; color: var(--fg-2);}
+.recommend { margin-top: 24px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface);}
+.recommend-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; background: var(--fg); color: var(--bg); font-family: var(--font-mono); font-size: 7.5px; letter-spacing: 0.05em; text-transform: uppercase;}
+.recommend p { margin-top: 8px; font-size: 11px; line-height: 1.6; color: var(--fg-2);}
+.notes-foot { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--border-soft); font-family: var(--font-mono); font-size: 8px; color: var(--muted); display: flex; justify-content: space-between; gap: 10px;}
+.toast { position: fixed; left: 50%; bottom: 25px; z-index: 120; transform: translate(-50%, 10px); display: flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: var(--radius-pill); background: var(--fg); color: var(--bg); font-size: 10px; box-shadow: 0 10px 34px color-mix(in oklab, var(--fg) 24%, transparent); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 160ms var(--ease-standard), transform 160ms var(--ease-standard), visibility 160ms;}
+.toast.is-visible { opacity: 1; visibility: visible; transform: translate(-50%, 0);}
+.toast .ico { width: 11px; height: 11px;}
+@media (max-width: 1240px) { .preview-pane { width: 340px; flex-basis: 340px;}
+.review-brand, .review-actions { min-width: 196px;}
+.review-title { display: none;}
+.review-divider { display: none;}
+}
+@media (max-width: 1060px) { .preview-pane { display: none;}
+.sidebar { width: 204px; flex-basis: 204px;}
+.review-brand, .review-actions { min-width: 178px;}
+.review-count { display: none;}
+}
+@media (max-width: 860px) { .sidebar { display: none;}
+.review-top { gap: 14px; padding-inline: 18px;}
+.review-brand { min-width: 0;}
+.review-actions { min-width: 0;}
+.variant-tabs { margin-inline: auto;}
+.thread { padding-inline: 20px;}
+.composer-wrap { padding-inline: 14px;}
+.command-layer { padding-inline: 14px;}
+}
+@media (max-width: 720px) { .review-top { height: auto; min-height: 62px; flex-wrap: wrap; padding: 10px 14px; gap: 8px 12px;}
+.review-brand { order: 1;}
+.review-actions { order: 2; margin-left: auto;}
+.variant-tabs { order: 3; width: 100%; margin: 0; justify-content: stretch;}
+.variant-tab { flex: 1; justify-content: center; padding-inline: 7px;}
+.tab-note { display: none;}
+.review-strip { display: none;}
+.review-stage { padding: 8px;}
+.app-window { min-height: 0; height: calc(100vh - 118px); border-radius: 11px;}
+.app-titlebar { height: 42px; flex-basis: 42px;}
+.traffic { width: 50px;}
+.save-state { display: none;}
+.conv-head { height: 53px; flex-basis: 53px; padding-inline: 16px;}
+.thread { padding: 16px 16px 10px;}
+.composer-wrap { padding: 7px 10px 10px;}
+.msg-user .user-bubble { max-width: 88%;}
+.artifact-card { max-width: 100%;}
+.cap-popover { left: 0; right: 0; width: auto; max-height: min(390px, calc(100vh - 350px));}
+.command-layer { padding: 10px 10px 100px;}
+.command-palette { max-height: min(420px, calc(100vh - 330px));}
+.notes-panel { width: 100vw;}
+}
+@media (max-width: 540px) { .review-top { padding-inline: 11px;}
+.review-brand { gap: 7px;}
+.brand-word { font-size: 13px;}
+.review-title { display: none;}
+.variant-tab { min-height: 32px; gap: 5px;}
+.tab-label { font-size: 10.5px;}
+.notes-btn { height: 31px; padding-inline: 8px; font-size: 10.5px;}
+.app-titlebar { padding-inline: 9px;}
+.app-crumbs span:first-of-type { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.conv-head h1 { font-size: 14px;}
+.cap-add kbd, .ability-trigger kbd { display: none;}
+.dock-label { padding-right: 7px; border-right: 0;}
+.dock-active { display: none;}
+.dock-toggle span { display: inline;}
+.shelf-top { flex-wrap: wrap;}
+.shelf-search { width: 100%; order: 3;}
+.shelf-grid { grid-template-columns: repeat(2, minmax(0, 1fr));}
+.shelf-card { min-height: 78px;}
+.shelf { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 60; display: block; max-height: min(405px, calc(100vh - 350px)); margin: 0; overflow-y: auto; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 180ms var(--ease-standard), visibility 180ms;}
+.shelf.is-open { opacity: 1; visibility: visible; pointer-events: auto; margin: 0;}
+.shelf-clip { overflow: visible;}
+.shelf-inner { visibility: visible; box-shadow: 0 20px 60px color-mix(in oklab, var(--fg) 16%, transparent);}
+.token-count { display: none;}
+.prompt-line { padding-inline: 10px;}
+}
+@media (max-width: 380px) { .cap-chip { max-width: 124px;}
+.cap-add { padding-inline: 4px;}
+.dock-add { padding-inline: 4px;}
+}
+@media (pointer: coarse) { .icon-btn, .send-btn, .model-btn, .ability-trigger, .cap-add, .dock-add, .dock-toggle, .notes-btn, .artifact-open { min-height: 44px;}
+.icon-btn, .send-btn, .artifact-open { min-width: 44px;}
+.capbar-a { height: 52px;}
+.cap-chip { height: 44px;}
+.dock-cap { height: 44px;}
+.pop-tab { min-height: 44px;}
+.mention { height: 34px;}
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important;}
+}
+    </style>
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6Z"/><path d="M14 3v5h5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0Z"/><path d="M12 17v4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m10 7 5 5-5 5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 13v6h14v-6"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m20 11-8.5 8.5a5 5 0 0 1-7-7L14 3a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L16 5"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></symbol>
+    <symbol id="i-swatch" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><rect x="13.5" y="3.5" width="7" height="7" rx="1"/><rect x="3.5" y="13.5" width="7" height="7" rx="1"/><circle cx="17" cy="17" r="3.5"/></symbol>
+    <symbol id="i-slides" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="8" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="3" y="15" width="7" height="6" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/></symbol>
+    <symbol id="i-figma" viewBox="0 0 24 24"><path d="m12 19 7-7-3-3-7 7-1 4Z"/><path d="M15 9V5l4 4h-4Z"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 15-5-5L5 20"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5H5V6h5"/></symbol>
+    <symbol id="i-desktop" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M9 20h6M12 16v4"/></symbol>
+    <symbol id="i-mobile" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h3V6ZM15 6a3 3 0 1 1 3 3h-3V6ZM9 18a3 3 0 1 1-3-3h3v3ZM15 18a3 3 0 1 0 3-3h-3v3Z"/><path d="M9 9h6v6H9z"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  </svg>
+
+  <div class="review-shell">
+    <header class="review-top" data-od-id="review-header">
+      <div class="review-brand">
+        <span class="brand-word">Open Design</span>
+        <span class="review-divider" aria-hidden="true"></span>
+        <span class="review-title">能力栏 · A 方案定稿</span>
+      </div>
+      <div class="variant-tabs" role="tablist" aria-label="能力栏方案">
+        <button class="variant-tab is-active" role="tab" id="tab-a" aria-selected="true" aria-controls="uiA" data-variant="a" data-od-id="variant-tab-a">
+          <span class="tab-key">A</span><span class="tab-label">行内胶囊</span><span class="tab-note">已定稿</span>
+        </button>
+        <button class="variant-tab" role="tab" id="tab-b" aria-selected="false" aria-controls="uiB" data-variant="b" data-od-id="variant-tab-b">
+          <span class="tab-key">B</span><span class="tab-label">能力坞</span><span class="tab-note">参考</span>
+        </button>
+        <button class="variant-tab" role="tab" id="tab-c" aria-selected="false" aria-controls="uiC" data-variant="c" data-od-id="variant-tab-c">
+          <span class="tab-key">C</span><span class="tab-label">指令面板</span><span class="tab-note">参考</span>
+        </button>
+      </div>
+      <div class="review-actions">
+        <span class="review-count">A 已定稿 · 1440</span>
+        <button class="notes-btn" id="notesToggle" aria-expanded="false" aria-controls="notesPanel" data-od-id="notes-toggle">
+          定稿说明
+          <svg class="ico ico-sm"><use href="#i-chevron-right"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="review-strip">
+      <p><span class="strip-dot" aria-hidden="true"></span>能力不是功能按钮，而是本次任务的上下文。</p>
+      <span class="strip-meta">A 定稿 · 40px 单行 · 28px 胶囊</span>
+    </div>
+
+    <main class="review-stage" data-od-id="review-stage">
+      <div class="app-window" data-od-id="app-window">
+        <div class="app-titlebar" data-od-id="app-titlebar">
+          <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="app-crumbs">
+            <strong>品牌官网改版</strong>
+            <svg class="ico"><use href="#i-chevron-right"/></svg>
+            <span>工作台</span>
+          </div>
+          <div class="app-title-actions">
+            <span class="save-state">已自动保存</span>
+            <button class="icon-btn" aria-label="搜索工作台"><svg class="ico"><use href="#i-search"/></svg></button>
+            <button class="icon-btn" aria-label="更多操作"><svg class="ico"><use href="#i-dots"/></svg></button>
+            <button class="share-btn">分享</button>
+          </div>
+        </div>
+
+        <div class="app-body">
+          <aside class="sidebar" data-od-id="sidebar">
+            <button class="workspace-row" data-od-id="workspace-switcher">
+              <span class="workspace-avatar">O</span>
+              <span class="workspace-copy"><strong>我的工作台</strong><small>个人空间</small></span>
+              <svg class="ico"><use href="#i-chevron"/></svg>
+            </button>
+            <button class="new-project"><svg class="ico"><use href="#i-plus"/></svg>新建设计</button>
+
+            <nav class="side-nav" aria-label="工作台导航">
+              <button class="side-item is-active"><svg class="ico"><use href="#i-home"/></svg>工作台</button>
+              <button class="side-item"><svg class="ico"><use href="#i-file"/></svg>设计文件</button>
+              <button class="side-item"><svg class="ico"><use href="#i-clock"/></svg>历史会话</button>
+            </nav>
+
+            <p class="side-label">能力</p>
+            <nav class="side-nav" aria-label="能力导航">
+              <button class="side-item" id="sideSkills"><svg class="ico"><use href="#i-spark"/></svg>技能库</button>
+              <button class="side-item"><svg class="ico"><use href="#i-plug"/></svg>插件</button>
+            </nav>
+
+            <p class="side-label">最近项目</p>
+            <div class="project-list">
+              <button class="project-item is-current"><span class="project-dot"></span><span>品牌官网改版</span></button>
+              <button class="project-item"><span class="project-dot"></span><span>移动端结账流</span></button>
+              <button class="project-item"><span class="project-dot"></span><span>夏季发布页</span></button>
+            </div>
+
+            <div class="side-profile">
+              <span class="profile-avatar">林</span>
+              <span class="profile-copy"><strong>林默</strong><small>设计负责人</small></span>
+              <svg class="ico profile-more"><use href="#i-dots"/></svg>
+            </div>
+          </aside>
+
+          <section class="conversation" data-od-id="conversation">
+            <header class="conv-head">
+              <div>
+                <h1 data-od-id="conversation-heading">品牌官网改版</h1>
+                <p>本地项目 · 刚刚更新</p>
+              </div>
+              <div class="conv-actions">
+                <button class="icon-btn" aria-label="搜索会话"><svg class="ico"><use href="#i-search"/></svg></button>
+                <button class="icon-btn" aria-label="会话更多操作"><svg class="ico"><use href="#i-dots"/></svg></button>
+              </div>
+            </header>
+
+            <div class="thread" id="thread">
+              <p class="chat-date">今天 14:32</p>
+              <div class="msg msg-user">
+                <div class="msg-meta"><strong>你</strong><span>14:32</span></div>
+                <div class="user-bubble">把首页再收一版。要更克制，黑场开场，只用一种蓝。</div>
+              </div>
+
+              <div class="msg msg-agent">
+                <div class="agent-avatar">OD</div>
+                <div class="agent-copy">
+                  <div class="msg-meta"><strong>Open Design</strong><span>14:33</span></div>
+                  <p>这一版把导航压到 44px，首屏只保留品牌名、主张和一个入口。右侧是当前稿。</p>
+                  <p>能力栏继续挂着「网页原型」和「Apple 设计系统」，后面两轮不会丢上下文。</p>
+                  <div class="artifact-card" data-od-id="artifact-brand-home">
+                    <div class="artifact-thumb" aria-hidden="true">
+                      <span class="thumb-word">OPEN DESIGN</span>
+                      <span class="thumb-line w70"></span>
+                      <span class="thumb-line w46"></span>
+                      <span class="thumb-pill"></span>
+                    </div>
+                    <div class="artifact-info">
+                      <strong>brand-home-v4.html</strong>
+                      <span>HTML · 刚刚更新</span>
+                    </div>
+                    <button class="artifact-open" id="openArtifact" aria-label="在画布中打开 brand-home-v4.html">
+                      <svg class="ico"><use href="#i-external"/></svg>
+                    </button>
+                  </div>
+                  <div class="run-status"><span class="run-dot" aria-hidden="true"></span>正在复核移动端断点</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="composer-wrap" data-od-id="composer">
+              <!-- A · 行内胶囊 -->
+              <div class="variant-ui is-active" data-variant="a" id="uiA" role="tabpanel" aria-labelledby="tab-a">
+                <div class="capbar-a" data-od-id="capbar-a">
+                  <div class="cap-selected" id="selectedA" role="group" aria-label="已选能力"></div>
+                  <button class="cap-add" id="openA" aria-haspopup="dialog" aria-expanded="false" aria-controls="popoverA" aria-label="添加或管理能力" data-od-id="capbar-a-trigger">
+                    <svg class="ico"><use href="#i-plus"/></svg>能力<kbd>⌘K</kbd>
+                  </button>
+                </div>
+                <div class="composer-box">
+                  <textarea class="composer-input" rows="2" aria-label="继续描述你的设计需求">把首屏标题再收短，保留黑场和那一处蓝色。</textarea>
+                  <div class="composer-foot">
+                    <div class="foot-left">
+                      <button class="icon-btn" aria-label="添加附件"><svg class="ico"><use href="#i-paperclip"/></svg></button>
+                      <button class="model-btn">OD Agent <svg class="ico"><use href="#i-chevron"/></svg></button>
+                    </div>
+                    <div class="foot-right">
+                      <span class="token-count">Ctrl ↵</span>
+                      <button class="send-btn" id="sendA" aria-label="发送"><svg class="ico"><use href="#i-arrow-up"/></svg></button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="cap-popover" id="popoverA" role="dialog" aria-modal="false" aria-labelledby="popoverATitle" aria-hidden="true">
+                  <div class="pop-head">
+                    <div><strong id="popoverATitle">添加能力</strong><span>技能决定方法，插件提供工具。</span></div>
+                    <button class="pop-close" id="closeA" aria-label="关闭能力面板"><svg class="ico"><use href="#i-close"/></svg></button>
+                  </div>
+                  <label class="pop-search">
+                    <svg class="ico"><use href="#i-search"/></svg>
+                    <input id="searchA" type="search" placeholder="搜索技能或插件" autocomplete="off" aria-label="搜索技能或插件" />
+                  </label>
+                  <div class="pop-tabs" role="tablist" aria-label="筛选能力类型">
+                    <button class="pop-tab is-active" role="tab" aria-selected="true" aria-controls="listA" data-filter="all">全部</button>
+                    <button class="pop-tab" role="tab" aria-selected="false" aria-controls="listA" data-filter="技能">技能</button>
+                    <button class="pop-tab" role="tab" aria-selected="false" aria-controls="listA" data-filter="插件">插件</button>
+                  </div>
+                  <div class="pop-list" id="listA"></div>
+                  <div class="pop-foot"><span>点击即可添加或移除</span><span><kbd>↑↓</kbd> 浏览 · <kbd>Esc</kbd> 关闭</span></div>
+                </div>
+              </div>
+
+              <!-- B · 能力坞 -->
+              <div class="variant-ui" data-variant="b" id="uiB" role="tabpanel" aria-labelledby="tab-b">
+                <div class="shelf" id="shelfB">
+                  <div class="shelf-clip">
+                    <div class="shelf-inner">
+                      <div class="shelf-top">
+                        <div class="shelf-title"><strong>能力坞</strong><span>把这次任务常用的能力放在手边</span></div>
+                        <label class="shelf-search">
+                          <svg class="ico"><use href="#i-search"/></svg>
+                          <input id="searchB" type="search" placeholder="搜索能力" autocomplete="off" aria-label="搜索能力" />
+                        </label>
+                      </div>
+                      <div class="shelf-grid" id="gridB"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="capdock" data-od-id="capbar-b">
+                  <div class="dock-label">
+                    <span class="dock-glyph"><svg class="ico"><use href="#i-spark"/></svg></span>
+                    <strong>能力坞</strong>
+                    <span class="dock-count" id="dockCountB">2 项</span>
+                  </div>
+                  <div class="dock-active" id="selectedB"></div>
+                  <button class="dock-toggle" id="toggleB" aria-expanded="false" aria-controls="shelfB" data-od-id="capbar-b-manage">
+                    <span>管理</span><svg class="ico"><use href="#i-chevron"/></svg>
+                  </button>
+                </div>
+
+                <div class="composer-box">
+                  <textarea class="composer-input" rows="2" aria-label="继续描述你的设计需求">把首屏标题再收短，保留黑场和那一处蓝色。</textarea>
+                  <div class="composer-foot">
+                    <div class="foot-left">
+                      <button class="icon-btn" aria-label="添加附件"><svg class="ico"><use href="#i-paperclip"/></svg></button>
+                      <button class="model-btn">OD Agent <svg class="ico"><use href="#i-chevron"/></svg></button>
+                    </div>
+                    <div class="foot-right">
+                      <span class="token-count">Ctrl ↵</span>
+                      <button class="send-btn" id="sendB" aria-label="发送"><svg class="ico"><use href="#i-arrow-up"/></svg></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- C · 指令面板 -->
+              <div class="variant-ui" data-variant="c" id="uiC" role="tabpanel" aria-labelledby="tab-c">
+                <div class="composer-box" data-od-id="capbar-c">
+                  <div class="prompt-line">
+                    <div class="mentions" id="mentionsC"></div>
+                    <div class="prompt-editor" id="promptC" contenteditable="true" role="textbox" aria-multiline="true" aria-label="设计需求" data-placeholder="描述你想做的设计，或输入 / 调用能力">把首屏标题再收短，保留黑场和那一处蓝色。</div>
+                  </div>
+                  <div class="composer-foot">
+                    <div class="foot-left">
+                      <button class="ability-trigger" id="openC" aria-haspopup="dialog" aria-expanded="false" aria-controls="commandLayer" data-od-id="capbar-c-trigger">
+                        <svg class="ico"><use href="#i-spark"/></svg>能力<kbd>⌘K</kbd>
+                      </button>
+                      <button class="model-btn">OD Agent <svg class="ico"><use href="#i-chevron"/></svg></button>
+                    </div>
+                    <div class="foot-right">
+                      <span class="token-count">Ctrl ↵</span>
+                      <button class="send-btn" id="sendC" aria-label="发送"><svg class="ico"><use href="#i-arrow-up"/></svg></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="command-layer" id="commandLayer" aria-hidden="true">
+              <div class="command-scrim" id="cmdScrim"></div>
+              <div class="command-palette" role="dialog" aria-modal="true" aria-label="能力指令面板">
+                <div class="cmd-head">
+                  <svg class="ico"><use href="#i-search"/></svg>
+                  <input id="cmdSearch" type="search" placeholder="搜索技能、插件或能力" autocomplete="off" aria-label="搜索能力" />
+                  <kbd>ESC</kbd>
+                </div>
+                <div class="cmd-body" id="cmdBody">
+                  <p class="cmd-section">最近使用</p>
+                  <div id="cmdRecent"></div>
+                  <p class="cmd-section">全部能力</p>
+                  <div id="cmdAll"></div>
+                </div>
+                <div class="cmd-foot">
+                  <span><kbd>↑↓</kbd> 选择</span>
+                  <span><kbd>↵</kbd> 应用</span>
+                  <span><kbd>Esc</kbd> 关闭</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside class="preview-pane" data-od-id="preview-pane">
+            <div class="preview-head">
+              <div class="preview-title"><strong>预览</strong><span>brand-home-v4</span></div>
+              <div class="device-switch" role="group" aria-label="预览设备">
+                <button class="device-btn is-active" aria-label="桌面预览" aria-pressed="true"><svg class="ico"><use href="#i-desktop"/></svg></button>
+                <button class="device-btn" aria-label="移动预览" aria-pressed="false"><svg class="ico"><use href="#i-mobile"/></svg></button>
+              </div>
+            </div>
+            <div class="preview-stage">
+              <div class="artboard" id="artboard" role="img" aria-label="品牌官网桌面端预览：黑场首屏、单一口号与三项能力说明">
+                <div class="art-page">
+                  <div class="art-hero">
+                    <div class="art-nav"><span class="art-wordmark">Open Design</span><span>技能　插件　设计系统</span></div>
+                    <p class="art-kicker">一站式设计工作台</p>
+                    <div class="art-title">设计，<br>从一句话开始。</div>
+                    <p class="art-sub">把概念、打磨与交付收进同一个窗口，状态跟着想法走。</p>
+                    <span class="art-cta">开始创作</span>
+                  </div>
+                  <div class="art-body">
+                    <p class="art-section-kicker">能力，随取随用</p>
+                    <p class="art-section-title">一套安静、可组合的创作系统。</p>
+                    <div class="art-grid">
+                      <div class="art-card"><span class="art-card-num">01</span><strong>技能</strong><span>把方法变成工作流</span></div>
+                      <div class="art-card"><span class="art-card-num">02</span><strong>插件</strong><span>把工具接进现场</span></div>
+                      <div class="art-card"><span class="art-card-num">03</span><strong>系统</strong><span>让品牌保持一致</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="preview-foot"><span>1440 × 900 · 100%</span><span class="sync">已同步</span></div>
+          </aside>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <aside class="notes-panel" id="notesPanel" aria-hidden="true" aria-labelledby="notesTitle">
+    <div class="notes-top">
+      <span>定稿说明 / 01</span>
+      <button class="notes-close" id="notesClose" aria-label="关闭定稿说明"><svg class="ico"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="notes-scroll">
+      <p class="notes-kicker">能力栏 · A 定稿</p>
+      <h2 class="notes-title" id="notesTitle" data-od-id="notes-heading">让能力退后一步，<br>让任务站到前面。</h2>
+      <p class="notes-lead">A 方案已经定稿：保留一条 40px 单行能力带，把“已选择”和“可添加”拆成两层。技能和插件会继续变多，但输入框的高度、位置和视线焦点不再跟着变化。</p>
+
+      <div class="note-block">
+        <h3>现有技能栏的三个摩擦</h3>
+        <ol class="issue-list">
+          <li><span class="issue-num">01</span><div><strong>已选与可选同权。</strong><p>多个胶囊并排时，用户分不清哪些已经挂载、哪些只是入口，选择状态被样式平均掉了。</p></div></li>
+          <li><span class="issue-num">02</span><div><strong>高度随内容变化。</strong><p>技能名长短不一，窄窗口里容易换行或横向溢出，输入框的位置跟着跳动。</p></div></li>
+          <li><span class="issue-num">03</span><div><strong>发现和调用挤在一起。</strong><p>找能力要横向浏览，说明、类型和状态又被压缩成一个标签，扩展性很快见顶。</p></div></li>
+        </ol>
+      </div>
+
+      <div class="note-block">
+        <h3>A 方案的固定规则</h3>
+        <div class="spec-grid">
+          <div class="spec-cell"><span>收起高度</span><strong>40 px</strong></div>
+          <div class="spec-cell"><span>能力胶囊</span><strong>28 px · 单行</strong></div>
+          <div class="spec-cell"><span>展开方式</span><strong>374 px 上浮层</strong></div>
+          <div class="spec-cell"><span>动效</span><strong>180 ms</strong></div>
+        </div>
+        <p class="variant-note-body" style="margin-top:10px">已选能力永远在输入框附近，完整能力库永远不常驻。超过两项时收成“前两项 + 数量”，不换行、不横向滚动。浮层从触发点向上展开，移除后不留空洞，也不做弹跳。</p>
+      </div>
+
+      <div class="note-block" id="variantNote">
+        <div class="variant-note-kicker" id="noteVariantKicker">定稿方案 A · 行内胶囊</div>
+        <h3 class="variant-note-title" id="noteVariantTitle">最低打断，能力贴着输入走。</h3>
+        <p class="variant-note-body" id="noteVariantBody">把能力压缩成输入框上方的一条 40px 基线：左边是已选胶囊，右边只有一个添加入口。完整库在一个 374px 的浮层里，适合目标明确的高频切换。</p>
+        <div class="tradeoff">
+          <div><span>适合</span><p id="noteBest">每天多次调用的熟手；希望输入区几乎不增高。</p></div>
+          <div><span>代价</span><p id="noteCost">发现性最弱，新用户需要先知道“能力”在哪里。</p></div>
+        </div>
+      </div>
+
+      <div class="recommend">
+        <span class="recommend-tag">定稿</span>
+        <p>A 作为默认进入开发：40px 单行、28px 胶囊、唯一入口，能力库只在上浮层出现。B、C 保留为参考，不进入默认路径；如果后续需要更高的发现性，再单独评估 B 的入口形态。</p>
+      </div>
+
+      <div class="note-block">
+        <h3>交付与落地</h3>
+        <p class="variant-note-body">组件 API、尺寸与状态表、可访问性要求、验收清单和分期落地计划，见项目文档 <strong>docs/capability-bar-a-final.md</strong>。</p>
+      </div>
+
+      <div class="notes-foot"><span>OPEN DESIGN · 能力栏</span><span>A 定稿 · v1</span></div>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><svg class="ico"><use href="#i-check"/></svg><span id="toastText"></span></div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+      const CAPS = {
+        web: {
+          name: '网页原型',
+          type: '技能',
+          desc: '生成可交互的单页 HTML 原型',
+          short: '生成可交互原型',
+          icon: 'layout'
+        },
+        apple: {
+          name: 'Apple 设计系统',
+          type: '插件',
+          desc: '把品牌色、字体与组件规范绑定到产出',
+          short: '绑定品牌规范',
+          icon: 'swatch'
+        },
+        slides: {
+          name: '幻灯片',
+          type: '技能',
+          desc: '把内容组织成逐页推进的叙事',
+          short: '组织逐页叙事',
+          icon: 'slides'
+        },
+        dashboard: {
+          name: '数据看板',
+          type: '技能',
+          desc: '用真实数据搭建运营视图',
+          short: '搭建数据视图',
+          icon: 'dashboard'
+        },
+        figma: {
+          name: 'Figma 导出',
+          type: '插件',
+          desc: '把画布整理成可交付的设计文件',
+          short: '导出交付文件',
+          icon: 'figma'
+        },
+        image: {
+          name: '图片生成',
+          type: '插件',
+          desc: '为版面补充所需的视觉素材',
+          short: '补充视觉素材',
+          icon: 'image'
+        }
+      };
+
+      const ORDER = ['web', 'apple', 'slides', 'dashboard', 'figma', 'image'];
+      const RECENT = ['web', 'apple', 'slides'];
+      const PINNED = ['web', 'apple', 'slides', 'figma'];
+      const DEFAULT_ACTIVE = ['web', 'apple'];
+
+      const NOTES = {
+        a: {
+          kicker: '定稿方案 A · 行内胶囊',
+          title: '最低打断，能力贴着输入走。',
+          body: '40px 单行基线：左边是已选能力，右边只有一个添加入口。完整库放在 374px 的浮层里，适合目标明确的高频切换。',
+          best: '每天多次调用的熟手；希望输入区几乎不增高。',
+          cost: '发现性最弱，新用户需要先知道“能力”在哪里。'
+        },
+        b: {
+          kicker: '方案 B · 能力坞',
+          title: '状态和入口同时被看见。',
+          body: '56px 能力坞把已选能力做成小卡片，展开后在工作流里直接露出四个常用能力。它多占 16px，却把“我现在有什么”和“我还能加什么”放在同一视线里。',
+          best: '需要培养使用习惯的团队；能力数量还会持续增长。',
+          cost: '展开时约占 150px，频繁开合会打断对话节奏。'
+        },
+        c: {
+          kicker: '方案 C · 指令面板',
+          title: '能力沉进提示词，入口变成命令。',
+          body: '没有常驻的胶囊行。已选能力作为 @ 提及进入输入区，一个“能力”按钮或 ⌘K 打开命令面板，搜索、键盘选择、应用一次完成。',
+          best: '键盘优先的高级用户；希望输入区保持最小。',
+          cost: '可发现性依赖快捷键和空状态提示，不适合完全的新手。'
+        }
+      };
+
+      const icon = (name) => `<svg class="ico" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+
+      const readSaved = (key, fallback) => {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallback;
+        } catch (error) {
+          return fallback;
+        }
+      };
+
+      const writeSaved = (key, value) => {
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+        } catch (error) {
+          /* Preview sandboxes can disable storage; the prototype still works. */
+        }
+      };
+
+      const savedActive = readSaved('od.capabilityBar.final.active', DEFAULT_ACTIVE);
+      let active = new Set(
+        Array.isArray(savedActive) ? savedActive.filter((id) => CAPS[id]) : DEFAULT_ACTIVE
+      );
+      let variant = 'a';
+
+      let aFilter = 'all';
+      let aQuery = '';
+      let bQuery = '';
+      let cmdQuery = '';
+      let cmdFocus = 0;
+      let toastTimer = 0;
+
+      const els = {
+        tabs: $$('.variant-tab'),
+        variants: $$('.variant-ui'),
+        notesPanel: $('#notesPanel'),
+        notesToggle: $('#notesToggle'),
+        notesClose: $('#notesClose'),
+        noteKicker: $('#noteVariantKicker'),
+        noteTitle: $('#noteVariantTitle'),
+        noteBody: $('#noteVariantBody'),
+        noteBest: $('#noteBest'),
+        noteCost: $('#noteCost'),
+        selectedA: $('#selectedA'),
+        popoverA: $('#popoverA'),
+        openA: $('#openA'),
+        closeA: $('#closeA'),
+        searchA: $('#searchA'),
+        listA: $('#listA'),
+        popTabs: $$('.pop-tab'),
+        capdockB: $('.capdock'),
+        shelfB: $('#shelfB'),
+        toggleB: $('#toggleB'),
+        searchB: $('#searchB'),
+        gridB: $('#gridB'),
+        selectedB: $('#selectedB'),
+        dockCountB: $('#dockCountB'),
+        mentionsC: $('#mentionsC'),
+        promptC: $('#promptC'),
+        openC: $('#openC'),
+        commandLayer: $('#commandLayer'),
+        cmdScrim: $('#cmdScrim'),
+        cmdSearch: $('#cmdSearch'),
+        cmdBody: $('#cmdBody'),
+        toast: $('#toast'),
+        toastText: $('#toastText'),
+        thread: $('#thread'),
+        artboard: $('#artboard'),
+        previewFoot: $('.preview-foot span:first-child')
+      };
+
+      const isAOpen = () => els.popoverA.classList.contains('is-open');
+      const isBOpen = () => els.shelfB.classList.contains('is-open');
+      const isCommandOpen = () => els.commandLayer.classList.contains('is-open');
+      const isNotesOpen = () => els.notesPanel.classList.contains('is-open');
+
+      function showToast(message) {
+        els.toastText.textContent = message;
+        els.toast.classList.add('is-visible');
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => {
+          els.toast.classList.remove('is-visible');
+        }, 1900);
+      }
+
+      function saveState() {
+        writeSaved('od.capabilityBar.final.active', [...active]);
+      }
+
+      function matches(id, query, type = 'all') {
+        const cap = CAPS[id];
+        if (!cap) return false;
+        if (type !== 'all' && cap.type !== type) return false;
+        const needle = query.trim().toLowerCase();
+        if (!needle) return true;
+        return `${cap.name} ${cap.type} ${cap.desc}`.toLowerCase().includes(needle);
+      }
+
+      function chipHtml(id) {
+        const cap = CAPS[id];
+        if (!cap) return '';
+        return `
+          <button class="cap-chip" data-remove="${id}" data-od-id="capability-chip-a-${id}" aria-label="移除能力：${cap.name}" title="移除 ${cap.name}">
+            ${icon(cap.icon)}
+            <span class="chip-name">${cap.name}</span>
+            <span class="chip-x">${icon('close')}</span>
+          </button>`;
+      }
+
+      function renderA() {
+        const ids = [...active];
+        if (!ids.length) {
+          els.selectedA.innerHTML = '<span class="cap-empty">尚未挂载能力</span>';
+        } else {
+          const visible = ids.slice(0, 2);
+          const overflow = ids.length - visible.length;
+          els.selectedA.innerHTML = visible.map(chipHtml).join('') +
+            (overflow > 0 ? `<span class="cap-overflow">+${overflow}</span>` : '');
+        }
+        renderAList();
+      }
+
+      function aRowHtml(id) {
+        const cap = CAPS[id];
+        const selected = active.has(id);
+        return `
+          <button class="cap-row${selected ? ' is-active' : ''}" data-cap="${id}" data-od-id="capability-row-a-${id}" aria-pressed="${selected}">
+            <span class="cap-icon">${icon(cap.icon)}</span>
+            <span class="cap-copy">
+              <strong>${cap.name}<span class="cap-type">${cap.type}</span></strong>
+              <small>${cap.desc}</small>
+            </span>
+            <span class="cap-state">${icon(selected ? 'check' : 'plus')}</span>
+          </button>`;
+      }
+
+      function renderAList() {
+        const ids = ORDER.filter((id) => matches(id, aQuery, aFilter));
+        els.listA.innerHTML = ids.length
+          ? ids.map(aRowHtml).join('')
+          : '<div class="pop-empty">没有找到匹配的能力</div>';
+      }
+
+      function dockCapHtml(id) {
+        const cap = CAPS[id];
+        if (!cap) return '';
+        return `
+          <button class="dock-cap" data-remove="${id}" data-od-id="capability-chip-b-${id}" aria-label="移除能力：${cap.name}" title="移除 ${cap.name}">
+            <span class="dock-cap-icon">${icon(cap.icon)}</span>
+            <span class="dock-cap-copy"><strong>${cap.name}</strong><small>已就绪</small></span>
+            <span class="dock-cap-x">${icon('close')}</span>
+          </button>`;
+      }
+
+      function shelfCardHtml(id) {
+        const cap = CAPS[id];
+        const selected = active.has(id);
+        return `
+          <button class="shelf-card${selected ? ' is-active' : ''}" data-cap="${id}" data-od-id="capability-shelf-b-${id}" aria-pressed="${selected}">
+            <span class="shelf-card-top">
+              <span class="shelf-card-icon">${icon(cap.icon)}</span>
+              <span class="shelf-check">${icon(selected ? 'check' : 'plus')}</span>
+            </span>
+            <strong>${cap.name}</strong>
+            <small>${cap.type} · ${cap.short}</small>
+          </button>`;
+      }
+
+      function renderB() {
+        const ids = [...active];
+        const visible = ids.slice(0, 2);
+        const overflow = ids.length - visible.length;
+        els.selectedB.innerHTML = ids.length
+          ? visible.map(dockCapHtml).join('') + (overflow > 0 ? `<span class="dock-overflow">+${overflow}</span>` : '')
+          : '<span class="cap-empty">尚未选择能力</span>';
+        els.dockCountB.textContent = `${ids.length} 项`;
+
+        const filtered = bQuery
+          ? ORDER.filter((id) => matches(id, bQuery))
+          : PINNED;
+        els.gridB.innerHTML = filtered.length
+          ? filtered.map(shelfCardHtml).join('')
+          : '<div class="shelf-empty">没有找到匹配的能力</div>';
+      }
+
+      function mentionHtml(id) {
+        const cap = CAPS[id];
+        return `
+          <span class="mention">@${cap.name}
+            <button class="mention-x" data-remove="${id}" aria-label="移除能力：${cap.name}">${icon('close')}</button>
+          </span>`;
+      }
+
+      function renderC() {
+        const ids = [...active];
+        const visible = ids.slice(0, 3);
+        const overflow = ids.length - visible.length;
+        els.mentionsC.innerHTML = visible.map(mentionHtml).join('') +
+          (overflow > 0 ? `<span class="mention-overflow">+${overflow}</span>` : '');
+      }
+
+      function renderAll() {
+        renderA();
+        renderB();
+        renderC();
+      }
+
+      function setAOpen(open, restoreFocus = false) {
+        els.popoverA.classList.toggle('is-open', open);
+        els.popoverA.setAttribute('aria-hidden', String(!open));
+        els.openA.setAttribute('aria-expanded', String(open));
+        if (open) {
+          if (isCommandOpen()) setCommandOpen(false, false);
+          if (isBOpen()) setBOpen(false, false);
+          aQuery = '';
+          aFilter = 'all';
+          els.searchA.value = '';
+          els.popTabs.forEach((tab) => {
+            const selected = tab.dataset.filter === 'all';
+            tab.classList.toggle('is-active', selected);
+            tab.setAttribute('aria-selected', String(selected));
+          });
+          renderAList();
+          window.setTimeout(() => els.searchA.focus(), 30);
+        } else if (restoreFocus) {
+          els.openA.focus();
+        }
+      }
+
+      function setBOpen(open, restoreFocus = false) {
+        els.shelfB.classList.toggle('is-open', open);
+        els.toggleB.setAttribute('aria-expanded', String(open));
+        const toggleLabel = $('span', els.toggleB);
+        if (toggleLabel) toggleLabel.textContent = open ? '收起' : '管理';
+        if (open) {
+          if (isAOpen()) setAOpen(false);
+          if (isCommandOpen()) setCommandOpen(false, false);
+          renderB();
+          window.setTimeout(() => els.searchB.focus(), 180);
+        } else {
+          bQuery = '';
+          if (els.searchB) els.searchB.value = '';
+          renderB();
+          if (restoreFocus) els.toggleB.focus();
+        }
+      }
+
+      function commandItemHtml(id) {
+        const cap = CAPS[id];
+        const selected = active.has(id);
+        return `
+          <button class="cmd-item" data-cap="${id}" data-od-id="capability-command-${id}" aria-label="${cap.name}，${selected ? '已启用' : '添加'}">
+            <span class="cap-icon">${icon(cap.icon)}</span>
+            <span class="cap-copy">
+              <strong>${cap.name}<span class="cap-type">${cap.type}</span></strong>
+              <small>${cap.desc}</small>
+            </span>
+            <span class="cmd-shortcut">${selected ? '已启用' : '添加'}</span>
+            <span class="cap-state">${icon(selected ? 'check' : 'plus')}</span>
+          </button>`;
+      }
+
+      function renderCommand() {
+        const needle = cmdQuery.trim().toLowerCase();
+        let html = '';
+
+        if (needle) {
+          const ids = ORDER.filter((id) => matches(id, needle));
+          html = `<p class="cmd-section">搜索结果 · ${ids.length}</p>`;
+          html += ids.length
+            ? ids.map(commandItemHtml).join('')
+            : '<div class="pop-empty">没有找到匹配的能力</div>';
+        } else {
+          html = '<p class="cmd-section">最近使用</p>';
+          html += RECENT.map(commandItemHtml).join('');
+          html += '<p class="cmd-section">全部能力</p>';
+          html += ['dashboard', 'figma', 'image'].map(commandItemHtml).join('');
+        }
+
+        els.cmdBody.innerHTML = html;
+        const items = $$('.cmd-item', els.cmdBody);
+        if (!items.length) {
+          cmdFocus = 0;
+          return;
+        }
+        cmdFocus = Math.max(0, Math.min(cmdFocus, items.length - 1));
+        updateCommandFocus();
+      }
+
+      function updateCommandFocus() {
+        const items = $$('.cmd-item', els.cmdBody);
+        items.forEach((item, index) => item.classList.toggle('is-focused', index === cmdFocus));
+        const focused = items[cmdFocus];
+        if (!focused) return;
+        const bodyRect = els.cmdBody.getBoundingClientRect();
+        const itemRect = focused.getBoundingClientRect();
+        if (itemRect.top < bodyRect.top) {
+          els.cmdBody.scrollTo({
+            top: Math.max(0, els.cmdBody.scrollTop - (bodyRect.top - itemRect.top) - 8),
+            behavior: 'smooth'
+          });
+        } else if (itemRect.bottom > bodyRect.bottom) {
+          els.cmdBody.scrollTo({
+            top: els.cmdBody.scrollTop + (itemRect.bottom - bodyRect.bottom) + 8,
+            behavior: 'smooth'
+          });
+        }
+      }
+
+      function setCommandOpen(open, restoreFocus = true) {
+        els.commandLayer.classList.toggle('is-open', open);
+        els.commandLayer.setAttribute('aria-hidden', String(!open));
+        els.openC.setAttribute('aria-expanded', String(open));
+        if (open) {
+          if (isAOpen()) setAOpen(false);
+          if (isBOpen()) setBOpen(false, false);
+          cmdQuery = '';
+          cmdFocus = 0;
+          els.cmdSearch.value = '';
+          renderCommand();
+          window.setTimeout(() => els.cmdSearch.focus(), 40);
+        } else if (restoreFocus && variant === 'c') {
+          els.openC.focus();
+        }
+      }
+
+      function toggleCap(id) {
+        const cap = CAPS[id];
+        if (!cap) return;
+        const adding = !active.has(id);
+        if (adding) active.add(id);
+        else active.delete(id);
+        saveState();
+        renderAll();
+        showToast(`${adding ? '已挂载' : '已移除'}「${cap.name}」`);
+      }
+
+      function applyCommandCap(id) {
+        const cap = CAPS[id];
+        if (!cap) return;
+        if (!active.has(id)) toggleCap(id);
+        else showToast(`「${cap.name}」已在当前任务中`);
+        setCommandOpen(false, false);
+        els.promptC.focus();
+      }
+
+      function renderNotes() {
+        const note = NOTES[variant];
+        if (!note) return;
+        els.noteKicker.textContent = note.kicker;
+        els.noteTitle.textContent = note.title;
+        els.noteBody.textContent = note.body;
+        els.noteBest.textContent = note.best;
+        els.noteCost.textContent = note.cost;
+      }
+
+      function setVariant(next, save = true) {
+        if (!['a', 'b', 'c'].includes(next)) return;
+        variant = next;
+        els.tabs.forEach((tab) => {
+          const selected = tab.dataset.variant === next;
+          tab.classList.toggle('is-active', selected);
+          tab.setAttribute('aria-selected', String(selected));
+          tab.tabIndex = selected ? 0 : -1;
+        });
+        els.variants.forEach((panel) => {
+          panel.classList.toggle('is-active', panel.dataset.variant === next);
+        });
+        if (next !== 'a' && isAOpen()) setAOpen(false);
+        if (next !== 'b' && isBOpen()) setBOpen(false);
+        if (next !== 'c' && isCommandOpen()) setCommandOpen(false, false);
+        renderNotes();
+        if (save) saveState();
+      }
+
+      function setNotesOpen(open) {
+        els.notesPanel.classList.toggle('is-open', open);
+        els.notesPanel.setAttribute('aria-hidden', String(!open));
+        els.notesToggle.setAttribute('aria-expanded', String(open));
+        if (open) {
+          if (isAOpen()) setAOpen(false);
+          if (isBOpen()) setBOpen(false);
+          if (isCommandOpen()) setCommandOpen(false, false);
+          window.setTimeout(() => els.notesClose.focus(), 80);
+        } else {
+          els.notesToggle.focus();
+        }
+      }
+
+      function appendUserMessage(text) {
+        const wrap = document.createElement('div');
+        wrap.className = 'msg msg-user';
+        const meta = document.createElement('div');
+        meta.className = 'msg-meta';
+        const author = document.createElement('strong');
+        author.textContent = '你';
+        const time = document.createElement('span');
+        time.textContent = '刚刚';
+        meta.append(author, time);
+        const bubble = document.createElement('div');
+        bubble.className = 'user-bubble';
+        bubble.textContent = text;
+        wrap.append(meta, bubble);
+        els.thread.appendChild(wrap);
+        els.thread.scrollTo({ top: els.thread.scrollHeight, behavior: 'smooth' });
+      }
+
+      function sendFrom(source) {
+        let text = '';
+        let input = null;
+        if (source === 'a') {
+          input = $('#uiA .composer-input');
+          text = input.value.trim();
+        } else if (source === 'b') {
+          input = $('#uiB .composer-input');
+          text = input.value.trim();
+        } else {
+          input = els.promptC;
+          text = els.promptC.innerText.trim();
+        }
+        if (!text) {
+          showToast('先写一点需求再发送');
+          if (input) input.focus();
+          return;
+        }
+        appendUserMessage(text);
+        if (source === 'c') els.promptC.innerHTML = '';
+        else if (input) {
+          input.value = '';
+          input.style.height = 'auto';
+        }
+        showToast('已发送，Agent 正在处理');
+      }
+
+      function flashArtboard() {
+        els.artboard.classList.add('is-flashing');
+        window.setTimeout(() => els.artboard.classList.remove('is-flashing'), 800);
+        showToast('已在右侧画布中打开');
+      }
+
+      // ── variant tabs ───────────────────────────────────────────────────
+      els.tabs.forEach((tab) => {
+        tab.addEventListener('click', () => setVariant(tab.dataset.variant));
+        tab.addEventListener('keydown', (event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const index = els.tabs.indexOf(tab);
+          let next = index;
+          if (event.key === 'ArrowRight') next = (index + 1) % els.tabs.length;
+          if (event.key === 'ArrowLeft') next = (index - 1 + els.tabs.length) % els.tabs.length;
+          if (event.key === 'Home') next = 0;
+          if (event.key === 'End') next = els.tabs.length - 1;
+          const target = els.tabs[next];
+          setVariant(target.dataset.variant);
+          target.focus();
+        });
+      });
+
+      // ── A: inline capsules ─────────────────────────────────────────────
+      els.openA.addEventListener('click', () => setAOpen(!isAOpen(), true));
+      els.closeA.addEventListener('click', () => setAOpen(false, true));
+      els.searchA.addEventListener('input', (event) => {
+        aQuery = event.target.value;
+        renderAList();
+      });
+      els.searchA.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          const first = $('.cap-row', els.listA);
+          if (first) first.click();
+        }
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          const first = $('.cap-row', els.listA);
+          if (first) first.focus();
+        }
+      });
+      els.popTabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+          aFilter = tab.dataset.filter;
+          els.popTabs.forEach((item) => {
+            const selected = item === tab;
+            item.classList.toggle('is-active', selected);
+            item.setAttribute('aria-selected', String(selected));
+          });
+          renderAList();
+        });
+      });
+
+      els.popoverA.addEventListener('keydown', (event) => {
+        if (event.key !== 'Tab' || !isAOpen()) return;
+        const focusables = $$('button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])', els.popoverA)
+          .filter((element) => element.getClientRects().length > 0);
+        if (!focusables.length) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      });
+
+      // ── B: dock + shelf ────────────────────────────────────────────────
+      els.toggleB.addEventListener('click', () => setBOpen(!isBOpen(), true));
+      els.searchB.addEventListener('input', (event) => {
+        bQuery = event.target.value;
+        renderB();
+      });
+
+      // ── C: command panel ───────────────────────────────────────────────
+      els.openC.addEventListener('click', () => setCommandOpen(!isCommandOpen(), true));
+      els.cmdScrim.addEventListener('click', () => setCommandOpen(false, true));
+      els.cmdSearch.addEventListener('input', (event) => {
+        cmdQuery = event.target.value;
+        cmdFocus = 0;
+        renderCommand();
+      });
+      els.cmdSearch.addEventListener('keydown', (event) => {
+        const items = $$('.cmd-item', els.cmdBody);
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          cmdFocus = Math.min(items.length - 1, cmdFocus + 1);
+          updateCommandFocus();
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          cmdFocus = Math.max(0, cmdFocus - 1);
+          updateCommandFocus();
+        } else if (event.key === 'Enter') {
+          event.preventDefault();
+          const focused = items[cmdFocus];
+          if (focused) {
+            applyCommandCap(focused.dataset.cap);
+          }
+        }
+      });
+
+      // ── shared capability interaction ─────────────────────────────────
+      document.addEventListener('click', (event) => {
+        const remove = event.target.closest('[data-remove]');
+        if (remove) {
+          event.preventDefault();
+          const wasInlineChip = remove.classList.contains('cap-chip');
+          toggleCap(remove.dataset.remove);
+          if (wasInlineChip) {
+            window.requestAnimationFrame(() => {
+              const nextChip = $('#selectedA .cap-chip');
+              (nextChip || els.openA).focus();
+            });
+          }
+          return;
+        }
+
+        const cap = event.target.closest('[data-cap]');
+        if (!cap) return;
+        event.preventDefault();
+        const id = cap.dataset.cap;
+        const fromCommand = Boolean(cap.closest('#cmdBody'));
+        const fromListA = Boolean(cap.closest('#listA'));
+        const fromGridB = Boolean(cap.closest('#gridB'));
+        if (fromCommand) {
+          applyCommandCap(id);
+          return;
+        }
+        toggleCap(id);
+        if (fromListA) {
+          window.requestAnimationFrame(() => {
+            $(`[data-cap="${id}"]`, els.listA)?.focus();
+          });
+        }
+        if (fromGridB) {
+          window.requestAnimationFrame(() => {
+            $(`[data-cap="${id}"]`, els.gridB)?.focus();
+          });
+        }
+      });
+
+      // ── keyboard & outside click ──────────────────────────────────────
+      document.addEventListener('keydown', (event) => {
+        const key = event.key.toLowerCase();
+        if ((event.metaKey || event.ctrlKey) && key === 'k') {
+          event.preventDefault();
+          if (isNotesOpen()) setNotesOpen(false);
+          if (variant === 'a') setAOpen(!isAOpen(), true);
+          else if (variant === 'b') setBOpen(!isBOpen(), true);
+          else setCommandOpen(!isCommandOpen(), true);
+          return;
+        }
+
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+          const tag = document.activeElement?.tagName;
+          if (tag === 'TEXTAREA' || document.activeElement === els.promptC) {
+            event.preventDefault();
+            sendFrom(variant);
+          }
+          return;
+        }
+
+        if (event.key !== 'Escape') return;
+        if (isNotesOpen()) {
+          setNotesOpen(false);
+        } else if (isCommandOpen()) {
+          setCommandOpen(false, true);
+        } else if (isBOpen()) {
+          setBOpen(false, true);
+        } else if (isAOpen()) {
+          setAOpen(false, true);
+        }
+      });
+
+      document.addEventListener('pointerdown', (event) => {
+        if (isAOpen() && !event.target.closest('#popoverA') && !event.target.closest('#openA')) {
+          setAOpen(false);
+        }
+        if (isBOpen() && !event.target.closest('#shelfB') && !event.target.closest('#toggleB')) {
+          setBOpen(false);
+        }
+        if (isNotesOpen() && !event.target.closest('#notesPanel') && !event.target.closest('#notesToggle')) {
+          setNotesOpen(false);
+        }
+      });
+
+      // ── composer, send, notes, preview ────────────────────────────────
+      $$('.composer-input').forEach((input) => {
+        input.addEventListener('input', () => {
+          input.style.height = 'auto';
+          input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+        });
+      });
+
+      $('#sendA').addEventListener('click', () => sendFrom('a'));
+      $('#sendB').addEventListener('click', () => sendFrom('b'));
+      $('#sendC').addEventListener('click', () => sendFrom('c'));
+      $('#openArtifact').addEventListener('click', flashArtboard);
+      $('.share-btn').addEventListener('click', () => showToast('分享链接已复制'));
+      $('#sideSkills').addEventListener('click', () => {
+        if (variant === 'a') setAOpen(true);
+        else if (variant === 'b') setBOpen(true);
+        else setCommandOpen(true);
+      });
+
+      els.notesToggle.addEventListener('click', () => setNotesOpen(!isNotesOpen()));
+      els.notesClose.addEventListener('click', () => setNotesOpen(false));
+
+      const deviceButtons = $$('.device-btn');
+      deviceButtons.forEach((button, index) => {
+        button.addEventListener('click', () => {
+          deviceButtons.forEach((item) => {
+            const selected = item === button;
+            item.classList.toggle('is-active', selected);
+            item.setAttribute('aria-pressed', String(selected));
+          });
+          const mobile = index === 1;
+          els.artboard.classList.toggle('is-mobile', mobile);
+          els.previewFoot.textContent = mobile ? '390 × 844 · 100%' : '1440 × 900 · 100%';
+        });
+      });
+
+      renderAll();
+      setVariant(variant, false);
+    })();
+  </script>
+</body>
+</html>

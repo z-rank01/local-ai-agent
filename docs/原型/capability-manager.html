@@ -1,0 +1,1038 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>能力管理 · Open Design</title>
+  <style>
+    :root {
+      /* ─── Surface (3 levels) ────────────────────────────────────────── */
+      --bg: #ffffff;
+      --surface: #f5f5f7;
+      --surface-warm: #fbfbfd;
+
+      /* ─── Foreground ramp (4 levels) ───────────────────────────────── */
+      --fg: #1d1d1f;
+      --fg-2: #424245;
+      --muted: #6e6e73;
+      --meta: #86868b;
+
+      /* ─── Border (2 levels) ────────────────────────────────────────── */
+      --border: #d2d2d7;
+      --border-soft: #e8e8ed;
+
+      /* ─── Accent ───────────────────────────────────────────────────── */
+      --accent: #0071e3;
+      --accent-on: #ffffff;
+      --accent-hover: #0077ed;
+      --accent-active: #0066cc;
+
+      /* ─── Semantic ──────────────────────────────────────────────────── */
+      --success: #16a34a;
+      --warn:    #eab308;
+      --danger:  #dc2626;
+
+      /* ─── Typography ────────────────────────────────────────────────── */
+      --font-display:
+        "SF Pro Display", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --font-body:
+        "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --font-mono:
+        "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+
+      --text-xs:   12px;
+      --text-sm:   14px;
+      --text-base: 17px;
+      --text-lg:   21px;
+      --text-xl:   28px;
+      --text-2xl:  40px;
+      --text-3xl:  56px;
+      --text-4xl:  80px;
+
+      --leading-body:  1.47;
+      --leading-tight: 1.05;
+      --tracking-display: -0.015em;
+
+      /* ─── Spacing ───────────────────────────────────────────────────── */
+      --space-1:  4px;
+      --space-2:  8px;
+      --space-3:  12px;
+      --space-4:  16px;
+      --space-5:  20px;
+      --space-6:  24px;
+      --space-8:  32px;
+      --space-12: 48px;
+
+      /* ─── Section rhythm ────────────────────────────────────────────── */
+      --section-y-desktop: 100px;
+      --section-y-tablet:  64px;
+      --section-y-phone:   40px;
+
+      /* ─── Radius ────────────────────────────────────────────────────── */
+      --radius-sm:   8px;
+      --radius-md:   12px;
+      --radius-lg:   18px;
+      --radius-pill: 980px;
+
+      /* ─── Elevation (3 levels) ──────────────────────────────────────── */
+      --elev-flat:   none;
+      --elev-ring:   0 0 0 1px var(--border);
+      --elev-raised: 0 12px 32px rgba(0, 0, 0, 0.08);
+
+      /* ─── Focus ring ────────────────────────────────────────────────── */
+      --focus-ring: 0 0 0 4px color-mix(in oklab, var(--accent), transparent 65%);
+
+      /* ─── Motion ────────────────────────────────────────────────────── */
+      --motion-fast:   150ms;
+      --motion-base:   220ms;
+      --ease-standard: cubic-bezier(0.28, 0, 0.22, 1);
+
+      /* ─── Layout ────────────────────────────────────────────────────── */
+      --container-max:            1024px;
+      --container-gutter-desktop: 22px;
+      --container-gutter-tablet:  18px;
+      --container-gutter-phone:   16px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        color-mix(in oklab, var(--surface) 94%, var(--fg));
+      color: var(--fg);
+      font-family: var(--font-body), "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+      line-height: 1.47;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    button, input { font: inherit; color: inherit; }
+    button { padding: 0; border: 0; background: none; cursor: pointer; }
+    svg { display: block; }
+    p { margin: 0; text-wrap: pretty; }
+    h1, h2 { margin: 0; text-wrap: balance; }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    ::selection { background: color-mix(in oklab, var(--accent) 24%, transparent); }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-thumb {
+      background: color-mix(in oklab, var(--bg) 20%, var(--fg));
+      border-radius: 99px;
+    }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    .ico {
+      width: 16px; height: 16px;
+      fill: none; stroke: currentColor;
+      stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .ico-sm { width: 13px; height: 13px; }
+    .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+    .stage {
+      position: relative;
+      width: min(720px, 100%);
+      height: min(900px, calc(100vh - 48px));
+      display: grid;
+      place-items: center;
+    }
+
+    .drawer {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      color: var(--bg);
+      background: var(--fg);
+      border: 1px solid color-mix(in oklab, var(--bg) 11%, var(--fg));
+      border-radius: 20px;
+      box-shadow:
+        0 30px 90px color-mix(in oklab, var(--fg) 30%, transparent),
+        0 3px 12px color-mix(in oklab, var(--fg) 14%, transparent);
+      animation: drawer-in 360ms var(--ease-standard);
+      transition: opacity 200ms var(--ease-standard), transform 200ms var(--ease-standard);
+    }
+    .drawer.is-closing { opacity: 0; transform: translateY(5px) scale(.995); }
+    @keyframes drawer-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── drawer chrome ──────────────────────────────────────────────── */
+    .topbar {
+      height: 52px;
+      flex: 0 0 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 14px 0 22px;
+      border-bottom: 1px solid color-mix(in oklab, var(--bg) 10%, var(--fg));
+    }
+    .crumbs {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: color-mix(in oklab, var(--bg) 58%, var(--fg));
+      font-size: 10px;
+      letter-spacing: 0.015em;
+    }
+    .crumbs .ico { width: 10px; height: 10px; color: color-mix(in oklab, var(--bg) 38%, var(--fg)); }
+    .crumbs .current { color: var(--bg); }
+    .top-actions { display: flex; align-items: center; gap: 4px; }
+    .icon-btn {
+      width: 30px; height: 30px;
+      display: grid; place-items: center;
+      border-radius: 7px;
+      color: color-mix(in oklab, var(--bg) 60%, var(--fg));
+      transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    }
+    .icon-btn:hover {
+      background: color-mix(in oklab, var(--bg) 7%, var(--fg));
+      color: var(--bg);
+    }
+
+    /* ── title / actions ────────────────────────────────────────────── */
+    .hero {
+      flex: 0 0 auto;
+      padding: 20px 24px 14px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: color-mix(in oklab, var(--bg) 48%, var(--fg));
+    }
+    h1 {
+      margin-top: 7px;
+      font-family: var(--font-display);
+      font-size: 26px;
+      font-weight: 600;
+      line-height: 1.08;
+      letter-spacing: -0.025em;
+      color: var(--bg);
+    }
+    .subtitle {
+      margin-top: 7px;
+      max-width: 330px;
+      color: color-mix(in oklab, var(--bg) 58%, var(--fg));
+      font-size: 11px;
+      line-height: 1.55;
+    }
+    .hero > div:first-child { min-width: 0; }
+    .hero-actions { display: flex; align-items: center; gap: 6px; padding-top: 18px; flex: 0 0 auto; }
+    .import-btn {
+      height: 32px;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 0 12px;
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 10.5px;
+      font-weight: 600;
+      transition: background var(--motion-fast) var(--ease-standard), transform 100ms var(--ease-standard);
+    }
+    .import-btn:hover { background: color-mix(in oklab, var(--bg) 88%, var(--fg)); }
+    .import-btn:active { transform: scale(.97); }
+    .import-btn .ico { width: 12px; height: 12px; }
+    .refresh-btn {
+      width: 32px; height: 32px;
+      display: grid; place-items: center;
+      border: 1px solid color-mix(in oklab, var(--bg) 13%, var(--fg));
+      border-radius: 8px;
+      color: color-mix(in oklab, var(--bg) 62%, var(--fg));
+      transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+    }
+    .refresh-btn:hover {
+      background: color-mix(in oklab, var(--bg) 7%, var(--fg));
+      border-color: color-mix(in oklab, var(--bg) 22%, var(--fg));
+      color: var(--bg);
+    }
+    .refresh-btn.is-spinning .ico { animation: spin 600ms var(--ease-standard); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── search / filters ───────────────────────────────────────────── */
+    .search-row { flex: 0 0 auto; padding: 0 24px 10px; }
+    .search {
+      height: 38px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 11px;
+      border: 1px solid color-mix(in oklab, var(--bg) 11%, var(--fg));
+      border-radius: 9px;
+      background: color-mix(in oklab, var(--bg) 5%, var(--fg));
+      transition: border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+    }
+    .search:focus-within {
+      border-color: color-mix(in oklab, var(--accent) 55%, var(--fg));
+      background: color-mix(in oklab, var(--bg) 7%, var(--fg));
+      box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 24%, transparent);
+    }
+    .search .ico { width: 14px; height: 14px; color: color-mix(in oklab, var(--bg) 47%, var(--fg)); flex: 0 0 auto; }
+    .search input {
+      width: 100%; min-width: 0;
+      border: 0; outline: 0;
+      background: transparent;
+      color: var(--bg);
+      font-size: 11px;
+    }
+    .search input::placeholder { color: color-mix(in oklab, var(--bg) 48%, var(--fg)); }
+
+    .filter-row {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 24px 12px;
+    }
+    .segmented {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid color-mix(in oklab, var(--bg) 9%, var(--fg));
+      border-radius: 9px;
+      background: color-mix(in oklab, var(--bg) 4%, var(--fg));
+    }
+    .seg {
+      height: 26px;
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 0 8px;
+      border-radius: 7px;
+      color: color-mix(in oklab, var(--bg) 56%, var(--fg));
+      font-size: 10px;
+      transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    }
+    .seg:hover { background: color-mix(in oklab, var(--bg) 7%, var(--fg)); color: var(--bg); }
+    .seg[aria-pressed="true"] {
+      background: color-mix(in oklab, var(--bg) 13%, var(--fg));
+      color: var(--bg);
+      box-shadow: 0 1px 0 color-mix(in oklab, var(--bg) 8%, transparent);
+    }
+    .seg-count {
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      color: color-mix(in oklab, var(--bg) 48%, var(--fg));
+    }
+    .seg[aria-pressed="true"] .seg-count { color: color-mix(in oklab, var(--bg) 66%, var(--fg)); }
+    .enabled-summary {
+      white-space: nowrap;
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      letter-spacing: 0.02em;
+      color: color-mix(in oklab, var(--bg) 48%, var(--fg));
+    }
+
+    /* ── capability list ────────────────────────────────────────────── */
+    .list-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 0 24px;
+      scrollbar-gutter: stable;
+    }
+    .cap-group {
+      overflow: hidden;
+      border: 1px solid color-mix(in oklab, var(--bg) 10%, var(--fg));
+      border-radius: 16px;
+      background: color-mix(in oklab, var(--bg) 4%, var(--fg));
+    }
+    .cap-row {
+      position: relative;
+      min-height: 84px;
+      display: flex;
+      align-items: flex-start;
+      gap: 11px;
+      padding: 14px 13px 14px 15px;
+      transition: background var(--motion-fast) var(--ease-standard);
+    }
+    .cap-row:hover { background: color-mix(in oklab, var(--bg) 4.5%, var(--fg)); }
+    .cap-row + .cap-row::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 58px; right: 0;
+      height: 1px;
+      background: color-mix(in oklab, var(--bg) 8%, var(--fg));
+    }
+    .cap-icon {
+      width: 32px; height: 32px; flex: 0 0 32px;
+      display: grid; place-items: center;
+      border: 1px solid color-mix(in oklab, var(--bg) 9%, var(--fg));
+      border-radius: 9px;
+      background: color-mix(in oklab, var(--bg) 6%, var(--fg));
+      color: color-mix(in oklab, var(--bg) 72%, var(--fg));
+    }
+    .cap-icon .ico { width: 15px; height: 15px; }
+    .cap-body { flex: 1; min-width: 0; padding-top: 1px; }
+    .cap-title-line {
+      min-height: 18px;
+      display: flex; align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+    .cap-title {
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.25;
+      letter-spacing: -0.008em;
+      color: var(--bg);
+    }
+    .context-badge {
+      height: 16px;
+      display: inline-flex; align-items: center;
+      padding: 0 5px;
+      border: 1px solid color-mix(in oklab, var(--bg) 16%, var(--fg));
+      border-radius: 99px;
+      background: color-mix(in oklab, var(--bg) 4%, var(--fg));
+      color: color-mix(in oklab, var(--bg) 64%, var(--fg));
+      font-size: 8.5px;
+      font-weight: 500;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .error-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      color: color-mix(in oklab, var(--danger) 68%, var(--bg));
+      font-size: 9px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .error-badge .ico { width: 9px; height: 9px; }
+    .cap-desc {
+      margin-top: 3px;
+      max-width: 540px;
+      color: color-mix(in oklab, var(--bg) 58%, var(--fg));
+      font-size: 10.5px;
+      line-height: 1.5;
+    }
+    .cap-meta {
+      margin-top: 4px;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+      color: color-mix(in oklab, var(--bg) 48%, var(--fg));
+      font-size: 9.5px;
+      line-height: 1.3;
+      letter-spacing: 0.01em;
+    }
+    .meta-sep { color: color-mix(in oklab, var(--bg) 28%, var(--fg)); }
+    .switch {
+      position: relative;
+      width: 37px; height: 21px; flex: 0 0 37px;
+      margin-top: 7px;
+      border: 1px solid color-mix(in oklab, var(--bg) 12%, var(--fg));
+      border-radius: 99px;
+      background: color-mix(in oklab, var(--bg) 16%, var(--fg));
+      transition: background var(--motion-base) var(--ease-standard), border-color var(--motion-base) var(--ease-standard);
+    }
+    .switch:hover { background: color-mix(in oklab, var(--bg) 22%, var(--fg)); }
+    .switch[aria-checked="true"] {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .switch[aria-checked="true"]:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .switch .thumb {
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 15px; height: 15px;
+      border-radius: 50%;
+      background: var(--bg);
+      box-shadow: 0 1px 3px color-mix(in oklab, var(--fg) 32%, transparent);
+      transition: transform 160ms var(--ease-standard);
+    }
+    .switch[aria-checked="true"] .thumb { transform: translateX(16px); }
+    .switch:active .thumb { transform: scale(.92); }
+    .switch[aria-checked="true"]:active .thumb { transform: translateX(16px) scale(.92); }
+
+    /* ── empty state / footer ───────────────────────────────────────── */
+    .empty {
+      padding: 58px 22px 44px;
+      text-align: center;
+      color: color-mix(in oklab, var(--bg) 58%, var(--fg));
+    }
+    .empty-mark {
+      width: 38px; height: 38px;
+      margin: 0 auto 12px;
+      display: grid; place-items: center;
+      border: 1px solid color-mix(in oklab, var(--bg) 12%, var(--fg));
+      border-radius: 11px;
+      color: color-mix(in oklab, var(--bg) 52%, var(--fg));
+    }
+    .empty h2 {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--bg);
+    }
+    .empty p { margin-top: 5px; font-size: 10.5px; }
+    .clear-btn {
+      margin-top: 14px;
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid color-mix(in oklab, var(--bg) 16%, var(--fg));
+      border-radius: 7px;
+      color: var(--bg);
+      font-size: 10px;
+    }
+    .clear-btn:hover { background: color-mix(in oklab, var(--bg) 7%, var(--fg)); }
+
+    .footer {
+      height: 44px;
+      flex: 0 0 44px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 0 24px;
+      border-top: 1px solid color-mix(in oklab, var(--bg) 9%, var(--fg));
+      color: color-mix(in oklab, var(--bg) 48%, var(--fg));
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      letter-spacing: 0.02em;
+    }
+    .footer strong { color: color-mix(in oklab, var(--bg) 62%, var(--fg)); font-weight: 500; }
+
+    /* ── toast / reopen ─────────────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      left: 50%; bottom: 26px;
+      z-index: 60;
+      transform: translate(-50%, 8px);
+      display: flex; align-items: center; gap: 9px;
+      max-width: calc(100vw - 28px);
+      padding: 8px 10px 8px 12px;
+      border-radius: 99px;
+      background: var(--bg);
+      color: var(--fg);
+      box-shadow: 0 10px 34px color-mix(in oklab, var(--fg) 24%, transparent);
+      font-size: 10px;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 160ms var(--ease-standard), transform 160ms var(--ease-standard), visibility 160ms;
+    }
+    .toast.is-visible { opacity: 1; visibility: visible; transform: translate(-50%, 0); pointer-events: auto; }
+    .toast span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .toast button {
+      flex: 0 0 auto;
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .toast button:hover { color: var(--accent-active); }
+
+    .reopen {
+      position: absolute;
+      height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 11px;
+      box-shadow: var(--elev-raised);
+    }
+    .reopen:hover { background: var(--surface); }
+
+    @media (max-width: 720px) {
+      body { padding: 0; background: var(--fg); }
+      .stage { width: 100%; height: 100vh; height: 100dvh; }
+      .drawer { border: 0; border-radius: 0; box-shadow: none; }
+      .hero { padding-inline: 18px; }
+      .search-row, .filter-row, .list-scroll { padding-inline: 18px; }
+      .footer { padding-inline: 18px; }
+    }
+    @media (max-width: 520px) {
+      .topbar { padding-inline: 14px 10px; }
+      .hero { padding: 17px 16px 12px; gap: 10px; }
+      h1 { font-size: 23px; }
+      .subtitle { max-width: 230px; font-size: 10.5px; }
+      .hero-actions { padding-top: 17px; }
+      .search-row, .filter-row, .list-scroll { padding-inline: 16px; }
+      .filter-row { gap: 8px; }
+      .seg { padding: 0 7px; }
+      .enabled-summary { display: none; }
+      .cap-row { gap: 9px; padding: 13px 11px 13px 12px; }
+      .cap-row + .cap-row::before { left: 53px; }
+      .cap-title { font-size: 12.5px; }
+      .cap-desc { font-size: 10px; }
+      .cap-meta { font-size: 9px; }
+      .cap-icon { width: 30px; height: 30px; flex-basis: 30px; }
+      .footer { padding-inline: 16px; font-size: 8px; }
+    }
+    @media (pointer: coarse) {
+      .switch::after { content: ""; position: absolute; inset: -11px -5px; }
+      .seg { min-height: 40px; }
+      .icon-btn, .refresh-btn, .import-btn { min-height: 44px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 19V5M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.8 9h16.4M3.8 15h16.4M12 3.5c2.2 2.4 3.3 5.3 3.3 8.5s-1.1 6.1-3.3 8.5c-2.2-2.4-3.3-5.3-3.3-8.5S9.8 5.9 12 3.5Z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="7" y="7" width="12" height="12" rx="2"/><path d="M15 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.9 8.2 7 10 4.1-1.8 7-5.4 7-10V6Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></symbol>
+    <symbol id="i-slides" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="8" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="3" y="15" width="7" height="6" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/></symbol>
+    <symbol id="i-swatch" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><rect x="13.5" y="3.5" width="7" height="7" rx="1"/><rect x="3.5" y="13.5" width="7" height="7" rx="1"/><circle cx="17" cy="17" r="3.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="m9 7-5 5 5 5"/><path d="M4 12h9a6 6 0 0 1 6 6v1"/></symbol>
+  </svg>
+
+  <div class="stage" id="stage">
+    <section class="drawer" id="drawer" aria-labelledby="managerTitle" data-od-id="capability-manager">
+      <header class="topbar">
+        <div class="crumbs">
+          <span>工作台</span>
+          <svg class="ico"><use href="#i-chevron"/></svg>
+          <span class="current">能力管理</span>
+        </div>
+        <div class="top-actions">
+          <button class="icon-btn" id="closePanel" aria-label="关闭工作台" data-od-id="manager-close">
+            <svg class="ico"><use href="#i-close"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="hero">
+        <div>
+          <p class="eyebrow">工作区 · 能力</p>
+          <h1 id="managerTitle" data-od-id="manager-title">能力管理</h1>
+          <p class="subtitle">启用后，能力会出现在对话的能力栏中。</p>
+        </div>
+        <div class="hero-actions">
+          <button class="import-btn" id="importBtn" data-od-id="manager-import">
+            <svg class="ico"><use href="#i-plus"/></svg>导入
+          </button>
+          <button class="refresh-btn" id="refreshBtn" aria-label="刷新能力列表" title="刷新能力列表" data-od-id="manager-refresh">
+            <svg class="ico"><use href="#i-refresh"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="search-row">
+        <label class="search">
+          <svg class="ico"><use href="#i-search"/></svg>
+          <input id="searchInput" type="search" placeholder="搜索名称、用途或来源" autocomplete="off" aria-label="搜索能力" data-od-id="capability-search" />
+        </label>
+      </div>
+
+      <div class="filter-row">
+        <div class="segmented" role="group" aria-label="按能力类型筛选">
+          <button class="seg" aria-pressed="true" aria-controls="capList" data-filter="all" data-od-id="filter-all">
+            全部<span class="seg-count" id="countAll">9</span>
+          </button>
+          <button class="seg" aria-pressed="false" aria-controls="capList" data-filter="skill" data-od-id="filter-skill">
+            技能<span class="seg-count" id="countSkill">3</span>
+          </button>
+          <button class="seg" aria-pressed="false" aria-controls="capList" data-filter="plugin" data-od-id="filter-plugin">
+            插件<span class="seg-count" id="countPlugin">6</span>
+          </button>
+        </div>
+        <p class="enabled-summary" id="enabledSummary">7 项已启用</p>
+      </div>
+
+      <div class="list-scroll" id="listScroll">
+        <div class="cap-group" id="capList" role="list" aria-label="能力列表" data-od-id="capability-list"></div>
+        <div class="empty" id="emptyState" hidden>
+          <div class="empty-mark"><svg class="ico"><use href="#i-search"/></svg></div>
+          <h2>没有找到能力</h2>
+          <p>试试其他关键词，或清除筛选。</p>
+          <button class="clear-btn" id="clearFilters">清除筛选</button>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <span id="totalCount">9 项能力</span>
+        <span id="footerSummary"><strong>7</strong> 项已启用 · <strong>2</strong> 项对话中</span>
+      </footer>
+    </section>
+
+    <button class="reopen" id="reopenPanel" hidden>打开能力管理</button>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <span id="toastText"></span>
+    <button id="undoBtn" hidden>撤销</button>
+  </div>
+
+  <input id="importInput" type="file" accept=".zip,.json,.md,.skill,.plugin" hidden />
+
+  <script>
+    (() => {
+      'use strict';
+
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+      const icon = (name) => `<svg class="ico" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+
+      const capabilities = [
+        {
+          id: 'finance',
+          name: '金融研究',
+          kind: 'plugin',
+          icon: 'chart',
+          desc: '研究任务、公开证据与报告；账户操作遵循原业务确认规则。',
+          source: '本机能力',
+          origin: '内置',
+          enabled: true,
+          selected: true
+        },
+        {
+          id: 'web-search',
+          name: '联网搜索',
+          kind: 'plugin',
+          icon: 'globe',
+          desc: '检索公开网页并读取来源正文。',
+          source: '本机能力',
+          origin: '内置',
+          enabled: true,
+          selected: true
+        },
+        {
+          id: 'batch-docs',
+          name: '批量文档处理',
+          kind: 'plugin',
+          icon: 'copy',
+          desc: '保留扫描原件，批量生成中文、英文可搜索 PDF 和文本副本。',
+          source: '本机能力',
+          origin: '内置',
+          enabled: true,
+          selected: false
+        },
+        {
+          id: 'file-integrity',
+          name: '文件完整性核对',
+          kind: 'plugin',
+          icon: 'shield',
+          desc: '读取实际文件，计算 SHA256 与字节数，用于确认原件是否变化。',
+          source: '本机能力',
+          origin: '用户导入',
+          enabled: true,
+          selected: false,
+          error: '上次更新失败'
+        },
+        {
+          id: 'resource-index',
+          name: '资料索引',
+          kind: 'plugin',
+          icon: 'layers',
+          desc: '增量索引工作区文本与 PDF，定位原文件段落和页码。',
+          source: '本机能力',
+          origin: '内置',
+          enabled: true,
+          selected: false
+        },
+        {
+          id: 'web-prototype',
+          name: '网页原型',
+          kind: 'skill',
+          icon: 'layout',
+          desc: '把想法生成可交互的单页原型，并保留设计系统约束。',
+          source: '本机能力',
+          origin: '内置',
+          enabled: true,
+          selected: false
+        },
+        {
+          id: 'slides',
+          name: '幻灯片',
+          kind: 'skill',
+          icon: 'slides',
+          desc: '把内容组织成逐页推进的叙事，支持讲稿与备注。',
+          source: '本机能力',
+          origin: '内置',
+          enabled: false,
+          selected: false
+        },
+        {
+          id: 'dashboard',
+          name: '数据看板',
+          kind: 'skill',
+          icon: 'dashboard',
+          desc: '用真实数据搭建运营视图，支持筛选、对比与导出。',
+          source: '本机能力',
+          origin: '内置',
+          enabled: false,
+          selected: false
+        },
+        {
+          id: 'apple-system',
+          name: 'Apple 设计系统',
+          kind: 'plugin',
+          icon: 'swatch',
+          desc: '把品牌色、字体与组件规范绑定到产出。',
+          source: '设计系统',
+          origin: '内置',
+          enabled: true,
+          selected: false
+        }
+      ];
+
+      let activeFilter = 'all';
+      let query = '';
+      let toastTimer = 0;
+      let undoAction = null;
+
+      const els = {
+        drawer: $('#drawer'),
+        close: $('#closePanel'),
+        reopen: $('#reopenPanel'),
+        importBtn: $('#importBtn'),
+        importInput: $('#importInput'),
+        refreshBtn: $('#refreshBtn'),
+        search: $('#searchInput'),
+        filters: $$('.seg'),
+        list: $('#capList'),
+        empty: $('#emptyState'),
+        listScroll: $('#listScroll'),
+        countAll: $('#countAll'),
+        countSkill: $('#countSkill'),
+        countPlugin: $('#countPlugin'),
+        enabledSummary: $('#enabledSummary'),
+        total: $('#totalCount'),
+        footerSummary: $('#footerSummary'),
+        toast: $('#toast'),
+        toastText: $('#toastText'),
+        undo: $('#undoBtn'),
+        clear: $('#clearFilters')
+      };
+
+      const kindLabel = { skill: '技能', plugin: '插件' };
+
+      function filteredCapabilities() {
+        return capabilities.filter((cap) => {
+          if (activeFilter !== 'all' && cap.kind !== activeFilter) return false;
+          if (!query) return true;
+          const haystack = `${cap.name} ${cap.desc} ${cap.source} ${cap.origin} ${kindLabel[cap.kind]}`.toLowerCase();
+          return haystack.includes(query.toLowerCase());
+        });
+      }
+
+      function updateCounts() {
+        const all = capabilities.length;
+        const skill = capabilities.filter((cap) => cap.kind === 'skill').length;
+        const plugin = capabilities.filter((cap) => cap.kind === 'plugin').length;
+        const enabled = capabilities.filter((cap) => cap.enabled).length;
+        const selected = capabilities.filter((cap) => cap.enabled && cap.selected).length;
+        els.countAll.textContent = all;
+        els.countSkill.textContent = skill;
+        els.countPlugin.textContent = plugin;
+        els.enabledSummary.textContent = `${enabled} 项已启用`;
+        els.total.textContent = `${all} 项能力`;
+        els.footerSummary.innerHTML = `<strong>${enabled}</strong> 项已启用 · <strong>${selected}</strong> 项对话中`;
+      }
+
+      function rowHtml(cap) {
+        const selectedBadge = cap.selected && cap.enabled
+          ? '<span class="context-badge">对话中</span>'
+          : '';
+        const errorBadge = cap.error
+          ? `<span class="error-badge" title="${cap.error}；当前版本仍可用">${icon('alert')}${cap.error}</span>`
+          : '';
+        return `
+          <article class="cap-row" role="listitem" data-id="${cap.id}" data-od-id="capability-row-${cap.id}">
+            <span class="cap-icon" aria-hidden="true">${icon(cap.icon)}</span>
+            <div class="cap-body">
+              <div class="cap-title-line">
+                <h2 class="cap-title">${cap.name}</h2>
+                ${selectedBadge}
+                ${errorBadge}
+              </div>
+              <p class="cap-desc">${cap.desc}</p>
+              <p class="cap-meta">
+                <span>${kindLabel[cap.kind]}</span>
+                <span class="meta-sep">·</span>
+                <span>${cap.source}</span>
+                <span class="meta-sep">·</span>
+                <span>${cap.origin}</span>
+              </p>
+            </div>
+            <button
+              class="switch"
+              role="switch"
+              aria-checked="${cap.enabled}"
+              aria-label="${cap.enabled ? '停用' : '启用'}「${cap.name}」"
+              data-toggle="${cap.id}"
+              data-od-id="capability-switch-${cap.id}"
+            ><span class="thumb" aria-hidden="true"></span></button>
+          </article>`;
+      }
+
+      function render() {
+        const items = filteredCapabilities();
+        els.list.innerHTML = items.map(rowHtml).join('');
+        const empty = items.length === 0;
+        els.list.hidden = empty;
+        els.empty.hidden = !empty;
+        updateCounts();
+      }
+
+      function syncFilter() {
+        els.filters.forEach((tab) => {
+          tab.setAttribute('aria-pressed', String(tab.dataset.filter === activeFilter));
+        });
+      }
+
+      function showToast(message, undo = null) {
+        window.clearTimeout(toastTimer);
+        undoAction = undo;
+        els.toastText.textContent = message;
+        els.undo.hidden = !undo;
+        els.toast.classList.add('is-visible');
+        toastTimer = window.setTimeout(() => {
+          els.toast.classList.remove('is-visible');
+          undoAction = null;
+        }, 2800);
+      }
+
+      function toggleCapability(id, focusSwitch = true) {
+        const cap = capabilities.find((item) => item.id === id);
+        if (!cap) return;
+        const previous = { enabled: cap.enabled, selected: cap.selected };
+        const wasSelected = cap.selected;
+        cap.enabled = !cap.enabled;
+        if (!cap.enabled) cap.selected = false;
+
+        render();
+        if (focusSwitch) {
+          window.requestAnimationFrame(() => {
+            $(`[data-toggle="${id}"]`, els.list)?.focus();
+          });
+        }
+
+        const message = cap.enabled
+          ? `已启用「${cap.name}」`
+          : wasSelected
+            ? `已停用「${cap.name}」，并从当前对话移除`
+            : `已停用「${cap.name}」`;
+        showToast(message, () => {
+          cap.enabled = previous.enabled;
+          cap.selected = previous.selected;
+          render();
+          window.requestAnimationFrame(() => {
+            $(`[data-toggle="${id}"]`, els.list)?.focus();
+          });
+        });
+      }
+
+      function resetFilters() {
+        activeFilter = 'all';
+        query = '';
+        els.search.value = '';
+        syncFilter();
+        render();
+        els.search.focus();
+      }
+
+      // filter tabs
+      els.filters.forEach((tab) => {
+        tab.addEventListener('click', () => {
+          activeFilter = tab.dataset.filter;
+          syncFilter();
+          render();
+        });
+        tab.addEventListener('keydown', (event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const index = els.filters.indexOf(tab);
+          let next = index;
+          if (event.key === 'ArrowRight') next = (index + 1) % els.filters.length;
+          if (event.key === 'ArrowLeft') next = (index - 1 + els.filters.length) % els.filters.length;
+          if (event.key === 'Home') next = 0;
+          if (event.key === 'End') next = els.filters.length - 1;
+          const target = els.filters[next];
+          activeFilter = target.dataset.filter;
+          syncFilter();
+          target.focus();
+          render();
+        });
+      });
+
+      // search
+      els.search.addEventListener('input', (event) => {
+        query = event.target.value.trim();
+        render();
+      });
+
+      // switches
+      els.list.addEventListener('click', (event) => {
+        const toggle = event.target.closest('[data-toggle]');
+        if (!toggle) return;
+        toggleCapability(toggle.dataset.toggle);
+      });
+
+      // empty / import / refresh / close
+      els.clear.addEventListener('click', resetFilters);
+      els.importBtn.addEventListener('click', () => els.importInput.click());
+      els.importInput.addEventListener('change', () => {
+        const file = els.importInput.files?.[0];
+        if (file) showToast(`已选择「${file.name}」，等待解析`);
+        els.importInput.value = '';
+      });
+      els.refreshBtn.addEventListener('click', () => {
+        els.refreshBtn.classList.remove('is-spinning');
+        void els.refreshBtn.offsetWidth;
+        els.refreshBtn.classList.add('is-spinning');
+        window.setTimeout(() => els.refreshBtn.classList.remove('is-spinning'), 620);
+        showToast('能力列表已刷新');
+      });
+      els.close.addEventListener('click', () => {
+        els.drawer.classList.add('is-closing');
+        window.setTimeout(() => {
+          els.drawer.hidden = true;
+          els.drawer.classList.remove('is-closing');
+          els.reopen.hidden = false;
+          els.reopen.focus();
+        }, 200);
+      });
+      els.reopen.addEventListener('click', () => {
+        els.drawer.hidden = false;
+        els.reopen.hidden = true;
+        els.drawer.classList.remove('is-closing');
+        els.close.focus();
+      });
+      els.undo.addEventListener('click', () => {
+        if (!undoAction) return;
+        undoAction();
+        undoAction = null;
+        els.toast.classList.remove('is-visible');
+        window.clearTimeout(toastTimer);
+      });
+
+      // initial render
+      render();
+    })();
+  </script>
+</body>
+</html>

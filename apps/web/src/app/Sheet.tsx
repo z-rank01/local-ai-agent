@@ -27,12 +27,15 @@ export type SheetProps = {
   onViewChange: (view: SheetView) => void;
   width: number;
   onWidthChange: (width: number) => void;
+  skillsPanelSignal?: number;
   doc: SheetDoc | null;
   onZoomDoc: () => void;
   workspace: WorkspacePanelProps;
   workspaceManager: ComponentProps<typeof WorkspaceManager>;
   skills: {
     conversation?: ConversationSummary;
+    selectedCapabilityIds: string[];
+    onCapabilitySelected: (id: string, selected: boolean) => void;
     onChanged?: () => void;
     onMethodChanged?: (conversation: ConversationSummary) => void;
   };
@@ -54,6 +57,7 @@ export function Sheet({
   onViewChange,
   width,
   onWidthChange,
+  skillsPanelSignal,
   doc,
   onZoomDoc,
   workspace, workspaceManager,
@@ -164,7 +168,7 @@ export function Sheet({
           <WorkspaceManager {...workspaceManager} />
           <WorkspacePanel key={workspace.workspaceId} {...workspace} />
         </Panel>
-        <Panel id="skills" title="能力" beforeToggle={confirmCapabilityLeave}>
+        <Panel id="skills" title="能力" forceOpenSignal={skillsPanelSignal} beforeToggle={confirmCapabilityLeave}>
           <SkillsPanel workspaceId={workspace.workspaceId} {...skills} />
         </Panel>
       </div>

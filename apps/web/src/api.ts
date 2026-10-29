@@ -267,6 +267,17 @@ export function updateConversationModel(conversationId: string, model: string): 
   });
 }
 
+export function updateConversationCapabilities(
+  conversationId: string,
+  capabilityIds: string[],
+): Promise<ConversationSummary> {
+  return requestJson<ConversationSummary>(`/api/conversations/${encodeURIComponent(conversationId)}`, {
+    method: 'PATCH',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({capability_ids: capabilityIds}),
+  });
+}
+
 export async function deleteConversation(
   conversationId: string,
   baseUrl = DEFAULT_BASE_URL,
@@ -474,7 +485,7 @@ export async function streamChat(
 
 export async function streamRegenerate(
   conversationId: string,
-  options: {providerId?: string; model?: string; messageId?: string | null; requestId?: string; signal?: AbortSignal; baseUrl?: string},
+  options: {providerId?: string; model?: string; messageId?: string | null; requestId?: string; capabilityIds?: string[]; signal?: AbortSignal; baseUrl?: string},
   onEvent: (event: UIStreamEvent) => void,
 ): Promise<void> {
   const response = await apiFetch(
@@ -482,7 +493,7 @@ export async function streamRegenerate(
     {
       method: 'POST',
       headers: {'content-type': 'application/json'},
-      body: JSON.stringify({message_id: options.messageId ?? null, provider_id: options.providerId, model: options.model, request_id: options.requestId}),
+      body: JSON.stringify({message_id: options.messageId ?? null, provider_id: options.providerId, model: options.model, request_id: options.requestId, capability_ids: options.capabilityIds}),
       signal: options.signal,
     },
   );
@@ -520,7 +531,7 @@ export async function streamEditMessage(
   conversationId: string,
   messageId: string,
   content: string,
-  options: {providerId?: string; model?: string; requestId?: string; signal?: AbortSignal; baseUrl?: string} = {},
+  options: {providerId?: string; model?: string; requestId?: string; capabilityIds?: string[]; signal?: AbortSignal; baseUrl?: string} = {},
   onEvent: (event: UIStreamEvent) => void,
 ): Promise<void> {
   const response = await apiFetch(
@@ -528,7 +539,7 @@ export async function streamEditMessage(
     {
       method: 'POST',
       headers: {'content-type': 'application/json'},
-      body: JSON.stringify({content, provider_id: options.providerId, model: options.model, request_id: options.requestId}),
+      body: JSON.stringify({content, provider_id: options.providerId, model: options.model, request_id: options.requestId, capability_ids: options.capabilityIds}),
       signal: options.signal,
     },
   );

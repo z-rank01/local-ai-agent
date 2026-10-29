@@ -99,6 +99,11 @@ receipt = await gateway.generate(ModelRequest(
 Skill 的运行快照摘要通过宿主的 `tool_descriptions` 注入本轮 `skill_info` 工具说明，正文仍由实际调用按需读取。说明不改 schema、工具登记或权限，也不改共享注册表；新包不需要新增工具或 Agent 分支。仅摘要进入选择面不代表模型必然选择，必须保留真实调用与成果验收。
 
 
+### 会话级能力选择（2026-10-29）
+
+原 `conversations.db` v11 增加 `capability_ids`（`skill:<name>` / `plugin:<id>` JSON），由页面能力栏按会话读写；升级前自动生成 `.before-v11.sqlite`。空选择表示不缩窄，沿用全部已启用能力；非空时只在运行起点收窄本轮 `SkillSession` 的发现目录（`versions` 与 `capabilities`），不摘工具 schema、不改权限、不启停插件。运行中的选择随检查点的 `skill_versions` 快照冻结，恢复不回读后续目录变化；切换能力不更新会话 `updated_at`。
+
+
 需要运行上下文的传输实现 `ContextualTransport.bind(context)`，返回独立的 ToolTransport 绑定。宿主提供会话/运行 ID、冻结工作区解析器、模型 ID、权限集合以及已绑定的 ModelGateway；插件不能从请求参数覆盖这些值。普通文件服务上下文仍可只使用工作区字段。两个运行不共享可变绑定，原已登记传输不被改写；现有金融兼容桥暂保留原会话路由，尚未转换为这一绑定形式。
 
 

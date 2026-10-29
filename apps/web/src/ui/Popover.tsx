@@ -19,6 +19,11 @@ export type PopoverProps = {
   width?: number;
   className?: string;
   labelledBy?: string;
+  id?: string;
+  initialFocus?: RefObject<HTMLElement | null>;
+  trapFocus?: boolean;
+  upOffset?: number;
+  placementAnchor?: RefObject<HTMLElement | null>;
   children: ReactNode;
 };
 
@@ -30,6 +35,11 @@ export function Popover({
   width,
   className = 'pop',
   labelledBy,
+  id,
+  initialFocus,
+  trapFocus = false,
+  upOffset = 0,
+  placementAnchor,
   children,
 }: PopoverProps): JSX.Element | null {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -38,7 +48,7 @@ export function Popover({
      空间不足时上翻；量宽时先把 left/width 归零，避免收缩适应被当前位置污染。 */
   const place = useCallback(() => {
     const panel = panelRef.current;
-    const host = anchor.current;
+    const host = placementAnchor?.current ?? anchor.current;
     if (!panel || !host) return;
     const rect = host.getBoundingClientRect();
     panel.style.left = '0px';
@@ -52,23 +62,54 @@ export function Popover({
       Math.max(8, window.innerWidth - panelWidth - 8),
     );
     let top = rect.bottom + 6;
-    if (top + panelHeight > window.innerHeight - 8 && rect.top - panelHeight - 6 > 8) {
-      top = rect.top - panelHeight - 6;
+    if (top + panelHeight > window.innerHeight - 8 && rect.top - panelHeight - 6 - upOffset > 8) {
+      top = rect.top - panelHeight - 6 - upOffset;
     }
     top = Math.max(8, Math.min(top, Math.max(8, window.innerHeight - panelHeight - 8)));
     panel.style.width = `${panelWidth}px`;
     panel.style.left = `${Math.round(left)}px`;
     panel.style.top = `${Math.round(top)}px`;
-  }, [align, anchor, width]);
+  }, [align, anchor, placementAnchor, upOffset, width]);
 
   useLayoutEffect(() => {
     if (!open) return;
     place();
     const panel = panelRef.current;
     if (!panel) return;
+    const preferred = initialFocus?.current;
     const first = panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-    (first ?? panel).focus({preventScroll: true});
-  }, [open, place]);
+    const target = preferred && preferred.getClientRects().length && !preferred.hasAttribute('disabled')
+      ? preferred
+      : first;
+    (target ?? panel).focus({preventScroll: true});
+  }, [initialFocus, open, place]);
+
+  useEffect(() => {
+    if (!open || !trapFocus) return;
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
+        .filter((node) => node.getClientRects().length && !node.hasAttribute('disabled'));
+      if (!items.length) {
+        event.preventDefault();
+        panel.focus({preventScroll: true});
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus({preventScroll: true});
+      } else if (!event.shiftKey && (document.activeElement === last || !panel.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus({preventScroll: true});
+      }
+    };
+    document.addEventListener('keydown', trap);
+    return () => document.removeEventListener('keydown', trap);
+  }, [open, trapFocus]);
 
   useEffect(() => {
     if (!open) return;
@@ -111,6 +152,7 @@ export function Popover({
   return createPortal(
     <div
       ref={panelRef}
+      id={id}
       className={className}
       role="dialog"
       aria-modal="false"

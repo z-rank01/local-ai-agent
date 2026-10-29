@@ -4,6 +4,7 @@
 export const STORAGE_KEYS = {
   appearance: 'local-ai-agent.appearance.v1',
   activeConversation: 'local-ai-agent.activeConversation.v1',
+  capabilityRecent: 'local-ai-agent.capability-recent.v1',
   panel: (id: string) => `local-ai-agent.panel.${id}`,
   sheetWidth: 'local-ai-agent.sheet-width',
 } as const;

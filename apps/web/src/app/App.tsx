@@ -25,6 +25,7 @@ import {
   streamRegenerate,
   updateConversationTitle,
   updateConversationModel,
+  updateConversationCapabilities,
   uploadWorkspaceFile,
 } from '../api';
 import {
@@ -36,7 +37,7 @@ import {
 } from '../lib/appearance';
 import {askConfirm, askForm, usePendingDialog} from '../lib/confirm';
 import {clamp, copyText, eventText, formatBackendError} from '../lib/format';
-import {notify} from '../lib/notify';
+import {dismissNotice, notify} from '../lib/notify';
 import {watchTheme} from '../lib/theme';
 import {readConversationSummary, upsertConversation, type ReadingReport} from '../lib/report';
 import {STORAGE_KEYS, readJson, readString, writeJson, writeString} from '../lib/storage';
@@ -60,6 +61,11 @@ import {ConfirmDialog} from '../ui/ConfirmDialog';
 import {Icon, IconSprite} from '../ui/Icon';
 import {Toast} from '../ui/Toast';
 import {WorkspaceContext, ToolNamesContext} from '../lib/workspace';
+import {CapabilityRegistryContext} from '../lib/capabilityRegistry';
+import {CAPABILITY_BAR_A} from '../lib/flags';
+import {toggleSelection, type CapabilityItem} from '../panels/capabilities/capabilityModel';
+import {useInventory} from '../panels/capabilities/useInventory';
+import {CapabilityBarContainer} from './CapabilityBarContainer';
 import {Composer} from './Composer';
 import {RunControls} from '../panels/RunsPanel';
 import {RUN_LIVE,conversationRun,acceptRunEvent,runLabel,shouldObserveRun} from '../lib/runs';
@@ -108,6 +114,8 @@ export default function App(): JSX.Element {
   const [attachedPaths, setAttachedPaths] = useState<string[]>([]);
   const [editingMessage, setEditingMessage] = useState<EditingState | null>(null);
   const [conversationFilter, setConversationFilter] = useState('');
+  const [draftCapabilityIds, setDraftCapabilityIds] = useState<string[]>([]);
+  const [skillsPanelSignal, setSkillsPanelSignal] = useState(0);
   /* 沉浸会话：会话列表与工作台都是按需唤出的覆盖层，默认一律收起 */
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -167,6 +175,7 @@ export default function App(): JSX.Element {
   const [shutdownPending, setShutdownPending] = useState(false);
   const [stackStopped, setStackStopped] = useState(false);
   const pendingDialog = usePendingDialog();
+  const capabilityRegistry = useInventory(workspaceId, {enabled: !loading && backendOnline});
 
   const workspaceIdRef = useRef(workspaceId);
   workspaceIdRef.current = workspaceId;
@@ -190,6 +199,18 @@ export default function App(): JSX.Element {
   const stickToBottomRef = useRef(true);
   const suppressNextAutoScrollRef = useRef(false);
   const activeConversationIdRef = useRef<string | null>(readString(STORAGE_KEYS.activeConversation));
+  const capabilitySelectionRef = useRef<string[]>([]);
+  const capabilitySaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const capabilitySaveRevision = useRef(0);
+  const capabilityNoticeKey = useRef(`${workspaceId}:${conversationId ?? ''}`);
+
+  // An actionable undo must not follow the user into another conversation.
+  useEffect(() => {
+    const key = `${workspaceId}:${conversationId ?? ''}`;
+    if (capabilityNoticeKey.current === key) return;
+    capabilityNoticeKey.current = key;
+    dismissNotice();
+  }, [conversationId, workspaceId]);
 
   const effectiveAppearance = useMemo(() => normalizeAppearanceSettings(appearance), [appearance]);
   const selectedModel = useMemo(
@@ -201,6 +222,70 @@ export default function App(): JSX.Element {
     () => conversations.find((item) => item.id === conversationId) ?? currentSummary,
     [conversationId, conversations, currentSummary],
   );
+  const capabilitySelection = useMemo(() => {
+    if (!conversationId) {
+      return draftCapabilityIds;
+    }
+    const source = currentSummary?.id === conversationId ? currentSummary : activeConversation;
+    const ids = source?.capability_ids;
+    return Array.isArray(ids) ? ids : [];
+  }, [activeConversation, conversationId, currentSummary, draftCapabilityIds]);
+  capabilitySelectionRef.current = capabilitySelection;
+
+  const setConversationCapabilityIds = useCallback((id: string, ids: string[]) => {
+    setCurrentSummary((current) => (current && current.id === id ? {...current, capability_ids: ids} : current));
+    setConversations((rows) => rows.map((row) => (row.id === id ? {...row, capability_ids: ids} : row)));
+  }, []);
+
+  const persistCapabilitySelection = useCallback((id: string, ids: string[]) => {
+    const revision = ++capabilitySaveRevision.current;
+    capabilitySaveQueue.current = capabilitySaveQueue.current.then(async () => {
+      try {
+        const summary = await updateConversationCapabilities(id, ids);
+        if (revision !== capabilitySaveRevision.current) return;
+        if (activeConversationIdRef.current === id) setCurrentSummary(summary);
+        setConversations((rows) => rows.map((row) => (row.id === id ? summary : row)));
+      } catch (cause) {
+        if (revision !== capabilitySaveRevision.current) return;
+        notify(formatBackendError(cause), 'error');
+        try {
+          const summary = await fetchConversation(id);
+          if (revision !== capabilitySaveRevision.current) return;
+          if (activeConversationIdRef.current === id) setCurrentSummary(summary);
+          setConversations((rows) => rows.map((row) => (row.id === id ? summary : row)));
+        } catch {
+          // Keep the optimistic value; the next chat request also carries it.
+        }
+      }
+    });
+  }, []);
+
+  const updateCapabilitySelection = useCallback((next: string[]) => {
+    capabilitySelectionRef.current = next;
+    if (!conversationId) {
+      setDraftCapabilityIds(next);
+      return;
+    }
+    setConversationCapabilityIds(conversationId, next);
+    persistCapabilitySelection(conversationId, next);
+  }, [conversationId, persistCapabilitySelection, setConversationCapabilityIds]);
+
+  const setCapabilitySelected = useCallback((id: string, selected: boolean) => {
+    updateCapabilitySelection(toggleSelection(capabilitySelectionRef.current, id, selected));
+  }, [updateCapabilitySelection]);
+
+  const toggleCapability = useCallback((item: CapabilityItem, selected: boolean) => {
+    setCapabilitySelected(item.id, selected);
+    notify(selected ? `已挂载「${item.name}」` : `已移除「${item.name}」`, 'ok');
+  }, [setCapabilitySelected]);
+
+  const normalizeCapabilitySelection = useCallback((ids: string[]) => {
+    const current = capabilitySelectionRef.current;
+    if (current.length === ids.length && current.every((id, index) => id === ids[index])) {
+      return;
+    }
+    updateCapabilitySelection(ids);
+  }, [updateCapabilitySelection]);
 
   const handleCopy = useCallback(async (text: string) => {
     const ok = await copyText(text);
@@ -318,6 +403,7 @@ export default function App(): JSX.Element {
       if (!summary || sequence !== loadSequenceRef.current) return;
       const nextWorkspaceId = summary.workspace_id ?? 'default';
       setCurrentSummary(summary);
+      setConversations((rows) => rows.map((row) => (row.id === summary.id ? summary : row)));
       setWorkspaceId(nextWorkspaceId);
       workspaceIdRef.current = nextWorkspaceId;
       setConversationId(targetId);
@@ -375,7 +461,10 @@ export default function App(): JSX.Element {
         : nextConversations[0]?.id;
       if (target) {
         await openConversation(target);
-      } else { restoreDraft(null, workspaceIdRef.current); }
+      } else {
+        activeConversationIdRef.current = null;
+        restoreDraft(null, workspaceIdRef.current);
+      }
     } catch (err) {
       if (!draftHydratedRef.current) restoreDraft(null, workspaceIdRef.current);
       setBackendOnline(false);
@@ -399,6 +488,8 @@ export default function App(): JSX.Element {
     pendingUserBlockIdRef.current = null;
     pendingAssistantBlockIdRef.current = null;
     setConversationId(null);
+    capabilitySelectionRef.current = [];
+    setDraftCapabilityIds([]);
     setBlocks([]);
     restoreDraft(null, workspaceIdRef.current);
     setCurrentSummary(undefined);
@@ -804,7 +895,13 @@ export default function App(): JSX.Element {
           conversationId,
           activeEdit.messageId,
           message,
-          {signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name, requestId: crypto.randomUUID()},
+          {
+            signal: controller.signal,
+            providerId: selectedModel?.provider_id,
+            model: selectedModel?.name,
+            requestId: crypto.randomUUID(),
+            capabilityIds: CAPABILITY_BAR_A ? capabilitySelectionRef.current : undefined,
+          },
           event=>{if(abortRef.current===controller) applyEvent(event);},
         );
       } else {
@@ -817,6 +914,7 @@ export default function App(): JSX.Element {
             title: conversationId ? undefined : '新对话',
             provider_id: selectedModel?.provider_id,
             model: selectedModel?.name,
+            capability_ids: CAPABILITY_BAR_A ? capabilitySelectionRef.current : undefined,
           },
           event=>{if(abortRef.current===controller) applyEvent(event);},
           {signal: controller.signal},
@@ -996,7 +1094,14 @@ export default function App(): JSX.Element {
     try {
       await streamRegenerate(
         conversationId,
-        {messageId: lastUserBlock.messageId, signal: controller.signal, providerId: selectedModel?.provider_id, model: selectedModel?.name, requestId: crypto.randomUUID()},
+        {
+          messageId: lastUserBlock.messageId,
+          signal: controller.signal,
+          providerId: selectedModel?.provider_id,
+          model: selectedModel?.name,
+          requestId: crypto.randomUUID(),
+          capabilityIds: CAPABILITY_BAR_A ? capabilitySelectionRef.current : undefined,
+        },
         event=>{if(abortRef.current===controller) applyEvent(event);},
       );
       if (streamFailureRef.current) throw new Error(streamFailureRef.current);
@@ -1185,6 +1290,15 @@ export default function App(): JSX.Element {
     setSettingsOpen(true);
   };
 
+  const openCapabilityManager = useCallback(async () => {
+    if (!await confirmCapabilityLeave()) {
+      return;
+    }
+    setSheetViewRaw('workbench');
+    setSkillsPanelSignal((value) => value + 1);
+    setSheetOpen(true);
+  }, []);
+
   const handleExportCurrent = (format: ExportFormat) => {
     if (activeConversation) {
       void exportConversation(activeConversation, format);
@@ -1251,8 +1365,10 @@ export default function App(): JSX.Element {
     detachObserver();
     persistDraft(); ++loadSequenceRef.current; ++searchSequenceRef.current;
     workspaceIdRef.current = id; activeConversationIdRef.current = null;
+    capabilitySelectionRef.current = [];
     setConversationLoading(false);
     setWorkspaceId(id); setConversationId(null); setCurrentSummary(undefined); setBlocks([]);
+    setDraftCapabilityIds([]);
     setConversationFilter(''); setEditingMessage(null); setEditText(''); setError('');
     setSheetDoc(null); setSheetView('workbench'); closeReportReader(false); restoreDraft(null, id);
     void fetchStatus(undefined, id).then(setStatus).catch(err => setError(formatBackendError(err)));
@@ -1392,6 +1508,7 @@ export default function App(): JSX.Element {
 
   return (
     <WorkspaceContext.Provider value={workspaceId}>
+    <CapabilityRegistryContext.Provider value={capabilityRegistry}>
     <BriefReaderContext.Provider value={openWorkspaceBrief}>
     <ToolNamesContext.Provider value={Object.fromEntries((status?.tool_catalog ?? []).map(tool => [tool.name, tool.display_name]))}>
       <IconSprite />
@@ -1449,6 +1566,19 @@ export default function App(): JSX.Element {
           </span>
           {controlTarget&&<RunControls run={controlTarget} onControl={controlExecution}/>}
         </section>}
+        capabilityBar={CAPABILITY_BAR_A ? (
+          <CapabilityBarContainer
+            workspaceId={workspaceId}
+            conversationId={conversationId}
+            selectedIds={capabilitySelection}
+            ready={!loading && backendOnline}
+            disabled={busy || versionBusy || conversationLoading || loading || !backendOnline}
+            shortcutEnabled={!settingsOpen && !readingReport && !drawerOpen && !sheetOpen && !pendingDialog}
+            onSelectionChange={normalizeCapabilitySelection}
+            onToggle={toggleCapability}
+            onManage={() => { void openCapabilityManager(); }}
+          />
+        ) : undefined}
         contextLoading={loading || conversationLoading}
         value={editingMessage ? editText : input}
         onChange={editingMessage ? setEditText : setInput}
@@ -1496,6 +1626,7 @@ export default function App(): JSX.Element {
         onViewChange={setSheetView}
         width={sheetWidth}
         onWidthChange={setSheetWidth}
+        skillsPanelSignal={skillsPanelSignal}
         doc={sheetDoc}
         onZoomDoc={handleZoomDoc}
         workspaceManager={{workspace: workspaces.find(w => w.id === workspaceId), workspaces, busy: versionBusy || uploading || workspaceFilesBusy || loading || conversationLoading, onSelect: selectWorkspace, onRefresh: refreshWorkspaces, onOpenConversation: openConversation}}
@@ -1512,6 +1643,8 @@ export default function App(): JSX.Element {
         }}
         skills={{
           conversation: activeConversation,
+          selectedCapabilityIds: capabilitySelection,
+          onCapabilitySelected: setCapabilitySelected,
           onChanged: () => { void handleSettingsSaved(); },
           onMethodChanged: (updated) => setConversations((current) => current.map((item) => (
             item.id === updated.id ? updated : item
@@ -1558,6 +1691,7 @@ export default function App(): JSX.Element {
       ) : null}
     </ToolNamesContext.Provider>
     </BriefReaderContext.Provider>
+    </CapabilityRegistryContext.Provider>
     </WorkspaceContext.Provider>
   );
 }

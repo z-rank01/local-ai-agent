@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test:theme": "node --test scripts/test-theme.mjs",
+    "test:capability-bar": "node --test scripts/test-capability-bar.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "prebuild": "node scripts/generate-extensions.mjs",
     "predev": "node scripts/generate-extensions.mjs",

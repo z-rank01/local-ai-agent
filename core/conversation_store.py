@@ -47,6 +47,7 @@ class Conversation:
     updated_at: str
     research_method: str = "auto"
     workspace_id: str = "default"
+    capability_ids: list[str] = field(default_factory=list)
     messages: list[Message] = field(default_factory=list)
 
 
@@ -113,6 +114,7 @@ _MIGRATIONS: list[str] = [
         workspace_id TEXT NOT NULL, capability_id TEXT NOT NULL, kind TEXT NOT NULL,
         state TEXT NOT NULL, updated_at TEXT NOT NULL,
         PRIMARY KEY(workspace_id,capability_id,kind));""",
+    "ALTER TABLE conversations ADD COLUMN capability_ids TEXT NOT NULL DEFAULT '[]';",
 ]
 
 
@@ -245,20 +247,42 @@ class ConversationStore:
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
 
+    @staticmethod
+    def _parse_capability_ids(value: Any) -> list[str]:
+        """Read the per-conversation selection defensively; old/corrupt rows are empty."""
+        try:
+            parsed = json.loads(value or '[]')
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(parsed, list):
+            return []
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in parsed:
+            if not isinstance(item, str) or not item or item in seen:
+                continue
+            seen.add(item)
+            result.append(item)
+        return result
+
     # ── Conversation CRUD ───────────────────────────────────────────────
 
     def create_conversation(
-        self, *, title: str = "未命名对话", model: str = "", workspace_id: str = "default"
+        self, *, title: str = "未命名对话", model: str = "", workspace_id: str = "default",
+        capability_ids: list[str] | None = None,
     ) -> Conversation:
         conv_id = uuid.uuid4().hex[:16]
         now = self._now()
+        selected = list(capability_ids or ())
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO conversations (id, title, model, created_at, updated_at, workspace_id) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (conv_id, title, model, now, now, workspace_id),
+                "INSERT INTO conversations (id, title, model, created_at, updated_at, workspace_id, capability_ids) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (conv_id, title, model, now, now, workspace_id,
+                 json.dumps(selected, ensure_ascii=False)),
             )
-        return Conversation(id=conv_id, title=title, model=model, created_at=now, updated_at=now, workspace_id=workspace_id)
+        return Conversation(id=conv_id, title=title, model=model, created_at=now, updated_at=now,
+                            workspace_id=workspace_id, capability_ids=selected)
 
     def get_conversation(self, conv_id: str) -> Conversation | None:
         with self._connect() as conn:
@@ -275,6 +299,7 @@ class ConversationStore:
                 updated_at=row["updated_at"],
                 research_method=row["research_method"],
                 workspace_id=row["workspace_id"],
+                capability_ids=self._parse_capability_ids(row["capability_ids"]),
             )
             msgs = conn.execute(
                 "SELECT * FROM messages WHERE conversation_id = ? AND active = 1 ORDER BY created_at",
@@ -338,6 +363,7 @@ class ConversationStore:
                     updated_at=r["updated_at"],
                     research_method=r["research_method"],
                     workspace_id=r["workspace_id"],
+                    capability_ids=self._parse_capability_ids(r["capability_ids"]),
                 )
                 for r in rows
             ]
@@ -354,6 +380,17 @@ class ConversationStore:
             cursor = conn.execute(
                 "UPDATE conversations SET research_method=?, updated_at=? WHERE id=?",
                 (method_id, self._now(), conv_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError('conversation not found')
+
+    def set_capability_ids(self, conv_id: str, capability_ids: list[str]) -> None:
+        """Persist a task-level selection without reordering the conversation list."""
+        payload = json.dumps(list(capability_ids), ensure_ascii=False)
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE conversations SET capability_ids=? WHERE id=?",
+                (payload, conv_id),
             )
             if cursor.rowcount != 1:
                 raise ValueError('conversation not found')

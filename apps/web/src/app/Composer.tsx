@@ -5,6 +5,7 @@ import {Icon} from '../ui/Icon';
 
 export type ComposerProps = {
   runStatus?: ReactNode;
+  capabilityBar?: ReactNode;
   contextLoading?: boolean;
   value: string;
   onChange: (value: string) => void;
@@ -29,6 +30,7 @@ const baseName = (path: string): string => path.split('/').filter(Boolean).pop()
    运行状态与控制集中在上沿，文本域照常可继续起草。 */
 export function Composer({
   runStatus,
+  capabilityBar,
   contextLoading = false,
   value,
   onChange,
@@ -82,6 +84,7 @@ export function Composer({
     <footer className="composer-wrap">
       <div className="composer">
         {runStatus}
+        {capabilityBar}
         {attachments.length > 0 ? (
           <div className="attach-row">
             {attachments.map((path) => (

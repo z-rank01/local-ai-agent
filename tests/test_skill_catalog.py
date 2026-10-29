@@ -89,12 +89,14 @@ class SkillCatalogFlowTests(unittest.TestCase):
             ConversationStore(path)
             with closing(sqlite3.connect(path)) as db, db:
                 db.execute('DROP TABLE capability_installs')
+                db.execute('ALTER TABLE conversations DROP COLUMN capability_ids')
                 db.execute('PRAGMA user_version=9')
                 db.execute("INSERT INTO conversations(id,title,model,created_at,updated_at) VALUES('retained','原会话','m','d','d')")
             store = ConversationStore(path)
             self.assertEqual(store.get_conversation('retained').title, '原会话')
-            self.assertTrue(path.with_suffix('.before-v10.sqlite').exists())
-            with closing(sqlite3.connect(path.with_suffix('.before-v10.sqlite'))) as db:
+            self.assertEqual(store.get_conversation('retained').capability_ids, [])
+            self.assertTrue(path.with_suffix('.before-v11.sqlite').exists())
+            with closing(sqlite3.connect(path.with_suffix('.before-v11.sqlite'))) as db:
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 9)
             state = CapabilityStore(store._connect)
             state.save('default', 'notes', {'enabled': False})

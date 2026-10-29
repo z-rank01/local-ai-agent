@@ -1,8 +1,10 @@
 import {useSyncExternalStore} from 'react';
 
-export type Notice = {id: number; text: string; kind: 'ok' | 'error'};
+export type NoticeAction = {label: string; run: () => void | Promise<void>};
+export type Notice = {id: number; text: string; kind: 'ok' | 'error'; action?: NoticeAction};
 
 const DISMISS_MS = 2200;
+const ACTION_DISMISS_MS = 4000;
 
 let notice: Notice | null = null;
 let dismissTimer: number | null = null;
@@ -22,14 +24,21 @@ function dismiss(): void {
   emit();
 }
 
-export function notify(text: string, kind: 'ok' | 'error' = 'ok'): void {
+export function notify(text: string, kind: 'ok' | 'error' = 'ok', action?: NoticeAction): void {
   seq += 1;
-  notice = {id: seq, text, kind};
+  notice = {id: seq, text, kind, action};
   if (dismissTimer !== null) {
     window.clearTimeout(dismissTimer);
   }
-  dismissTimer = window.setTimeout(dismiss, DISMISS_MS);
+  dismissTimer = window.setTimeout(dismiss, action ? ACTION_DISMISS_MS : DISMISS_MS);
   emit();
+}
+
+export function dismissNotice(): void {
+  if (dismissTimer !== null) {
+    window.clearTimeout(dismissTimer);
+  }
+  dismiss();
 }
 
 function subscribe(listener: () => void): () => void {
