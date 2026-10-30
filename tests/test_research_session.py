@@ -347,7 +347,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         async def process(messages):
             return messages
         agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw: [
-            {'type': 'function', 'function': {'name': n}} for n in ('code_exec', 'brief_publish', 'stock_research_submit')]),
+            {'type': 'function', 'function': {'name': n}} for n in ('code_exec', 'brief_publish', 'unregistered_fixture')]),
             audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
         agent.turn_window_seconds = -1
@@ -355,9 +355,64 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         events = [e async for e in agent.run([{'role': 'user', 'content': '完成研究'}])]
         self.assertEqual(len(calls), 4)
         self.assertTrue(all('brief_publish' in c for c in calls))
-        self.assertTrue(all('stock_research_submit' not in c for c in calls))
+        self.assertTrue(all('unregistered_fixture' not in c for c in calls))
         self.assertEqual(events[-1].kind, 'done')
         self.assertIn('阅读简报', events[-1].text)
+
+    async def test_active_research_can_choose_background_submissions(self):
+        from pathlib import Path
+        from types import SimpleNamespace
+        from plugins.finance.loop import FinanceLoop as Agent
+        files, run, params = await self.prepare()
+        manifest = json.loads((Path(__file__).resolve().parents[1] /
+                               'plugins/finance/plugin.json').read_text(encoding='utf-8'))
+        background = ('stock_research_submit', 'stock_theme_research_submit', 'stock_market_brief')
+        names = ('code_exec', 'brief_publish', *background, 'stock_research_cancel')
+        files.known_tools = names
+        files.tools_for_role = lambda role: manifest['tool_roles'].get(role, [])
+        offered, submitted = [], []
+        class Model:
+            cloud = False
+            async def chat_stream_with_tools(self, messages, tools):
+                offered.append({tool['function']['name'] for tool in tools or []})
+                if len(offered) <= 3:
+                    requests = [('code_exec', {'code': '1'})]
+                elif len(offered) == 4:
+                    requests = [(background[0], {'symbol': '000001', 'research_question': '公开研究000001'}),
+                                ('stock_research_cancel', {'job_id': 'unrelated'}),
+                                (background[1], {'research_question': '公开研究000001的产业背景'}),
+                                (background[2], {})]
+                else:
+                    requests = [('brief_publish', params)]
+                yield '', {'role': 'assistant', 'content': '', 'tool_calls': [
+                    {'id': f'{len(offered)}-{index}', 'function': {'name': name, 'arguments': args}}
+                    for index, (name, args) in enumerate(requests)]}
+        class Router:
+            research = run
+            async def dispatch(self, name, args, session):
+                if name in background:
+                    submitted.append(name)
+                    return {'code': 'TASK_SUBMITTED', 'status': 'QUEUED', 'job_id': name}
+                if name == 'brief_publish':
+                    return await run.publish(args)
+                if name == 'stock_research_cancel':
+                    raise AssertionError('Task management must remain unavailable in this research')
+                return {'stdout': args['code']}
+        async def process(messages):
+            return messages
+        agent = Agent(llm=Model(), router=Router(), registry=SimpleNamespace(get_definitions=lambda **kw: [
+            {'type': 'function', 'function': {'name': name}} for name in names]),
+            audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
+        agent.quality_first_research = agent.turn_loop_enabled = True
+        events = [event async for event in agent.run([{'role': 'user', 'content': '公开研究000001及其产业和市场背景'}])]
+        self.assertEqual(submitted, list(background))
+        self.assertTrue(all(set(background) <= tools for tools in offered))
+        self.assertTrue(all('stock_research_cancel' not in tools for tools in offered))
+        blocked = [event for event in events if event.kind == 'tool_end'
+                   and event.data['name'] == 'stock_research_cancel']
+        self.assertEqual([event.data['status'] for event in blocked], ['error'])
+        self.assertEqual(events[-1].kind, 'done')
 
     async def test_no_progress_is_diagnostic_until_model_finishes(self):
         from plugins.finance.loop import FinanceLoop as Agent

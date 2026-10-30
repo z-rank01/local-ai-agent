@@ -25,7 +25,7 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（981项、21项跳过，2026-10-30实测；Windows asyncio需可用本机socket）
+.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（982项、21项跳过，2026-10-30实测；Windows asyncio需可用本机socket）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -91,7 +91,7 @@ powershell Start-Process …（由聊天后端调用）
 - 前端 `apps/web/src/` 为组件化结构：`app/`（App.tsx 编排层 + 顶栏/会话抽屉/输入胶囊（含 A 能力栏）/阅读栏/工作台 Sheet/设置/阅读器等区块）、`panels/`（工作区、技能、股票、打包任务）、`ui/`（Collapse/Panel/Popover 等基元）、`lib/`（storage/format/appearance/transcript/report/notify/confirm/flags）；`styles.css` 是唯一令牌来源（Apple 设计系统，旧三栏紫系已废弃）。能力管理侧栏 v2 在 `panels/capabilities/CapabilityManager.tsx`，旧界面保留为 `SkillsPanelLegacy.tsx`；两侧与 Composer 共用 App 的 `useCapabilityRegistry` 与 selection，`VITE_CAPABILITY_BAR_A` 是能力面总开关，关闭时同时回退 Composer 与侧栏。界面无常驻侧栏：顶栏细条 + 全屏阅读栏 + 底部悬浮输入胶囊；会话抽屉与工作台 Sheet 两级浮层默认收起；唯一"退出"按钮在会话抽屉底部。
 - 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。普通聊天通用系统内容维护在 `prompts/modules/01..07`；搜索与金融专属内容在各自 `plugins/<id>/prompts/`，由清单 `prompts` 声明并按本轮登记工具选择。新增能力提示不改通用 Agent 分支。插件提示文件和触发声明一起进入检查点兼容指纹；`prompts/system.txt` 只是 modules 缺失时的兜底占位。自主研究的单独核对角色使用 `plugins/finance/prompts/review.txt`，不作为普通聊天模块注入；它与原模块一起进入检查点兼容指纹。
 
-聊天自主研究的evidence_requests由程序展开为原工具调用，不另起执行后端。evidence-index.json只登记实际收到的资料及模型标注；reviews保存同模型单独核对的候选稿/可见结果，不保存隐藏思维链、不进入正文。发布关联当前稿及证据指纹，不认证语义；核对UNKNOWN停止本轮且不重发。新研究不按累计时长、轮数、搜索/抓取次数或无进展计数强制收尾；进展计数仅作诊断，后台提交由任务需要决定。STOCK_WINDOW_SECONDS废弃；broker v2无研究deadline/max_steps，已保存v1票据保持原契约，不自动升级或重发。单次网络超时、当前授权、账户准入及用户停止仍生效。
+聊天自主研究的evidence_requests由程序展开为原工具调用，不另起执行后端。evidence-index.json只登记实际收到的资料及模型标注；reviews保存同模型单独核对的候选稿/可见结果，不保存隐藏思维链、不进入正文。发布关联当前稿及证据指纹，不认证语义；核对UNKNOWN停止本轮且不重发。新研究不按累计时长、轮数、搜索/抓取次数或无进展计数强制收尾；进展计数仅作诊断，读取方法后后台个股、主题及市场简报仍可按已授权目标选择，无需额外提交口令；受理不代表执行，不因此开启日常worker或恢复账户/旧任务。STOCK_WINDOW_SECONDS废弃；broker v2无研究deadline/max_steps，已保存v1票据保持原契约，不自动升级或重发。单次网络超时、当前授权、账户准入及用户停止仍生效。
 
 ## 约定
 

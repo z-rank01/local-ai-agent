@@ -525,10 +525,10 @@ class FinanceLoop(Agent):
                             execution_retries += 1
                             messages.append({'role': 'system', 'content':
                                 '当前研究尚未通过brief_publish交付。若可以继续，请实际读取方法、获取原文并完成发布；'
-                                '只说将检索不会执行。不转交专业任务。确实无法推进时明确失败原因。'})
+                                '只说将检索不会执行。可按任务需要选择已授权的后台研究；受理不等于取得报告。确实无法推进时明确失败原因。'})
                             continue
                         await research.incomplete()
-                        raise RuntimeError('研究未完成交付；已保存研究记录与工具结果，不会在后台自动继续。')
+                        raise RuntimeError('研究未完成交付；已保存研究记录与工具结果。已提交后台任务以原回执为准，不因此重发或取消。')
                     if (tool_defs and self.allow_tools and
                             unfinished_execution(reply, user_request)):
                         if (execution_retries >= 2 or not active or
