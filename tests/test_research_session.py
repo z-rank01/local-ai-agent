@@ -47,6 +47,9 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         files = Files()
         run = ResearchSession(files, conversation_id='conversation', model='selected', allowed=True)
         await run.begin({'scope': '公司研究', 'plan': ['读原文'], 'phase': '准备'})
+        # Rendering/legacy-loop fixtures intentionally model v1 publication.
+        # New recipe-v2 feedback is exercised in test_research_recipe.
+        run.record['research_contract_version'] = 1
         await run.observe({'name': 'file_read', 'status': 'ok', 'params': {
             'path': '/workspace/skills/harness-stock-research-v1/references/company.md'},
             'result': {'content': '方法'}})

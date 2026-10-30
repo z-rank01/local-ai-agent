@@ -260,6 +260,7 @@ class LLMClient:
         if request_observer:
             import uuid
             from .native_tool_schema import tool_schema_observation
+            from harness.runtime.request_materials import observe_materials
             call_id = uuid.uuid4().hex
             request_observer('native_model_request', {
                 'call_id': call_id, 'model': 'ollama:' + self._model, 'local_attempt_id': call_id,
@@ -267,7 +268,8 @@ class LLMClient:
                 'tool_names': [item['function']['name'] for item in tools or []],
                 'message_count': len(normalized),
                 'input_chars': len(_json.dumps(normalized, ensure_ascii=False)),
-                **tool_schema_observation(payload, {})})
+                **tool_schema_observation(payload, {}),
+                **observe_materials(normalized, {'call_id':call_id, 'local_attempt_id':call_id})})
 
         accumulated: dict = {"role": "assistant", "content": ""}
         tool_calls_acc: list[dict] = []

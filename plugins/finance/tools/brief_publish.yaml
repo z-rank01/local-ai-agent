@@ -8,12 +8,15 @@ description: >-
   本轮研究目录再只传 draft_path；也可直接传内联字段，draft_path 与内联字段可混用（内联优先）。
   quote 必须是原文连续片段（只允许排版空白差异），发布的数字必须能在该引文里找到；calculations 只需给
   操作与有来源/期间/单位的输入，result 由程序计算。返回已保存文件路径，回复中用该路径的 Markdown 链接展示报告卡。
-  程序自动进入核对阶段，实际调用本轮同一模型单独核对。默认意见只作建议，报告末尾折叠显示待核事项；
-  想先看建议并自主决定修改时，可先brief_review核对已保存草稿；同稿同证据已有成功回执时复用，不重复调用模型。
+  新研究先返回REVIEW_READY和review_ref，本次未发布；读取独立建议后可补查、修改或保留有依据的异议。
+  明确发布时再次调用并带review_ref及简短review_response。不要求意见清零。也可先brief_review；
+  同稿同证据已有成功回执时复用，不重复调用模型。分析、核对与写作使用同一冻结会话模型。
   调用失败或UNKNOWN时保存未完成草稿，不自动重发，也不标为正式发布。
 parameters:
   type: object
   properties:
+    review_ref: {type: string, description: 当前稿及证据版本实际返回的核对引用，不可猜测；独立于草稿正文}
+    review_response: {type: string, description: 简短说明采纳、补查或保留异议后的发布决定；非隐藏推理，不要求逐条填表}
     draft_path: {type: string, description: 本轮research_begin返回目录内的完整发布JSON；可搭配内联字段覆盖文件同名字段。}
     title: {type: string}
     markdown: {type: string, description: 面向读者的研究正文，不含编制过程或订正清单；来源和计算由程序附在末尾}

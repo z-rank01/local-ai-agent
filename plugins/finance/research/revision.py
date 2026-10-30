@@ -127,3 +127,14 @@ async def inherit(session, previous, lineage):
         session.progress('method', path)
     session._observed_milestones = len(session._milestones)
     session.record['revision_of'] = lineage
+    context = {'previous_research_id':previous['id'],
+               'findings':[{'candidate_sha256':key, 'status':row.get('status'),
+                            'issues':row.get('issues', []), 'checks':row.get('checks', [])}
+                           for key,row in previous.get('reviews', {}).items()],
+               'reading':'历史意见须重新对照原文，不继承核对成功、未知请求或发布资格'}
+    if lineage.get('draft_inherited'):
+        text, digest = await read_document(session, lineage['original_draft_path'])
+        if digest != lineage['original_draft_sha256']:
+            raise ValueError('父稿在交接期间变化，不能继续建立修订')
+        context.update(path=lineage['original_draft_path'], draft=text, sha256=digest)
+    session.record['revision_context'] = context

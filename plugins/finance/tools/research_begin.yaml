@@ -24,9 +24,50 @@ parameters:
       type: array
       items: {type: string}
       description: 简短可观察计划，不含隐藏思维链
+    recipe:
+      type: object
+      additionalProperties: false
+      description: 初始动态工作单；仅首次使用。目标、产出与检查方式是计划，不预填执行成功。可省略并从plan建立。
+      properties:
+        stages:
+          type: array
+          items: &recipe_stage
+            type: object
+            additionalProperties: false
+            properties:
+              id: {type: string, description: 修改已有阶段时使用返回ID；新增省略}
+              name: {type: string}
+              goal: {type: string}
+              depends_on: {type: array, items: {type: string}, description: 其他已登记阶段ID；只是研究依赖，不控制执行权限}
+              input_refs: {type: array, items: {type: string}, description: 返回artifacts中的实际引用}
+              expected_outputs: {type: array, items: {type: string}}
+              checks: {type: array, items: {type: string}, description: 如何核查，不是已通过声明}
+              output_refs: {type: array, items: {type: string}, description: 返回artifacts中的实际产物或回执}
+              open_questions: {type: array, items: {type: string}}
+              assessment: {type: string, description: 模型判断，不构成事实认证}
+              model_status: {type: string, description: 可记录planned/running/partial/done/skipped等判断；不是工具执行状态}
+              claims:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    text: {type: string, description: 正文核心陈述或待核实推断}
+                    entity: {type: string}
+                    metric: {type: string}
+                    period: {type: string}
+                    unit: {type: string}
+                    value: {type: string}
+                    evidence_refs: {type: array, items: {type: string}}
+                  required: [text]
+      required: [stages]
+    stage_updates:
+      type: array
+      description: 按已返回ID修改阶段，或省略ID新增。可拆分、合并、跳过和重访；保留旧版本，不以阶段完成数量限制研究。
+      items: *recipe_stage
     revision_of:
       type: string
-      description: 仅首次准备阶段可用。已有研究目录内research.json的工作区路径；核验原稿、来源及固定方法版本后创建关联的新研究，不恢复旧任务、不继承旧审查或UNKNOWN。后续发布使用新目录草稿。
+      description: 仅首次准备阶段可用。核验原稿、来源及固定方法版本后创建关联研究，交接父稿和历史意见作为待核实材料；不恢复旧任务、不继承核对资格或UNKNOWN。后续发布使用新目录草稿。
     evidence_requests:
       type: array
       description: 已选择的具体取证需求，相同参数不重复执行。目录仍需按标题/主体/期间选公告，不能当全文已读。

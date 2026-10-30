@@ -18,6 +18,9 @@ def review_messages(question, candidate, research, system, findings=()):
     # submission elsewhere; only remove this affirmation from the review view.
     view={key:value for key,value in candidate.items() if key!='review'}
     payload={'question':question,'candidate':view,'limitations':candidate.get('review',{}).get('limitations',[]),
+             'known_conflicts':candidate.get('review',{}).get('conflicts',[]),
+             'recipe':(getattr(research,'record',None) or {}).get('recipe'),
+             'revision_context':(getattr(research,'record',None) or {}).get('revision_context'),
              'evidence':model_evidence(research.evidence_index()),
              'methods':research.method_text,'previous_findings':list(findings)}
     return [{'role':'system','content':system+'\n\n'+instructions},

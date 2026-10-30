@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>金融 Plugin：当前流程与 Recipe 架构建议</title>
+<style>
+:root{color-scheme:light dark;--bg:#f6f7fb;--panel:#fff;--text:#192235;--muted:#596579;--line:#dce2ed;--accent:#315bce;--soft:#eef3ff;--warn:#855000;--warnbg:#fff5df}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.75 system-ui,-apple-system,"Microsoft YaHei",sans-serif}
+main{max-width:1100px;margin:auto;padding:40px 22px 70px}
+h1{font-size:30px;line-height:1.35}h2{font-size:23px}h3{font-size:18px}
+p{margin:12px 0}.muted,small{color:var(--muted)}a{color:var(--accent)}
+nav{display:flex;gap:8px;flex-wrap:wrap;margin:26px 0}
+button{font:inherit;padding:9px 16px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);cursor:pointer}
+button[aria-selected=true]{background:var(--accent);color:white;border-color:var(--accent)}
+section[hidden]{display:none}
+.box,details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:14px 0}
+.note{background:var(--soft);border-left:4px solid var(--accent);padding:14px 18px}
+.warn{background:var(--warnbg);color:var(--warn);padding:14px 18px;border-radius:10px}
+.flow{display:flex;align-items:stretch;gap:8px;margin:24px 0;flex-wrap:wrap}
+.node{flex:1;min-width:145px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.node strong{display:block;color:var(--accent)}.arrow{align-self:center;color:var(--muted)}
+summary{cursor:pointer;font-weight:600}details p:last-child{margin-bottom:0}
+table{width:100%;border-collapse:collapse;background:var(--panel)}
+th,td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:12px}th{background:var(--soft)}
+.table-wrap{overflow-x:auto}code{background:var(--soft);padding:2px 5px;border-radius:4px}
+pre{overflow:auto;padding:18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;font-size:14px;line-height:1.65}
+.tag{display:inline-block;font-size:13px;padding:2px 8px;border-radius:20px;background:var(--soft);color:var(--accent)}
+footer{margin-top:35px;border-top:1px solid var(--line);padding-top:16px;color:var(--muted)}
+@media(max-width:650px){main{padding:22px 14px}h1{font-size:25px}.flow{display:block}.arrow{text-align:center;transform:rotate(90deg)}.node{margin:5px 0}.box,details{padding:15px}th,td{min-width:145px}}
+@media(prefers-color-scheme:dark){:root{--bg:#111722;--panel:#192232;--text:#e4eaf5;--muted:#abb8cd;--line:#344158;--accent:#9bb8ff;--soft:#25334e;--warn:#f4d39b;--warnbg:#352b1b}button[aria-selected=true]{background:#315bce;color:white}}
+@media print{nav{display:none}section[hidden]{display:block}section{break-before:page}section:first-of-type{break-before:auto}details{break-inside:avoid}body{background:white;color:black}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<span class="tag">2026-10-30 架构比较 · 优化前快照与 Recipe 设计</span>
+<h1>金融研究：让每一步的材料、判断和交接都可追溯</h1>
+<p>建议采用动态 Recipe：AI 提出研究步骤，原有执行器执行工具，各阶段留下实际产出与证据，再由 AI 决定补查、修订或交付。</p>
+<div class="note"><strong>它主要解决信息交接和可诊断性。</strong> Recipe 本身不能保证事实正确；必须同时修复输入缺漏、指标绑定和核对反馈。</div>
+</header>
+<nav role="tablist" aria-label="架构视图">
+<button type="button" id="tab-current" role="tab" aria-controls="current" aria-selected="true">① 优化前流程快照</button>
+<button type="button" id="tab-proposed" role="tab" aria-controls="proposed" aria-selected="false">② 建议 Recipe 流程</button>
+<button type="button" id="tab-record" role="tab" aria-controls="record" aria-selected="false">③ 工作单与具体例子</button>
+</nav>
+<section id="current" role="tabpanel" aria-labelledby="tab-current">
+<h2>优化前：同一个聊天模型推进研究，另开干净上下文核对</h2>
+<p class="muted">“准备、获取、分析、核对、交付”已有阶段标签，但不代表每个阶段都有独立执行器或完整的输入输出契约。</p>
+<div class="flow" aria-label="当前流程：用户问题进入研究循环，再提交发布、单独核对并保存交付">
+<div class="node"><strong>用户问题</strong>当前会话历史<br>冻结模型与授权</div><span class="arrow" aria-hidden="true">→</span>
+<div class="node"><strong>研究循环 ↺</strong>读取方法、取证<br>分析、计算、写稿</div><span class="arrow" aria-hidden="true">→</span>
+<div class="node"><strong>发布请求</strong>引用与计算校验<br>同模型单独核对</div><span class="arrow" aria-hidden="true">→</span>
+<div class="node"><strong>保存与交付</strong>渲染 HTML<br>返回报告卡并结束</div>
+</div>
+<div class="box"><strong>当前已有的“Recipe 雏形”</strong>
+<p><code>research.json</code> 保存范围、计划与阶段；证据索引保存来源和实际收到的摘录；草稿、核对记录与检查点分别保存。</p>
+<p>这些记录支持追踪，但还没有统一回答：“这一阶段用的是哪版材料？哪些内容进入了模型请求？上一阶段的疑点是否交给下一阶段？”</p></div>
+<details open><summary>研究循环中的模型实际能看到什么？</summary>
+<p><strong>主要输入：</strong>当前问题、可用会话历史、系统与插件提示、工具回执，以及循环注入的实际证据清单。</p>
+<p><strong>边界：</strong>下载保存的全文不等于已经向模型返回全文；旧的大工具回执可能变成预览和回读指针。后台继承了方法正文，也不等于写作者的新请求中已经包含正文。</p>
+<p><strong>影响：</strong>材料可能可访问却未被带入，也可能已带入但被错误归类。两种情况应分别诊断。</p></details>
+<details><summary>单独核对者实际能看到什么？</summary>
+<p>使用同一冻结模型，另建干净上下文，带入问题、当前候选稿、证据清单、方法正文和当前运行中选取的历史核对问题。</p>
+<p>核对调用自身不开放工具，可以提出补读请求。当前构造核对输入时排除了候选稿整个 review 字段，只另行保留其中的 limitations；其中的 conflicts 因而没有一并带入。</p>
+<p>它与写作者看到的内容并不完全一致。这种差异有些用于减少干扰，有些属于需要修复的信息缺漏。</p></details>
+<details open><summary>当前最值得修复的交接断点</summary>
+<p><strong>默认发布路径：</strong>核对完成后即可保存报告并结束，作者不会再获得一轮处理本次核对意见的机会。</p>
+<p><strong>已有可选路径：</strong><code>brief_review</code> 可以先返回建议，作者再改稿或发布；但它还不是稳定的默认交接过程。</p>
+<p><strong>关联修订：</strong>可以继承证据与方法，但父稿正文和父核对意见不会自动作为完整交接包交给新作者。</p></details>
+<div class="warn">当前问题不能全部归为上下文截断。例如现金流指标的正确名称和数值已经存在于材料中，正文仍然误用了指标。需要同时改善语义绑定和反馈处理。</div>
+</section>
+<section id="proposed" role="tabpanel" aria-labelledby="tab-proposed" hidden>
+<h2>建议：Recipe 记录研究，模型决定路径，原执行器承接动作</h2>
+<p>初始 Recipe 写目标、拟议步骤和检查方法；尚未执行的步骤不预填结果。后续根据发现增加、拆分、跳过或重访步骤。</p>
+<div class="flow" aria-label="建议流程：动态计划，取证与分析，写稿与核对循环，模型明确发布">
+<div class="node"><strong>提出工作单</strong>问题、范围、方法<br>拟议步骤与检查方式</div><span class="arrow" aria-hidden="true">→</span>
+<div class="node"><strong>取证 ↔ 分析</strong>原工具实际执行<br>登记附件与判断依据</div><span class="arrow" aria-hidden="true">→</span>
+<div class="node"><strong>草稿 ↔ 核对</strong>同版材料交接<br>作者处理建议或补查</div><span class="arrow" aria-hidden="true">→</span>
+<div class="node"><strong>明确交付</strong>模型选择当前稿<br>保存版本与报告卡</div>
+</div>
+<div class="note"><strong>Recipe 是所有阶段共用的工作记录，不是额外的执行器。</strong> “核对 → 补查 → 分析 → 改稿”可以循环；简单问题可以合并步骤，资料不足可以交付边界清楚的部分成果。</div>
+<details open><summary>1．创建：AI 写意图，程序绑定真实运行身份</summary>
+<p><strong>AI 提出：</strong>研究问题、适用方法、拟议阶段、各阶段预期产出、如何检查，以及当前未知项。</p>
+<p><strong>程序负责：</strong>研究 ID、版本、冻结模型、授权范围、实际工具回执和产物指纹。AI 不能自行填写“下载成功”来替代真实回执。</p></details>
+<details><summary>2．取证：附件有来源，摘录有位置，覆盖范围单独记录</summary>
+<p>工具返回后登记原件引用、来源时间、文件指纹、实际返回的页码或文本范围。AI 再填写材料用途、适用期间、缺失内容与矛盾。</p>
+<p>原件仍保存在现有工作区；Recipe 引用它，不复制出第二份资料库。报告所需的表头、单位和上下文应与数值一起提供，不能只给孤立数字。</p></details>
+<details><summary>3．分析与计算：事实、计算结果、推断分别留痕</summary>
+<p>重要结论关联主体、指标、期间、单位、来源位置及必要的计算。程序验证可以验证的算式与引用；语义关系仍由模型判断并接受核对。</p>
+<p>例如“合同总额”不能仅因数值和引用都真实，就被当作“本年收入”。“计划拨付”与“实际到账”也应保留不同的状态。</p></details>
+<details open><summary>4．每次交接：形成实际的模型输入包与可见清单</summary>
+<p>模型获得当前目标、工作单概览、适用方法正文、相关阶段产物、必要原文及未解决问题，并可通过原工具继续读取完整材料。</p>
+<p>程序记录本次请求包含的材料版本、正文或摘要、页码范围、省略项与输入指纹。索引和摘要用于定位，不能静默替代必要证据。</p>
+<p><strong>必须区分：</strong>已保存、工具已返回、已纳入本次请求。“已纳入请求”仍不代表模型已经正确理解。</p></details>
+<details open><summary>5．核对：意见先返回作者，再由作者决定行动</summary>
+<p>核对者收到同版候选稿、关联证据、方法、已知矛盾和未解决问题；作者的自查结论只作为待核实说法，不能当作独立证据。</p>
+<p>核对结果进入 Recipe，并返回作者。作者可以采纳修改、依据原文不采纳、补读补算，或保留不确定性后交付。补读建议不应因为“核对不强制”就被丢弃。</p>
+<p><strong>建议式核对继续保留：</strong>不要求问题清零，不要求强制采纳。若正文修改，旧核对记录保留，并标明它对应旧稿。</p></details>
+<details><summary>6．发布与恢复：固定交付版本，保留真实状态</summary>
+<p>模型明确选择发布稿，程序关联该稿、证据和核对版本，再渲染 HTML。渲染器不替模型补写金融判断。</p>
+<p>暂停、停止和退出在现有步骤边界保存工作单及已有成果；UNKNOWN 保持未知，不因工作单存在而自动重发。</p></details>
+<div class="warn">不增加十分钟、最大轮数、搜索次数或“无进展即结束”门槛。Recipe 也不授权工具、不放宽工作区权限、不替代账户确认。沿用原数据库、工作区与执行器。</div>
+</section>
+<section id="record" role="tabpanel" aria-labelledby="tab-record" hidden>
+<h2>一张 Recipe 应记录什么？</h2>
+<p>顶层保存研究概览，各阶段引用独立产物。不必每轮把全部原始材料和完整历史重新塞进一张巨大 JSON。</p>
+<div class="table-wrap"><table><thead><tr><th>部分</th><th>应包含的内容</th><th>主要责任</th></tr></thead><tbody>
+<tr><td>研究目标</td><td>问题、对象、时点、方法、交付形式</td><td>AI 提议，继承用户要求</td></tr>
+<tr><td>阶段定义</td><td>目的、依赖材料、预期产出、检查方式</td><td>AI 可动态调整</td></tr>
+<tr><td>真实执行</td><td>工具调用 ID、实际终态、错误与产物引用</td><td>原执行器登记</td></tr>
+<tr><td>证据与判断</td><td>原文位置、指标期间、算式、推断与反证</td><td>AI 标注，程序校验可验证部分</td></tr>
+<tr><td>上下文交接</td><td>本次请求实际带入的版本、范围及缺项</td><td>程序依据实际请求生成</td></tr>
+<tr><td>核对与处置</td><td>核对意见、作者处理、依据、遗留问题</td><td>核对者与作者分别记录</td></tr>
+<tr><td>最终交付</td><td>发布稿版本、证据版本、报告位置与边界</td><td>AI 选择，程序保存</td></tr>
+</tbody></table></div>
+<h3>示例：阻止现金流指标在交接时“换了名字”</h3>
+<p class="muted">以下为结构示意，不是已经实现的 API；原件版本、位置与回执均须以真实执行结果填写。</p>
+<pre>{
+  "stage": "解释经营现金流变化",
+  "purpose": "说明现金流与利润为何出现差异",
+  "inputs": [{
+    "artifact_ref": "现有半年报原件及其版本",
+    "locator": "实际页码、表格与原文范围",
+    "metric": "经营活动产生的现金流量净额",
+    "period": "半年累计",
+    "change": "-33.60%"
+  }],
+  "outputs": {
+    "finding": "该变动对应经营现金流净额，不能直接称作销售收现变化",
+    "open_questions": ["销售商品、提供劳务收到的现金是否另有变动"]
+  },
+  "checks": [
+    "把指标名称、期间和百分比与同一原表对照",
+    "检查正文是否把净额变化写成销售收现变化"
+  ],
+  "attachments": ["实际原文摘录引用", "计算回执引用"],
+  "review": {
+    "issues": ["正文存在指标错配"],
+    "author_action": "回读原表并修改对应陈述"
+  }
+}</pre>
+<div class="note">这个例子的价值不是多存一个百分比，而是把<strong>指标名称 → 原表 → 分析 → 正文 → 核对意见 → 作者修订</strong>连起来。仍然需要真实原文和模型判断，不能只检查字段是否填满。</div>
+<h3>“验收形式”应分三类记录</h3>
+<div class="table-wrap"><table><thead><tr><th>工程检查</th><th>内容核对</th><th>用户体验</th></tr></thead><tbody><tr>
+<td>原件是否取得、引用是否匹配、算式是否成立、HTML 是否保存。</td>
+<td>指标是否一致、期间是否可比、因果是否有证据、关键疑点是否处理。</td>
+<td>是否回答问题、是否容易理解、建议是否有条件、报告是否方便阅读。</td>
+</tr></tbody></table></div>
+<p>三类结果分别记录。保存成功不代表金融结论正确；核对完成也不代表获得事实认证。</p>
+<h3>建议先做的最小闭环</h3>
+<p>先统一现有研究记录和阶段交接；补齐方法、父稿及历史问题的输入；将核对意见交回作者；增加实际模型输入清单。然后再按需要增加政策传导、估值敏感性等阶段。</p>
+<p>新增阶段只声明自己的输入、产出和检查方法，复用原工具执行与交接机制，无须再建立一套调度系统。</p>
+</section>
+<footer>
+<p>本文保留优化前快照与本轮设计比较，不是实施完成清单。Recipe 已进入本批源码，契约见<a href="金融研究Recipe契约.md">金融研究 Recipe 契约</a>；部署与实景验收以股票仓库 docs/计划.md 为准。不保存或展示模型隐藏思维链。</p>
+<p>实现依据：<a href="../plugins/finance/research/session.py">研究会话与证据注入</a> · <a href="../plugins/finance/research_review.py">核对输入构造</a> · <a href="../plugins/finance/loop.py">循环与发布分发</a></p>
+</footer>
+</main>
+<script>
+function showTab(id){
+  document.querySelectorAll('[role="tabpanel"]').forEach(p=>{p.hidden=p.id!==id;});
+  document.querySelectorAll('[role="tab"]').forEach(b=>{
+    b.setAttribute('aria-selected',String(b.getAttribute('aria-controls')===id));
+  });
+}
+const tabs=[...document.querySelectorAll('[role="tab"]')];
+tabs.forEach(b=>b.addEventListener('click',()=>showTab(b.getAttribute('aria-controls'))));
+document.querySelector('[role="tablist"]').addEventListener('keydown',e=>{
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+  let i=tabs.indexOf(document.activeElement);if(i<0)return;e.preventDefault();
+  i=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+  tabs[i].focus();tabs[i].click();
+});
+</script>
+</body>
+</html>

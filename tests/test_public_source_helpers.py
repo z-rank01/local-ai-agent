@@ -132,8 +132,11 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
         from plugins.finance.publication import validate_publication
         checked = validate_publication(params, run.sources, run.read_text)
         run.review_records[fingerprint(checked)]={'status':'COMPLETE','issues':[],
-            'evidence_sha256':fingerprint(run.evidence_index()),'semantic_certification':False}
-        published = await run.publish(params)
+            'evidence_sha256':fingerprint(run.evidence_index()),'semantic_certification':False,
+            'feedback_returned':True}
+        published = await run.publish({**params,
+            'review_ref':fingerprint(checked)+':'+fingerprint(run.evidence_index()),
+            'review_response':'已收到核对反馈，按原文与计算交付材料链路测试'})
         self.assertEqual(published['status'], 'PUBLISHED')
         evidence = json.loads(files.files[run.record['directory'] + '/evidence.json'])
         self.assertEqual(evidence['calculations'][0]['result'], '100')
