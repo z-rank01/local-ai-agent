@@ -107,7 +107,7 @@ def main():
         result = {'scenario': args.scenario, 'source_conversation': source['id'],
                   'workspace_id': source['workspace_id'], 'model': source['model'],
                   'request_id': uuid.uuid4().hex, 'status': 'PREPARED'}
-        response = client.post('/api/conversations', json={'title': 'IN4.19交付收尾 · ' + args.scenario,
+        response = client.post('/api/conversations', json={'title': 'IN4.19交付收尾 · ' + args.scenario + ' · ' + args.variant,
             'model': source['model'], 'workspace_id': source['workspace_id'],
             'capability_ids': source.get('capability_ids', [])})
         response.raise_for_status()
