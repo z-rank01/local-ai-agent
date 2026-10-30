@@ -61,8 +61,8 @@ def collect(client, result, output):
         filename.write_bytes(body)
         result['reports'].append({'path': path, 'sha256': hashlib.sha256(body).hexdigest(),
                                   'bytes': len(body), 'local_copy': str(filename)})
-    result['content_acceptance'] = 'PENDING'
-    result['user_feedback'] = 'PENDING'
+    result.setdefault('content_acceptance', 'PENDING')
+    result.setdefault('user_feedback', 'PENDING')
     write(output, result)
     print(json.dumps({k: result.get(k) for k in ('scenario', 'conversation_id', 'run_id', 'run', 'reports')},
                      ensure_ascii=False), flush=True)
