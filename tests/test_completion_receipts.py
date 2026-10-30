@@ -38,10 +38,14 @@ class CompletionTests(unittest.IsolatedAsyncioTestCase):
             answers = [m.content for m in self.service.get_messages(events[0].conversation_id) if m.role == 'assistant']
             self.assertEqual(answers, ['实际收尾说明'])
 
-    async def test_repeated_failures_and_ignored_finalization_have_explicit_error(self):
+    async def test_repeated_failures_continue_until_actual_model_error(self):
         class Model:
             cloud = False
+            calls = 0
             async def chat_stream_with_tools(self, messages, tools=None, **kwargs):
+                self.calls += 1
+                if self.calls > 30:
+                    raise RuntimeError('测试模型连接中止，研究未完成')
                 yield '', {'role': 'assistant', 'content': '', 'tool_calls': [{
                     'id': 'attempt', 'function': {'name': 'example_task', 'arguments': '{}'}}]}
         class Router:
@@ -57,4 +61,4 @@ class CompletionTests(unittest.IsolatedAsyncioTestCase):
         events = [e async for e in agent.run([{'role': 'user', 'content': '处理两份文件'}])]
         self.assertEqual(events[-1].kind, 'error')
         self.assertIn('未完成', events[-1].text)
-        self.assertEqual(sum(e.kind == 'tool_end' for e in events), 2)
+        self.assertEqual(sum(e.kind == 'tool_end' for e in events), 30)

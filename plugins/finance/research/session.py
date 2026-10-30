@@ -299,7 +299,7 @@ class ResearchSession:
         for note in notes:
             self.evidence_notes[note['source_id']] = {k: v for k, v in note.items() if k != 'source_id'}
         await self.checkpoint()
-        next_step = '按需读取项目当前投研方法；本轮已成功读取的方法不必重读，研究不会因十分钟自动转交专业任务。'
+        next_step = '按需读取项目当前投研方法；本轮已成功读取的方法不必重读，研究不按时间、轮数或进展计数自动结束或交接。'
         if phase == '核对':
             next_step = ('先从反方检查完整草稿的标题、排序和结论，按所选方法逐条核对支持推断的来源、期间与必要前提；'
                          '不能只核对引句和数字存在。发现缺口就修订对应陈述或补查，保留其他有效成果。'

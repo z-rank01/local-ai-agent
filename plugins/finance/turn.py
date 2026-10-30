@@ -1,5 +1,4 @@
 """Finance-owned source, purpose and delivery state for the generic agent loop."""
-import os
 from harness.runtime.turns import NullTurn
 from .source_review import SourceReview
 from .source_quotes import (READ_TOOLS, original_texts, original_records,
@@ -25,7 +24,6 @@ class FinanceTurn(NullTurn):
         self.bridge = (context or {}).get('stock-bridge')
         self.research = None
         self.comparison = None
-        self.window_seconds = int(os.environ.get('STOCK_WINDOW_SECONDS', '600'))
         self.source_review = SourceReview()
         self.quality_research = self.bridge is not None
         self.loop_enabled = self.bridge is not None
@@ -45,7 +43,6 @@ class FinanceTurn(NullTurn):
         host.turn_loop_enabled = self.loop_enabled
         host.turn_source_review_enabled = self.source_review_enabled
         host.turn_reply_purpose_enabled = self.reply_purpose_enabled
-        host.turn_window_seconds = getattr(host, 'turn_window_seconds', self.window_seconds)
         return FinanceLoop(host).run(messages, session_id, conversation_key)
 
     async def configure(self, method_id, answer_only):
@@ -98,16 +95,13 @@ class FinanceTurn(NullTurn):
                 import httpx
                 if not isinstance(exc, httpx.HTTPError):
                     raise
-        seconds = self.window_seconds
         sections.append('股票工具调用：先判断用户问题尚缺哪些可核对的证据，只为具体缺口查找或读取。'
             '已有结果足够时直接回答；不要重复已成功的查找、读取或任务提交。'
             '根据已返回的总页数停止读取，不请求不存在的页；任务引用只作工具参数，不在回答中展示。'
             '参数错误可定向修正；结果未知不能自动重发。'
-            + (f'旧股票工具通路交付窗口为{seconds}秒；' if seconds and seconds > 0 else '旧股票工具通路不设固定交付窗口；')
-            + 'research_begin开启的聊天自主研究不受此交接窗口约束。设置交接窗口时，旧通路到时通过已有提交工具和真实受理回执，'
-            '将尚未完成且已授权的公开研究交给股票工作进程自动继续，无需要求用户重复发送“继续”。'
-            '保留原问题、反证、完成判据及已保存来源；已有后台任务直接查询，不重复提交。'
-            '未受理、结果未知、材料不可得或没有进展时，交付已核对内容并说明实际缺口，不能声称后台已接续。'
+            '研究没有固定总时长或步数上限，由实际任务需要决定继续取证或交付。'
+            '需要后台执行时可主动提交已授权的公开研究；必须取得真实受理回执才能说已提交，'
+            '任务暂停或未受理不能声称后台正在继续。未知回执不自动重发。'
             '后续追问依据本会话已保存的工具结果、来源和游标接续；必要时重新查找有效引用，不刷新简报或重建已受理任务。')
         return sections
 

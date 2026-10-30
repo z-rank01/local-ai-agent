@@ -228,6 +228,12 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.tmp.cleanup)
         self.patches = [patch.object(config,'DB_PATH',Path(self.tmp.name)/'db'),patch.object(config,'WORKSPACE_PATH',Path(self.tmp.name)/'ws'),patch.object(config,'LOG_PATH',Path(self.tmp.name)/'audit'),patch.object(config,'WORKSPACE_CLOUD_ALLOWED',True)]
         for p in self.patches: p.start(); self.addCleanup(p.stop)
+        # Model discovery is an external boundary. Tests that exercise discovery
+        # install their own nested fixtures; ordinary service tests stay offline.
+        for target in ('_probe_ollama_models', '_probe_compatible_models'):
+            probe = patch('core.providers.' + target, return_value=None)
+            probe.start()
+            self.addCleanup(probe.stop)
         self.runtime = build_runtime()
         self.addAsyncCleanup(self.runtime.close)
         # This fixture owns an empty temporary workspace. Report-word prefetch
@@ -519,7 +525,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1].kind, 'done')
         self.assertEqual(events[-1].text, '证据已核对。')
 
-    async def test_stock_time_boundary_keeps_completed_result_and_stops_new_calls(self):
+    async def test_stock_old_time_boundary_keeps_completed_result_and_tools_available(self):
         from core.tool_registry import ToolRegistry
         clock = [100.0]
         calls = [{'id': 's1', 'type': 'function',
@@ -553,7 +559,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.runs, 1)
         self.assertEqual(events[-1].kind, 'done')
         self.assertIn('其余可继续', events[-1].text)
-        self.assertTrue(agent.llm.assert_no_tools)
+        self.assertFalse(agent.llm.assert_no_tools)
 
     async def test_unapproved_workspace_cloud_blocks_tools(self):
         agent=self.agent([{'role':'assistant','content':'','tool_calls':[CALL]}, {'role':'assistant','content':'unavailable'}])

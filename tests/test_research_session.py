@@ -359,7 +359,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1].kind, 'done')
         self.assertIn('阅读简报', events[-1].text)
 
-    async def test_no_progress_closes_research_with_visible_error(self):
+    async def test_no_progress_is_diagnostic_until_model_finishes(self):
         from plugins.finance.loop import FinanceLoop as Agent
         from types import SimpleNamespace
         _, run, _ = await self.prepare()
@@ -368,6 +368,9 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             cloud = False
             async def chat_stream_with_tools(self, messages, tools):
                 attempts.append(1)
+                if len(attempts) > 30:
+                    yield '', {'role': 'assistant', 'content': '来源不可用，未完成研究。'}
+                    return
                 yield '', {'role': 'assistant', 'content': '', 'tool_calls': [
                     {'id': str(len(attempts)), 'function': {
                         'name': 'web_fetch', 'arguments': {'url': 'https://example.org/unavailable'}}}]}
@@ -382,14 +385,14 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
             prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
         events = [e async for e in agent.run([{'role': 'user', 'content': '完成研究'}])]
-        self.assertEqual(len([e for e in events if e.kind == 'tool_end']), 13)
-        self.assertLessEqual(len(attempts), 26)  # bounded finalization; no cumulative research budget
+        self.assertEqual(len([e for e in events if e.kind == 'tool_end']), 30)
+        self.assertEqual(len(attempts), 32)  # model ends voluntarily; counters do not stop it
         self.assertEqual(events[-1].kind, 'error')
         self.assertIn('未完成交付', events[-1].text)
         self.assertEqual(run.record['status'], 'DELIVERY_INCOMPLETE')
         self.assertIsNone(run.published)
 
-    async def test_stalled_research_can_finalize_but_phase_changes_cannot_reopen_search(self):
+    async def test_stalled_research_keeps_network_and_can_publish_or_end(self):
         from plugins.finance.loop import FinanceLoop as Agent
         from types import SimpleNamespace
         for publish in (True, False):
@@ -403,7 +406,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
                     async def chat_stream_with_tools(self, messages, tools):
                         names = {d['function']['name'] for d in tools or []}
                         offered.append(names)
-                        if not names:
+                        if len(offered) > 30:
                             yield '不能发布。', {'role': 'assistant', 'content': '不能发布。'}
                             return
                         name, args = ('brief_publish', params) if publish and len(offered) == 2 else ('research_begin', {'phase': '核对'})
@@ -420,19 +423,18 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
                     audit=SimpleNamespace(record=lambda *a: None), context_mgr=SimpleNamespace(process=process),
                     prompt_builder=SimpleNamespace(build=lambda **kw: 'test'), max_rounds=1)
                 events = [e async for e in agent.run([{'role': 'user', 'content': '完成研究'}])]
-                self.assertEqual(offered[:2], [{'research_begin', 'brief_publish'}]*2)
+                self.assertEqual(offered[:2], [{'web_fetch', 'research_begin', 'brief_publish'}]*2)
                 if publish:
                     self.assertEqual(len(offered), 2)
                     self.assertEqual(events[-1].kind, 'done')
                     self.assertEqual(run.record['status'], 'PUBLISHED')
                 else:
-                    self.assertTrue(all('web_fetch' not in names for names in offered))
-                    self.assertEqual(offered[-1], set())
-                    self.assertLessEqual(len(offered), 15)
+                    self.assertTrue(all('web_fetch' in names for names in offered))
+                    self.assertEqual(len(offered), 32)
                     self.assertEqual(events[-1].kind, 'error')
                     self.assertIsNone(run.published)
 
-    async def test_finalization_can_read_edit_review_publish_without_reopening_network(self):
+    async def test_high_progress_counter_keeps_network_while_reading_editing_and_publishing(self):
         from types import SimpleNamespace
         from plugins.finance.loop import FinanceLoop as Agent
         _,run,draft=await self.prepare()
@@ -461,7 +463,7 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
         events=[e async for e in agent.run([{'role':'user','content':'完成研究'}])]
         self.assertEqual(events[-1].kind,'done')
         self.assertEqual(len(offered),4)
-        self.assertTrue(all('web_fetch' not in names for names in offered))
+        self.assertTrue(all('web_fetch' in names for names in offered))
 
     async def test_program_fills_derived_values_without_changing_submitted_draft(self):
         files, run, params = await self.prepare()

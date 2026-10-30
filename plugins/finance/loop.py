@@ -180,8 +180,7 @@ class FinanceLoop(Agent):
             counts = {}
             budgets = getattr(self.registry, 'call_limits', lambda: {})()
             quality_research = turn.quality_research or bool(getattr(self, 'quality_first_research', False))
-            research_tools = {'context_evidence_read'} | tools_for_role('research')
-            research_continuing, no_progress_rounds, observations = False, 0, set()
+            research_enabled = quality_research or turn.loop_enabled or bool(getattr(self, 'turn_loop_enabled', False))
             execution_retries = 0
             source_review = turn.source_review
             source_repair_protocol = []
@@ -192,20 +191,13 @@ class FinanceLoop(Agent):
             purpose_pending = bool((turn.reply_purpose_enabled or getattr(self, 'turn_reply_purpose_enabled', False))
                 and self.allow_tools and source_read_seen and (not cloud or workspace_granted))
             round_number = 0
-            execution_deadline = None
-            public_research_deadline = None
-            handoff_attempted = False
-            handoff_prepared = False
-            background_submitted = False
-            handoff_tools = tools_for_role('handoff')
             research = getattr(self.router, 'research', None)
             turn.research = research
             skill_session = getattr(self.router, 'skill_session', None)
             from .research_material_view import ResearchMaterialView
             research_view = ResearchMaterialView()
             research_guidance_message = None
-            closing_stagnation = None
-            while (research is not None and research.active) or execution_deadline is not None or research_continuing or self.max_rounds <= 0 or round_number < self.max_rounds:
+            while research_enabled or (research is not None and research.active) or self.max_rounds <= 0 or round_number < self.max_rounds:
                 if getattr(self,'local_agent_unknown',False):
                     yield AgentEvent('error',text='本地Gemma4调用终态未知，已保留成果；不自动重发或切换模型。')
                     return
@@ -241,57 +233,20 @@ class FinanceLoop(Agent):
                                 await research.observe(event.data)
                             yield event
                     continue
-                active = [d for d in tool_defs if autonomous or quality_research or d['function']['name'] not in budgets or budgets[d['function']['name']] <= 0 or
+                active = [d for d in tool_defs if autonomous or research_enabled or d['function']['name'] not in budgets or budgets[d['function']['name']] <= 0 or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
                 discovery = turn.allowed_tools()
                 if discovery is not None:
                     active = [d for d in active if d['function']['name'] in discovery]
                 if autonomous:
                     active = [d for d in active if d['function']['name'] in research.tool_names]
-                public_window_closed = public_research_deadline is not None and time.monotonic() >= public_research_deadline
-                window_closed = not autonomous and ((execution_deadline is not None and time.monotonic() >= execution_deadline) or public_window_closed)
-                if autonomous and closing_stagnation is None and research.steps_without_progress >= 12:
-                    closing_stagnation = research.steps_without_progress
-                delivery_only = autonomous and closing_stagnation is not None
-                if delivery_only:
-                    closing_stagnation = min(closing_stagnation, research.steps_without_progress)
-                no_progress_closed = (delivery_only and research.steps_without_progress-closing_stagnation >= 12 if autonomous
-                                      else quality_research and no_progress_rounds >= 2)
-                if delivery_only and not no_progress_closed:
-                    active = [d for d in active if d['function']['name'] in {
-                        'research_begin','brief_publish','file_read','file_write','code_exec','shell_exec','context_evidence_read'}]
-                    no_progress_closed = not active
-                generic_final_round = (not autonomous and execution_deadline is None and not research_continuing
-                                       and self.max_rounds > 0 and round_number == self.max_rounds - 1)
-                handoff_round = (quality_research and window_closed and not no_progress_closed
-                    and not handoff_attempted and not background_submitted
-                    and any(d['function']['name'] in handoff_tools for d in active))
-                if delivery_only and not no_progress_closed:
-                    messages.append({'role': 'system', 'content':
-                        '连续步骤没有增加原文或阶段成果，停止继续联网取证。保留已有证据回读、改稿、核对与发布工具；'
-                        '阶段变更不会重新开放联网。收尾连续12个工具步骤仍无新成果时停止。'
-                        '用已有实际读取的依据交付有边界的结果，可直接提交发布字段或已有draft_path。'
-                        '不能补造依据或放宽核验；条件不足时明确未完成，不重新开始研究。'})
-                elif handoff_round:
-                    # A search-only stock question may not yet own a safe brief reference.
-                    # Allow one lookup step before submission; the normal stock ticket
-                    # still governs every dispatched operation and UNKNOWN is never redone.
-                    preparing = public_window_closed and execution_deadline is None and not handoff_prepared
-                    if preparing:
-                        handoff_prepared = True
-                    else:
-                        handoff_attempted = True
-                    offered_handoff = handoff_tools | (tools_for_role('handoff_lookup') if preparing else set())
-                    active = [d for d in active if d['function']['name'] in offered_handoff]
-                    messages.append({'role': 'system', 'content':
-                        '\n\n'.join(self.registry.phase_guidance('handoff', offered_handoff))})
-                elif window_closed or generic_final_round or no_progress_closed:
+                # Progress counters are diagnostics, never authority to stop research.
+                # Ordinary non-research chat retains its explicitly configured limits.
+                window_closed = no_progress_closed = False
+                if not (autonomous or research_enabled) and self.max_rounds > 0 and round_number == self.max_rounds - 1:
                     active = []
-                    messages.append({"role": "system", "content":
-                        "[连续步骤没有增加研究原文或阶段成果。请交付已有成果，说明无法推进的原因与缺口。]" if no_progress_closed else
-                        "[本轮股票交付窗口已到。围绕原问题交付已核对判断、依据、反证及缺口。报告卡承载任务引用，用户未明确要求时不重复内部ID。仅按真实受理回执与当前状态说明后台进度，未受理或已暂停的任务不能声称正在自动运行；不新增用户未授权任务。]"
-                        if window_closed else
-                        "[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]"})
+                    messages.append({'role': 'system', 'content':
+                        '[本轮普通聊天执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]'})
                 source_read_seen = source_read_seen or any(counts.get(name, 0) for name in source_read_tools)
                 lookup_context = lookup_index(source_index, user_request)
                 if source_review.attempts:
@@ -567,7 +522,7 @@ class FinanceLoop(Agent):
                     if not reply:
                         raise RuntimeError('模型返回空回答，已有工具结果仍保留。')
                     if autonomous:
-                        if not no_progress_closed and not delivery_only and execution_retries == 0:
+                        if execution_retries == 0:
                             execution_retries += 1
                             messages.append({'role': 'system', 'content':
                                 '当前研究尚未通过brief_publish交付。若可以继续，请实际读取方法、获取原文并完成发布；'
@@ -578,7 +533,7 @@ class FinanceLoop(Agent):
                     if (not window_closed and tool_defs and self.allow_tools and
                             unfinished_execution(reply, user_request)):
                         if (execution_retries >= 2 or not active or
-                                (not autonomous and execution_deadline is None and self.max_rounds > 0
+                                (not autonomous and not research_enabled and self.max_rounds > 0
                                  and round_number >= self.max_rounds - 1)):
                             raise RuntimeError('模型只给出了待执行代码，没有完成所述操作。已有工具结果保留；代码未自动运行，任务尚未完成。')
                         execution_retries += 1
@@ -592,52 +547,13 @@ class FinanceLoop(Agent):
                             logger.warning('Local memory update failed')
                     yield AgentEvent('done', text=reply)
                     return
-                if (window_closed and not handoff_round) or no_progress_closed:
-                    # Do not execute unadvertised calls after the finalization
-                    # instruction. Complete their protocol envelopes locally.
-                    for call in calls:
-                        skipped = {'role': 'tool', 'tool_call_id': call['id'],
-                                   'tool_name': call['function']['name'],
-                                   'content': '{"error":"本轮窗口已到，此步骤未执行。"}'}
-                        messages.append(skipped)
-                        yield AgentEvent('message', data={'message': skipped})
-                    if autonomous:
-                        await research.incomplete()
-                        yield AgentEvent('error', text='连续12个工具步骤未增加原文读取、方法或阶段成果，研究未完成交付；已保存来源与计算，不会自动重跑。')
-                        return
-                    if no_progress_closed and not background_submitted:
-                        yield AgentEvent('error', text='连续工具步骤未取得新结果，本轮未完成；已有结果和失败回执已保留，未执行的步骤不会自动补跑。')
-                        return
-                    yield AgentEvent('done', text='已取得的结果保留在会话中。已提交的后台研究可继续查询；'
-                                     '本轮未执行的步骤仍列为缺口。')
-                    return
                 allowed = {d['function']['name'] for d in active}
-                # A 0 window means no deadline: the loop ends only on delivery,
-                # an explicit stop, or the stagnation guard below.
-                window_seconds = getattr(self, 'turn_window_seconds', None)
-                if window_seconds is None:
-                    window_seconds = turn.window_seconds
-                if window_seconds and window_seconds > 0:
-                    if (public_research_deadline is None and quality_research and
-                            (turn.loop_enabled or getattr(self, 'turn_loop_enabled', False))
-                            and any(d['function']['name'] in handoff_tools for d in tool_defs)
-                            and any(call['function']['name'] in ('web_search', 'web_fetch')
-                                    and call['function']['name'] in allowed for call in calls)):
-                        public_research_deadline = time.monotonic() + window_seconds
-                    if (execution_deadline is None and
-                            (turn.loop_enabled or getattr(self, 'turn_loop_enabled', False)) and
-                            any(call['function']['name'] in tools_for_role('windowed') and
-                                call['function']['name'] in allowed for call in calls)):
-                        execution_deadline = time.monotonic() + window_seconds
                 turn_boundary = False
-                fresh_observation = False
                 receipt_presentation = None
                 purpose_tool_failed = False
                 pure_purpose_requested = False
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
-                                                       budgets=budgets, counts=counts,
-                                                       execution_deadline=None if handoff_round or autonomous else execution_deadline,
-                                                       research_handoff=handoff_round, research_finalizing=delivery_only)) as events:
+                                                       budgets={} if autonomous or research_enabled else budgets, counts=counts)) as events:
                     async for event in events:
                         if research is not None and event.kind == 'tool_end':
                             await research.observe(event.data)
@@ -660,19 +576,6 @@ class FinanceLoop(Agent):
                         if event.kind == 'turn_boundary':
                             turn_boundary = True
                         else:
-                            if (quality_research or (research is not None and research.active)) and event.kind == 'tool_end' and event.data.get('status') == 'ok':
-                                if event.data.get('name') in handoff_tools:
-                                    policy_for = getattr(self.registry, 'execution_policy', lambda name: None)
-                                    policy = policy_for(event.data.get('name'))
-                                    accepted = getattr(policy, 'accepted_handoff', None)
-                                    if accepted and accepted(event.data.get('name'), event.data.get('result')):
-                                        background_submitted = True
-                                import hashlib
-                                fingerprint = hashlib.sha256(json.dumps(model_projection(event.data.get('result')),
-                                    ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
-                                if fingerprint not in observations:
-                                    observations.add(fingerprint)
-                                    fresh_observation = True
                             yield event
                 if research is not None and research.published:
                     report = research.published
@@ -695,11 +598,9 @@ class FinanceLoop(Agent):
                     return
                 if purpose_step and (purpose_tool_failed or pure_purpose_requested) and not (research is not None and research.active):
                     raise RuntimeError('所选回复用途的读取或同版回执核验未完成；已有结果保留，不自动改参数或生成替代结论。')
-                research_continuing = quality_research and bool(calls) and all(
-                    call['function']['name'] in research_tools for call in calls)
-                no_progress_rounds = 0 if fresh_observation else no_progress_rounds + 1
                 if turn_boundary:
-                    execution_deadline = 0.0
+                    yield AgentEvent('error', text='股票旧票据已结束执行，已有回执保留；未自动延长票据、交接或重发任务。')
+                    return
                 for call in calls:
                     name = call['function']['name']
                     counts[name] = counts.get(name, 0) + 1
@@ -717,11 +618,6 @@ class FinanceLoop(Agent):
             research = getattr(self.router, 'research', None)
             if research is not None:
                 await research.close()
-
-    def _validate_tool(self, name, params, research, research_finalizing):
-        if research_finalizing and name == 'research_begin' and params.get('evidence_requests'):
-            raise ValueError('当前仅收尾，不再登记新联网取证；可回读已有证据、修改稿件并核对发布。')
-        super()._validate_tool(name, params, research, research_finalizing)
 
     async def _dispatch_tool(self, name, params, session_id, control, call_id, messages):
         research = getattr(self.router, 'research', None)
@@ -770,13 +666,6 @@ class FinanceLoop(Agent):
         if name == 'research_begin' and status == 'ok' and isinstance(result, dict) and 'phase' in result:
             return '研究阶段：' + str(result['phase'])
         return None
-
-    def _budget_note(self, remaining):
-        if getattr(self, 'quality_first_research', False):
-            research = getattr(self.router, 'research', None)
-            if research is None or not research.active:
-                return '\n[检索批次提示：请核对本批发现、反证与未决问题。有新证据可继续检索；长股票研究请提交现有后台研究工具，不要求用户反复发送继续。]'
-        return super()._budget_note(remaining)
 
     async def _review_candidate(self, candidate, session_id, messages):
         from .research_review import fingerprint, review_messages, parse_review, previous_findings

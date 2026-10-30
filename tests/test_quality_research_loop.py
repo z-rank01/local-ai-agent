@@ -8,6 +8,7 @@ from core.tool_registry import ToolRegistry
 
 def research_registry(**kwargs):
     installed = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch', 'stock-bridge'))
+    kwargs.setdefault('call_limits', lambda: {'web_search': 1})
     kwargs.setdefault('execution_policy', installed.execution_policy)
     kwargs.setdefault('tools_for_role', installed.tools_for_role)
     kwargs.setdefault('history_projectors', installed.history_projectors)
@@ -52,18 +53,13 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('analysis', next(m['content'] for m in messages if m.get('content') == STOCK_DELIVERY_GUIDANCE))
         self.assertEqual(events[-1].kind,'done')
 
-    async def test_expired_read_only_window_does_not_demand_ids_or_invent_running_task(self):
+    async def test_legacy_boundary_preserves_receipt_without_forced_handoff(self):
         captured,calls,events,query=await self.delivery_context(True)
-        messages,tools=captured[-1]
-        self.assertIsNone(tools)
         self.assertEqual(calls,['stock_report_read'])
-        self.assertEqual([m['content'] for m in messages if m['role']=='user'],[query])
-        closing=next(m for m in messages if '本轮股票交付窗口已到' in m.get('content',''))
-        self.assertEqual(closing['role'],'system')
-        self.assertNotIn('请给出已提交后台任务的 ID',closing['content'])
-        self.assertNotIn('后台任务仍按检查点运行',closing['content'])
-        self.assertIn('已暂停',closing['content'])
-        self.assertEqual(events[-1].kind,'done')
+        self.assertEqual(events[-1].kind,'error')
+        self.assertIn('旧票据', events[-1].text)
+        self.assertFalse(any('本轮股票交付窗口已到' in m.get('content','')
+                             for messages,_ in captured for m in messages))
 
     async def test_saved_authorized_report_gets_delivery_rules_without_repeated_read(self):
         from plugins.finance.turn import DELIVERY_GUIDANCE as STOCK_DELIVERY_GUIDANCE
@@ -167,10 +163,10 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len([e for e in events if e.kind=='tool_end']),5)
         self.assertEqual(events[-1].kind,'done')
 
-    async def test_two_duplicate_rounds_stop_with_partial_delivery(self):
+    async def test_duplicate_results_do_not_force_partial_delivery(self):
         events,observed=await self.exercise(repeated=True)
-        self.assertEqual(len([e for e in events if e.kind=='tool_end']),3)
-        self.assertIsNone(observed[-1])
+        self.assertEqual(len([e for e in events if e.kind=='tool_end']),5)
+        self.assertTrue(observed[-1])
         self.assertEqual(events[-1].kind,'done')
 
     async def handoff(self, submission, arguments, first_submit_code=None):
@@ -203,28 +199,11 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
         events = [e async for e in agent.run([{'role':'user','content':'继续研究公开政策的公司关联与反证'}])]
         return offered, dispatched, events
 
-    async def test_expired_stock_window_hands_off_then_finalizes(self):
-        offered, calls, events = await self.handoff('stock_theme_research_submit',
-            {'reference':'a'*64, 'research_question':'核验政策公司关联与反证'})
-        self.assertEqual(set(offered[1]), {'stock_theme_research_submit', 'stock_research_submit'})
-        self.assertEqual([name for name, _ in calls], ['stock_report_read', 'stock_theme_research_submit'])
-        self.assertEqual(offered[2], [])
-        self.assertEqual(events[-1].kind, 'done')
-
-    async def test_handoff_cannot_execute_write_redo_or_drop_question(self):
-        for name, params in [('file_write', {'path':'x','content':'x'}),
-                ('stock_research_submit', {'symbol':'600000','research_mode':'redo'}),
-                ('stock_theme_research_submit', {'reference':'a'*64})]:
-            with self.subTest(name=name):
-                _, calls, _ = await self.handoff(name, params)
-                self.assertEqual([n for n, _ in calls], ['stock_report_read'])
-
-    async def test_only_actual_acceptance_suppresses_later_handoff(self):
-        for code, expected in [('TASK_SUBMITTED', 1), ('NEEDS_REFERENCE', 2)]:
-            with self.subTest(code=code):
-                _, calls, _ = await self.handoff('stock_theme_research_submit',
-                    {'reference':'a'*64, 'research_question':'核对政策传导'}, first_submit_code=code)
-                self.assertEqual(len(calls), expected)
+    async def test_expired_legacy_ticket_does_not_automatically_submit_background_work(self):
+        offered,calls,events=await self.handoff('stock_theme_research_submit',
+            {'reference':'a'*64,'research_question':'核对政策公司关系'})
+        self.assertEqual([n for n,_ in calls],['stock_report_read'])
+        self.assertEqual(events[-1].kind,'error')
 
     async def search_handoff(self, accept=True):
         clock=[0.0];offered=[];dispatched=[]
@@ -262,17 +241,49 @@ class ResearchLoopTests(unittest.IsolatedAsyncioTestCase):
             events=[e async for e in agent.run([{'role':'user','content':'研究政策公司关系与反证'}])]
         return offered,dispatched,events
 
-    async def test_search_only_research_gets_reference_and_hands_off_after_window(self):
+    async def test_search_after_old_deadline_keeps_tools_and_can_choose_background_submission(self):
         offered,calls,events=await self.search_handoff()
         self.assertEqual(calls,['web_search','stock_market_brief_find','stock_theme_research_submit'])
         self.assertIn('stock_market_brief_find',offered[1])
-        self.assertNotIn('web_search',offered[1])
-        self.assertNotIn('file_write',offered[1])
-        self.assertEqual(set(offered[2]),{'stock_theme_research_submit','stock_research_submit'})
-        self.assertEqual(offered[3],[])
+        self.assertIn('web_search',offered[1])
+        self.assertIn('file_write',offered[1])
+        self.assertIn('web_search',offered[2])
+        self.assertIn('file_write',offered[3])
         self.assertEqual(events[-1].kind,'done')
 
     async def test_search_handoff_can_decline_without_inventing_background_task(self):
         _,calls,events=await self.search_handoff(accept=False)
         self.assertEqual(calls,['web_search'])
         self.assertEqual(events[-1].kind,'done')
+
+    async def test_same_batch_continues_after_old_deadline_without_budget_hint(self):
+        clock=[0.0]
+        dispatched=[]
+        contexts=[]
+        class Model:
+            cloud=False
+            async def chat_stream_with_tools(self,messages,tools):
+                contexts.append([dict(m) for m in messages])
+                if len(contexts)==1:
+                    yield '',{'role':'assistant','content':'','tool_calls':[
+                        {'id':str(i),'function':{'name':'web_search','arguments':{'query':str(i)}}}
+                        for i in range(3)]}
+                else:
+                    yield '',{'role':'assistant','content':'已有证据与反证均已保存。'}
+        class Router:
+            async def dispatch(self,name,params,session):
+                clock[0]+=601
+                dispatched.append(params['query'])
+                return {'results':['相同材料']}
+        async def process(messages):return messages
+        agent=Agent(llm=Model(),router=Router(),registry=research_registry(get_definitions=lambda **kw:[
+            {'type':'function','function':{'name':'web_search'}}]),
+            audit=SimpleNamespace(record=lambda *a:None),context_mgr=SimpleNamespace(process=process),
+            prompt_builder=SimpleNamespace(build=lambda **kw:'test'),max_rounds=1)
+        agent.quality_first_research=True
+        with patch('plugins.finance.loop.time',SimpleNamespace(monotonic=lambda:clock[0])):
+            events=await self._consume(agent,[{'role':'user','content':'核对资料'}])
+        self.assertEqual(dispatched,['0','1','2'])
+        self.assertEqual(events[-1].kind,'done')
+        self.assertFalse(any('批次' in m.get('content','') or '窗口已到' in m.get('content','')
+                             for m in contexts[-1]))
