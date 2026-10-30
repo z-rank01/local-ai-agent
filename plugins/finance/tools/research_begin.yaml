@@ -4,6 +4,8 @@ backend: research-runtime
 tier: core
 cloud: write
 description: >-
+  用动态Recipe记录本轮研究目标、阶段产物和检查方式；stage_updates可新增、拆分、合并、跳过和重访阶段。
+  程序自动记录真实execution回执，模型用active_stage_id选择关联阶段；判断不等于执行成功，不要求固定阶段全部完成。
   开始或推进当前对话的公开投研：先 phase=准备（scope/targets/plan），再用 evidence_requests 取公告目录、
   公告原件、财报字段、公司概况或带时间行情，最后 phase=核对 并 brief_publish。返回本轮研究目录；
   已登记的 source_id 与保存路径随回执返回，不能猜文件名。公告先 notices 定位 art_code 再 notice 读原件；
@@ -11,6 +13,7 @@ description: >-
 parameters:
   type: object
   properties:
+    active_stage_id: {type: string, description: 选择已返回的阶段ID，关联后续真实工具回执；不改变工具权限，不自动认证阶段完成}
     phase:
       type: string
       enum: [准备, 获取, 分析, 核对]
@@ -70,7 +73,7 @@ parameters:
       description: 仅首次准备阶段可用。核验原稿、来源及固定方法版本后创建关联研究，交接父稿和历史意见作为待核实材料；不恢复旧任务、不继承核对资格或UNKNOWN。后续发布使用新目录草稿。
     evidence_requests:
       type: array
-      description: 已选择的具体取证需求，相同参数不重复执行。目录仍需按标题/主体/期间选公告，不能当全文已读。
+      description: notices/finance/profile/quote必须给symbol，notice必须给实际article。相同参数不重复执行；目录仍需按标题/主体/期间选公告，不能当全文已读。
       items:
         type: object
         properties:

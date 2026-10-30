@@ -9,6 +9,10 @@ from harness.runtime.evidence import model_evidence
 def evidence_steps(request):
     source_url = import_module('skills.runner.packages.harness-public-sources-v3.scripts.source_urls').source_url
     kind = request['kind']
+    required = 'article' if kind == 'notice' else 'symbol'
+    if kind in ('notice','notices','finance','profile','quote') and (
+            not isinstance(request.get(required),str) or not request[required].strip()):
+        raise ValueError(f'{kind}取证需求缺少{required}；请按实际公告编号或已核实证券代码补齐，不推测或沿用其他对象')
     args = {key: request[key] for key in ('symbol', 'start', 'end', 'article', 'page') if key in request}
     steps = []
     if kind == 'finance':

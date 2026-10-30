@@ -32,7 +32,7 @@ class FinanceLoop(Agent):
         research = getattr(self.router, 'research', None)
         token = material_observer.set(
             (lambda clean, metadata: research.capture_input(clean, metadata, self.context_mgr))
-            if research is not None and research.record is not None else None)
+            if research is not None else None)
         try:
             async with aclosing(self.llm.chat_stream_with_tools(messages, tools, **options)) as stream:
                 async for item in stream:
@@ -731,6 +731,7 @@ class FinanceLoop(Agent):
         if research.pending_evidence:
             raise ValueError('本轮已登记取证需求尚未结束，不能提前核对发布')
         key=fingerprint(candidate)
+        research.record['current_candidate'] = {'sha256':key, 'candidate':candidate}
         research.record.setdefault('artifacts', {})['draft:'+key] = {
             'kind':'candidate', 'sha256':key, 'title':candidate['title']}
         for index, calculation in enumerate(candidate.get('calculations', [])):
@@ -747,6 +748,7 @@ class FinanceLoop(Agent):
         directory=f'reviews/{serial}'
         # Existing file tool creates nested parents. Save submitted prose before review.
         await research.write(directory+'-candidate.json',candidate)
+        research.record['current_candidate']['path'] = research.record['directory']+'/'+directory+'-candidate.json'
         record={'status':'STARTED','candidate_sha256':key,'evidence_sha256':evidence_hash,
                 'attempts':(old or {}).get('attempts',[])+[directory], 'semantic_certification':False}
         research.review_records[key]=record

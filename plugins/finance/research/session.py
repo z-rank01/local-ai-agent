@@ -82,6 +82,7 @@ class ResearchSession:
         self.method_text = {}
         self.review_records = {}
         self.excerpts = {}
+        self.request_materials = []
 
     def progress(self, kind, value):
         key = (kind, sha256(encoded(value).encode()).hexdigest())
@@ -96,9 +97,12 @@ class ResearchSession:
                 + encoded({**model_evidence(self.evidence_index()), 'goal': (self.record or {}).get('scope'),
                            'recipe': (self.record or {}).get('recipe'),
                            'artifacts': self.artifacts(), 'methods': self.method_text,
+                           'current_candidate': (self.record or {}).get('current_candidate'),
                            'revision_context': (self.record or {}).get('revision_context')}) + '\n文件与引用只使用真实回执。'
                 '需要补查时用research_begin.evidence_requests；未选定公告原件、财务期间或版本时继续定位。'
                 '可用已安装摘录脚本批量读取；阶段、草稿和具体限制沿当前研究记录保存。'
+                '取得阶段成果后可用research_begin.stage_updates记录claims、实际artifact引用与未解问题；'
+                '可用active_stage_id关联接下来的真实工具回执，不要求所有阶段完成。'
                 + (f'\n连续{self.steps_without_progress}步未新增原文读取、方法或阶段成果。' if self.steps_without_progress >= 4 else ''))
 
     def artifacts(self):
@@ -119,7 +123,8 @@ class ResearchSession:
             if row.get('role') == 'assistant' and isinstance(row.get('content'), str):
                 row['content'] = re.sub(r'<think>.*?(?:</think>|$)', '', row['content'], flags=re.S|re.I)
             clean.append(row)
-        manifest = {'version':1, **metadata, 'recipe_revision':(self.record.get('recipe') or {}).get('revision'),
+        record = self.record or {}
+        manifest = {'version':1, **metadata, 'recipe_revision':(record.get('recipe') or {}).get('revision'),
                     'visible_input_sha256':fingerprint(clean), 'messages':[], 'materials':[]}
         for index,row in enumerate(clean):
             evidence_id = archive(row) if archive else None
@@ -146,10 +151,13 @@ class ResearchSession:
         for key,source in model_evidence(self.evidence_index())['sources'].items():
             for n,text in enumerate(source.get('received', [])):
                 locate('received_source',key+':'+str(n),text)
-        revision = self.record.get('revision_context') or {}
+        revision = record.get('revision_context') or {}
         if revision.get('draft'):
             locate('parent_draft',revision['path'],revision['draft'])
-        self.record.setdefault('request_materials', []).append(manifest)
+        current = record.get('current_candidate') or {}
+        if current.get('candidate', {}).get('markdown'):
+            locate('current_candidate',current['sha256'],current['candidate']['markdown'])
+        self.request_materials.append(manifest)
         return manifest
 
     def received_text(self, key, text):
@@ -241,7 +249,7 @@ class ResearchSession:
 
     def checkpoint_state(self, archive):
         if self.record is None:
-            return None
+            return {'pre_research_requests': self.request_materials} if self.request_materials else None
         state = {key: getattr(self, key) for key in
                  ('record', 'sources', 'trace', 'draft_count', 'publication_attempts')}
         state['methods'] = sorted(self.methods)
@@ -256,9 +264,13 @@ class ResearchSession:
         return state
 
     def restore_state(self, state, load):
+        if 'pre_research_requests' in state:
+            self.request_materials = state['pre_research_requests']
+            return
         for key in ('record', 'sources', 'trace', 'draft_count', 'publication_attempts'):
             setattr(self, key, state[key])
         self.record = {**self.record, 'status': 'IN_PROGRESS'}
+        self.request_materials = self.record.setdefault('request_materials', [])
         self.methods = set(state['methods'])
         self.method_fingerprints = state.get('method_fingerprints', {})
         self._milestones = {tuple(item) for item in state.get('milestones', [])}
@@ -322,6 +334,13 @@ class ResearchSession:
         from .recipe import update_recipe
         recipe = update_recipe((self.record or {}).get('recipe'), params.get('recipe'),
                                params.get('stage_updates', []), params.get('plan', []), self.artifacts())
+        if params.get('active_stage_id') is not None:
+            selected = params['active_stage_id']
+            if selected not in {stage['id'] for stage in recipe['stages']}:
+                raise ValueError('active_stage_id须为已返回的阶段ID')
+            if recipe.get('active_stage_id') != selected:
+                recipe['active_stage_id'] = selected
+                recipe['revision'] += 1
         if previous is None:
             for note in notes:
                 if note['source_id'] not in self.sources:
@@ -340,6 +359,7 @@ class ResearchSession:
                 raise RuntimeError('计算容器未能创建研究目录，请检查工作区执行权限')
             self.record = {'id': identifier, 'conversation_id': self.conversation_id,
                 'research_contract_version': 2,
+                'request_materials': self.request_materials,
                 'model': self.model, 'started_at': datetime.now(timezone.utc).isoformat(),
                 'scope': params['scope'], 'targets': params.get('targets', []),
                 'plan': params['plan'], 'phase': phase, 'status': 'IN_PROGRESS',
@@ -536,8 +556,15 @@ class ResearchSession:
         self.record.setdefault('artifacts', {})[receipt_id] = {
             'kind':'tool_receipt', 'tool':name, 'status':event['status'],
             'call_id':event.get('call_id'), 'result_sha256':fingerprint(model_evidence_result(result)),
+            'result_status':result.get('status') if isinstance(result,dict) else None,
             'path':path if path.startswith('/workspace/') else None,
             'source_id':result.get('source_id') if isinstance(result,dict) else None}
+        recipe = self.record.get('recipe')
+        if recipe is not None:
+            recipe.setdefault('execution', []).append({'receipt_ref':receipt_id,
+                'stage_id':recipe.get('active_stage_id'), 'phase':self.record['phase'], 'tool':name,
+                'status':event['status'],
+                'result_status':result.get('status') if isinstance(result,dict) else None})
         await self.checkpoint()
 
     async def read_json(self, path):

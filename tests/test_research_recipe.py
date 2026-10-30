@@ -15,11 +15,36 @@ from tests import test_research_session as session_tests, test_research_review a
 
 
 class RecipeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_first_question_manifest_survives_later_research_creation(self):
+        run=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
+        saved={}
+        def archive(row):
+            key=fingerprint(row);saved[key]=row;return key
+        manager=SimpleNamespace(archive=archive,evidence_ids=set())
+        first=run.capture_input([{'role':'user','content':'原始自然问题'}],{'call_id':'first'},manager)
+        self.assertEqual(first['call_id'],'first')
+        from plugins.finance.turn import FinanceTurn
+        turn=FinanceTurn();turn.research=run
+        state=copy.deepcopy(turn.checkpoint_state(archive))
+        restored=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
+        turn.research=restored;turn.restore_state(state,saved.__getitem__)
+        await restored.begin({'phase':'准备','scope':'原始自然问题','plan':['取证']})
+        self.assertEqual(restored.record['request_materials'][0]['call_id'],'first')
+
+    async def test_author_handoff_keeps_current_candidate_after_review(self):
+        _,run,draft,agent,_=await review_tests.ReviewTests().setup_review([
+            {'issues':[],'checks':['核对当前稿']}])
+        run.record['research_contract_version']=2
+        with patch.object(config,'PUBLISH_REVIEW_ENFORCE',False):
+            _=[e async for e in agent._dispatch_tool('brief_publish',draft,'c',None,'id',[{'role':'user','content':'问题'}])]
+        view=json.JSONDecoder().raw_decode(run.guidance().split('\n',1)[1])[0]
+        self.assertEqual(view['current_candidate']['candidate']['markdown'],draft['markdown'])
+
     async def test_provider_captures_serialized_input_not_preprojection_messages(self):
         import httpx
         from core.providers import CompatibleClient, CallBudget
         from plugins.finance.loop import FinanceLoop
-        _,run,_=await session_tests.ResearchSessionTests().prepare()
+        run=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
         saved,observed,requests={},[],[]
         manager=SimpleNamespace(evidence_ids=set())
         def archive(row):
@@ -57,6 +82,7 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         stage = recipe['stages'][0]['id']
         self.assertEqual(run.record['research_contract_version'],2)
         await run.observe({'name':'code_exec','status':'ok','result':{'stdout':'实际计算'}})
+        recipe=copy.deepcopy(run.record['recipe'])
         result = await run.begin({'phase':'分析','stage_updates':[{'id':stage,'model_status':'partial',
             'output_refs':['receipt:1'],'open_questions':['期间仍待核实'],
             'claims':[{'text':'净额变化不能当作销售收现变化','metric':'经营现金流净额',
@@ -72,6 +98,25 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
                 await run.begin({'phase':'分析','stage_updates':[patch_value]})
             self.assertEqual(run.record,before)
         self.assertEqual(run.tool_names,offered)
+
+    async def test_optional_stage_link_records_actual_unknown_not_completion(self):
+        run=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
+        first=await run.begin({'phase':'准备','scope':'研究','plan':['阅读','计算']})
+        stage=first['recipe']['stages'][1]['id']
+        with self.assertRaisesRegex(ValueError,'active_stage_id'):
+            await run.begin({'phase':'分析','active_stage_id':'invented'})
+        await run.begin({'phase':'分析','active_stage_id':stage})
+        await run.observe({'name':'code_exec','status':'error','result':{'status':'UNKNOWN'}})
+        receipt=run.record['recipe']['execution'][-1]
+        self.assertEqual(receipt['stage_id'],stage)
+        self.assertEqual(receipt['result_status'],'UNKNOWN')
+        self.assertEqual(run.record['recipe']['stages'][1]['model_status'],'planned')
+
+    async def test_missing_evidence_identifiers_have_specific_errors_before_dispatch(self):
+        from plugins.finance.evidence_steps import evidence_steps
+        for kind in ('finance','notices','profile','quote','notice'):
+            with self.assertRaisesRegex(ValueError,'article' if kind=='notice' else 'symbol'):
+                evidence_steps({'kind':kind})
 
     async def test_checkpoint_preserves_recipe_and_unknown_without_reexecution(self):
         _,run,_ = await session_tests.ResearchSessionTests().prepare()

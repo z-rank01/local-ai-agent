@@ -7,7 +7,8 @@ FIELDS = {'name', 'goal', 'depends_on', 'input_refs', 'expected_outputs', 'check
 
 
 def update_recipe(current, initial, updates, plan, artifacts):
-    recipe = deepcopy(current) if current else {'schema_version': 1, 'revision': 0, 'stages': []}
+    recipe = deepcopy(current) if current else {'schema_version': 1, 'revision': 0, 'stages': [],
+                                               'execution': [], 'active_stage_id':None}
     if initial is not None and current:
         raise ValueError('已有Recipe请用stage_updates调整，不能覆盖历史工作单')
     if initial is not None and (not isinstance(initial, dict) or set(initial) != {'stages'}):

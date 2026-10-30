@@ -57,7 +57,7 @@ class FinanceTurn(NullTurn):
         state = self.research.checkpoint_state(archive)
         if state is None:
             return None
-        return {'state': state, 'evidence_ids': sorted({eid for spans in state['read_text'].values()
+        return {'state': state, 'evidence_ids': sorted({eid for spans in state.get('read_text', {}).values()
                                                         for eid in spans})}
 
     def restore_state(self, state, load):
