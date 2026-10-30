@@ -620,7 +620,9 @@ class FinanceLoop(Agent):
 
     async def _dispatch_tool(self, name, params, session_id, control, call_id, messages):
         research = getattr(self.router, 'research', None)
-        if name != 'brief_publish' or research is None:
+        if name == 'brief_review' and (research is None or research.record is None):
+            raise ValueError('请先通过research_begin建立本轮研究，再核对当前草稿。')
+        if name not in ('brief_review', 'brief_publish') or research is None:
             async with aclosing(super()._dispatch_tool(name, params, session_id, control, call_id, messages)) as events:
                 async for event in events:
                     yield event
@@ -647,6 +649,12 @@ class FinanceLoop(Agent):
             if research.pending_evidence:
                 result = {'status': 'EVIDENCE_PENDING', 'review': review,
                           'message': '单独核对已选择现有原件补读；待实际工具返回后，局部处理问题并保留其他有效事实与反证。核对建议不是事实。'}
+            elif name == 'brief_review':
+                result = {'status': 'REVIEW_COMPLETE', 'candidate_sha256': fingerprint(candidate),
+                          'review': {key: review[key] for key in (
+                              'status', 'evidence_sha256', 'issues', 'checks', 'read_requests',
+                              'semantic_certification') if key in review},
+                          'message': '核对建议已保存；本次调用不发布或改写报告。请对照证据自行决定修改或brief_publish，建议不认证事实、不强制采纳。'}
             elif review_blocks(review):
                 result = {'error': '单独核对标出必须修改的关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
                           'review': review}
@@ -657,7 +665,7 @@ class FinanceLoop(Agent):
     def _tool_error(self, name, error):
         result = super()._tool_error(name, error)
         research = getattr(self.router, 'research', None)
-        if name == 'brief_publish' and research is not None and research.record.get('draft'):
+        if name in ('brief_review', 'brief_publish') and research is not None and research.record and research.record.get('draft'):
             result['draft'] = research.record['draft']
         return result
 

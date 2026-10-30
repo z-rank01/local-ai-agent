@@ -74,6 +74,7 @@ def main():
     parser.add_argument('--source-conversation', required=True)
     parser.add_argument('--variant', default='v1')
     parser.add_argument('--collect', action='store_true')
+    parser.add_argument('--question-file', type=Path, help='本次公开自然问题；只选择验收输入，不改变模型、权限或执行入口')
     parser.add_argument('--revision-of', default='', help='原已保存research.json；新建关联修订，不恢复旧运行')
     parser.add_argument('--feedback-file', type=Path, help='本次明确提供的公开资料核对意见；不会修改原稿')
     args = parser.parse_args()
@@ -81,6 +82,10 @@ def main():
         parser.error('variant只能使用字母、数字、下划线或连字符')
     if args.revision_of and not re.fullmatch(r'/workspace/reports/chat-research/[a-f0-9]{32}/research\.json', args.revision_of):
         parser.error('revision-of须为原工作区已保存研究记录')
+    question = (args.question_file.read_text(encoding='utf-8').strip()
+                if args.question_file and not args.collect else PROMPTS[args.scenario])
+    if not question:
+        parser.error('自然问题不能为空')
     directory = ROOT / 'data/private/finance-delivery-20261030'
     directory.mkdir(parents=True, exist_ok=True)
     output = directory / (args.scenario + '-' + args.variant + '.json')
@@ -113,7 +118,7 @@ def main():
         response.raise_for_status()
         result['conversation_id'] = response.json()['id']
         result['status'] = 'SUBMITTING'
-        prompt = PROMPTS[args.scenario] + SCOPE
+        prompt = question + SCOPE
         if args.revision_of:
             prompt += ('\n请通过research_begin.revision_of引用' + args.revision_of +
                        '，创建关联修订。核验继承来源与固定方法，原目录全部保留；在新目录重新写作、单独核对并发布。')

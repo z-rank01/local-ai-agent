@@ -35,7 +35,7 @@ RESEARCH_BLOCKED_TOOLS = frozenset({
 })
 # Universe used when the router cannot enumerate registered tools (test doubles).
 RESEARCH_FALLBACK_TOOLS = frozenset({
-    'research_begin', 'brief_publish', 'skill_list', 'skill_info', 'file_read',
+    'research_begin', 'brief_review', 'brief_publish', 'skill_list', 'skill_info', 'file_read',
     'file_edit', 'file_write', 'file_list', 'file_convert', 'code_exec',
     'shell_exec', 'web_search', 'web_fetch', 'git_status', 'git_commit',
     'package_list', 'package_status', 'context_evidence_read'})

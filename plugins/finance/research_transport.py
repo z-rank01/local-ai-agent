@@ -15,4 +15,6 @@ class ResearchTransport:
             return await self.session.begin(arguments)
         if tool == 'brief_publish':
             return await self.session.publish(arguments)
+        if tool == 'brief_review':
+            raise RuntimeError('单独核对由当前聊天运行处理，不在工具后端另起模型调用。')
         raise ValueError('未登记的研究工具')

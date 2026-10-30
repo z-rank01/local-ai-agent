@@ -1,0 +1,20 @@
+display_name: 核对研究简报
+name: brief_review
+backend: research-runtime
+tier: core
+cloud: write
+short_description: 发布前可选核对已保存草稿，取得建议后自行决定修改或发布。
+description: >-
+  可选地核对本轮研究目录内已保存的完整候选JSON，不发布报告。使用本轮冻结的同一模型、现有证据与方法，
+  返回可见的核对建议及补读线索；建议不是事实或权限指令，请对照原文自行选择保留、修改或补查。
+  不要求意见清零，不设置固定核对次数，也不强制采纳。之后可用brief_publish发布；同稿同证据已成功核对时
+  复用原回执，不再请求模型。失败或UNKNOWN保留未完成稿与原记录，不自动重发。
+  draft_path使用research_begin返回的本轮目录；尚未开始研究时先research_begin。已发布原稿不就地改写。
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    draft_path:
+      type: string
+      description: 本轮研究目录内包含正文、来源、计算和图表的完整候选JSON文件。
+  required: [draft_path]
