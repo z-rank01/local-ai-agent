@@ -274,7 +274,7 @@ class FinanceTurn(NullTurn):
         return incomplete_delivery(*args, **kwargs)
 
     def review_reply(self, *, accumulated, messages, session_id, record, review_visible_prefix,
-                     pending_tokens, active, window_closed, no_progress_closed):
+                     pending_tokens, active):
         from harness.contracts.turn_policy import TurnReview
         from .source_quotes import (original_texts, original_records, complete_sources,
             unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs,
@@ -327,7 +327,7 @@ class FinanceTurn(NullTurn):
                 'count': len(issues), 'repair_attempt': self.source_review.attempts})
             events.append(('quality_rejected', {'message': {'role': 'system', 'content': feedback},
                 'rejected_answer': reply, 'quality_issues': issues}))
-            if self.source_review.attempts < 2 and active and not window_closed and not no_progress_closed:
+            if self.source_review.attempts < 2 and active:
                 self.source_review.begin(feedback)
                 messages.append({'role': 'system', 'content': feedback})
                 retry = True

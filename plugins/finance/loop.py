@@ -242,7 +242,6 @@ class FinanceLoop(Agent):
                     active = [d for d in active if d['function']['name'] in research.tool_names]
                 # Progress counters are diagnostics, never authority to stop research.
                 # Ordinary non-research chat retains its explicitly configured limits.
-                window_closed = no_progress_closed = False
                 if not (autonomous or research_enabled) and self.max_rounds > 0 and round_number == self.max_rounds - 1:
                     active = []
                     messages.append({'role': 'system', 'content':
@@ -285,7 +284,7 @@ class FinanceLoop(Agent):
                     messages.append(program_source_message)
                 purpose_step = False
                 purpose_view = None
-                if purpose_pending and not source_review.parameter_step and not window_closed and not no_progress_closed:
+                if purpose_pending and not source_review.parameter_step:
                     purpose_view = turn.purpose_view(history=messages, question=user_request,
                         lookup=lookup_context, definitions=active)
                     purpose_step = purpose_view is not None
@@ -494,7 +493,7 @@ class FinanceLoop(Agent):
                     review = turn.review_reply(accumulated=accumulated, messages=messages,
                         session_id=session_id, record=self.audit.record,
                         review_visible_prefix=review_visible_prefix, pending_tokens=pending_tokens,
-                        active=active, window_closed=window_closed, no_progress_closed=no_progress_closed)
+                        active=active)
                     if review is not None:
                         for kind, data in review.events:
                             yield AgentEvent(kind, data=data)
@@ -530,7 +529,7 @@ class FinanceLoop(Agent):
                             continue
                         await research.incomplete()
                         raise RuntimeError('研究未完成交付；已保存研究记录与工具结果，不会在后台自动继续。')
-                    if (not window_closed and tool_defs and self.allow_tools and
+                    if (tool_defs and self.allow_tools and
                             unfinished_execution(reply, user_request)):
                         if (execution_retries >= 2 or not active or
                                 (not autonomous and not research_enabled and self.max_rounds > 0
