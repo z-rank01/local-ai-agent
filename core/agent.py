@@ -203,8 +203,8 @@ class Agent:
             budgets = getattr(self.registry, 'call_limits', lambda: {})()
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             round_number, execution_retries = 0, 0
-            execution_deadline = None
-            while execution_deadline is not None or self.max_rounds <= 0 or round_number < self.max_rounds:
+            receipt_closed = False
+            while receipt_closed or self.max_rounds <= 0 or round_number < self.max_rounds:
                 if getattr(self, 'local_agent_unknown', False):
                     yield AgentEvent('error', text='本地Gemma4调用终态未知，已保留成果；不自动重发或切换模型。')
                     return
@@ -214,13 +214,12 @@ class Agent:
                 discovery = turn.allowed_tools()
                 if discovery is not None:
                     active = [d for d in active if d['function']['name'] in discovery]
-                window_closed = execution_deadline is not None and time.monotonic() >= execution_deadline
-                final_round = (execution_deadline is None and self.max_rounds > 0
+                final_round = (not receipt_closed and self.max_rounds > 0
                                and round_number == self.max_rounds - 1)
-                if window_closed or final_round:
+                if receipt_closed or final_round:
                     active = []
                     messages.append({'role': 'system', 'content':
-                        '[本轮处理窗口已到，请根据已取得的结果回答，明确剩余缺口。]' if window_closed else
+                        '[工具回执已结束本次执行，请根据已取得的结果回答，明确剩余缺口。]' if receipt_closed else
                         '[本轮执行预算已到收尾阶段，请根据已取得的结果回答，明确剩余缺口。]'})
                 self.audit.record('model_tools_offered', {'session_id': session_id,
                     'names': [d['function']['name'] for d in active],
@@ -256,10 +255,10 @@ class Agent:
                     reply = accumulated.get('content') or ''
                     if not reply:
                         raise RuntimeError('模型返回空回答，已有工具结果仍保留。')
-                    if (not window_closed and tool_defs and self.allow_tools
+                    if (not receipt_closed and tool_defs and self.allow_tools
                             and unfinished_execution(reply, user_request)):
                         if execution_retries >= 2 or not active or (
-                                execution_deadline is None and self.max_rounds > 0
+                                not receipt_closed and self.max_rounds > 0
                                 and round_number >= self.max_rounds - 1):
                             raise RuntimeError('模型只给出了待执行代码，没有完成所述操作。已有工具结果保留；代码未自动运行，任务尚未完成。')
                         execution_retries += 1
@@ -273,21 +272,20 @@ class Agent:
                             logger.warning('Local memory update failed')
                     yield AgentEvent('done', text=reply)
                     return
-                if window_closed:
+                if receipt_closed:
                     for call in calls:
                         skipped = {'role': 'tool', 'tool_call_id': call['id'],
                                    'tool_name': call['function']['name'],
-                                   'content': '{"error":"本轮窗口已到，此步骤未执行。"}'}
+                                   'content': '{"error":"工具回执已结束本次执行，此步骤未执行。"}'}
                         messages.append(skipped)
                         yield AgentEvent('message', data={'message': skipped})
-                    yield AgentEvent('error', text='本轮调用已达到上限；已完成的工具结果保留，请继续追问。')
+                    yield AgentEvent('error', text='工具回执已结束本次执行，未追加工具；已完成的结果保留。')
                     return
                 allowed = {d['function']['name'] for d in active}
                 turn_boundary = False
                 receipt_presentation = None
                 async with aclosing(self._execute_tools(calls, session_id, messages, allowed=allowed,
-                        budgets=budgets, counts=counts,
-                        execution_deadline=execution_deadline)) as events:
+                        budgets=budgets, counts=counts)) as events:
                     async for event in events:
                         if event.kind == 'turn_boundary':
                             turn_boundary = True
@@ -311,7 +309,7 @@ class Agent:
                     yield AgentEvent('done', text=receipt_presentation.text)
                     return
                 if turn_boundary:
-                    execution_deadline = 0.0
+                    receipt_closed = True
                 for call in calls:
                     name = call['function']['name']
                     counts[name] = counts.get(name, 0) + 1
@@ -334,8 +332,7 @@ class Agent:
         return final_text, messages
 
     async def _execute_tools(self, tool_calls, session_id, messages, *, allowed=None,
-                             budgets=None, counts=None, execution_deadline=None, phase='normal',
-                             research_handoff=False, evidence_step=None, research_finalizing=False):
+                             budgets=None, counts=None, phase='normal', evidence_step=None):
         from harness.runtime.turns import NullTurn
         turn = getattr(self, 'turn', None)
         if turn is None:
@@ -348,9 +345,9 @@ class Agent:
                 await control.boundary(messages)
             fn = tc.get('function', {})
             name = fn.get('name', '')
-            if turn_boundary or (execution_deadline is not None and time.monotonic() >= execution_deadline):
+            if turn_boundary:
                 skipped = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name,
-                           'content': '{"error":"本轮处理窗口已到，此步骤未执行。"}'}
+                           'content': '{"error":"工具回执已结束本批执行，此步骤未执行。"}'}
                 messages.append(skipped)
                 yield AgentEvent('message', data={'message': skipped})
                 turn_boundary = True
@@ -364,12 +361,12 @@ class Agent:
                 params = json.loads(raw) if isinstance(raw, str) else raw
                 if not isinstance(params, dict):
                     raise ValueError('工具参数必须是 JSON 对象')
-                self._validate_tool(name, params, research, research_finalizing)
+                self._validate_tool(name, params, research)
                 params = turn.before_tool(name, params)
                 policy_for = getattr(self.registry, 'execution_policy', None)
                 call_policy = policy_for(name) if policy_for else None
                 if call_policy is not None:
-                    call_policy.validate(name, params, phase='handoff' if research_handoff else phase)
+                    call_policy.validate(name, params, phase=phase)
                 if allowed is not None and name not in allowed:
                     if budgets and name in budgets:
                         raise ValueError(f'当前步骤未开放 {name}；该请求未执行。请遵守当前交付或交接阶段，不能据此声称配额已用尽或没有检索结果。')
@@ -422,7 +419,7 @@ class Agent:
         if turn_boundary:
             yield AgentEvent('turn_boundary')
 
-    def _validate_tool(self, name, params, research, research_finalizing):
+    def _validate_tool(self, name, params, research):
         if research is not None and research.active and name not in research.tool_names:
             raise ValueError('自主研究当前步骤未开放此工具；先读取适用方法，并使用本轮已开放的研究工具。本步骤未执行。')
 

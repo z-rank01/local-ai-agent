@@ -167,3 +167,5 @@ Docker Desktop 下内部网络不保证发布主机端口，因此可选服务�
 工作区 Skill API 增加 `GET .../skills/{name}/source` 文件列表、`GET .../source-file?path=<相对路径>` 读取、`PUT .../source-file?path=...` 保存。保存体为 `{content, sha256}`，哈希来自实际读取回执；冲突返回 409，不自动覆盖或重发。BFF 经原工作区执行锁和已鉴权 Runner 转发，不能传本机路径或写入版本目录。
 
 仅编辑标准目录包内现有 UTF-8 文本，最大 256 KiB；目录／资源链接、越界和二进制拒绝，旧式 Python 兼容包只读。原 Runner 的 source-validate 校验候选包结构，BFF 再向同工作区文件服务的既有 file_edit 提交完整原文、新文和 expected_sha256；成功后经 Runner 回读并捕获新版本。这样无需改变源目录权限或提升 Runner 身份。权限和依赖沿原激活规则，不执行保存的脚本。此校验不等于所有脚本语言的语法检查。工具容器改动仍需唯一入口 `-Build`。
+
+Skill/Plugin目录发现不限制已经授权的普通工具；不必为了读取已保存报告而先选择方法包。选用Skill时仍读取本轮冻结版本，目录选择、方法正文及核对建议都不扩大工作区授权。

@@ -1,14 +1,7 @@
-"""Finance handoff and confirmed broker boundaries belong to the finance package."""
+"""Finance receipt presentation and confirmed legacy broker boundaries."""
 
 
 class FinanceCallPolicy:
-    def accepted_handoff(self, tool, receipt):
-        return isinstance(receipt, dict) and receipt.get('code') == 'TASK_SUBMITTED'
-
-    def phase_guidance(self, phase):
-        from .phase_guidance import HANDOFF
-        return HANDOFF if phase == 'handoff' else ''
-
     def present_receipt(self, tool, arguments, receipt, *, question, read_receipts):
         from harness.contracts.receipt_presentation import ReceiptPresentation
         if tool == 'stock_public_evidence_read':
@@ -26,12 +19,9 @@ class FinanceCallPolicy:
         return project_history(history, archive)
 
     def validate(self, tool, arguments, *, phase):
-        if phase != 'handoff':
-            return
-        if tool == 'stock_research_submit' and arguments.get('research_mode', 'reuse') not in ('reuse', 'continue'):
-            raise ValueError('后台交接只能复用研究，不能以新版本绕过未知调用。')
-        if tool in ('stock_theme_research_submit', 'stock_research_submit') and not str(arguments.get('research_question') or '').strip():
-            raise ValueError('后台交接必须明确传入公开研究问题，不能丢失原任务目标。')
+        # Authorization, UNKNOWN isolation and domain parameters are enforced by
+        # the existing router/broker, without a timer-created handoff phase.
+        return
 
     def ends_window(self, tool, receipt):
         return isinstance(receipt, dict) and (

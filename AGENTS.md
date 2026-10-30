@@ -119,7 +119,7 @@ powershell Start-Process …（由聊天后端调用）
 
 ## 会话模型统一（2026-10-21）
 
-能力安装状态增量保存于原 `conversations.db` 的 v10 `capability_installs`，会话级能力选择为 v11 `conversations.capability_ids`（`skill:<name>` / `plugin:<id>` JSON）；升级前自动生成 `.before-v11.sqlite`。回退代码不能用旧备份覆盖升级后新消息。空选择不缩窄运行目录，非空只收窄本轮 Skill/Plugin 发现目录，不摘工具 schema、不改权限。方法包的启停、待激活版本和回退按工作区隔离；运行中的版本引用不随目录更新而改变。
+能力安装状态增量保存于原 `conversations.db` 的 v10 `capability_installs`，会话级能力选择为 v11 `conversations.capability_ids`（`skill:<name>` / `plugin:<id>` JSON）；升级前自动生成 `.before-v11.sqlite`。回退代码不能用旧备份覆盖升级后新消息。空选择不缩窄运行目录，非空只收窄本轮 Skill/Plugin 发现目录，不摘工具 schema、不改权限。目录发现不再作为工具解锁门槛；无需先调用skill_list/skill_info才能读取已授权文件。模型自主选择是否使用方法，选用时仍读取本轮固定版本。方法包的启停、待激活版本和回退按工作区隔离；运行中的版本引用不随目录更新而改变。
 
 恢复按钮使用原股票工作进程的 `recovery_only_worker` 范围，只执行恢复核对，不领取普通任务，也不修改 `research_only_worker` 或限定任务列表。完成或阻断后暂停，账户恢复确认仍由页面人工完成；重启沿唯一启动器，不另起恢复执行器。
 

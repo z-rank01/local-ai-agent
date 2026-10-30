@@ -23,7 +23,6 @@ class NullTurn:
         self.reply_purpose_enabled = False
         self.source_review_enabled = False
         self.loop_enabled = False
-        self.window_seconds = None
         self.source_read_seen = False
         self.source_review = NullSourceReview()
         self.source_quote_originals = []
@@ -32,13 +31,11 @@ class NullTurn:
         self.source_comparison_index = {}
         self.source_index = []
         self.delivery_guidance = ''
-        self.discovery = None
 
     def start(self, history):
         pass
 
     def stream(self, host, messages, session_id, conversation_key):
-        self.discovery = getattr(host.router, 'skill_session', None)
         return None
 
     async def configure(self, method_id, answer_only):
@@ -110,12 +107,9 @@ class NullTurn:
         pass
 
     def allowed_tools(self):
-        if self.discovery is None or not self.discovery.requires_discovery:
-            return None
-        names = ['skill_list', 'skill_info', 'file_list']
-        for capability in self.discovery.snapshot.get('capabilities', []):
-            names.extend(capability.get('tools', []))
-        return tuple(dict.fromkeys(names))
+        # A discovery catalog describes methods, not tool authority. The router
+        # still enforces workspace grants, installed providers and call policies.
+        return None
 
     @property
     def buffer_output(self):

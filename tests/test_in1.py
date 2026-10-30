@@ -641,7 +641,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         messages = [e.data['message'] for e in events if e.kind=='message' and e.data['message'].get('role')=='tool']
         self.assertNotIn('还可 0 次',messages[0]['content'])
 
-    async def test_skill_discovery_survives_rejected_tool_in_both_loops(self):
+    async def test_skill_discovery_does_not_gate_tools_in_both_loops(self):
         from harness.capabilities.skill_session import SkillSession
         from plugins.finance.loop import FinanceLoop
         for loop in (Agent, FinanceLoop):
@@ -682,11 +682,12 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                     agent.registry.create_turn = FinanceTurn
                     agent.turn_loop_enabled = True
                 events = [event async for event in agent.run([{'role': 'user', 'content': '整理记录'}])]
-                self.assertEqual(set(offered[0]), {'skill_list', 'skill_info', 'file_list', 'documents_find'})
-                self.assertEqual(set(offered[1]), {'skill_list', 'skill_info', 'file_list', 'documents_find'})
+                expected = {'skill_list', 'skill_info', 'file_list', 'file_read', 'documents_find'}
+                self.assertEqual(set(offered[0]), expected)
+                self.assertEqual(set(offered[1]), expected)
                 self.assertIn('file_read', offered[2])
                 self.assertEqual([event.data['status'] for event in events if event.kind == 'tool_end'],
-                                 ['error', 'ok', 'ok', 'ok'])
+                                 ['ok', 'ok', 'ok', 'ok'])
                 self.assertEqual(events[-1].kind, 'done')
 
 class CompactTests(unittest.IsolatedAsyncioTestCase):
