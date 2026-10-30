@@ -6,6 +6,38 @@ from tests import test_in1
 
 DRAFT = {'role':'assistant','content':'让我先读取数据：\n```python\nprint(42)\n```'}
 
+
+class FrozenModelOptionsTests(unittest.TestCase):
+    def test_default_options_absence_and_explicit_empty_options_round_trip(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from bff.service import ChatSessionService
+        from core.run_checkpoint import environment
+        for options in (None, {}, {'temperature': 0.2}):
+            with self.subTest(options=options):
+                spec={'id':'fixture:model','provider_id':'fixture','model':'model',
+                      'kind':'cloud','base_url':'https://example.invalid'}
+                if options is not None:
+                    spec['options']=options
+                snapshot=SimpleNamespace(id='default', record={'version':1,'cloud_read':True,'cloud_write':True}, roots={})
+                frozen=environment(spec,snapshot,'auto')
+                client=SimpleNamespace(spec=spec)
+                host=SimpleNamespace(_runtime=SimpleNamespace(models=SimpleNamespace(resolve=Mock(return_value=(spec,client)))))
+                _, resumed=ChatSessionService._execution_model(host,SimpleNamespace(model=spec['id']),frozen=frozen['model'])
+                self.assertEqual(environment(resumed.spec,snapshot,'auto'),frozen)
+
+    def test_frozen_connection_change_is_still_rejected(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from fastapi import HTTPException
+        from bff.service import ChatSessionService
+        spec={'id':'fixture:model','provider_id':'fixture','model':'model',
+              'kind':'cloud','base_url':'https://new.example.invalid'}
+        host=SimpleNamespace(_runtime=SimpleNamespace(models=SimpleNamespace(resolve=Mock(return_value=(spec,SimpleNamespace())))))
+        with self.assertRaises(HTTPException) as rejected:
+            ChatSessionService._execution_model(host,None,frozen={**spec,'base_url':'https://old.example.invalid'})
+        self.assertEqual(rejected.exception.status_code,409)
+
 class RecoveryTests(unittest.IsolatedAsyncioTestCase):
     agent = test_in1.AgentTests.agent
 

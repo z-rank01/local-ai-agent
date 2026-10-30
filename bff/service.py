@@ -1017,9 +1017,15 @@ class ChatSessionService:
         if frozen:
             if any(spec.get(k) != frozen.get(k) for k in ('id','provider_id','model','base_url')):
                 raise HTTPException(409, '冻结模型连接配置已变化，不能继续')
-            spec = {**spec, 'options': frozen.get('options', {})}
+            spec = dict(spec)
+            if 'options' in frozen:
+                spec['options'] = frozen['options']
+            else:
+                # Absence is part of older and provider-default snapshots.
+                # Adding {} changes the environment fingerprint on pause/resume.
+                spec.pop('options', None)
             if spec['kind'] == 'local':
-                llm.think = spec['options'].get('think')
+                llm.think = spec.get('options', {}).get('think')
             else:
                 llm.spec = spec
             return spec, llm
