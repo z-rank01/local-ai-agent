@@ -1,5 +1,6 @@
 """Candidate identity and a clean, same-model review context."""
 import json
+import re
 from pathlib import Path
 from harness.runtime.evidence import model_evidence, fingerprint
 
@@ -16,8 +17,12 @@ def review_messages(question, candidate, research, system, findings=()):
     instructions=(Path(__file__).parent/'prompts/review.txt').read_text(encoding='utf-8')
     # The writer's self-checks are not independent evidence. Preserve the original
     # submission elsewhere; only remove this affirmation from the review view.
-    view={key:value for key,value in candidate.items() if key!='review'}
-    payload={'question':question,'candidate':view,'limitations':candidate.get('review',{}).get('limitations',[]),
+    view={key:value for key,value in candidate.items() if key not in ('review','editorial_notes')}
+    narrative=re.sub(r'(?m)^#{1,6}[ \t]+[^\n]*(?:\n|$)','',candidate.get('markdown') or '')
+    opening=next((block for block in re.split(r'\n\s*\n',narrative.strip()) if block.strip()), '')
+    payload={'question':question,
+             'decision_surface':{**{k:candidate.get(k) for k in ('title','stance','as_of')},'opening':opening},
+             'candidate':view,'limitations':candidate.get('review',{}).get('limitations',[]),
              'known_conflicts':candidate.get('review',{}).get('conflicts',[]),
              'recipe':(getattr(research,'record',None) or {}).get('recipe'),
              'revision_context':(getattr(research,'record',None) or {}).get('revision_context'),
@@ -70,4 +75,44 @@ def parse_review(text):
                 'pages' in row and (not isinstance(row['pages'],list) or not row['pages'] or
                                     any(type(p) is not int or p<1 for p in row['pages']))):
             raise ValueError('补读只接受实际source_id、非空terms及可选真实页码，不接受路径或URL')
-    return {'issues':value['issues'],'checks':value['checks'],'read_requests':reads,'semantic_certification':False}
+    result={'issues':value['issues'],'checks':value['checks'],'read_requests':reads,'semantic_certification':False}
+    if 'claim_checks' in value:
+        claims=value['claim_checks']
+        if not isinstance(claims,list):raise ValueError('claim_checks须为核心陈述对照列表')
+        for claim in claims:
+            if (not isinstance(claim,dict) or not isinstance(claim.get('claim'),str) or not claim['claim'].strip()
+                    or any(not isinstance(claim.get(k,''),str) for k in ('observed_scope','unresolved'))
+                    or not isinstance(claim.get('evidence_refs',[]),list)):
+                raise ValueError('核心陈述对照缺少原句或材料范围')
+            claim['assessment']=str(claim.get('assessment','unknown')).lower()
+            if claim['assessment'] not in ('supported','conditional','unsupported','unknown'):
+                claim['assessment']='unknown'
+            for ref in claim.get('evidence_refs',[]):
+                if (not isinstance(ref,dict) or any(not isinstance(ref.get(k),str)
+                        for k in ('source_id','quote'))):
+                    raise ValueError('核心陈述对照的来源须有source_id与原句')
+        # Model annotations cannot write host-owned provenance or certification.
+        result['claim_checks']=[{**{k:claim[k] for k in
+            ('claim','observed_scope','unresolved','assessment') if k in claim},
+            'evidence_refs':[{k:ref[k] for k in ('source_id','quote','locator','observed_at') if k in ref}
+                             for ref in claim.get('evidence_refs',[])]} for claim in claims]
+    return result
+
+
+def claim_provenance(claims, candidate, research):
+    """Check literal references only; a model verdict is never a certification."""
+    from .publication import literal_text
+    body=[literal_text(candidate[k]) for k in ('title','markdown')]
+    result=[]
+    for index,claim in enumerate(claims):
+        refs=[]
+        for ref in claim.get('evidence_refs',[]):
+            known=ref['source_id'] in research.sources
+            quote=literal_text(ref['quote'])
+            refs.append({'source_id':ref['source_id'],'known_source':known,
+                'quote_received':bool(known and quote and any(quote in literal_text(span)
+                    for span in research.read_text.get(ref['source_id'],[]))),
+                'observation_date_is_model_declared':True})
+        result.append({'index':index,'literal_claim_found':any(literal_text(claim['claim']) in text for text in body),
+            'references':refs,'assessment_is_model_judgment':True,'semantic_certification':False})
+    return result

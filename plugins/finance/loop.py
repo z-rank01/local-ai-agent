@@ -674,7 +674,7 @@ class FinanceLoop(Agent):
                 result = {'status': 'REVIEW_COMPLETE', 'candidate_sha256': fingerprint(candidate),
                           'review_ref':review_ref,
                           'review': {key: review[key] for key in (
-                              'status', 'evidence_sha256', 'issues', 'checks', 'read_requests',
+                              'status', 'evidence_sha256', 'issues', 'checks', 'read_requests', 'claim_checks','claim_provenance',
                               'semantic_certification') if key in review},
                           'message': '核对建议已保存；本次调用不发布或改写报告。请对照证据自行决定修改或brief_publish，建议不认证事实、不强制采纳。'}
                 review['feedback_returned'] = True
@@ -684,7 +684,8 @@ class FinanceLoop(Agent):
                     or not isinstance(params.get('review_response'), str) or not params['review_response'].strip()):
                 result = {'status':'REVIEW_READY', 'review_ref':review_ref,
                           'candidate_sha256':fingerprint(candidate),
-                          'review':{key:review.get(key) for key in ('issues','checks','read_requests','semantic_certification')},
+                          'review':{key:review[key] for key in ('issues','checks','read_requests','claim_checks',
+                              'claim_provenance','semantic_certification') if key in review},
                           'message':'本次未发布。请对照原文处理建议；可补查、修改，也可有依据地保留异议。'
                                     '明确发布时再次brief_publish，携带本review_ref及简短review_response。'
                                     '不要求逐条填表或意见清零；修改稿件或证据将核对新版本。'}
@@ -711,7 +712,7 @@ class FinanceLoop(Agent):
         return None
 
     async def _review_candidate(self, candidate, session_id, messages):
-        from .research_review import fingerprint, review_messages, parse_review, previous_findings
+        from .research_review import fingerprint, review_messages, parse_review, previous_findings, claim_provenance
         from contextlib import aclosing
         import uuid
         research=self.router.research
@@ -786,6 +787,8 @@ class FinanceLoop(Agent):
             visible=re.sub(r'<think>.*?(?:</think>|$)','',response.get('content') or '',flags=re.S|re.I).strip()
             await research.write(directory+'-response.txt',visible)
             result=parse_review(visible)
+            if 'claim_checks' in result:
+                result['claim_provenance']=claim_provenance(result['claim_checks'],candidate,research)
             previous=[len(r.get('issues',[])) for k,r in research.review_records.items()
                       if k!=key and r.get('status')=='COMPLETE']
             if not previous or len(result['issues'])<min(previous):

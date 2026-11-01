@@ -25,7 +25,7 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1007项、21项跳过，2026-11-01实测；Windows asyncio需可用本机socket）
+.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1009项、21项跳过，2026-11-01实测；Windows asyncio需可用本机socket）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -96,6 +96,8 @@ powershell Start-Process …（由聊天后端调用）
 ## 约定
 
 新研究自主选择是否使用方法，不能以方法读取隐藏已授权工具或拒绝取证、核对与发布；选用时仍冻结版本。收到新核对反馈时建立recipe-author-v2交接边界，包含全部已返回证据、方法、最近提交稿及反馈；此后完整保留连续操作和新文件选择，不每步重置消息，也不走旧工具批次预览。边界缺失时保留原视图，完整可见历史保存在原task_evidence并可回读，不保存隐藏推理。最近提交稿不冒充后续另存的新工作稿，工作稿刷新不自动取得核对资格，发布仍匹配当前稿与证据版本。
+
+独立核对排除review自查及editorial_notes修订声明，保留已知冲突和资料限制；标题、截止日和开头单列呈现。核心陈述claim_checks与claim_provenance沿原reviews及反馈返回，程序只观察原句和引文是否实际出现，模型判断和原文观察日期不因此获认证；不得把引用匹配当作事实正确或新增发布否决权。建议式补读由作者自主选择原工具，不宣称自动执行。
 
 - 两个仓库直接工作在 `main`；提交小而可审阅，按批次（INx/N2 等）记录到股票仓库 `docs/计划.md`。
 - 前端施工先看 `docs/UI设计笔记.md`（已压缩的前端设计摘要：令牌、组件模式、动效、A/manager 与深色规则）；前端批次进度只维护股票仓库 `docs/计划.md`。

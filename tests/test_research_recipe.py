@@ -317,9 +317,63 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         absent=run.capture_input([{'role':'user','content':'没有原文'}],{'call_id':'next'},manager)
         self.assertTrue(all(not row['included'] for row in absent['materials']))
         draft['review']['conflicts']=['指标可能错配']
+        draft['editorial_notes']=['自称已经修复全部核心错误']
         review=json.loads(review_messages('原问题',draft,run,'permissions')[1]['content'])
         self.assertEqual(review['known_conflicts'],['指标可能错配'])
         self.assertIn('recipe',review)
+        self.assertNotIn('review',review['candidate'])
+        self.assertNotIn('editorial_notes',review['candidate'])
+        self.assertNotIn('自称已经修复全部核心错误',json.dumps(review,ensure_ascii=False))
+        self.assertEqual(review['candidate']['markdown'],draft['markdown'])
+        self.assertEqual(review['decision_surface']['title'],draft['title'])
+        self.assertIn('等待验证',review['decision_surface']['opening'])
+        self.assertEqual(draft['editorial_notes'],['自称已经修复全部核心错误'])
+
+    async def test_claim_reference_observations_return_to_author_without_certification_or_veto(self):
+        from plugins.finance.research_review import parse_review
+        outputs=[]
+        files,run,draft,agent,calls=await review_tests.ReviewTests().setup_review(outputs)
+        run.record['research_contract_version']=2
+        sid=draft['sources'][0]['id']
+        outputs.append({'issues':[],'checks':['只核查可定位材料'], 'claim_checks':[
+            {'claim':'等待验证。','evidence_refs':[{'source_id':sid,'quote':'营业收入100元','observed_at':'原文期内'}],
+             'observed_scope':'只观察到期内收入','unresolved':'尚未证明后续变化','assessment':'conditional'},
+            {'claim':'原稿没有这句话','semantic_certification':True,
+             'evidence_refs':[{'source_id':'Sunknown','quote':'伪造引句','quote_received':True}],
+             'observed_scope':'作者意见','unresolved':'引用不成立','assessment':'supported'}]})
+        with patch.object(config,'PUBLISH_REVIEW_ENFORCE',False):
+            events=[e async for e in agent._dispatch_tool('brief_publish',draft,'c',None,'id',[{'role':'user','content':'问题'}])]
+            ready=next(e.data['result'] for e in events if e.kind=='tool_result')
+            observed=ready['review']['claim_provenance']
+            self.assertTrue(observed[0]['literal_claim_found'])
+            self.assertTrue(observed[0]['references'][0]['quote_received'])
+            self.assertFalse(observed[1]['literal_claim_found'])
+            self.assertFalse(observed[1]['references'][0]['known_source'])
+            self.assertFalse(observed[1]['references'][0]['quote_received'])
+            self.assertNotIn('semantic_certification',ready['review']['claim_checks'][1])
+            self.assertNotIn('quote_received',ready['review']['claim_checks'][1]['evidence_refs'][0])
+            self.assertTrue(all(not row['semantic_certification'] for row in observed))
+            events=[e async for e in agent._dispatch_tool('brief_publish',{**draft,
+                'review_ref':ready['review_ref'],'review_response':'第二条意见依据不成立；按已取得原文保留限制后发布'},
+                'c',None,'id',[{'role':'user','content':'问题'}])]
+        self.assertEqual(next(e.data['result']['status'] for e in events if e.kind=='tool_result'),'PUBLISHED')
+        self.assertEqual(len(calls),1)
+        evidence=json.loads(files.files[run.record['directory']+'/evidence.json'])
+        self.assertEqual(evidence['separate_review']['claim_provenance'],observed)
+        self.assertNotIn('claim_checks',parse_review(json.dumps({'issues':[],'checks':['旧契约核对']})))
+
+    async def test_claim_references_do_not_accept_unreceived_saved_text_or_paraphrased_quotes(self):
+        from plugins.finance.research_review import claim_provenance,parse_review
+        _,run,draft=await session_tests.ResearchSessionTests().prepare()
+        sid=draft['sources'][0]['id']
+        value=parse_review(json.dumps({'issues':[],'checks':['引用定位'], 'claim_checks':[
+            {'claim':'等待验证。','assessment':'unsupported','evidence_refs':[
+                {'source_id':sid,'quote':'营业收入增加至100元'},
+                {'source_id':sid,'quote':'已保存但未返回的内容'}]}]},ensure_ascii=False))
+        result=claim_provenance(value['claim_checks'],draft,run)
+        self.assertTrue(all(row['known_source'] and not row['quote_received'] for row in result[0]['references']))
+        with self.assertRaises(ValueError):
+            parse_review(json.dumps({'issues':[],'checks':['格式'], 'claim_checks':[{'claim':'原句','evidence_refs':['路径']}]}))
 
     async def test_advisory_feedback_then_explicit_publish_without_second_review(self):
         issue={'section':'结论','claim':'推断','reason':'缺口','evidence':'原文','action':'可补查','severity':'blocking'}
