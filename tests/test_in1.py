@@ -74,6 +74,16 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(model_projection(value),{'items':[{'fact':42}]})
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_json_output_derivation_requires_verified_capability_and_keeps_explicit_format(self):
+        client=await self.client([{'choices':[{'delta':{'content':'ok'},'finish_reason':'stop'}]}])
+        with self.assertRaisesRegex(ValueError,'未确认JSON'):
+            client.with_json_object_output()
+        client.spec={**client.spec,'structured_output':{'mode':'json_object'},
+                     'options':{'response_format':{'type':'text'},'reasoning_effort':'high'}}
+        with self.assertRaisesRegex(ValueError,'未覆盖显式参数'):
+            client.with_json_object_output()
+        self.assertEqual(client.spec['options']['response_format'],{'type':'text'})
+
     async def test_discovered_output_capacity_is_frozen_in_actual_request(self):
         from core.model_capacity import freeze_generation_parameters
         client = await self.client([{'choices':[{'delta':{'content':'ok'},'finish_reason':'stop'}]}])

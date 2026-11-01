@@ -12,7 +12,7 @@ def freeze_profile(spec, conversation_id, workspace_id, cloud_read, run_id=None)
     spec = freeze_generation_parameters(spec)
     return {'version': 1, 'conversation_id': conversation_id, 'workspace_id': workspace_id,
             'run_id': run_id, 'cloud_read': bool(cloud_read),
-            'model': {k: spec[k] for k in ('id','provider_id','model','kind','base_url','options','context_window','generation_parameters') if k in spec}}
+            'model': {k: spec[k] for k in ('id','provider_id','model','kind','base_url','options','context_window','generation_parameters','structured_output') if k in spec}}
 
 
 def resolve_profile(runtime, profile):
@@ -37,6 +37,10 @@ def resolve_profile(runtime, profile):
         if 'generation_parameters' not in frozen:
             raise ValueError('旧任务未冻结输出参数；请在会话中创建新任务')
         spec['generation_parameters'] = dict(frozen['generation_parameters'])
+        if 'structured_output' in frozen:
+            spec['structured_output'] = copy.deepcopy(frozen['structured_output'])
+        else:
+            spec.pop('structured_output', None)
     client = copy.copy(client)
     if spec['kind'] == 'cloud':
         client.spec = spec

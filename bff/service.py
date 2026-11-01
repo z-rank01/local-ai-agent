@@ -1026,6 +1026,10 @@ class ChatSessionService:
                     spec['context_window'] = frozen['context_window']
                 else:
                     spec.pop('context_window', None)
+                if 'structured_output' in frozen:
+                    spec['structured_output'] = copy.deepcopy(frozen['structured_output'])
+                else:
+                    spec.pop('structured_output', None)
             if 'options' in frozen:
                 spec['options'] = frozen['options']
             else:

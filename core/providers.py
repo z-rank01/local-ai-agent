@@ -120,6 +120,24 @@ class CompatibleClient:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(120, connect=20), trust_env=False)
 
     @property
+    def supports_json_object_output(self):
+        return self.spec.get('structured_output', {}).get('mode') == 'json_object'
+
+    def with_json_object_output(self):
+        """Derive one structured call without mutating the frozen conversation."""
+        from copy import copy
+        if not self.supports_json_object_output:
+            raise ValueError('所选型号未确认JSON输出能力；未更换模型或思考设置')
+        options = dict(self.spec.get('options', {}))
+        expected = {'type':'json_object'}
+        if 'response_format' in options and options['response_format'] != expected:
+            raise ValueError('冻结响应格式与JSON核对契约冲突；未覆盖显式参数')
+        options['response_format'] = expected
+        client = copy(self)
+        client.spec = {**self.spec, 'options':options}
+        return client
+
+    @property
     def supports_source_read_choice(self):
         # Capability was checked for this exact catalogue entry; never turn off
         # thinking or switch models to make a selected call acceptable.

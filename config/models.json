@@ -60,6 +60,11 @@
     ],
     "context_window": 1000000,
     "context_reference": "https://api-docs.deepseek.com/quick_start/pricing/",
-    "context_verified_at": "2026-10-18"
+    "context_verified_at": "2026-10-18",
+    "structured_output": {
+      "mode": "json_object",
+      "reference": "https://api-docs.deepseek.com/guides/json_mode/",
+      "verified_at": "2026-11-01"
+    }
   }
 ]

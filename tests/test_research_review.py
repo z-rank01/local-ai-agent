@@ -31,6 +31,58 @@ def tearDownModule():
 
 
 class ReviewTests(unittest.IsolatedAsyncioTestCase):
+    async def test_verified_json_mode_is_review_only_and_actual_parameters_are_saved(self):
+        import httpx
+        from core.providers import CompatibleClient, CallBudget
+        _,run,draft,agent,_=await self.setup_review([])
+        spec={'id':'fixture:json','model':'same-model','api_key_env':'FAKE','base_url':'https://example.invalid',
+              'structured_output':{'mode':'json_object'},'generation_parameters':{'max_tokens':393216},
+              'options':{'thinking':{'type':'enabled'},'reasoning_effort':'high'}}
+        client=CompatibleClient(spec,CallBudget('unused',0));await client._client.aclose()
+        payloads=[]
+        def handler(request):
+            payloads.append(json.loads(request.content))
+            body=json.dumps({'issues':[],'checks':['已对照原文']},ensure_ascii=False)
+            chunk={'choices':[{'delta':{'content':body},'finish_reason':'stop'}]}
+            return httpx.Response(200,text='data: '+json.dumps(chunk)+'\n\ndata: [DONE]\n\n')
+        client._client=httpx.AsyncClient(transport=httpx.MockTransport(handler));self.addAsyncCleanup(client.close)
+        agent.llm=client
+        with patch('core.providers.read_key',return_value='not archived'):
+            await self.review(agent,draft)
+            _=[item async for item in client.chat_stream_with_tools([{'role':'user','content':'普通回答'}])]
+        self.assertEqual(payloads[0]['response_format'],{'type':'json_object'})
+        self.assertNotIn('response_format',payloads[1])
+        for payload in payloads:
+            self.assertEqual(payload['model'],'same-model')
+            self.assertEqual(payload['max_tokens'],393216)
+            self.assertEqual(payload['thinking'],{'type':'enabled'})
+            self.assertEqual(payload['reasoning_effort'],'high')
+        saved=run.review_records[fingerprint(draft)]
+        self.assertEqual(saved['request_parameters']['response_format'],{'type':'json_object'})
+        self.assertEqual(saved['native_receipt']['result_status'],'COMPLETE')
+        self.assertNotIn('response_format',client.spec['options'])
+
+    async def test_complete_but_malformed_review_keeps_parse_location_without_retry(self):
+        files,run,draft,agent,calls=await self.setup_review([])
+        class Malformed:
+            observes_native_requests=True
+            async def chat_stream_with_tools(self,messages,tools=None,**options):
+                calls.append(messages)
+                options['request_observer']('native_model_result',{
+                    'local_attempt_id':'completed-invalid-json','result_status':'COMPLETE','finish_reason':'stop'})
+                yield '',{'content':'{"issues": [], "checks": ["原文中的"引号"未转义"]}'}
+        agent.llm=Malformed()
+        with self.assertRaises(json.JSONDecodeError):await self.review(agent,draft)
+        saved=run.review_records[fingerprint(draft)]
+        self.assertEqual(saved['status'],'FAILED')
+        self.assertEqual(saved['native_receipt']['result_status'],'COMPLETE')
+        self.assertEqual(saved['failure_detail']['stage'],'review_json_parse')
+        self.assertGreater(saved['failure_detail']['offset'],0)
+        self.assertTrue(any(path.endswith('-response.txt') for path in files.files))
+        with self.assertRaisesRegex(RuntimeError,'未成功'):await self.review(agent,draft)
+        self.assertEqual(len(calls),1)
+        self.assertFalse(any(path.endswith('report.html') for path in files.files))
+
     async def test_native_output_truncation_keeps_real_receipt_without_retry(self):
         files,run,draft,agent,calls=await self.setup_review([])
         class Truncated:

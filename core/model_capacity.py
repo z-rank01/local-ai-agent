@@ -1,5 +1,6 @@
 """Use the same declared or conservative context capacity in runtime and UI."""
 from . import config
+from copy import deepcopy
 
 
 def generation_parameters(spec):
@@ -18,8 +19,8 @@ def generation_parameters(spec):
 
 def freeze_generation_parameters(spec):
     if spec.get('kind') != 'cloud':
-        return dict(spec)
-    return {**spec, 'generation_parameters': generation_parameters(spec)}
+        return deepcopy(spec)
+    return {**deepcopy(spec), 'generation_parameters': generation_parameters(spec)}
 
 
 def context_capacity(spec):

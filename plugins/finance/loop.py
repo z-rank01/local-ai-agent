@@ -27,14 +27,15 @@ class FinanceLoop(Agent):
             self._finance_host = None
             super().__init__(**kwargs)
 
-    async def _model_stream(self, messages, tools=None, **options):
+    async def _model_stream(self, messages, tools=None, *, model_client=None, **options):
         from harness.runtime.request_materials import material_observer
         research = getattr(self.router, 'research', None)
         token = material_observer.set(
             (lambda clean, metadata: research.capture_input(clean, metadata, self.context_mgr))
             if research is not None else None)
         try:
-            async with aclosing(self.llm.chat_stream_with_tools(messages, tools, **options)) as stream:
+            client = self.llm if model_client is None else model_client
+            async with aclosing(client.chat_stream_with_tools(messages, tools, **options)) as stream:
                 async for item in stream:
                     yield item
         finally:
@@ -754,6 +755,9 @@ class FinanceLoop(Agent):
             if old.get('status') == 'COMPLETE':
                 return
             raise RuntimeError('该稿核对未成功，原失败保留，不自动重发')
+        review_client = self.llm
+        if getattr(self.llm, 'supports_json_object_output', False) is True:
+            review_client = self.llm.with_json_object_output()
         serial=sum(len(row.get('attempts',[])) for row in research.review_records.values())+1
         findings=previous_findings(research.review_records)
         directory=f'reviews/{serial}'
@@ -775,6 +779,10 @@ class FinanceLoop(Agent):
         receipt={}
         def observe(event,data):
             self.audit.record(event,{'session_id':session_id,'research_phase':'review','candidate_sha256':key,**data})
+            if event=='native_model_request':
+                parameters=data.get('parameters',{})
+                record['request_parameters']={k:parameters[k] for k in
+                    ('model','max_tokens','response_format','thinking','reasoning_effort') if k in parameters}
             if event=='native_model_result':
                 receipt.update(data)
                 record['native_receipt']={k:data[k] for k in (
@@ -786,7 +794,7 @@ class FinanceLoop(Agent):
         started=time.monotonic()
         try:
             response=None
-            async with aclosing(self._model_stream(context,None,**options)) as stream:
+            async with aclosing(self._model_stream(context,None,model_client=review_client,**options)) as stream:
                 async for _, message in stream:
                     if message is not None: response=message
             if control: control.end_step()
@@ -820,8 +828,13 @@ class FinanceLoop(Agent):
             await research.write(directory+'-result.json',record)
             await research.checkpoint()
             raise
-        except Exception:
+        except Exception as error:
             native_status=receipt.get('result_status')
+            record['failure_detail']={'type':type(error).__name__,
+                'stage':'review_processing' if native_status=='COMPLETE' else 'model_request'}
+            if isinstance(error,json.JSONDecodeError):
+                record['failure_detail'].update(stage='review_json_parse',
+                    line=error.lineno,column=error.colno,offset=error.pos)
             record['status']=(native_status if native_status in ('UNKNOWN','TRUNCATED') else
                               'UNKNOWN' if response is None and not receipt else 'FAILED')
             if control:
@@ -832,5 +845,6 @@ class FinanceLoop(Agent):
             yield AgentEvent('tool_end',data={'name':'research_review','call_id':call_id,'status':'error',
                 'params':{'candidate_sha256':key},'elapsed':time.monotonic()-started,
                 'result':{'status':record['status'],'native_receipt':record.get('native_receipt',{}),
+                          'failure_detail':record['failure_detail'],
                           'error':'单独核对未完成；未发布，原记录保留'}})
             raise
