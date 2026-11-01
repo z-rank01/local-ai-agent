@@ -13,6 +13,28 @@ from tests import test_in1
 
 
 class ModelExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_output_capacity_survives_profile_and_checkpoint_resolution(self):
+        from core.model_execution import resolve_profile
+        conv=self.runtime.store.create_conversation(title='frozen',model='qwen:qwen3.5-flash')
+        spec,_=self.runtime.models.resolve(model=conv.model)
+        spec.pop('max_output_tokens',None)
+        spec['provider_max_output_tokens']=393216
+        with patch('core.config.MODEL_MAX_OUTPUT_TOKENS',0):
+            chosen,_=self.service._execution_model(conv)
+            profile=freeze_profile(chosen,conv.id,'default',True)
+        spec['provider_max_output_tokens']=8192
+        with patch('core.config.MODEL_MAX_OUTPUT_TOKENS',1024):
+            resolved,client=resolve_profile(self.runtime,profile)
+            resumed,resumed_client=self.service._execution_model(conv,frozen=profile['model'])
+        for selected in (resolved,client.spec,resumed,resumed_client.spec):
+            self.assertEqual(selected['generation_parameters'],{'max_tokens':393216})
+        legacy={**profile,'model':{k:v for k,v in profile['model'].items() if k!='generation_parameters'}}
+        with self.assertRaisesRegex(ValueError,'未冻结输出参数'):
+            resolve_profile(self.runtime,legacy)
+        with self.assertRaises(HTTPException) as refused:
+            self.service._execution_model(conv,frozen=legacy['model'])
+        self.assertEqual(refused.exception.status_code,409)
+
     async def asyncSetUp(self):
         from pathlib import Path
         directory=Path(__file__).resolve().parents[1]/'data/tmp'

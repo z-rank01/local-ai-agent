@@ -84,7 +84,7 @@ async def _probe_ollama_models(base_url):
 
 
 async def _probe_compatible_models(spec):
-    """Model ids exposed by an OpenAI-compatible provider, or None on failure.
+    """Model IDs and declared numeric capacity, or None on probe failure.
 
     Skipped entirely when no API key is configured, so listing models never
     makes unauthenticated or unexpected outbound calls.
@@ -102,7 +102,9 @@ async def _probe_compatible_models(spec):
             if not isinstance(rows, list) or any(not isinstance(row, dict) or
                     not isinstance(row.get('id'), str) or not row['id'] for row in rows):
                 return None
-            return [row['id'] for row in rows]
+            return [{k: row[k] for k in ('id', 'context_window', 'max_output_tokens')
+                     if k in row and (k == 'id' or type(row[k]) is int and row[k] > 0)}
+                    for row in rows]
     except Exception:
         return None
 
@@ -146,9 +148,10 @@ class CompatibleClient:
         # Ask for the largest output the model is known to accept. A provider
         # default cap silently truncates long tool-call arguments (publish drafts
         # are 15-24 KB of JSON), which surfaces as malformed tool input.
-        output_limit = self.spec.get('max_output_tokens') or config.MODEL_MAX_OUTPUT_TOKENS
-        if type(output_limit) is int and output_limit > 0:
-            payload['max_tokens'] = output_limit
+        from .model_capacity import generation_parameters
+        # A frozen empty mapping also freezes omission of this parameter.
+        payload.pop('max_tokens', None)
+        payload.update(generation_parameters(self.spec))
         if tools:
             payload['tools'] = tools
         if selected_source_tool:
@@ -331,7 +334,7 @@ class ModelRegistry:
             now = time.monotonic()
             if not refresh and self._catalog_fetched_at and now - self._catalog_fetched_at < _CATALOG_TTL_SECONDS:
                 return self.specs
-            merged = {s['id']: s for s in self._static_specs}
+            merged = {s['id']: dict(s) for s in self._static_specs}
             ollama_names = await _probe_ollama_models(config.OLLAMA_BASE_URL)
             if ollama_names:
                 for name in ollama_names:
@@ -352,16 +355,25 @@ class ModelRegistry:
                                 previous.get('base_url') == spec.get('base_url') and
                                 previous.get('api_key_env', '') == spec.get('api_key_env', '') and
                                 previous.get('kind') == 'cloud'):
-                            merged.setdefault(previous['id'], {**previous,
-                                'discovery_status': 'RETAINED_AFTER_PROBE_FAILURE'})
-                for name in names or []:
+                            merged[previous['id']] = {**previous, **merged.get(previous['id'], {}),
+                                'discovery_status': 'RETAINED_AFTER_PROBE_FAILURE'}
+                for discovered in names or []:
+                    row = discovered if isinstance(discovered, dict) else {'id': discovered}
+                    name = row['id']
                     if _NON_CHAT_MODEL.search(name):
                         continue
-                    merged.setdefault(f'{provider_id}:{name}', {
+                    entry = merged.setdefault(f'{provider_id}:{name}', {
                         'id': f'{provider_id}:{name}', 'provider_id': provider_id,
                         'provider_name': spec['provider_name'], 'model': name,
                         'base_url': spec['base_url'], 'api_key_env': spec.get('api_key_env', ''),
                         'kind': 'cloud', 'discovery_status': 'DISCOVERED'})
+                    # Only capacity metadata belongs to the exact returned model.
+                    # Never import provider options, endpoints or permissions.
+                    for source, target in (('context_window','context_window'),
+                                           ('max_output_tokens','provider_max_output_tokens')):
+                        value = row.get(source)
+                        if type(value) is int and value > 0:
+                            entry.setdefault(target, value)
             self.specs = list(merged.values())
             self._catalog_fetched_at = now
             return self.specs

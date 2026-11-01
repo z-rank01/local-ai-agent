@@ -25,7 +25,7 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1010项、21项跳过，2026-11-01实测；Windows asyncio需可用本机socket）
+.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1016项、21项跳过，2026-11-01实测；Windows asyncio需可用本机socket）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -132,6 +132,8 @@ powershell Start-Process …（由聊天后端调用）
 Harness 当前实现：正式聊天的方法型 Skill 通过 Runner 的版本接口复制内容快照，运行检查点保存版本引用；更新原目录不影响该快照，旧式 Python Skill 暂沿兼容通路。`bff/skill_management.py` 的目录、差异和导入先走原工作区恢复流程；历史差异接受 before/after，卸载后仍可比较保留版本。`core/agent.py` 通过 `derive` 显式派生冻结依赖与回合配置，禁止以 `__dict__` 共享宿主内部状态；普通工具执行由宿主统一实现，`plugins/finance/loop.py` 仅在钩子中保留金融专属分发与发布。首版每个运行只允许一个回合编排者和一个研究会话提供者，冲突在激活时提示停用顺序，不静默覆盖。core 中旧导入兼容保留，不另建执行后端。skills/** 改动须唯一入口 `-Build` 重建并重启 BFF；部署与真实模型验收状态只看股票仓库 `docs/计划.md`。
 
 模型选择属于conversation.model，顶栏修改立即持久化，不影响其他会话。每项运行冻结模型和实际生成参数；兼容续行也使用该快照。分析、写作、单独核对及新股票后台任务统一继承会话模型，不再读取股票独立简报模型或Qwen开关。可信execution_profile由BFF建立，经现有已鉴权内部通路使用，模型工具参数不能覆盖。云读授权仍按冻结授权和当前工作区共同核验，账户/交易规则不变。
+
+模型发现只接收有效数值容量，不接受远程options、端点或权限。明确输出配置优先，无配置时采用该模型已声明容量，未知则用供应商默认；实际输出参数进入检查点和execution_profile，后续目录/全局设置变化不改写快照。缺少输出参数快照的旧云端记录不可原地续行。金融核对的length保存TRUNCATED及原生回执元数据，不保存隐藏推理、不自动重发，不以研究预算耗尽解释。
 
 旧模型/Dify股票任务仅可查看，不领取、启动、继续或迁移。本文上述截断恢复规则是历史机制说明，不授权恢复旧模型任务；旧UNKNOWN不重发。新任务缺少所属会话时明确拒绝，不能用默认股票模型兜底。
 

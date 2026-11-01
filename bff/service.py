@@ -1018,6 +1018,14 @@ class ChatSessionService:
             if any(spec.get(k) != frozen.get(k) for k in ('id','provider_id','model','base_url')):
                 raise HTTPException(409, '冻结模型连接配置已变化，不能继续')
             spec = dict(spec)
+            if spec['kind'] == 'cloud':
+                if 'generation_parameters' not in frozen:
+                    raise HTTPException(409, '旧检查点未冻结输出参数，不能原地续行；请创建关联的新运行')
+                spec['generation_parameters'] = dict(frozen['generation_parameters'])
+                if 'context_window' in frozen:
+                    spec['context_window'] = frozen['context_window']
+                else:
+                    spec.pop('context_window', None)
             if 'options' in frozen:
                 spec['options'] = frozen['options']
             else:
@@ -1048,6 +1056,10 @@ class ChatSessionService:
                 spec = llm.spec
         if spec['kind'] == 'local':
             spec = {**spec,'options':{'think':getattr(llm,'think',None)}}
+        else:
+            from core.model_capacity import freeze_generation_parameters
+            spec = freeze_generation_parameters(spec)
+            llm.spec = spec
         return spec, llm
 
     def validate_run_resume(self, row):

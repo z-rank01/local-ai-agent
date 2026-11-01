@@ -14,7 +14,7 @@ def environment(spec, snapshot, method):
     prompts.update({'plugin-error:' + identity: sha256(error.encode()).hexdigest()
                     for identity, error in errors.items()})
     return {'format': 1, 'model': {k: spec[k] for k in
-            ('id','provider_id','model','base_url','options') if k in spec},
+            ('id','provider_id','model','base_url','options','context_window','generation_parameters') if k in spec},
             'workspace_id': snapshot.id, 'workspace_version': snapshot.record['version'],
             'roots': {k:str(v) for k,v in snapshot.roots.items()}, 'cloud_read': snapshot.record['cloud_read'],
             'cloud_write': snapshot.record['cloud_write'], 'method': method, 'prompts': prompts,

@@ -31,6 +31,32 @@ def tearDownModule():
 
 
 class ReviewTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_output_truncation_keeps_real_receipt_without_retry(self):
+        files,run,draft,agent,calls=await self.setup_review([])
+        class Truncated:
+            observes_native_requests=True
+            async def chat_stream_with_tools(self,messages,tools=None,**options):
+                calls.append(messages)
+                options['request_observer']('native_model_result',{
+                    'local_attempt_id':'real-length','result_status':'TRUNCATED','finish_reason':'length',
+                    'failure_category':'OUTPUT_TRUNCATED','usage':{'completion_tokens':65535},
+                    'reasoning_content':'never archive hidden reasoning'})
+                raise RuntimeError('output truncated')
+                yield
+        agent.llm=Truncated()
+        with self.assertRaisesRegex(RuntimeError,'truncated'):
+            await self.review(agent,draft)
+        saved=run.review_records[fingerprint(draft)]
+        self.assertEqual(saved['status'],'TRUNCATED')
+        self.assertEqual(saved['native_receipt']['finish_reason'],'length')
+        self.assertEqual(saved['native_receipt']['usage']['completion_tokens'],65535)
+        self.assertNotIn('reasoning_content',saved['native_receipt'])
+        with self.assertRaisesRegex(RuntimeError,'未成功'):
+            await self.review(agent,draft)
+        with self.assertRaises(ValueError):await run.publish(draft)
+        self.assertEqual(len(calls),1)
+        self.assertFalse(any(p.endswith('report.html') for p in files.files))
+
     async def setup_review(self, outputs):
         files, run, draft = await session_tests.ResearchSessionTests().prepare()
         del run.check_review  # Exercise production gate, not rendering-test mock.

@@ -775,7 +775,11 @@ class FinanceLoop(Agent):
         receipt={}
         def observe(event,data):
             self.audit.record(event,{'session_id':session_id,'research_phase':'review','candidate_sha256':key,**data})
-            if event=='native_model_result': receipt.update(data)
+            if event=='native_model_result':
+                receipt.update(data)
+                record['native_receipt']={k:data[k] for k in (
+                    'local_attempt_id','result_status','finish_reason','failure_category',
+                    'delivery_status','http_status','usage','usage_status','elapsed_seconds') if k in data}
         options={'request_observer':observe} if getattr(self.llm,'observes_native_requests',False) else {}
         control=getattr(self,'run_control',None)
         if control: control.begin_step('模型单独核对')
@@ -807,7 +811,9 @@ class FinanceLoop(Agent):
             yield AgentEvent('tool_end',data={'name':'research_review','call_id':call_id,'params':{'candidate_sha256':key},
                 'status':'ok','elapsed':time.monotonic()-started,'result':result},text='关键结论核对完成')
         except asyncio.CancelledError:
-            record['status']='UNKNOWN' if receipt.get('result_status') not in ('COMPLETE','FAILED','TRUNCATED') else 'FAILED'
+            native_status=receipt.get('result_status')
+            record['status']=('TRUNCATED' if native_status=='TRUNCATED' else
+                              'UNKNOWN' if native_status not in ('COMPLETE','FAILED') else 'FAILED')
             if control:
                 control.end_step(confirmed=record['status'] != 'UNKNOWN')
             record['native_call_id']=receipt.get('local_attempt_id')
@@ -815,7 +821,9 @@ class FinanceLoop(Agent):
             await research.checkpoint()
             raise
         except Exception:
-            record['status']='UNKNOWN' if receipt.get('result_status')=='UNKNOWN' or response is None and not receipt else 'FAILED'
+            native_status=receipt.get('result_status')
+            record['status']=(native_status if native_status in ('UNKNOWN','TRUNCATED') else
+                              'UNKNOWN' if response is None and not receipt else 'FAILED')
             if control:
                 control.end_step(confirmed=record['status'] != 'UNKNOWN')
             record['native_call_id']=receipt.get('local_attempt_id')
@@ -823,5 +831,6 @@ class FinanceLoop(Agent):
             await research.checkpoint()
             yield AgentEvent('tool_end',data={'name':'research_review','call_id':call_id,'status':'error',
                 'params':{'candidate_sha256':key},'elapsed':time.monotonic()-started,
-                'result':{'status':record['status'],'error':'单独核对未完成；未发布，原记录保留'}})
+                'result':{'status':record['status'],'native_receipt':record.get('native_receipt',{}),
+                          'error':'单独核对未完成；未发布，原记录保留'}})
             raise

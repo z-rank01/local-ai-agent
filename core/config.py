@@ -107,7 +107,7 @@ COMPACT_THRESHOLD = _env_float("COMPACT_THRESHOLD", 0.9)
 # Per-tool result characters handed back to the model. 0 = full result.
 TOOL_RESULT_MAX_CHARS = _env_int("TOOL_RESULT_MAX_CHARS", 0)
 # Over-cap, non-paginated results are saved through the current workspace tools.
-# Sent as the provider's max_tokens. 0 = let the provider decide.
+# Explicit max_tokens. 0 = advertised output capacity, or provider default if unknown.
 MODEL_MAX_OUTPUT_TOKENS = _env_int("MODEL_MAX_OUTPUT_TOKENS", 0)
 
 # ── Tool tier ────────────────────────────────────────────────────────────

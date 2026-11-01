@@ -20,9 +20,10 @@ class FrozenModelOptionsTests(unittest.TestCase):
                 if options is not None:
                     spec['options']=options
                 snapshot=SimpleNamespace(id='default', record={'version':1,'cloud_read':True,'cloud_write':True}, roots={})
-                frozen=environment(spec,snapshot,'auto')
                 client=SimpleNamespace(spec=spec)
                 host=SimpleNamespace(_runtime=SimpleNamespace(models=SimpleNamespace(resolve=Mock(return_value=(spec,client)))))
+                selected,_=ChatSessionService._execution_model(host,SimpleNamespace(model=spec['id']))
+                frozen=environment(selected,snapshot,'auto')
                 _, resumed=ChatSessionService._execution_model(host,SimpleNamespace(model=spec['id']),frozen=frozen['model'])
                 self.assertEqual(environment(resumed.spec,snapshot,'auto'),frozen)
 

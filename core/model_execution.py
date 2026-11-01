@@ -8,9 +8,11 @@ import httpx
 
 
 def freeze_profile(spec, conversation_id, workspace_id, cloud_read, run_id=None):
+    from .model_capacity import freeze_generation_parameters
+    spec = freeze_generation_parameters(spec)
     return {'version': 1, 'conversation_id': conversation_id, 'workspace_id': workspace_id,
             'run_id': run_id, 'cloud_read': bool(cloud_read),
-            'model': {k: spec[k] for k in ('id','provider_id','model','kind','base_url','options','context_window') if k in spec}}
+            'model': {k: spec[k] for k in ('id','provider_id','model','kind','base_url','options','context_window','generation_parameters') if k in spec}}
 
 
 def resolve_profile(runtime, profile):
@@ -29,6 +31,12 @@ def resolve_profile(runtime, profile):
         if not profile['cloud_read'] or not WorkspaceManager(runtime.store,config.WORKSPACE_PATH).get(profile['workspace_id'])['cloud_read']:
             raise PermissionError('本任务没有有效的云端读取授权')
     spec = {**spec, 'options': frozen.get('options', {})}
+    if 'context_window' in frozen:
+        spec['context_window'] = frozen['context_window']
+    if spec['kind'] == 'cloud':
+        if 'generation_parameters' not in frozen:
+            raise ValueError('旧任务未冻结输出参数；请在会话中创建新任务')
+        spec['generation_parameters'] = dict(frozen['generation_parameters'])
     client = copy.copy(client)
     if spec['kind'] == 'cloud':
         client.spec = spec

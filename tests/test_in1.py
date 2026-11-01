@@ -74,6 +74,32 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(model_projection(value),{'items':[{'fact':42}]})
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_discovered_output_capacity_is_frozen_in_actual_request(self):
+        from core.model_capacity import freeze_generation_parameters
+        client = await self.client([{'choices':[{'delta':{'content':'ok'},'finish_reason':'stop'}]}])
+        with patch.object(config,'MODEL_MAX_OUTPUT_TOKENS',0):
+            client.spec = freeze_generation_parameters({**client.spec,'kind':'cloud',
+                                                       'provider_max_output_tokens':393216})
+        # A later settings/catalog refresh must not alter this execution.
+        client.spec['provider_max_output_tokens']=8192
+        with patch.object(config,'MODEL_MAX_OUTPUT_TOKENS',1024), \
+             patch.dict('os.environ',{'IN1_FAKE_KEY':'dummy'}):
+            _ = [e async for e in client.chat_stream_with_tools([])]
+        self.assertEqual(self.payload['max_tokens'],393216)
+        self.assertNotIn('thinking',self.payload)
+
+    def test_explicit_output_limits_and_frozen_omission_keep_their_semantics(self):
+        from core.model_capacity import generation_parameters, freeze_generation_parameters
+        spec={'kind':'cloud','provider_max_output_tokens':393216}
+        with patch.object(config,'MODEL_MAX_OUTPUT_TOKENS',2048):
+            self.assertEqual(generation_parameters(spec),{'max_tokens':2048})
+            self.assertEqual(generation_parameters({**spec,'max_output_tokens':4096}),{'max_tokens':4096})
+        with patch.object(config,'MODEL_MAX_OUTPUT_TOKENS',0):
+            self.assertEqual(generation_parameters({**spec,'options':{'max_tokens':1234}}),{'max_tokens':1234})
+            frozen=freeze_generation_parameters({'kind':'cloud'})
+        with patch.object(config,'MODEL_MAX_OUTPUT_TOKENS',2048):
+            self.assertEqual(generation_parameters({**frozen,**spec}),{})
+
     async def client(self, chunks, status=200):
         spec = {'id':'qwen:mock','model':'mock','api_key_env':'IN1_FAKE_KEY','base_url':'https://example.invalid/v1'}
         client = CompatibleClient(spec,CallBudget('unused',0))
@@ -113,6 +139,33 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
                 _ = [e async for e in client.chat_stream_with_tools([])]
 
 class CatalogTests(unittest.IsolatedAsyncioTestCase):
+    async def test_probe_preserves_only_valid_model_capacity_metadata(self):
+        from core import providers
+        def handler(request):
+            return httpx.Response(200,json={'data':[
+                {'id':'flash','context_window':1048576,'max_output_tokens':393216,
+                 'options':{'thinking':False},'base_url':'https://untrusted.invalid'},
+                {'id':'other','context_window':True,'max_output_tokens':-1}]})
+        real_client=httpx.AsyncClient
+        with patch.object(providers,'read_key',return_value='fake'), \
+             patch.object(providers.httpx,'AsyncClient',lambda **kw:real_client(transport=httpx.MockTransport(handler))):
+            rows=await providers._probe_compatible_models({'base_url':'https://example.invalid','api_key_env':'fake'})
+        self.assertEqual(rows,[{'id':'flash','context_window':1048576,'max_output_tokens':393216},{'id':'other'}])
+
+    async def test_catalog_capacity_keeps_explicit_options_and_refreshes_exact_model(self):
+        registry=self.make_registry(self.CLOUD);self.addAsyncCleanup(registry.close)
+        with patch('core.providers._probe_ollama_models',return_value=None), \
+             patch('core.providers._probe_compatible_models',side_effect=[
+                 [{'id':'qwen3.5-flash','max_output_tokens':393216,'context_window':1048576}],
+                 [{'id':'qwen3.5-flash','max_output_tokens':131072,'context_window':524288}]]):
+            first=next(s for s in await registry.catalog(refresh=True) if s['provider_id']=='qwen')
+            second=next(s for s in await registry.catalog(refresh=True) if s['provider_id']=='qwen')
+        self.assertEqual(first['provider_max_output_tokens'],393216)
+        self.assertEqual(second['provider_max_output_tokens'],131072)
+        self.assertEqual(second['context_window'],524288)
+        self.assertEqual(second['options'],self.CLOUD[0]['options'])
+        self.assertNotIn('provider_max_output_tokens',registry._static_specs[-1])
+
     CLOUD = [{'provider_id':'qwen','provider_name':'通义千问','kind':'cloud','model':'qwen3.5-flash',
               'base_url':'https://example.invalid/v1','api_key_env':'IN1_FAKE_KEY','options':{'enable_thinking':False}}]
 
