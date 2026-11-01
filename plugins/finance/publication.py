@@ -138,11 +138,13 @@ def validate_publication(params, sources, read_text):
                 values = [convert_unit(row['value'], row['unit'], calc['unit']) for row in calc['inputs']]
             if operation == 'sum':
                 value = sum(values, Decimal(0))
-            elif len(values) == 2 and operation in ('subtract', 'multiply', 'divide'):
+            elif operation in ('subtract', 'multiply', 'divide'):
+                if len(values) != 2:
+                    raise ValueError(f'calculations[{index}] 的 {operation} 需要两个输入，实际为 {len(values)} 个；多项运算请拆为前后依赖的计算')
                 a, b = values
                 value = a-b if operation == 'subtract' else a*b if operation == 'multiply' else a/b
             else:
-                raise ValueError('不支持的算术操作')
+                raise ValueError(f'calculations[{index}] 不支持算术操作 {operation!r}；可用 sum、subtract、multiply、divide')
             calc.setdefault('result', str(value))
             if value != number(calc['result']):
                 raise ValueError('计算结果不一致，请用容器计算后保留完整精度')

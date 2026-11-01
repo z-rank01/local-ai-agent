@@ -76,7 +76,7 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         view=await run.author_messages(history,'原问题',manager)
         self.assertEqual([m['role'] for m in view],['system','user'])
         payload=json.loads(view[1]['content'])
-        self.assertEqual(payload['view_version'],'recipe-author-v1')
+        self.assertEqual(payload['view_version'],'recipe-author-v2')
         self.assertEqual(payload['materials']['current_candidate']['candidate']['markdown'],edited['markdown'])
         self.assertIn('真实编辑回执',view[1]['content'])
         self.assertNotIn('过时的自信断言',json.dumps(view,ensure_ascii=False))
@@ -89,6 +89,59 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(None,manager.evidence_ids)
         manager.archive=None
         self.assertIs(await run.author_messages(history,'原问题',manager),history)
+
+    async def test_author_keeps_post_feedback_new_file_and_following_steps_across_checkpoint(self):
+        _,run,draft=await session_tests.ResearchSessionTests().prepare()
+        run.record['research_contract_version']=2
+        run.review_records={'first':{'status':'COMPLETE','feedback_returned':True,
+                                    'attempts':['reviews/1'],'checks':['核对首稿']}}
+        saved={}
+        def archive(row):
+            key=fingerprint(row);saved[key]=copy.deepcopy(row);return key
+        manager=SimpleNamespace(archive=archive,evidence_ids=set())
+        history=[{'role':'system','content':'原权限'},{'role':'user','content':'原问题'},
+                 {'role':'assistant','content':'旧稿已经全对'},
+                 {'role':'tool','tool_call_id':'review1','content':'REVIEW_READY'}]
+        await run.author_messages(history,'原问题',manager)
+        # Real failure: a script writes a new draft, then a listing replaces the
+        # last tool batch. Both operations and the new path must remain visible.
+        new_path=run.record['directory']+'/draft_v2.json'
+        tail=[{'role':'assistant','content':'已另存修订稿，接着核对新稿','tool_calls':[
+                  {'id':'write2','function':{'name':'code_exec','arguments':{'code':'write new draft'}}}]},
+              {'role':'tool','tool_call_id':'write2','content':new_path},
+              {'role':'assistant','content':'核实文件位置','tool_calls':[
+                  {'id':'list','function':{'name':'file_list','arguments':{'path':run.record['directory']}}}]},
+              {'role':'tool','tool_call_id':'list','content':'draft.json, draft_v2.json'}]
+        history+=tail
+        view=await run.author_messages(history,'原问题',manager)
+        self.assertEqual(view[2:],tail)
+        self.assertIn(new_path,json.dumps(view[2:],ensure_ascii=False))
+        self.assertNotIn('旧稿已经全对',json.dumps(view,ensure_ascii=False))
+        self.assertIn('最近提交核对',view[1]['content'])
+        state=copy.deepcopy(run.checkpoint_state(archive))
+        restored=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
+        restored.restore_state(state,saved.__getitem__)
+        self.assertEqual((await restored.author_messages(history,'原问题',manager))[2:],tail)
+        self.assertTrue(all('reasoning_content' not in row for row in saved.values()))
+
+    async def test_author_new_feedback_resets_boundary_and_missing_anchor_preserves_original_view(self):
+        _,run,_=await session_tests.ResearchSessionTests().prepare()
+        run.record['research_contract_version']=2
+        run.review_records={'first':{'status':'COMPLETE','feedback_returned':True,'attempts':['reviews/1']}}
+        manager=SimpleNamespace(archive=fingerprint,evidence_ids=set())
+        history=[{'role':'system','content':'权限'},{'role':'user','content':'问题'},
+                 {'role':'tool','tool_call_id':'review1','content':'第一版核对'}]
+        await run.author_messages(history,'问题',manager)
+        projected=[{'role':'system','content':'权限'},{'role':'user','content':'问题'},
+                   {'role':'tool','tool_call_id':'write2','content':'新工作稿'}]
+        self.assertIs(await run.author_messages(projected,'问题',manager),projected)
+        history+=projected[-1:]+[{'role':'tool','tool_call_id':'review2','content':'第二版核对'}]
+        run.review_records['second']={'status':'COMPLETE','feedback_returned':True,'attempts':['reviews/2']}
+        view=await run.author_messages(history,'问题',manager)
+        self.assertEqual(len(view),2)
+        self.assertEqual(json.loads(view[1]['content'])['latest_feedback']['attempts'],['reviews/2'])
+        history+=[{'role':'assistant','content':'保留有依据的异议并发布'}]
+        self.assertEqual((await run.author_messages(history,'问题',manager))[2:],history[-1:])
 
     async def test_real_loop_uses_recipe_packet_after_feedback_and_can_publish_with_disagreement(self):
         from plugins.finance.loop import FinanceLoop
@@ -116,9 +169,11 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
             prompt_builder=SimpleNamespace(build=lambda **kw:'原权限'))
         agent.quality_first_research=agent.turn_loop_enabled=True
         agent.continuing_checkpoint=True
-        events=[e async for e in agent.run([{'role':'system','content':'原权限'},{'role':'user','content':'原问题'},
-            {'role':'assistant','content':'过时的自信断言'}])]
-        self.assertEqual(json.loads(seen[0][1]['content'])['view_version'],'recipe-author-v1')
+        with patch('plugins.finance.research_material_view.ResearchMaterialView.apply',
+                   side_effect=AssertionError('Recipe运行不能再走旧批次预览')):
+            events=[e async for e in agent.run([{'role':'system','content':'原权限'},{'role':'user','content':'原问题'},
+                {'role':'assistant','content':'过时的自信断言'}])]
+        self.assertEqual(json.loads(seen[0][1]['content'])['view_version'],'recipe-author-v2')
         self.assertNotIn('过时的自信断言',json.dumps(seen[0],ensure_ascii=False))
         self.assertIsNotNone(run.published)
         self.assertEqual(events[-1].kind,'done')

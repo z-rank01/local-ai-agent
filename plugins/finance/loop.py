@@ -311,7 +311,11 @@ class FinanceLoop(Agent):
                                         and m.get('content') == research_guidance_message['content'])]
                         research_guidance_message = {'role': 'system', 'content': research.guidance()}
                         messages.append(research_guidance_message)
-                        messages = research_view.apply(messages, self.context_mgr)
+                        # Recipe v2 has explicit request materials and feedback
+                        # boundaries. Legacy previews discard unfinished scripts
+                        # and file choices even though the source text survives.
+                        if (research.record or {}).get('research_contract_version',1)<2:
+                            messages = research_view.apply(messages, self.context_mgr)
                     messages = await self.context_mgr.process(messages)
                 accumulated = None
                 quote_guard = not autonomous and source_read_seen and (quality_research or getattr(self, 'turn_source_review_enabled', False))
