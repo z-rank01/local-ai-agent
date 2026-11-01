@@ -15,6 +15,76 @@ from tests import test_research_session as session_tests, test_research_review a
 
 
 class RecipeTests(unittest.IsolatedAsyncioTestCase):
+    async def prepare_refresh(self):
+        files,run,draft=await session_tests.ResearchSessionTests().prepare()
+        run.record['research_contract_version']=2
+        path=run.record['directory']+'/draft.json'
+        run.record['working_draft_path']=path
+        run.record['current_candidate']={'path':path,'candidate':copy.deepcopy(draft),
+            'sha256':fingerprint(draft),'validation_status':'WORKING_NOT_CERTIFIED'}
+        run.review_records={'review':{'status':'COMPLETE','feedback_returned':True,
+            'attempts':['reviews/1'],'candidate_sha256':fingerprint(draft),
+            'evidence_sha256':'evidence','native_call_id':'actual-call','review_ref':'returned-ref'}}
+        saved={}
+        def archive(row):
+            key=fingerprint(row);saved[key]=copy.deepcopy(row);return key
+        manager=SimpleNamespace(archive=archive,evidence_ids=set())
+        history=[{'role':'system','content':'permissions'},{'role':'user','content':'原问题'},
+                 {'role':'tool','tool_call_id':'review','content':'实际反馈'}]
+        return files,run,draft,path,manager,history,saved
+
+    async def test_author_refresh_timeout_is_visible_not_fresh_and_survives_checkpoint(self):
+        import httpx
+        files,run,draft,path,manager,history,saved=await self.prepare_refresh()
+        with patch('plugins.finance.research.revision.read_document',side_effect=httpx.ConnectTimeout('SECRET')) as read:
+            view=await run.author_messages(history,'原问题',manager)
+        self.assertEqual(read.call_count,1)
+        payload=json.loads(view[1]['content']);current=payload['materials']['current_candidate']
+        self.assertEqual(current['validation_status'],'READ_FAILED')
+        self.assertEqual(current['previous_snapshot']['candidate'],draft)
+        self.assertEqual(payload['latest_feedback']['review_ref'],'returned-ref')
+        self.assertNotIn('SECRET',view[1]['content'])
+        receipt=run.artifacts()[current['read_receipt_ref']]
+        self.assertEqual(receipt['tool'],'author_candidate_refresh')
+        self.assertEqual(receipt['result_status'],'FAILED')
+        manifest=run.capture_input(view,{'local_attempt_id':'next-call'},manager)
+        missing=next(x for x in manifest['materials'] if x['kind']=='current_candidate')
+        self.assertFalse(missing['included']);self.assertEqual(missing['coverage'],'READ_FAILED')
+        self.assertIsNone(missing['sha256'])
+        self.assertTrue(next(x for x in manifest['materials'] if x['kind']=='previous_candidate')['included'])
+        state=copy.deepcopy(run.checkpoint_state(manager.archive))
+        restored=ResearchSession(files,conversation_id='c',model='frozen',allowed=True)
+        restored.restore_state(state,saved.__getitem__)
+        with patch('plugins.finance.research.revision.read_document',side_effect=httpx.ConnectTimeout('SECRET')):
+            await restored.author_messages(history,'原问题',manager)
+        old=restored.record['current_candidate']['previous_snapshot']
+        self.assertEqual(old['candidate'],draft);self.assertNotIn('previous_snapshot',old)
+        changed={**draft,'markdown':'实际回读的新稿'}
+        with patch('plugins.finance.research.revision.read_document',return_value=(json.dumps(changed),'file-hash')):
+            recovered=await restored.author_messages(history,'原问题',manager)
+        current=json.loads(recovered[1]['content'])['materials']['current_candidate']
+        self.assertEqual(current['candidate']['markdown'],'实际回读的新稿')
+        self.assertEqual(current['validation_status'],'WORKING_NOT_CERTIFIED')
+        self.assertEqual(sum(x['tool']=='author_candidate_refresh' for x in restored.trace),2)
+        self.assertIsNone(restored.published)
+
+    async def test_author_refresh_permission_revocation_is_not_swallowed(self):
+        _,run,_,_,manager,history,_=await self.prepare_refresh()
+        with patch('plugins.finance.research.revision.read_document',side_effect=PermissionError('revoked')):
+            with self.assertRaises(PermissionError):await run.author_messages(history,'原问题',manager)
+        self.assertFalse(any(x['tool']=='author_candidate_refresh' for x in run.trace))
+
+    async def test_author_refresh_failure_cannot_hide_checkpoint_save_failure(self):
+        import httpx
+        from unittest.mock import AsyncMock
+        _,run,_,_,manager,history,_=await self.prepare_refresh()
+        with patch('plugins.finance.research.revision.read_document',side_effect=httpx.ConnectTimeout('connect timeout')), \
+             patch.object(run,'checkpoint',new=AsyncMock(side_effect=RuntimeError('save failed'))):
+            with self.assertRaisesRegex(RuntimeError,'save failed'):
+                await run.author_messages(history,'原问题',manager)
+        self.assertEqual(run.record['current_candidate']['validation_status'],'READ_FAILED')
+        self.assertIsNone(run.published)
+
     async def test_new_research_can_register_evidence_without_reading_methods(self):
         run=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
         await run.begin({'phase':'准备','scope':'公开资料','plan':['取证']})
