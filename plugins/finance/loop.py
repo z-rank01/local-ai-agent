@@ -395,6 +395,8 @@ class FinanceLoop(Agent):
                                     'delivery_context_version':'current-user-delivery-v1' if quote_guard and current_user_question else None,
                                     **data})
                     final_messages=messages
+                    if autonomous and research is not None and hasattr(research,'author_messages'):
+                        final_messages = await research.author_messages(messages,current_user_question,self.context_mgr)
                     if quote_guard and current_user_question:
                         # A turn-local echo after the tool material. Keep the
                         # original history and protocol intact; do not turn
@@ -726,7 +728,7 @@ class FinanceLoop(Agent):
         if research.published:
             research.check_review(candidate)
             return
-        if not research.methods:
+        if research.record.get('research_contract_version',1)<2 and not research.methods:
             raise ValueError('先读取适用方法，再提交完整候选稿')
         if research.pending_evidence:
             raise ValueError('本轮已登记取证需求尚未结束，不能提前核对发布')

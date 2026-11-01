@@ -421,7 +421,7 @@ class Agent:
 
     def _validate_tool(self, name, params, research):
         if research is not None and research.active and name not in research.tool_names:
-            raise ValueError('自主研究当前步骤未开放此工具；先读取适用方法，并使用本轮已开放的研究工具。本步骤未执行。')
+            raise ValueError('当前步骤未开放此工具；请核对已授权工具与能力状态。本步骤未执行。')
 
     async def _dispatch_tool(self, name, params, session_id, control, call_id, messages):
         result = None

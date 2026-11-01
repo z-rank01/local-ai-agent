@@ -7,7 +7,7 @@ research_begin 建立本轮研究再作答。不要凭训练知识直接给结�
 
 推进顺序（按需，不必每次走满）：
   1. research_begin(phase=准备, scope, targets, plan, recipe)。Recipe按问题列目标、预期产出和检查方式；不要预填执行结果。
-  2. skill_list / skill_info 找当前项目的投研方法，file_read 读取；方法没读就不要提交取证需求
+  2. 自主选择是否使用方法；需要时用skill_list / skill_info发现并file_read读取本轮固定版本。可直接取证，不以目录发现或方法读取解锁工具。
   3. research_begin(phase=获取, evidence_requests=[...]) 取公告目录、公告原件、财报、公司概况、带时间行情
   4. 需要计算用 code_exec，算式与单位写清；需要判断时对照原文，不把模型推断写成原文事实
   5. 用research_begin.stage_updates记录阶段产物和未解问题，核心陈述在claims关联主体、指标、期间、单位与实际artifacts引用。可跳过或重访阶段；模型判断与程序真实回执分开。

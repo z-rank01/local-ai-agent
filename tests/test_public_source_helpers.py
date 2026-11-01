@@ -66,7 +66,7 @@ class PublicSourceHelpersTests(unittest.TestCase):
 
 
 class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_batch_cannot_use_old_tool_list_to_skip_method_read(self):
+    async def test_batch_can_fetch_without_method_discovery_in_new_research(self):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock
         from plugins.finance.loop import FinanceLoop
@@ -78,24 +78,22 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
                             context_mgr=SimpleNamespace(), prompt_builder=SimpleNamespace())
         calls = [{'id': 'one', 'function': {'name': 'web_fetch', 'arguments': {'url': 'https://example.org'}}}]
         events = [e async for e in FinanceLoop._execute_tools(agent, calls, 'test', [], allowed={'web_fetch'})]
-        dispatch.assert_not_awaited()
-        failed = next(e for e in events if e.kind == 'tool_end')
-        self.assertEqual(failed.data['status'], 'error')
-        self.assertIn('先读取适用方法', failed.data['result']['error'])
+        dispatch.assert_awaited_once()
+        self.assertEqual(next(e for e in events if e.kind == 'tool_end').data['status'],'ok')
         await run.observe({'name': 'file_read', 'status': 'ok', 'params': {
             'path': '/workspace/skills/harness-stock-research-v3/references/event.md'}, 'result': {}})
         events = [e async for e in FinanceLoop._execute_tools(agent, calls, 'test', [], allowed={'web_fetch'})]
-        dispatch.assert_awaited_once()
+        self.assertEqual(dispatch.await_count,2)
         self.assertEqual(next(e for e in events if e.kind == 'tool_end').data['status'], 'ok')
 
-    async def test_method_read_precedes_fetch_compute_and_publication(self):
+    async def test_optional_method_read_never_hides_authorized_tools(self):
         run = ResearchSession(Files(), conversation_id='test', model='unchanged', allowed=True)
         await run.begin({'scope': '研究', 'plan': ['选方法', '取证']})
         self.assertTrue({'skill_info', 'file_read'}.issubset(run.tool_names))
-        self.assertTrue({'web_fetch', 'code_exec', 'brief_publish'}.isdisjoint(run.tool_names))
+        self.assertTrue({'web_fetch', 'code_exec', 'brief_publish'}.issubset(run.tool_names))
         await run.observe({'name': 'file_read', 'status': 'error', 'params': {
             'path': '/workspace/skills/harness-stock-research-v3/references/event.md'}, 'result': {}})
-        self.assertNotIn('web_fetch', run.tool_names)
+        self.assertIn('web_fetch', run.tool_names)
         await run.observe({'name': 'file_read', 'status': 'ok', 'params': {
             'path': '/workspace/skills/harness-stock-research-v3/references/event.md'}, 'result': {'content': '原方法'}})
         self.assertTrue({'web_fetch', 'code_exec', 'brief_publish'}.issubset(run.tool_names))

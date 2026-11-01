@@ -15,6 +15,114 @@ from tests import test_research_session as session_tests, test_research_review a
 
 
 class RecipeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_new_research_can_register_evidence_without_reading_methods(self):
+        run=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
+        await run.begin({'phase':'准备','scope':'公开资料','plan':['取证']})
+        await run.begin({'phase':'获取','evidence_requests':[{'kind':'profile','symbol':'SH688178'}]})
+        self.assertFalse(run.methods)
+        self.assertTrue(run.pending_evidence)
+        self.assertIn('web_fetch',run.tool_names)
+        run.record['research_contract_version']=1
+        with self.assertRaisesRegex(ValueError,'方法'):
+            await run.begin({'phase':'获取','evidence_requests':[{'kind':'profile','symbol':'SH688178'}]})
+
+    async def test_new_research_review_and_publish_do_not_require_method_selection(self):
+        _,run,draft,agent,_=await review_tests.ReviewTests().setup_review([{'issues':[],'checks':['核对原文']}])
+        run.record['research_contract_version']=2
+        run.methods.clear();run.method_text.clear();run.method_fingerprints.clear()
+        history=[{'role':'user','content':'公开研究'}]
+        with patch.object(config,'PUBLISH_REVIEW_ENFORCE',False):
+            events=[e async for e in agent._dispatch_tool('brief_publish',draft,'c',None,'id',history)]
+            ready=next(e.data['result'] for e in events if e.kind=='tool_result')
+            self.assertEqual(ready['status'],'REVIEW_READY')
+            events=[e async for e in agent._dispatch_tool('brief_publish',{**draft,
+                'review_ref':ready['review_ref'],'review_response':'以已取得原文为依据发布'},'c',None,'id',history)]
+        self.assertEqual(next(e.data['result']['status'] for e in events if e.kind=='tool_result'),'PUBLISHED')
+
+    async def test_author_feedback_uses_attempt_order_after_same_candidate_is_revisited(self):
+        _,run,draft=await session_tests.ResearchSessionTests().prepare()
+        run.record['research_contract_version']=2
+        run.review_records={'revisited':{'status':'COMPLETE','feedback_returned':True,'attempts':['reviews/9'],
+                                        'checks':['最新反馈']},
+                            'older':{'status':'COMPLETE','feedback_returned':True,'attempts':['reviews/3'],
+                                     'checks':['旧反馈']}}
+        saved={}
+        def archive(value):
+            key=fingerprint(value);saved[key]=value;return key
+        manager=SimpleNamespace(archive=archive,evidence_ids=set())
+        view=await run.author_messages([{'role':'system','content':'权限'},{'role':'user','content':'问题'}],'问题',manager)
+        self.assertEqual(json.loads(view[1]['content'])['latest_feedback']['checks'],['最新反馈'])
+
+    async def test_author_packet_reloads_working_draft_and_preserves_complete_history(self):
+        files,run,draft,agent,_=await review_tests.ReviewTests().setup_review([
+            {'issues':[],'checks':['核对当前稿']}])
+        run.record['research_contract_version']=2
+        path=run.record['directory']+'/draft.json'
+        files.files[path]=json.dumps(draft,ensure_ascii=False)
+        with patch.object(config,'PUBLISH_REVIEW_ENFORCE',False):
+            _=[e async for e in agent._dispatch_tool('brief_publish',{'draft_path':path},'c',None,'id',
+                [{'role':'system','content':'原权限'},{'role':'user','content':'原问题'}])]
+        edited={**draft,'markdown':'当前修订全文：仅说明公告日状态，当前状态未知。'}
+        files.files[path]=json.dumps(edited,ensure_ascii=False)
+        saved={}
+        def archive(row):
+            key=fingerprint(row);saved[key]=copy.deepcopy(row);return key
+        manager=SimpleNamespace(archive=archive,evidence_ids=set())
+        history=[{'role':'system','content':'原权限'}, {'role':'user','content':'原问题'},
+                 {'role':'assistant','content':'过时的自信断言','reasoning_content':'HIDDEN_REASONING'},
+                 {'role':'assistant','content':'最新动作也声称全对','tool_calls':[
+                     {'id':'edit','function':{'name':'file_edit','arguments':{'path':path}}}]},
+                 {'role':'tool','tool_call_id':'edit','content':'真实编辑回执'}]
+        view=await run.author_messages(history,'原问题',manager)
+        self.assertEqual([m['role'] for m in view],['system','user'])
+        payload=json.loads(view[1]['content'])
+        self.assertEqual(payload['view_version'],'recipe-author-v1')
+        self.assertEqual(payload['materials']['current_candidate']['candidate']['markdown'],edited['markdown'])
+        self.assertIn('真实编辑回执',view[1]['content'])
+        self.assertNotIn('过时的自信断言',json.dumps(view,ensure_ascii=False))
+        self.assertNotIn('最新动作也声称全对',json.dumps(view,ensure_ascii=False))
+        self.assertIn('过时的自信断言',json.dumps(saved,ensure_ascii=False))
+        self.assertNotIn('HIDDEN_REASONING',json.dumps(saved))
+        self.assertTrue(all(eid in saved for eid in payload['history_evidence_ids']))
+        manager.archive=lambda row:None
+        self.assertIs(await run.author_messages(history,'原问题',manager),history)
+        self.assertNotIn(None,manager.evidence_ids)
+        manager.archive=None
+        self.assertIs(await run.author_messages(history,'原问题',manager),history)
+
+    async def test_real_loop_uses_recipe_packet_after_feedback_and_can_publish_with_disagreement(self):
+        from plugins.finance.loop import FinanceLoop
+        files,run,draft=await session_tests.ResearchSessionTests().prepare()
+        run.record['research_contract_version']=2
+        key=fingerprint(draft);row=run.review_records[key]
+        row.update(feedback_returned=True,issues=[],checks=['已核对'],read_requests=[])
+        run.record['current_candidate']={'sha256':key,'candidate':draft}
+        saved={}
+        def archive(value):
+            eid=fingerprint(value);saved[eid]=copy.deepcopy(value);return eid
+        async def process(messages):return messages
+        seen=[]
+        class Model:
+            cloud=False
+            async def chat_stream_with_tools(self,messages,tools,**options):
+                seen.append(messages)
+                yield '',{'role':'assistant','content':'','tool_calls':[{'id':'publish','function':{
+                    'name':'brief_publish','arguments':{**draft,'review_ref':key+':'+row['evidence_sha256'],
+                    'review_response':'原文支持当前结论，保留限制后发布'}}}]}
+        agent=FinanceLoop(llm=Model(),router=SimpleNamespace(research=run),
+            registry=SimpleNamespace(get_definitions=lambda **kw:[{'type':'function','function':{'name':'brief_publish'}}]),
+            audit=SimpleNamespace(record=lambda *a:None),
+            context_mgr=SimpleNamespace(process=process,archive=archive,reader=saved.__getitem__,evidence_ids=set()),
+            prompt_builder=SimpleNamespace(build=lambda **kw:'原权限'))
+        agent.quality_first_research=agent.turn_loop_enabled=True
+        agent.continuing_checkpoint=True
+        events=[e async for e in agent.run([{'role':'system','content':'原权限'},{'role':'user','content':'原问题'},
+            {'role':'assistant','content':'过时的自信断言'}])]
+        self.assertEqual(json.loads(seen[0][1]['content'])['view_version'],'recipe-author-v1')
+        self.assertNotIn('过时的自信断言',json.dumps(seen[0],ensure_ascii=False))
+        self.assertIsNotNone(run.published)
+        self.assertEqual(events[-1].kind,'done')
+
     async def test_first_question_manifest_survives_later_research_creation(self):
         run=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
         saved={}

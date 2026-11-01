@@ -25,7 +25,7 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1000项、21项跳过，2026-10-30实测；Windows asyncio需可用本机socket）
+.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1005项、21项跳过，2026-11-01实测；Windows asyncio需可用本机socket）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -94,6 +94,8 @@ powershell Start-Process …（由聊天后端调用）
 聊天自主研究的evidence_requests由程序展开为原工具调用，不另起执行后端。evidence-index.json只登记实际收到的资料及模型标注；reviews保存同模型单独核对的候选稿/可见结果，不保存隐藏思维链、不进入正文。新研究research_contract_version=2保存动态Recipe，方法正文、父稿与历史问题明确交接；供应商序列化后可见材料沿原task_evidence归档并关联实际调用，不能把下载/保存冒充已纳入请求。brief_review或brief_publish先返回建议；brief_publish首次REVIEW_READY不发布，作者带review_ref与简短review_response明确发布，可保留有依据的异议，不要求意见清零。同稿同证据回执复用，失败/UNKNOWN不重发；旧契约不改写。详见docs/金融研究Recipe契约.md。研究不按累计时长、轮数、搜索/抓取次数或无进展计数强制收尾；进展计数仅作诊断，后台提交按已授权目标选择，受理不代表执行，不开启日常worker或恢复账户/旧任务。STOCK_WINDOW_SECONDS废弃；broker v2无研究deadline/max_steps，已保存v1保持原契约，不自动升级或重发。单次网络超时、当前授权、账户准入及用户停止仍生效。
 
 ## 约定
+
+新研究自主选择是否使用方法，不能以方法读取隐藏已授权工具或拒绝取证、核对与发布；选用时仍冻结版本。收到核对反馈后的作者请求采用Recipe阶段交接包，包含全部已返回证据、所选方法、当前工作稿、最新反馈与最近工具批；完整可见历史保存在原task_evidence并可回读，不保存隐藏推理。工作稿刷新不自动取得核对资格，发布仍匹配当前稿与证据版本。
 
 - 两个仓库直接工作在 `main`；提交小而可审阅，按批次（INx/N2 等）记录到股票仓库 `docs/计划.md`。
 - 前端施工先看 `docs/UI设计笔记.md`（已压缩的前端设计摘要：令牌、组件模式、动效、A/manager 与深色规则）；前端批次进度只维护股票仓库 `docs/计划.md`。

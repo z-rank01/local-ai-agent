@@ -40,10 +40,8 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
     async def test_request_dedup_failure_and_real_receipt_advance(self):
         run=ResearchSession(Files(),conversation_id='c',model='m',allowed=True)
         request={'kind':'notice','article':'AN123'}
-        with self.assertRaises(ValueError):
-            await run.begin({'scope':'x','plan':['x'],'evidence_requests':[request]})
-        run.methods.add('/workspace/skills/harness-stock-research-v3/references/event.md')
         await run.begin({'scope':'x','plan':['x'],'evidence_requests':[request]})
+        self.assertFalse(run.methods)  # New research does not require method selection.
         await run.begin({'phase':'获取','evidence_requests':[request]})
         self.assertEqual(len(run.pending_evidence),1)
         step=run.pending_evidence[0]
