@@ -1333,6 +1333,16 @@ class ChatSessionService:
                         protocol = ({**message, 'content': ''}
                                     if turn.buffer_output and message['role'] == 'assistant' else message)
                         save('protocol', metadata={**meta, 'message': protocol})
+                        receipt = event.data.get('tool_receipt')
+                        cid = message.get('tool_call_id')
+                        running = active_tools.get(cid)
+                        if (message['role'] == 'tool' and running is not None
+                                and isinstance(receipt, dict) and receipt.get('call_id') == cid
+                                and receipt.get('name') == running['name']
+                                and receipt.get('status') in ('ok', 'error')):
+                            # Protocol is durable even if a later plugin
+                            # projection/checkpoint fails before tool_end.
+                            running['received_receipt'] = copy.deepcopy(receipt)
                         if message['role'] == 'assistant' and not event.data.get('internal'):
                             final_text = message.get('content') or text
                             last_assistant_content = final_text
@@ -1415,6 +1425,19 @@ class ChatSessionService:
                 interrupted = turn.interrupted_text(text)
                 save('assistant', interrupted, thinking=reasoning, metadata={**meta,'status':'interrupted'})
             for tool in active_tools.values():
+                received = tool.get('received_receipt')
+                if received is not None:
+                    result, status = received['result'], received['status']
+                    save('tool', '[' + status + '] ' + tool['name']
+                        + ' 已取得真实回执；后续收尾未完成。\n'
+                        + json.dumps(result, ensure_ascii=False, indent=2),
+                        tool_name=tool['name'], tool_result=result,
+                        metadata={**meta, 'status':status,
+                            'receipt_retained':True, 'postprocessing_incomplete':True,
+                            'params':_redact_params(tool.get('params', {}))})
+                    # The real protocol reply was saved above. Do not append
+                    # another reply for this call or change checkpoint safety.
+                    continue
                 result = {**tool.get('partial', {}), 'error':'执行已中断，请核查已有结果；不会自动重跑。'}
                 save('protocol', metadata={**meta, 'message':{'role':'tool', 'tool_call_id':tool['call_id'],
                     'tool_name':tool['name'], 'content':json.dumps(result,ensure_ascii=False)}})

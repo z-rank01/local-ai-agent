@@ -406,7 +406,11 @@ class Agent:
                 content += self._budget_note(remaining)
             message = {'role': 'tool', 'tool_call_id': tc['id'], 'tool_name': name, 'content': content}
             messages.append(message)
-            yield AgentEvent('message', data={'message': message})
+            # The terminal tool receipt is already known here. A provider's
+            # subsequent projection/checkpoint may fail before tool_end reaches
+            # the chat service; that must not turn this receipt into UNKNOWN.
+            yield AgentEvent('message', data={'message': message, 'tool_receipt': {
+                'call_id':tc['id'], 'name':name, 'status':status, 'result':observation}})
             from harness.runtime.receipts import call_summary
             yield AgentEvent('tool_end', text=self._tool_end_text(name, result, status) or call_summary(result, status), data={
                 'name': name, 'call_id': tc['id'], 'params': params, 'status': status,

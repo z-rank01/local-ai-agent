@@ -25,7 +25,7 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1022项、21项跳过，2026-11-01实测；Windows asyncio需可用本机socket）
+.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1025项、21项跳过，2026-11-01实测；Windows asyncio需可用本机socket）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -136,6 +136,8 @@ Harness 当前实现：正式聊天的方法型 Skill 通过 Runner 的版本接
 模型发现只接收有效数值容量，不接受远程options、端点或权限。明确输出配置优先，无配置时采用该模型已声明容量，未知则用供应商默认；实际输出参数进入检查点和execution_profile，后续目录/全局设置变化不改写快照。缺少输出参数快照的旧云端记录不可原地续行。金融核对的length保存TRUNCATED及原生回执元数据，不保存隐藏推理、不自动重发，不以研究预算耗尽解释。
 
 作者交接的可选工作稿回读发生传输失败时，保存真实失败回执并标READ_FAILED；旧快照单列，不冒充当前稿已读，材料清单明确未纳入。模型仍可用原工具选择检查；不内部循环重读，不吞权限拒绝或检查点保存失败。源码及提示变化仍进入兼容指纹，旧记录不改写。
+
+工具真实回执先进入原协议归档；随后投影或检查点保存失败时保留已返回结果，不给同一调用追加泛化中断协议或覆盖真实参数错误。工具行单列收尾未完成，整轮仍按实际错误失败；不将检查点改安全、不自动重发。未收到回执的步骤仍保留中断或UNKNOWN。
 
 单独核对仅对目录中已核实支持的型号派生json_object输出请求；能力声明随模型快照冻结，不修改原会话客户端或普通聊天/写作格式，不覆盖显式冲突设置，不关闭思考。实际格式参数进入核对记录；空白、非法结构或解析失败仍保留原响应和真实失败，不自动重发、发布或进行事实修补。
 
