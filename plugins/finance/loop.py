@@ -666,6 +666,10 @@ class FinanceLoop(Agent):
             from .research_review import fingerprint, review_blocks
             review = research.review_records.get(fingerprint(candidate), {})
             review_ref = fingerprint(candidate) + ':' + review.get('evidence_sha256', '')
+            if review.get('status') == 'COMPLETE':
+                # Keep the exact returned handle in durable feedback. A later
+                # author view may no longer contain the original tool reply.
+                review['review_ref'] = review_ref
             new_contract = research.record.get('research_contract_version', 1) >= 2
             if research.pending_evidence:
                 result = {'status': 'EVIDENCE_PENDING', 'review': review,

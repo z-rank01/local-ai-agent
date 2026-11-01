@@ -415,6 +415,39 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError,'review_ref'):
                 await run.publish(changed)
 
+    async def test_returned_publish_reference_survives_other_steps_and_checkpoint(self):
+        _,run,draft,agent,calls=await review_tests.ReviewTests().setup_review([
+            {'issues':[],'checks':['已实际核对当前稿']}])
+        run.record['research_contract_version']=2
+        history=[{'role':'system','content':'原权限'},{'role':'user','content':'原问题'}]
+        with patch.object(config,'PUBLISH_REVIEW_ENFORCE',False):
+            events=[e async for e in agent._dispatch_tool('brief_publish',draft,'c',None,'review1',history)]
+            ready=next(e.data['result'] for e in events if e.kind=='tool_result')
+            history += [{'role':'assistant','content':'','tool_calls':[{'id':'review1','function':{
+                'name':'brief_publish','arguments':draft}}]},
+                {'role':'tool','tool_call_id':'review1','content':json.dumps(ready,ensure_ascii=False)}]
+            saved={}
+            def archive(row):
+                key=fingerprint(row);saved[key]=copy.deepcopy(row);return key
+            manager=SimpleNamespace(archive=archive,evidence_ids=set())
+            await run.author_messages(history,'原问题',manager)
+            for call_id in ('read','calculate'):
+                history += [{'role':'assistant','content':'继续核查','tool_calls':[{'id':call_id,'function':{
+                    'name':'code_exec','arguments':{'code':'print(1)'}}}]},
+                    {'role':'tool','tool_call_id':call_id,'content':'实际工具回执'}]
+                view=await run.author_messages(history,'原问题',manager)
+                self.assertEqual(json.loads(view[1]['content'])['latest_feedback']['review_ref'],ready['review_ref'])
+            state=copy.deepcopy(run.checkpoint_state(archive))
+            restored=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
+            restored.restore_state(state,saved.__getitem__)
+            restored_view=await restored.author_messages(history,'原问题',manager)
+            ref=json.loads(restored_view[1]['content'])['latest_feedback']['review_ref']
+            self.assertEqual(ref,ready['review_ref'])
+            events=[e async for e in agent._dispatch_tool('brief_publish',{**draft,'review_ref':ref,
+                'review_response':'核查后采用当前稿并保留限制，明确发布'},'c',None,'publish',history)]
+        self.assertEqual(next(e.data['result']['status'] for e in events if e.kind=='tool_result'),'PUBLISHED')
+        self.assertEqual(len(calls),1)
+
     async def test_advisory_read_requests_return_to_author_without_automatic_execution(self):
         outputs=[]
         _,run,draft,agent,calls=await review_tests.ReviewTests().setup_review(outputs)
