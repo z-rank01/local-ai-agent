@@ -34,6 +34,8 @@ def literal_text(text):
 
 
 _MONEY_UNITS = {'元': Decimal(1), '万元': Decimal(10000), '亿元': Decimal(100000000)}
+_RATIO_UNITS = {'倍': Decimal(1), '比例': Decimal(1), '比值': Decimal(1),
+                '%': Decimal('0.01'), '％': Decimal('0.01'), '百分比': Decimal('0.01')}
 
 
 def convert_unit(value, source, target):
@@ -41,11 +43,31 @@ def convert_unit(value, source, target):
     value = number(value)
     if source == target:
         return value
-    if source not in _MONEY_UNITS or target not in _MONEY_UNITS:
+    scales = (_MONEY_UNITS if source in _MONEY_UNITS and target in _MONEY_UNITS else
+              _RATIO_UNITS if source in _RATIO_UNITS and target in _RATIO_UNITS else None)
+    if scales is None:
         raise ValueError(f'不能换算单位 {source} → {target}；请使用相同单位或明确换算算式')
     with localcontext() as ctx:
         ctx.prec = 40
-        return value * _MONEY_UNITS[source] / _MONEY_UNITS[target]
+        return value * scales[source] / scales[target]
+
+
+def divide_quantity(inputs, unit):
+    """Normalize a declared ratio; explicit unit-conversion coefficients stay literal."""
+    a, b = (number(row['value']) for row in inputs)
+    if unit not in _RATIO_UNITS:
+        return a / b
+    if any(row['source'].startswith('constant:') and row.get('period') == '不适用'
+           and '/' in row['unit'] for row in inputs):
+        return a / b  # e.g. percent / (percent per ratio); no second conversion
+    left, right = (row['unit'] for row in inputs)
+    if left in _MONEY_UNITS and right in _MONEY_UNITS:
+        a = convert_unit(a, left, right)
+    elif left in _RATIO_UNITS and right in _RATIO_UNITS:
+        a, b = a * _RATIO_UNITS[left], b * _RATIO_UNITS[right]
+    elif left != right:
+        raise ValueError(f'比值输入单位 {left} 与 {right} 不可直接比较；请先明确换算')
+    return a / b / _RATIO_UNITS[unit]
 
 
 def normalize_publication(params):
@@ -101,9 +123,18 @@ def validate_publication(params, sources, read_text):
     errors = []
     for index, calc in enumerate(calculations):
         for input_index, row in enumerate(calc['inputs']):
-            if row['source'].startswith('calculation:'):
+            missing = [key for key in ('source', 'period')
+                       if not isinstance(row.get(key), str) or not row[key].strip()]
+            if isinstance(row.get('source'), str) and not row['source'].startswith('calculation:') and 'value' not in row:
+                missing.append('value')
+            if missing:
+                errors.append(f'calculations[{index}].inputs[{input_index}] 缺少有效字段：' + '、'.join(missing))
                 continue
-            if not row.get('unit'):
+            if row['source'].startswith('calculation:'):
+                if 'unit' in row and (not isinstance(row['unit'], str) or not row['unit'].strip()):
+                    errors.append(f'calculations[{index}].inputs[{input_index}] 计算输入缺少单位')
+                continue
+            if not isinstance(row.get('unit'), str) or not row['unit'].strip():
                 errors.append(f'calculations[{index}].inputs[{input_index}] 计算输入缺少单位；原文原值需填单位，常数填写其实际单位（无量纲填“倍”），只有前项计算引用可以继承单位')
             if row['source'].startswith('constant:') and row.get('period') == '不适用':
                 continue
@@ -142,12 +173,12 @@ def validate_publication(params, sources, read_text):
                 if len(values) != 2:
                     raise ValueError(f'calculations[{index}] 的 {operation} 需要两个输入，实际为 {len(values)} 个；多项运算请拆为前后依赖的计算')
                 a, b = values
-                value = a-b if operation == 'subtract' else a*b if operation == 'multiply' else a/b
+                value = a-b if operation == 'subtract' else a*b if operation == 'multiply' else divide_quantity(calc['inputs'], calc['unit'])
             else:
                 raise ValueError(f'calculations[{index}] 不支持算术操作 {operation!r}；可用 sum、subtract、multiply、divide')
             calc.setdefault('result', str(value))
             if value != number(calc['result']):
-                raise ValueError('计算结果不一致，请用容器计算后保留完整精度')
+                raise ValueError(f'calculations[{index}] 计算结果不一致：按输入单位及结果单位{calc["unit"]}应为{value}；请保留完整精度，或省略result由程序计算')
     for chart_index, chart in enumerate(params.get('charts', [])):
         if not all(chart.get(k) for k in ('title', 'unit', 'period', 'items')):
             raise ValueError('图表须有标题、单位、期间与数据')

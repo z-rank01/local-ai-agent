@@ -8,6 +8,8 @@ description: >-
   本轮研究目录再只传 draft_path；也可直接传内联字段，draft_path 与内联字段可混用（内联优先）。
   quote 必须是原文连续片段（只允许排版空白差异），发布的数字必须能在该引文里找到；calculations 只需给
   操作与有来源/期间/单位的输入，result 由程序计算。返回已保存文件路径，回复中用该路径的 Markdown 链接展示报告卡。
+  比值除法先统一货币单位；0.15倍等于15%，unit为%时结果应写15，不能把比例0.15直接标为0.15%。
+  明确单位换算常数须写实际系数单位（如元/亿元、倍/%），不重复自动换算。
   新研究先返回REVIEW_READY和review_ref，本次未发布；读取独立建议后可补查、修改或保留有依据的异议。
   明确发布时再次调用并带review_ref及简短review_response。不要求意见清零。也可先brief_review；
   同稿同证据已有成功回执时复用，不重复调用模型。分析、核对与写作使用同一冻结会话模型。
@@ -49,7 +51,7 @@ parameters:
         type: object
         properties:
           operation: {type: string, enum: [sum, subtract, multiply, divide]}
-          unit: {type: string}
+          unit: {type: string, description: 结果数值的实际单位；同类数量比值用倍或%，比值除法按单位归一，0.15倍等于15%；不是把原比值直接加%符号}
           result: {type: string, description: 可省略，由程序以Decimal40位精度计算；显式值必须与算式一致}
           inputs:
             type: array

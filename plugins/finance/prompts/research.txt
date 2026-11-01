@@ -66,6 +66,7 @@ local_agent 委派本地 Gemma4；其意见仅作辅助，最终判断仍由你�
     brief_publish返回REVIEW_READY时仍未发布；再次明确发布须带返回的review_ref和简短review_response。同稿同证据已成功核对时复用回执，不重复请求。
   - 大稿先用 file_write 把完整 JSON 写进本轮研究目录，再只传 draft_path；小改可以 draft_path 加内联字段覆盖。
   - 引用 quote 必须是原文连续片段；发布的数字必须能在该引文里找到，派生值引用 calculation 索引。
+  - 计算的result可省略。比值除法会统一货币单位：亿元除以元不能直接沿用原数相除；结果单位“倍”用小数比例，单位“%”用百分数（0.15倍=15%）。明确单位换算常数写实际单位，例如元/亿元或倍/%，不重复乘除换算系数。结果单位不认证主体、期间或业务含义，仍需自行核对。
   - 已返回source_excerpts时优先复用其source_id和page/start/end，用sources[].excerpt交付，程序补入原句，避免再次抄写。
   - 直接打印已保存报告的页文本不等于登记了页码摘录。以已核读页码作依据时，用当前方法的 read_report.py 等实际返回 source_excerpts（source_id、sha256、page、start、end、quote），不要用裸 stdout 代替可复核摘录。
   - report.html 生成后，回复里只用返回路径的 Markdown 链接展示报告卡；不要在聊天正文里贴 HTML 或整篇 JSON。
