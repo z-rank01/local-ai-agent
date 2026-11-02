@@ -72,6 +72,24 @@ def divide_quantity(inputs, unit):
     return a / b / _RATIO_UNITS[unit]
 
 
+def check_money_conversion(inputs, operation, unit):
+    """Check explicit money conversion dimensions, not financial meaning."""
+    if operation not in ('divide', 'multiply') or len(inputs) != 2 or unit not in _MONEY_UNITS:
+        return
+    left, right = inputs
+    if left['unit'] not in _MONEY_UNITS or not right['source'].startswith('constant:'):
+        return
+    parts = right['unit'].split('/')
+    if len(parts) != 2 or any(part not in _MONEY_UNITS for part in parts):
+        return
+    expected = [left['unit'], unit] if operation == 'divide' else [unit, left['unit']]
+    if parts != expected:
+        raise ValueError('货币换算系数方向与操作不一致；除法系数单位须为输入单位/输出单位，乘法相反')
+    factor = _MONEY_UNITS[parts[1]] / _MONEY_UNITS[parts[0]]
+    if number(right['value']) != factor:
+        raise ValueError('货币换算系数数值与声明单位不一致')
+
+
 def normalize_publication(params):
     params = deepcopy(params)
     review = params.setdefault('review', {})
@@ -167,6 +185,10 @@ def validate_publication(params, sources, read_text):
         with localcontext() as ctx:
             ctx.prec = 40
             operation = calc['operation']
+            try:
+                check_money_conversion(calc['inputs'], operation, calc['unit'])
+            except ValueError as exc:
+                raise ValueError(f'calculations[{index}] {exc}') from exc
             if operation in ('sum', 'subtract'):
                 target = '%' if (operation == 'subtract' and calc['unit'] in _POINT_UNITS
                                  and all(row['unit'] in _RATIO_UNITS for row in calc['inputs'])) else calc['unit']

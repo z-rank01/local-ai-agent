@@ -656,6 +656,7 @@ class FinanceLoop(Agent):
         else:
             publication = research.publication
             candidate = publication.validate_publication(candidate, research.sources, research.read_text)
+            research.register_candidate_artifacts(candidate)
             publication.render_charts(candidate.get('charts', []))
             try:
                 async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
@@ -706,7 +707,7 @@ class FinanceLoop(Agent):
         if isinstance(result, dict) and research.record:
             from .research.recipe import recipe_advice
             result.update(recipe=research.record.get('recipe'), artifacts=research.artifacts(),
-                          recipe_advice=recipe_advice(research.record.get('recipe')))
+                          recipe_advice=recipe_advice(research.record.get('recipe'), research.artifacts(), candidate))
         yield AgentEvent('tool_result', data={'result': result})
 
     def _tool_error(self, name, error):

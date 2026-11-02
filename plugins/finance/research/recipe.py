@@ -82,6 +82,7 @@ def claim_materials(recipe, artifacts, candidate=None):
     from ..publication import literal_text
     body = literal_text((candidate or {}).get('markdown', ''))
     return [{'stage_id':stage['id'], 'claim':deepcopy(claim),
+             'outcome_version':outcome_version(stage, artifacts, candidate),
              'body_reference_observed':bool(body and (claim.get('id', '\0') in body or
                                                      literal_text(claim['text']) in body)),
              'semantic_certification':False,
@@ -91,7 +92,36 @@ def claim_materials(recipe, artifacts, candidate=None):
             for stage in (recipe or {}).get('stages', []) for claim in stage.get('claims', [])]
 
 
-def recipe_advice(recipe):
-    return [{'stage_id':s['id'], 'missing':[key for key in ('assessment','output_refs','claims') if not s.get(key)]}
-            for s in (recipe or {}).get('stages', [])
-            if s.get('model_status') != 'skipped' and any(not s.get(k) for k in ('assessment','output_refs','claims'))]
+def candidate_content_fingerprint(candidate):
+    from harness.runtime.evidence import fingerprint
+    return fingerprint({k:(candidate or {}).get(k) for k in ('title','markdown','as_of','stance')})
+
+
+def outcome_version(stage, artifacts, candidate):
+    refs = [ref for ref in stage.get('output_refs', []) if artifacts.get(ref, {}).get('kind') == 'candidate']
+    current = candidate_content_fingerprint(candidate) if candidate else None
+    matching = [ref for ref in refs if current and artifacts[ref].get('content_sha256') == current]
+    state = 'CURRENT_TEXT_REFERENCE' if matching else 'OLDER_OR_UNVERIFIED_CANDIDATE' if refs and current else 'UNBOUND'
+    return {'status':state,'adopted_candidate_refs':refs,'matching_refs':matching,
+            'reading':'仅观察采用的稿件正文版本；旧评估不是当前稿事实，引用匹配也不认证判断。'}
+
+
+def recipe_advice(recipe, artifacts=None, candidate=None):
+    result = []
+    for stage in (recipe or {}).get('stages', []):
+        missing = [key for key in ('assessment','output_refs','claims') if not stage.get(key)]
+        version = outcome_version(stage, artifacts or {}, candidate)
+        stale = version['status'] == 'OLDER_OR_UNVERIFIED_CANDIDATE'
+        if stage.get('model_status') != 'skipped' and (missing or stale):
+            result.append({'stage_id':stage['id'],'missing':missing,'outcome_version':version,
+                           'next':'按当前证据更新判断和实际采用的稿件引用；旧版保留，不必逐工具填表，不阻止发布。'})
+    return result
+
+
+def recipe_view(recipe, artifacts, candidate):
+    if recipe is None:
+        return None
+    view = deepcopy(recipe)
+    for stage in view.get('stages', []):
+        stage['outcome_version'] = outcome_version(stage, artifacts, candidate)
+    return view

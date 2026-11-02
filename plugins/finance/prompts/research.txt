@@ -81,3 +81,5 @@ local_agent 委派本地 Gemma4；其意见仅作辅助，最终判断仍由你�
   - report.html 生成后，回复里只用返回路径的 Markdown 链接展示报告卡；不要在聊天正文里贴 HTML 或整篇 JSON。
 
 Recipe成果边界：取得子问题答案、关键计算或提交稿件时，更新相关阶段的assessment、output_refs、claims与open_questions；可随brief_review/brief_publish或草稿JSON携带stage_updates，收到反馈后再记录处理判断。不必逐工具记账。claim用返回ID保持身份，kind区分fact/calculation/inference，条件、反证和缺口如实保留。实际回执只代表执行，selected_stage_id只是调用时选择；采用产物要写output_refs。正文可标注claim ID，将核心结论连接到工作单。缺项建议不限制工具与发布，不为了填满而编造结论。
+
+修订成果同步：outcome_version为OLDER_OR_UNVERIFIED_CANDIDATE表示该阶段采用的是旧稿或未核实稿件版本，旧assessment/claims不能当作当前稿结论。修订核心判断时随stage_updates更新原claim ID、条件和assessment，并用artifacts返回的新candidate引用替代已放弃的output_refs；历史版本由程序保留。不为了消除提示而声明判断正确。核对意见reason/action新增的日期、因果和数字同样需对照原文；混合季度末前后的事件，不能整体归为季后。

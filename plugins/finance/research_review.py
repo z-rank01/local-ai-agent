@@ -14,7 +14,7 @@ def previous_findings(records):
 
 
 def review_messages(question, candidate, research, system, findings=()):
-    from .research.recipe import claim_materials
+    from .research.recipe import claim_materials, recipe_view
     instructions=(Path(__file__).parent/'prompts/review.txt').read_text(encoding='utf-8')
     # The writer's self-checks are not independent evidence. Preserve the original
     # submission elsewhere; only remove this affirmation from the review view.
@@ -28,7 +28,8 @@ def review_messages(question, candidate, research, system, findings=()):
              'decision_surface':{**{k:candidate.get(k) for k in ('title','stance','as_of')},'opening':opening},
              'candidate':view,'limitations':candidate.get('review',{}).get('limitations',[]),
              'known_conflicts':candidate.get('review',{}).get('conflicts',[]),
-             'recipe':(getattr(research,'record',None) or {}).get('recipe'),
+             'recipe':recipe_view((getattr(research,'record',None) or {}).get('recipe'),
+                 research.artifacts() if hasattr(research,'artifacts') else {}, candidate),
              'claim_materials':claim_materials((getattr(research,'record',None) or {}).get('recipe'),
                  research.artifacts() if hasattr(research,'artifacts') else {}, candidate),
              'revision_context':(getattr(research,'record',None) or {}).get('revision_context'),

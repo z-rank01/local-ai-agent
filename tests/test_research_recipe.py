@@ -46,6 +46,28 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         await run.publication_input(submission)
         self.assertEqual(run.record['recipe'],recipe)
 
+    async def test_old_outcome_is_marked_for_both_roles_without_rewriting_history(self):
+        _,run,draft=await session_tests.ResearchSessionTests().prepare()
+        await run.begin({'phase':'分析','stage_updates':[{'goal':'判断'}]})
+        old=await run.publication_input(draft)
+        ref='candidate:'+fingerprint(old)
+        stage=run.record['recipe']['stages'][-1]['id']
+        await run.begin({'phase':'分析','stage_updates':[{'id':stage,'assessment':'旧判断','output_refs':[ref],
+            'claims':[{'text':'旧判断','evidence_refs':[ref]}]}]})
+        before=copy.deepcopy(run.record['recipe'])
+        revised={**old,'markdown':'新的有边界结论'}
+        run.record['current_candidate']={'candidate':revised,'sha256':fingerprint(revised)}
+        author=run.handoff_materials()
+        reviewer=json.loads(review_messages('问题',revised,run,'')[1]['content'])
+        for view in (author,reviewer):
+            self.assertEqual(view['recipe']['stages'][-1]['outcome_version']['status'],'OLDER_OR_UNVERIFIED_CANDIDATE')
+        self.assertTrue(author['recipe_advice'])
+        self.assertEqual(run.record['recipe'],before)
+        run.register_candidate_artifacts(revised)
+        await run.begin({'phase':'分析','stage_updates':[{'id':stage,'assessment':'收窄判断',
+            'output_refs':['candidate:'+fingerprint(revised)]}]})
+        self.assertEqual(run.handoff_materials()['recipe']['stages'][-1]['outcome_version']['status'],'CURRENT_TEXT_REFERENCE')
+
     async def prepare_refresh(self):
         files,run,draft=await session_tests.ResearchSessionTests().prepare()
         run.record['research_contract_version']=2

@@ -76,3 +76,16 @@ class QuantityRatioTests(unittest.TestCase):
         del candidate['calculations'][1]['result']
         candidate['calculations'][1]['inputs'][1]['unit']='元'
         with self.assertRaises(ValueError):validate_publication(candidate,sources,text)
+
+    def test_money_conversion_direction_and_coefficient_are_checked(self):
+        from plugins.finance.publication import check_money_conversion
+        inputs=[{'source':'real','value':'1.5','unit':'亿元'},
+                {'source':'constant:换算','value':'10000','unit':'万元/亿元'}]
+        with self.assertRaisesRegex(ValueError,'方向'):
+            check_money_conversion(inputs,'divide','万元')
+        check_money_conversion(inputs,'multiply','万元')
+        inputs[1]={'source':'constant:换算','value':'0.0001','unit':'亿元/万元'}
+        check_money_conversion(inputs,'divide','万元')
+        inputs[1]['value']='10000'
+        with self.assertRaisesRegex(ValueError,'数值'):
+            check_money_conversion(inputs,'divide','万元')

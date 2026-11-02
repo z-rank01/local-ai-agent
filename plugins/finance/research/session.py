@@ -93,12 +93,14 @@ class ResearchSession:
         return True
 
     def handoff_materials(self):
-        from .recipe import claim_materials, recipe_advice
+        from .recipe import claim_materials, recipe_advice, recipe_view
         return {**model_evidence(self.evidence_index()), 'goal':(self.record or {}).get('scope'),
                 'claim_materials':claim_materials((self.record or {}).get('recipe'), self.artifacts(),
                     ((self.record or {}).get('current_candidate') or {}).get('candidate')),
-                'recipe_advice':recipe_advice((self.record or {}).get('recipe')),
-                'recipe':(self.record or {}).get('recipe'), 'artifacts':self.artifacts(),
+                'recipe_advice':recipe_advice((self.record or {}).get('recipe'), self.artifacts(),
+                    ((self.record or {}).get('current_candidate') or {}).get('candidate')),
+                'recipe':recipe_view((self.record or {}).get('recipe'), self.artifacts(),
+                    ((self.record or {}).get('current_candidate') or {}).get('candidate')), 'artifacts':self.artifacts(),
                 'methods':self.method_text, 'current_candidate':(self.record or {}).get('current_candidate'),
                 'revision_context':(self.record or {}).get('revision_context')}
 
@@ -232,8 +234,10 @@ class ResearchSession:
     def register_candidate_artifacts(self, candidate):
         """Register submitted versions; calculations remain unverified model data."""
         digest = fingerprint(candidate)
+        from .recipe import candidate_content_fingerprint
         rows = self.record.setdefault('artifacts', {})
         rows['candidate:'+digest] = {'kind':'candidate', 'sha256':digest,
+                                    'content_sha256':candidate_content_fingerprint(candidate),
                                     'path':self.record.get('working_draft_path')}
         for index, calculation in enumerate(candidate.get('calculations', [])):
             rows[f'calculation:{digest}:{index}'] = {'kind':'calculation', 'candidate_sha256':digest,
