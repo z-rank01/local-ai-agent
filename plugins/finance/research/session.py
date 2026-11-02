@@ -205,6 +205,8 @@ class ResearchSession:
                    'recent_tool_batch':batch, 'history_evidence_ids':sorted(manager.evidence_ids),
                    'reading':'这是当前作者交接材料，不是事实认证。核对意见须对照原文，可能错误；'
                              '旧意见对应所标稿件与证据版本。重要陈述用Recipe claims关联来源、期间及条件。'
+                             '以原问题和当前Recipe目标判断材料是否足以支持有边界的回答；'
+                             '区分影响核心结论的缺口与可选拓展，核对建议不自动增加用户要求。'
                              '可补查、定向改稿或保留有依据的异议后明确发布，不要求意见清零。'
                              'current_candidate是最近提交核对的稿件，不代表后续另存文件的最新版本；'
                              'READ_FAILED表示本次工作稿回读失败，previous_snapshot仅是此前快照，不能当作本次已读；'
@@ -517,7 +519,8 @@ class ResearchSession:
         next_step = '按需读取项目当前投研方法；本轮已成功读取的方法不必重读，研究不按时间、轮数或进展计数自动结束或交接。'
         if phase == '核对':
             next_step = ('先从反方检查完整草稿的标题、排序和结论，按所选方法逐条核对支持推断的来源、期间与必要前提；'
-                         '不能只核对引句和数字存在。发现缺口就修订对应陈述或补查，保留其他有效成果。'
+                         '不能只核对引句和数字存在。按原问题判断缺口是否影响核心回答；'
+                         '需要时修订、补查或收窄结论，保留其他有效成果；可选拓展由作者决定。'
                          '在review.checks记录具体核对结果及位置，不写隐藏推理或泛化通过声明；完成后再brief_publish。')
         return {'research_id': self.record['id'], 'directory': self.record['directory'],
                 'phase': phase, 'model': self.model,

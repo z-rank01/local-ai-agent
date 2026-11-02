@@ -28,7 +28,10 @@ def review_messages(question, candidate, research, system, findings=()):
              'revision_context':(getattr(research,'record',None) or {}).get('revision_context'),
              'evidence':model_evidence(research.evidence_index()),
              'methods':research.method_text,'previous_findings':list(findings)}
-    return [{'role':'system','content':system+'\n\n'+instructions},
+    # The caller's system belongs to the author, including tool workflow and
+    # publication instructions. Review is a separate, tool-free role: inherit
+    # materials and the frozen client, not the author's execution directives.
+    return [{'role':'system','content':instructions},
             {'role':'user','content':json.dumps(payload,ensure_ascii=False)}]
 
 

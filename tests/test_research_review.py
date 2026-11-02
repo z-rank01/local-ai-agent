@@ -1,5 +1,6 @@
 import copy
 import json
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -222,6 +223,26 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('writer_self_certification',json.dumps(messages))
         self.assertIn('known gap',json.dumps(messages))
         self.assertEqual(draft,before)
+
+    def test_review_role_isolated_from_author_workflow_with_materials_preserved(self):
+        writer=(Path(__file__).resolve().parents[1]/'plugins/finance/prompts/research.txt').read_text(encoding='utf-8')
+        source={'sources':{'source-1':{'received':['主体甲；2026年三季度；单位元；利润100']}}}
+        methods={'method-1':'比较时须保留主体、期间和单位'}
+        run=SimpleNamespace(evidence_index=lambda:source,method_text=methods,
+                            record={'recipe':{'goal':'解释利润变化'}})
+        draft={'markdown':'利润100','review':{'checks':['作者自认通过'],
+               'conflicts':['原表主体存在冲突'],'limitations':['未取得现金流附注']}}
+        messages=review_messages('截至指定日期利润变化说明什么？',draft,run,writer)
+        system=messages[0]['content'];payload=json.loads(messages[1]['content'])
+        self.assertNotIn(writer,system)
+        self.assertNotIn('正文结构（brief_publish.markdown',system)
+        self.assertIn('单独的投研稿件核对',system)
+        self.assertEqual(payload['question'],'截至指定日期利润变化说明什么？')
+        self.assertEqual(payload['methods'],methods)
+        self.assertEqual(payload['evidence'],model_evidence(source))
+        self.assertEqual(payload['known_conflicts'],['原表主体存在冲突'])
+        self.assertEqual(payload['limitations'],['未取得现金流附注'])
+        self.assertNotIn('作者自认通过',json.dumps(payload,ensure_ascii=False))
 
     def test_review_compaction_keeps_all_unique_counterevidence_and_identity(self):
         source={'sources':{'a':{'received':['profit100','risk: debt','profit100 and cash10','risk: debt']},

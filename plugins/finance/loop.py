@@ -691,7 +691,8 @@ class FinanceLoop(Agent):
                           'candidate_sha256':fingerprint(candidate),
                           'review':{key:review[key] for key in ('issues','checks','read_requests','claim_checks',
                               'claim_provenance','semantic_certification') if key in review},
-                          'message':'本次未发布。请对照原文处理建议；可补查、修改，也可有依据地保留异议。'
+                          'message':'本次未发布。请对照原文与原问题判断核心回答是否成立；'
+                                    '建议不自动增加用户要求，可补查、修改、收窄结论或有依据地保留异议。'
                                     '明确发布时再次brief_publish，携带本review_ref及简短review_response。'
                                     '不要求逐条填表或意见清零；修改稿件或证据将核对新版本。'}
                 review['feedback_returned'] = True
