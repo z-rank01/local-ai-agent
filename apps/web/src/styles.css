@@ -823,8 +823,9 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
   font-size: var(--ui-size); line-height: 1.55; color: var(--fg);
 }
 .composer-input:focus-visible { box-shadow: none; }
-.composer-bar { display: flex; align-items: center; gap: 8px; padding: 2px 2px 0; }
-.composer-hint { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 8px; }
+.composer-bar { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; padding: 2px 2px 0; }
+.composer-context { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.composer-hint { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-tool {
   display: grid; place-items: center; width: 30px; height: 30px;
   border-radius: 50%; color: var(--muted);
@@ -1320,7 +1321,6 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
   .sheet { width: 100vw; }
   .thread { padding: 0 var(--container-gutter-phone); }
   .composer-wrap { width: calc(100% - 20px); bottom: 10px; }
-  .composer-hint { display: none; }
   .reader-head { padding: 12px 14px; }
 }
 
@@ -1570,9 +1570,10 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 .run-status.running, .run-status.pausing, .run-status.paused, .run-status.stopping { color: var(--warn-text); }
 .run-status.failed { color: var(--danger-text); }
 .run-status.succeeded { color: var(--ok-text); }
-.conversation-run { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2); border-bottom: 1px solid var(--border-soft); color: var(--fg-2); font-size: var(--text-xs); max-height: 30vh; overflow: auto; overflow-wrap: anywhere; }
-.conversation-run > [role="status"] { flex: 1; min-width: 0; }
-.conversation-run > .run-error, .conversation-run > .run-note { flex-basis: 100%; margin: 0; }
+.conversation-run { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 0 6px; color: var(--fg-2); font-size: var(--text-xs); max-height: 30vh; overflow: auto; overflow-wrap: anywhere; }
+.conversation-run > [role="status"] { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-run .run-actions { flex: none; flex-wrap: nowrap; }
+.conversation-run > .run-error, .conversation-run > .run-note { flex-basis: 100%; margin: 0; white-space: normal; }
 .run-count { flex: none; white-space: nowrap; text-align: center; font-size: var(--text-xs); line-height: var(--ui-leading); }
 
 @container (max-width: 480px) {
@@ -2039,19 +2040,17 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
   .capm-row-more { width: 40px; height: 40px; }
 }
 /* ═══════════════════════════════════════════════════════════════════════════
-   能力栏 A：Composer 内 40px 单行能力带 + portal 能力浮层
+   能力栏 A：Composer 底行内联工具 + portal 能力浮层
    颜色、字号、圆角、动效来自设计令牌；尺寸是组件级常量。
    ═══════════════════════════════════════════════════════════════════════════ */
 .capbar {
-  --capbar-height: 40px;
   --capbar-control: 28px;
   --capbar-count: 26px;
+  flex: 1;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: var(--capbar-height);
   min-width: 0;
-  padding: 0 2px 6px;
 }
 .capbar.is-disabled { opacity: 0.55; }
 .capbar.is-disabled .capbar-chip,
@@ -2063,14 +2062,6 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
   align-items: center;
   gap: 5px;
   overflow: hidden;
-  white-space: nowrap;
-}
-.capbar-empty {
-  padding-left: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--muted);
-  font-size: var(--text-xs);
   white-space: nowrap;
 }
 .capbar-chip {
@@ -2499,10 +2490,11 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 }
 @media (pointer: coarse) {
   .capbar {
-    --capbar-height: 52px;
     --capbar-control: 44px;
     --capbar-count: 32px;
   }
+  .composer-tool, .send-btn { width: 44px; height: 44px; }
+  .composer-bar .run-actions .btn { min-height: 44px; }
   .capbar-pop-close { width: 40px; height: 40px; }
   .capbar-pop-search { height: 40px; }
   .capbar-pop-tab { height: 34px; }

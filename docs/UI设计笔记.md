@@ -17,7 +17,7 @@
 | 顶栏 | 44px，细条；会话标题居中；模型/工作台/设置/导出入口靠右；窄屏用 container query 收起文字 |
 | 会话抽屉 | 左 322px；新建、搜索、会话列表、任务卡、唯一「退出」按钮 |
 | 工作台 Sheet | 右侧固定，默认 400px，可拖 340–760px；Sheet head + 可折叠 Panel；窗口剩余 <560px 时改为覆盖式 |
-| Composer | 底部悬浮胶囊；运行状态行、A 能力栏、附件、输入、模型/发送排布；窄屏不横向滚动 |
+| Composer | 底部悬浮胶囊；附件（按需）、输入、单一状态/工具行排布；常态底行承载能力与发送，运行态复用为运行控制；窄屏不横向滚动 |
 | 基元 | `Panel` 折叠、`Collapse` grid 折叠、`Popover` portal/焦点回退、`Switch` role=switch、`Chip/Badge`、`Button/icon` |
 | 页面模式 | 列表用单张分组卡片+行分隔，不用每项独立浮卡；详情就地展开；浮层不裁剪 |
 
@@ -28,7 +28,7 @@
 - 入场 `rise` 8px/220ms；浮层 `pop-in`/`fade` 150ms；持续只用 `dots`/`spin`/`pulse-ring`；不新增弹簧或高度动画。
 - **居中固定元素（toast、notice-bar）必须用 `centered-rise`**：关键帧同时保留 `translateX(-50%)`，否则 `rise` 的 `transform` 会在入场时覆盖居中，先偏右再跳回。
 - 文件末尾全局 reduced-motion 1ms + 单次；新动画必须被覆盖。
-- 焦点：统一 `:focus-visible`；禁止裸删 outline；弹层 Esc 关闭并回触发按钮；打开移入首个可聚焦元素；行展开/收起保留焦点；Switch 操作后焦点回同一开关。
+- 焦点：统一 `:focus-visible`；禁止裸删 outline；弹层 Esc 关闭并回触发按钮；打开移入首个可聚焦元素；行展开/收起保留焦点；Switch 操作后焦点回同一开关；Composer 状态切换只接管即将隐藏控件或已丢失的焦点，不抢其他区域焦点。
 - 语义：图标按钮有 aria-label；弹层 `role=dialog`；筛选 `aria-pressed`/`aria-controls`；列表 `role=list` + 行 `role=listitem`；状态不只靠颜色。
 
 ## 4. 深色模式
@@ -40,7 +40,7 @@
 
 ## 5. 能力栏 A
 
-- Composer 内固定 40px 单行（触屏 52）；最多 2 枚已选胶囊 + `+N`，右侧唯一「能力」触发器；浮层 374px、portal、空间不足上翻。
+- 能力入口与最多 2 枚已选胶囊 + `+N` 并入 Composer 常态底行，空选择不显示常驻说明；运行中底行复用为状态与控制，选择数据保留。浮层 374px、portal、空间不足上翻。
 - 浮层含搜索、全部/技能/插件筛选、行状态、加载/空/无结果/错误/不可用；管理入口跳工作台能力面板。
 - 选择是会话级 `conversation.capability_ids`（v11，`skill:<name>` / `plugin:<id>`）；**空选择不缩窄**，非空只收窄本轮 Skill/Plugin 发现目录，不改工具 schema/权限/生命周期。
 - 键盘：打开聚焦搜索、Tab 循环、↑↓、Esc 回触发器、Ctrl/Cmd+K 开合、移除胶囊后焦点下一项或触发器；搜索 2px 环，input 不叠全局环。

@@ -25,9 +25,9 @@ const MAX_INPUT_HEIGHT = 200;
 
 const baseName = (path: string): string => path.split('/').filter(Boolean).pop() ?? path;
 
-/* 底部输入胶囊：附件 chip 行 + 文本域 + 工具条。
+/* 底部输入胶囊：附件 chip 行 + 文本域 + 状态/工具条。
    Enter 发送（Shift+Enter 换行），中文输入法组字中的 Enter 不发送；
-   运行状态与控制集中在上沿，文本域照常可继续起草。 */
+   底行在工具与运行控制间复用，文本域照常可继续起草。 */
 export function Composer({
   runStatus,
   capabilityBar,
@@ -80,11 +80,24 @@ export function Composer({
     submit();
   };
 
+  const running = Boolean(runStatus);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const wasRunningRef = useRef(running);
+
+  useEffect(() => {
+    if (wasRunningRef.current === running) return;
+    wasRunningRef.current = running;
+    const active = document.activeElement;
+    const focusWasInBar = active !== null && barRef.current?.contains(active);
+    const focusWasLost = active === document.body || active === document.documentElement;
+    if (focusWasInBar || focusWasLost) {
+      textareaRef.current?.focus({preventScroll: true});
+    }
+  }, [running]);
+
   return (
     <footer className="composer-wrap">
       <div className="composer">
-        {runStatus}
-        {capabilityBar}
         {attachments.length > 0 ? (
           <div className="attach-row">
             {attachments.map((path) => (
@@ -113,49 +126,54 @@ export function Composer({
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
         />
-        <div className="composer-bar">
-          <span className="composer-hint">
-            {statusText}
-          </span>
-          <button
-            type="button"
-            className="composer-tool"
-            title="上传文件到工作区"
-            aria-label="上传文件到工作区"
-            disabled={busy || versionBusy}
-            onClick={() => fileRef.current?.click()}
-          >
-            <Icon name="i-upload" />
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            hidden
-            tabIndex={-1}
-            onChange={(event) => {
-              const files = event.currentTarget.files;
-              if (files && files.length > 0) {
-                onUpload(files);
-              }
-              event.currentTarget.value = '';
-            }}
-          />
-          {editing ? (
-            <button type="button" className="btn btn-quiet btn-sm" onClick={onCancelEdit}>
-              取消编辑
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="send-btn"
-            title={editing ? '保存并重试' : '发送'}
-            aria-label={editing ? '保存并重试' : '发送'}
-            disabled={busy || sendDisabled}
-            onClick={submit}
-          >
-            <Icon name="i-send" />
-          </button>
+        <div ref={barRef} className={running ? 'composer-bar is-running' : 'composer-bar'}>
+          {running ? runStatus : (
+            <>
+              <div className="composer-context">
+                {capabilityBar}
+                {statusText ? <span className="composer-hint">{statusText}</span> : null}
+              </div>
+              <button
+                type="button"
+                className="composer-tool"
+                title="上传文件到工作区"
+                aria-label="上传文件到工作区"
+                disabled={busy || versionBusy}
+                onClick={() => fileRef.current?.click()}
+              >
+                <Icon name="i-attach" />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                hidden
+                tabIndex={-1}
+                onChange={(event) => {
+                  const files = event.currentTarget.files;
+                  if (files && files.length > 0) {
+                    onUpload(files);
+                  }
+                  event.currentTarget.value = '';
+                }}
+              />
+              {editing ? (
+                <button type="button" className="btn btn-quiet btn-sm" onClick={onCancelEdit}>
+                  取消编辑
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="send-btn"
+                title={editing ? '保存并重试' : '发送'}
+                aria-label={editing ? '保存并重试' : '发送'}
+                disabled={busy || sendDisabled}
+                onClick={submit}
+              >
+                <Icon name="i-send" />
+              </button>
+            </>
+          )}
         </div>
       </div>
     </footer>

@@ -167,8 +167,6 @@ export function CapabilityBar({
     onManage?.();
   };
 
-  const emptyLabel = loading ? '正在读取能力…' : error ? '能力读取失败' : '尚未挂载能力';
-
   return (
     <div ref={barRef} className={disabled ? 'capbar is-disabled' : 'capbar'}>
       <div className="capbar-selected" role="group" aria-label="已选能力" aria-busy={loading || undefined}>
@@ -196,7 +194,6 @@ export function CapabilityBar({
             <span className="sr-only">另外 {overflow} 项已选能力</span>
           </span>
         ) : null}
-        {!selected.length ? <span className="capbar-empty">{emptyLabel}</span> : null}
       </div>
       <button
         ref={triggerRef}

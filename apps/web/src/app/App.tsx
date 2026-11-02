@@ -1497,12 +1497,10 @@ export default function App(): JSX.Element {
   }, [closeReportReader, drawerOpen, pendingDialog, readingReport, settingsOpen, sheetOpen, sheetView]);
 
   const composerStatus = versionBusy
-      ? '正在切换版本…'
-      : uploading || workspaceFilesBusy
-        ? '正在处理工作区文件…'
-      : selectedModel
-        ? `${selectedModel.provider_name} · ${selectedModel.name}`
-        : '未选择模型';
+    ? '正在切换版本…'
+    : uploading || workspaceFilesBusy
+      ? '正在处理工作区文件…'
+      : '';
 
   const controlTarget=liveRun??(!busy&&currentRun?.resumable?currentRun:undefined);
 
@@ -1593,7 +1591,7 @@ export default function App(): JSX.Element {
         statusText={composerStatus}
         placeholder={editingMessage
           ? '编辑这条用户消息。发送后会重新生成后续回答。'
-          : '输入消息。可以从工作台附加文件。Enter 发送，Shift+Enter 换行。'}
+          : '输入消息…'}
       />
       <ConversationDrawer
         open={drawerOpen}
