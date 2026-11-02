@@ -703,6 +703,10 @@ class FinanceLoop(Agent):
             else:
                 result = await research.publish({**candidate, **{key:params[key] for key in
                     ('review_ref','review_response') if key in params}})
+        if isinstance(result, dict) and research.record:
+            from .research.recipe import recipe_advice
+            result.update(recipe=research.record.get('recipe'), artifacts=research.artifacts(),
+                          recipe_advice=recipe_advice(research.record.get('recipe')))
         yield AgentEvent('tool_result', data={'result': result})
 
     def _tool_error(self, name, error):

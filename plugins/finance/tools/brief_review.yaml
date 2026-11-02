@@ -14,6 +14,102 @@ parameters:
   type: object
   additionalProperties: false
   properties:
+    stage_updates:
+      type: array
+      description: 按已返回ID修改阶段，或省略ID新增。可拆分、合并、跳过和重访；保留旧版本，不以阶段完成数量限制研究。
+      items:
+        type: object
+        additionalProperties: false
+        properties:
+          id:
+            type: string
+            description: 修改已有阶段时使用返回ID；新增省略
+          name:
+            type: string
+          goal:
+            type: string
+          supersedes:
+            type: array
+            items:
+              type: string
+            description: 被本阶段替代的阶段ID；旧阶段及版本保留
+          depends_on:
+            type: array
+            items:
+              type: string
+            description: 其他已登记阶段ID；只是研究依赖，不控制执行权限
+          input_refs:
+            type: array
+            items:
+              type: string
+            description: 返回artifacts中的实际引用
+          expected_outputs:
+            type: array
+            items:
+              type: string
+          checks:
+            type: array
+            items:
+              type: string
+            description: 如何核查，不是已通过声明
+          output_refs:
+            type: array
+            items:
+              type: string
+            description: 返回artifacts中的实际产物或回执
+          open_questions:
+            type: array
+            items:
+              type: string
+          assessment:
+            type: string
+            description: 模型判断，不构成事实认证
+          model_status:
+            type: string
+            description: 可记录planned/running/partial/done/skipped等判断；不是工具执行状态
+          claims:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              properties:
+                id:
+                  type: string
+                  description: 修改使用返回ID；新增省略
+                kind:
+                  type: string
+                  enum:
+                  - fact
+                  - calculation
+                  - inference
+                conditions:
+                  type: string
+                counterevidence:
+                  type: string
+                unresolved:
+                  type: string
+                text:
+                  type: string
+                  description: 正文核心陈述或待核实推断
+                entity:
+                  type: string
+                metric:
+                  type: string
+                period:
+                  type: string
+                unit:
+                  type: string
+                value:
+                  type: string
+                evidence_refs:
+                  type: array
+                  items:
+                    type: string
+              required:
+              - text
+    active_stage_id:
+      type: string
+      description: 本次提交选择的阶段ID，不表示执行成功
     draft_path:
       type: string
       description: 本轮研究目录内包含正文、来源、计算和图表的完整候选JSON文件。

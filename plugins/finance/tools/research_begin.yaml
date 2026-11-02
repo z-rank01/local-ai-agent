@@ -13,7 +13,7 @@ description: >-
 parameters:
   type: object
   properties:
-    active_stage_id: {type: string, description: 选择已返回的阶段ID，关联后续真实工具回执；不改变工具权限，不自动认证阶段完成}
+    active_stage_id: {type: string, description: 选择已返回的阶段ID，记录后续调用时选择，不自动采用产物；不改变工具权限，不自动认证阶段完成}
     phase:
       type: string
       enum: [准备, 获取, 分析, 核对]
@@ -41,6 +41,7 @@ parameters:
               id: {type: string, description: 修改已有阶段时使用返回ID；新增省略}
               name: {type: string}
               goal: {type: string}
+              supersedes: {type: array, items: {type: string}, description: 被本阶段替代的阶段ID；旧阶段及版本保留}
               depends_on: {type: array, items: {type: string}, description: 其他已登记阶段ID；只是研究依赖，不控制执行权限}
               input_refs: {type: array, items: {type: string}, description: 返回artifacts中的实际引用}
               expected_outputs: {type: array, items: {type: string}}
@@ -55,6 +56,11 @@ parameters:
                   type: object
                   additionalProperties: false
                   properties:
+                    id: {type: string, description: 修改使用返回ID；新增省略}
+                    kind: {type: string, enum: [fact, calculation, inference]}
+                    conditions: {type: string}
+                    counterevidence: {type: string}
+                    unresolved: {type: string}
                     text: {type: string, description: 正文核心陈述或待核实推断}
                     entity: {type: string}
                     metric: {type: string}

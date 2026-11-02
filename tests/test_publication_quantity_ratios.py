@@ -57,3 +57,22 @@ class QuantityRatioTests(unittest.TestCase):
         self.assertIn('period', str(error.exception))
         self.assertIn('inputs[1]', str(error.exception))
         self.assertIn('source', str(error.exception))
+
+    def test_rate_difference_uses_points_and_preserves_dependencies_and_submission(self):
+        from plugins.finance.publication import convert_unit
+        candidate,sources,text=self.prepare('%',('100','元'),('400','元'))
+        candidate['calculations'].append({'operation':'subtract','unit':'个百分点','inputs':[
+            {'source':'calculation:0','period':'当前','unit':'比例'},
+            {'source':'constant:基准','period':'不适用','unit':'%','value':'20'}]})
+        candidate['charts']=[{'title':'差值','unit':'百分点','period':'当前','items':[{'label':'差值','calculation':1}]}]
+        original=copy.deepcopy(candidate)
+        result=validate_publication(candidate,sources,text)
+        self.assertEqual(Decimal(result['calculations'][1]['result']),Decimal('5'))
+        self.assertEqual(Decimal(result['charts'][0]['items'][0]['value']),Decimal('5'))
+        self.assertEqual(candidate,original)
+        with self.assertRaises(ValueError):convert_unit(25,'%','个百分点')
+        candidate['calculations'][1]['result']='0.05'
+        with self.assertRaisesRegex(ValueError,'计算结果不一致'):validate_publication(candidate,sources,text)
+        del candidate['calculations'][1]['result']
+        candidate['calculations'][1]['inputs'][1]['unit']='元'
+        with self.assertRaises(ValueError):validate_publication(candidate,sources,text)

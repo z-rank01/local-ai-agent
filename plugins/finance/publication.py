@@ -36,6 +36,7 @@ def literal_text(text):
 _MONEY_UNITS = {'元': Decimal(1), '万元': Decimal(10000), '亿元': Decimal(100000000)}
 _RATIO_UNITS = {'倍': Decimal(1), '比例': Decimal(1), '比值': Decimal(1),
                 '%': Decimal('0.01'), '％': Decimal('0.01'), '百分比': Decimal('0.01')}
+_POINT_UNITS = {'个百分点': Decimal(1), '百分点': Decimal(1)}
 
 
 def convert_unit(value, source, target):
@@ -44,7 +45,8 @@ def convert_unit(value, source, target):
     if source == target:
         return value
     scales = (_MONEY_UNITS if source in _MONEY_UNITS and target in _MONEY_UNITS else
-              _RATIO_UNITS if source in _RATIO_UNITS and target in _RATIO_UNITS else None)
+              _RATIO_UNITS if source in _RATIO_UNITS and target in _RATIO_UNITS else
+              _POINT_UNITS if source in _POINT_UNITS and target in _POINT_UNITS else None)
     if scales is None:
         raise ValueError(f'不能换算单位 {source} → {target}；请使用相同单位或明确换算算式')
     with localcontext() as ctx:
@@ -166,7 +168,9 @@ def validate_publication(params, sources, read_text):
             ctx.prec = 40
             operation = calc['operation']
             if operation in ('sum', 'subtract'):
-                values = [convert_unit(row['value'], row['unit'], calc['unit']) for row in calc['inputs']]
+                target = '%' if (operation == 'subtract' and calc['unit'] in _POINT_UNITS
+                                 and all(row['unit'] in _RATIO_UNITS for row in calc['inputs'])) else calc['unit']
+                values = [convert_unit(row['value'], row['unit'], target) for row in calc['inputs']]
             if operation == 'sum':
                 value = sum(values, Decimal(0))
             elif operation in ('subtract', 'multiply', 'divide'):

@@ -15,6 +15,37 @@ from tests import test_research_session as session_tests, test_research_review a
 
 
 class RecipeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_submission_stage_results_reach_writer_and_reviewer_without_changing_draft(self):
+        _,run,draft=await session_tests.ResearchSessionTests().prepare()
+        await run.begin({'phase':'分析','stage_updates':[{'goal':'解释原文'}]})
+        stage=run.record['recipe']['stages'][-1]['id']
+        await run.observe({'name':'code_exec','status':'ok','result':{'stdout':'actual'}})
+        ref=list(run.record['artifacts'])[-1]
+        patch_value={'id':stage,'assessment':'有条件成立','model_status':'partial','output_refs':[ref],
+                     'claims':[{'text':'有条件结论','kind':'inference','conditions':'同期间',
+                                'unresolved':'缺附注','evidence_refs':[ref]}]}
+        normalized=await run.publication_input({**draft,'stage_updates':[patch_value]})
+        self.assertNotIn('stage_updates',normalized)
+        claim=run.record['recipe']['stages'][-1]['claims'][0]
+        self.assertTrue(claim['id'].startswith('claim_'))
+        handoff=run.handoff_materials()['claim_materials']
+        payload=json.loads(review_messages('原问题',normalized,run,'')[1]['content'])
+        self.assertEqual(payload['claim_materials'],handoff)
+        self.assertEqual(payload['publication_context']['phase'],'prepublication')
+        self.assertEqual(handoff[-1]['claim']['unresolved'],'缺附注')
+        prior=copy.deepcopy(run.record['recipe'])
+        await run.publication_input({**draft,'stage_updates':[{'id':stage,'claims':[{**claim,'text':'收窄结论'}]}]})
+        self.assertEqual(run.record['recipe']['stages'][-1]['claims'][0]['id'],claim['id'])
+        self.assertEqual(run.record['recipe_history'][-1],prior)
+
+    async def test_repeated_saved_submission_does_not_create_duplicate_stage(self):
+        _,run,draft=await session_tests.ResearchSessionTests().prepare()
+        submission={**draft,'stage_updates':[{'goal':'核对现金流','assessment':'仍缺附注'}]}
+        await run.publication_input(submission)
+        recipe=copy.deepcopy(run.record['recipe'])
+        await run.publication_input(submission)
+        self.assertEqual(run.record['recipe'],recipe)
+
     async def prepare_refresh(self):
         files,run,draft=await session_tests.ResearchSessionTests().prepare()
         run.record['research_contract_version']=2
@@ -341,7 +372,8 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         await run.begin({'phase':'分析','active_stage_id':stage})
         await run.observe({'name':'code_exec','status':'error','result':{'status':'UNKNOWN'}})
         receipt=run.record['recipe']['execution'][-1]
-        self.assertEqual(receipt['stage_id'],stage)
+        self.assertIsNone(receipt['stage_id'])
+        self.assertEqual(receipt['selected_stage_id'],stage)
         self.assertEqual(receipt['result_status'],'UNKNOWN')
         self.assertEqual(run.record['recipe']['stages'][1]['model_status'],'planned')
 

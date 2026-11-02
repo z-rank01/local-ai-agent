@@ -52,3 +52,17 @@
 研究不受累计时长、轮数、工具调用次数或无进展计数强制收尾。后台研究仍由任务需要选择。原 broker v1/v2、账户确认、业务准入及单次网络超时保持原义。不新增数据库、执行器、设置入口或 Recipe 编辑器。
 
 部署仍为根目录 `启动.bat` 对应的唯一启动器；镜像资源与工具定义变更使用 `-Build`。参见[架构图](./finance-recipe-architecture.html)与[本批记录](./记录/2026-10-30-IN4.19-Recipe闭环与最终验收.md)。
+
+## Recipe 成果交接修复（2026-11-02）
+
+| 契约 | 行为 |
+| --- | --- |
+| 成果更新 | research_begin、brief_review、brief_publish及其候选JSON接受同一stage_updates；在有意义的成果边界填写，不要求逐工具记账 |
+| 版本与归属 | 新Recipe schema_version=2；阶段supersedes保留拆分合并关系，历史工作单不覆盖。execution.selected_stage_id仅为调用时选择，stage_id未关联；output_refs才是模型明确采用的产物 |
+| 判断材料 | claims由程序分配稳定ID；kind为fact/calculation/inference，conditions/counterevidence/unresolved保留边界。claim_materials提供实际产物导航及正文出现观察，不替代原文或认证语义 |
+| 产物 | 候选稿和计算按候选指纹登记；计算仍须走原校验。读取失败、缺失引用和未读正文不因登记而成为已读 |
+| 作者反馈 | 核对/发布回执返回Recipe、artifacts及缺项建议；不强制补表、不改变工具权限、不以阶段数量收尾 |
+| 核对阶段 | 程序声明prepublication；正式路径、报告卡和刷新阅读由发布后宿主完成。意见category区分core_answer、optional、postpublication；旧意见不补写为新事实 |
+| 比率差值 | 两个比率相减可输出个百分点；单个比例水平不能直接换算百分点，显式错误结果仍拒绝 |
+
+本节描述源码契约，不代表四场景已通过。部署、实景和用户体验状态只看股票仓库docs/计划.md；旧暂停稿仅保留诊断，不作为新版验收稿。

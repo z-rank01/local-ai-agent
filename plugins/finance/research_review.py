@@ -14,6 +14,7 @@ def previous_findings(records):
 
 
 def review_messages(question, candidate, research, system, findings=()):
+    from .research.recipe import claim_materials
     instructions=(Path(__file__).parent/'prompts/review.txt').read_text(encoding='utf-8')
     # The writer's self-checks are not independent evidence. Preserve the original
     # submission elsewhere; only remove this affirmation from the review view.
@@ -21,10 +22,15 @@ def review_messages(question, candidate, research, system, findings=()):
     narrative=re.sub(r'(?m)^#{1,6}[ \t]+[^\n]*(?:\n|$)','',candidate.get('markdown') or '')
     opening=next((block for block in re.split(r'\n\s*\n',narrative.strip()) if block.strip()), '')
     payload={'question':question,
+             'publication_context':{'phase':'prepublication', 'subject':'candidate_content',
+                 'host_delivery_after_publish':['report_path','report_card','refresh_readback'],
+                 'instruction':'只核对当前稿对原问题的回答；正式链接和报告卡由宿主在明确发布后生成，不能要求候选稿预置未来链接。'},
              'decision_surface':{**{k:candidate.get(k) for k in ('title','stance','as_of')},'opening':opening},
              'candidate':view,'limitations':candidate.get('review',{}).get('limitations',[]),
              'known_conflicts':candidate.get('review',{}).get('conflicts',[]),
              'recipe':(getattr(research,'record',None) or {}).get('recipe'),
+             'claim_materials':claim_materials((getattr(research,'record',None) or {}).get('recipe'),
+                 research.artifacts() if hasattr(research,'artifacts') else {}, candidate),
              'revision_context':(getattr(research,'record',None) or {}).get('revision_context'),
              'evidence':model_evidence(research.evidence_index()),
              'methods':research.method_text,'previous_findings':list(findings)}
@@ -66,6 +72,9 @@ def parse_review(text):
         # Missing severity means advice, not a publication blocker.
         severity=str(issue.get('severity') or 'advisory').strip().lower()
         issue['severity']=severity if severity in ('blocking','advisory') else 'advisory'
+        if 'category' in issue:
+            category = issue['category']
+            issue['category'] = category if category in ('core_answer','optional','postpublication') else 'optional'
     reads=value.get('read_requests',[])
     if not isinstance(reads,list):raise ValueError('read_requests须为来源补读列表')
     for row in reads:

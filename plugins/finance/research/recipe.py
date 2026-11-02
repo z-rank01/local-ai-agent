@@ -3,11 +3,11 @@ from copy import deepcopy
 from uuid import uuid4
 
 FIELDS = {'name', 'goal', 'depends_on', 'input_refs', 'expected_outputs', 'checks',
-          'output_refs', 'open_questions', 'assessment', 'model_status', 'claims'}
+          'output_refs', 'open_questions', 'assessment', 'model_status', 'claims', 'supersedes'}
 
 
 def update_recipe(current, initial, updates, plan, artifacts):
-    recipe = deepcopy(current) if current else {'schema_version': 1, 'revision': 0, 'stages': [],
+    recipe = deepcopy(current) if current else {'schema_version': 2, 'revision': 0, 'stages': [],
                                                'execution': [], 'active_stage_id':None}
     if initial is not None and current:
         raise ValueError('已有Recipe请用stage_updates调整，不能覆盖历史工作单')
@@ -44,9 +44,12 @@ def update_recipe(current, initial, updates, plan, artifacts):
             if key in {'input_refs', 'output_refs'} and any(ref not in artifacts for ref in value):
                 raise ValueError('材料引用必须来自返回的artifacts索引')
             if key == 'claims':
+                value = deepcopy(value)
+                old_claims = stage.get('claims', [])
                 for claim in value:
                     if not isinstance(claim, dict) or set(claim) - {
-                            'text', 'entity', 'metric', 'period', 'unit', 'value', 'evidence_refs'}:
+                            'id', 'text', 'kind', 'entity', 'metric', 'period', 'unit', 'value',
+                            'evidence_refs', 'conditions', 'counterevidence', 'unresolved'}:
                         raise ValueError('claims只记录陈述、指标口径和证据引用')
                     if not isinstance(claim.get('text'), str) or not claim['text'].strip():
                         raise ValueError('claim缺少text')
@@ -55,11 +58,40 @@ def update_recipe(current, initial, updates, plan, artifacts):
                         raise ValueError('claim证据须引用实际artifacts')
                     if any(not isinstance(v, str) for k, v in claim.items() if k != 'evidence_refs'):
                         raise ValueError('claim指标口径须为文字，不构成事实认证')
+                    if claim.get('kind', 'inference') not in ('fact','calculation','inference'):
+                        raise ValueError('claim.kind须为fact、calculation或inference')
+                    if claim.get('id') and claim['id'] not in {c.get('id') for c in old_claims}:
+                        raise ValueError('claim ID须来自当前阶段；新增省略ID')
+                    prior = next((c for c in old_claims if c['text'] == claim['text']), {})
+                    claim.setdefault('id', prior.get('id') or 'claim_' + uuid4().hex)
+                if len({c['id'] for c in value}) != len(value):
+                    raise ValueError('claim ID不能重复')
             stage[key] = deepcopy(value)
     ids = {stage['id'] for stage in recipe['stages']}
     for stage in recipe['stages']:
-        if any(ref not in ids or ref == stage['id'] for ref in stage.get('depends_on', [])):
+        if any(ref not in ids or ref == stage['id'] for ref in
+               stage.get('depends_on', []) + stage.get('supersedes', [])):
             raise ValueError('depends_on须引用其他已登记阶段')
-    if changes or updates:
+    if (changes or updates) and recipe != current:
         recipe['revision'] += 1
     return recipe
+
+
+def claim_materials(recipe, artifacts, candidate=None):
+    """Navigation into actual artifacts, never a substitute for source bodies."""
+    from ..publication import literal_text
+    body = literal_text((candidate or {}).get('markdown', ''))
+    return [{'stage_id':stage['id'], 'claim':deepcopy(claim),
+             'body_reference_observed':bool(body and (claim.get('id', '\0') in body or
+                                                     literal_text(claim['text']) in body)),
+             'semantic_certification':False,
+             'materials':[{ 'ref':ref, 'artifact':artifacts.get(ref),
+                            'missing':ref not in artifacts}
+                          for ref in claim.get('evidence_refs', [])]}
+            for stage in (recipe or {}).get('stages', []) for claim in stage.get('claims', [])]
+
+
+def recipe_advice(recipe):
+    return [{'stage_id':s['id'], 'missing':[key for key in ('assessment','output_refs','claims') if not s.get(key)]}
+            for s in (recipe or {}).get('stages', [])
+            if s.get('model_status') != 'skipped' and any(not s.get(k) for k in ('assessment','output_refs','claims'))]

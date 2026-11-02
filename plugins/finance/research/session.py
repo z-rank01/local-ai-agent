@@ -93,7 +93,11 @@ class ResearchSession:
         return True
 
     def handoff_materials(self):
+        from .recipe import claim_materials, recipe_advice
         return {**model_evidence(self.evidence_index()), 'goal':(self.record or {}).get('scope'),
+                'claim_materials':claim_materials((self.record or {}).get('recipe'), self.artifacts(),
+                    ((self.record or {}).get('current_candidate') or {}).get('candidate')),
+                'recipe_advice':recipe_advice((self.record or {}).get('recipe')),
                 'recipe':(self.record or {}).get('recipe'), 'artifacts':self.artifacts(),
                 'methods':self.method_text, 'current_candidate':(self.record or {}).get('current_candidate'),
                 'revision_context':(self.record or {}).get('revision_context')}
@@ -105,7 +109,7 @@ class ResearchSession:
                 '需要补查时用research_begin.evidence_requests；未选定公告原件、财务期间或版本时继续定位。'
                 '可用已安装摘录脚本批量读取；阶段、草稿和具体限制沿当前研究记录保存。'
                 '取得阶段成果后可用research_begin.stage_updates记录claims、实际artifact引用与未解问题；'
-                '可用active_stage_id关联接下来的真实工具回执，不要求所有阶段完成。'
+                'active_stage_id只记录调用时的阶段选择；采用产物须更新output_refs。成果也可随brief_review/brief_publish的stage_updates提交，不要求所有阶段完成。'
                 + (f'\n连续{self.steps_without_progress}步未新增原文读取、方法或阶段成果。' if self.steps_without_progress >= 4 else ''))
 
     async def author_messages(self, history, question, manager):
@@ -225,6 +229,16 @@ class ResearchSession:
                      'sha256':sha256(text.encode()).hexdigest()} for path,text in self.method_text.items()})
         return rows
 
+    def register_candidate_artifacts(self, candidate):
+        """Register submitted versions; calculations remain unverified model data."""
+        digest = fingerprint(candidate)
+        rows = self.record.setdefault('artifacts', {})
+        rows['candidate:'+digest] = {'kind':'candidate', 'sha256':digest,
+                                    'path':self.record.get('working_draft_path')}
+        for index, calculation in enumerate(candidate.get('calculations', [])):
+            rows[f'calculation:{digest}:{index}'] = {'kind':'calculation', 'candidate_sha256':digest,
+                'index':index, 'calculation':calculation, 'semantic_certification':False}
+
     def capture_input(self, messages, metadata, manager):
         """Archive authorized public protocol after serialization; never reasoning."""
         archive = getattr(manager, 'archive', None)
@@ -267,6 +281,16 @@ class ResearchSession:
                 'omission_reason':None if matches else '本次序列化输入中未找到该完整材料；可沿原引用回读'})
         for path,text in self.method_text.items():
             locate('method',path,text)
+        for stage in (record.get('recipe') or {}).get('stages', []):
+            for field in ('goal','assessment'):
+                if stage.get(field):
+                    locate('recipe_stage_'+field,stage['id'],stage[field])
+            for index,text in enumerate(stage.get('open_questions', [])):
+                locate('recipe_open_question',stage['id']+':'+str(index),text)
+            for claim in stage.get('claims', []):
+                for field in ('text','conditions','counterevidence','unresolved'):
+                    if claim.get(field):
+                        locate('recipe_claim_'+field,claim.get('id',stage['id']),claim[field])
         for key,source in model_evidence(self.evidence_index())['sources'].items():
             for n,text in enumerate(source.get('received', [])):
                 locate('received_source',key+':'+str(n),text)
@@ -688,7 +712,9 @@ class ResearchSession:
         recipe = self.record.get('recipe')
         if recipe is not None:
             recipe.setdefault('execution', []).append({'receipt_ref':receipt_id,
-                'stage_id':recipe.get('active_stage_id'), 'phase':self.record['phase'], 'tool':name,
+                'stage_id':None, 'selected_stage_id':recipe.get('active_stage_id'),
+                'association':'unassigned_until_model_adopts_artifact',
+                'phase':self.record['phase'], 'tool':name,
                 'status':event['status'],
                 'result_status':result.get('status') if isinstance(result,dict) else None})
         await self.checkpoint()
@@ -747,6 +773,32 @@ class ResearchSession:
             self.record['working_draft_path'] = path
             params = {**value, **{key:item for key,item in params.items() if key != 'draft_path'}}
         params = normalize_publication(params)
+        candidate_view = {k:v for k,v in params.items() if k not in
+                          ('stage_updates','active_stage_id','review_ref','review_response')}
+        self.register_candidate_artifacts(candidate_view)
+        update_key = fingerprint({k:params[k] for k in ('stage_updates','active_stage_id') if k in params})
+        already_applied = self.record.get('last_submission_update') == {
+            'sha256':update_key, 'revision':(self.record.get('recipe') or {}).get('revision')}
+        if already_applied:
+            params.pop('stage_updates', None)
+            params.pop('active_stage_id', None)
+        if 'stage_updates' in params or 'active_stage_id' in params:
+            from .recipe import update_recipe
+            previous = self.record.get('recipe')
+            recipe = update_recipe(previous, None, params.pop('stage_updates', []), [], self.artifacts())
+            if 'active_stage_id' in params:
+                selected = params.pop('active_stage_id')
+                if selected not in {stage['id'] for stage in recipe['stages']}:
+                    raise ValueError('active_stage_id须为已返回的阶段ID')
+                if recipe.get('active_stage_id') != selected:
+                    recipe['active_stage_id'] = selected
+                    recipe['revision'] += 1
+            if recipe != previous:
+                if previous:
+                    self.record.setdefault('recipe_history', []).append(previous)
+                self.record['recipe'] = recipe
+            self.record['last_submission_update'] = {'sha256':update_key,'revision':recipe['revision']}
+            await self.checkpoint()
         # Delivery decisions are not candidate prose and must not change its
         # review identity or enter a reviewer's clean candidate.
         params.pop('review_ref', None)
