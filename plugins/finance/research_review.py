@@ -9,12 +9,16 @@ def previous_findings(records):
     complete=[r for r in records.values() if r.get('status')=='COMPLETE' and r.get('attempts')]
     if not complete:return []
     latest=max(complete,key=lambda r:int(r['attempts'][-1].rsplit('/',1)[1]))
-    # Carry adverse findings, not the previous reviewer's possibly wrong fix.
-    return [{k:r[k] for k in ('section','claim','evidence')} for r in latest.get('issues',[])]
+    # Carry core questions, not the previous reviewer's fix or optional scope expansion.
+    return [{k:r[k] for k in ('section','claim','evidence')} for r in latest.get('issues',[])
+            if r.get('category','core_answer') == 'core_answer']
 
 
 def review_messages(question, candidate, research, system, findings=()):
     from .research.recipe import claim_materials, recipe_view
+    from .research.material_view import author_material_view
+    material = author_material_view(research)
+    artifacts = material['artifacts']
     instructions=(Path(__file__).parent/'prompts/review.txt').read_text(encoding='utf-8')
     # The writer's self-checks are not independent evidence. Preserve the original
     # submission elsewhere; only remove this affirmation from the review view.
@@ -29,11 +33,16 @@ def review_messages(question, candidate, research, system, findings=()):
              'candidate':view,'limitations':candidate.get('review',{}).get('limitations',[]),
              'known_conflicts':candidate.get('review',{}).get('conflicts',[]),
              'recipe':recipe_view((getattr(research,'record',None) or {}).get('recipe'),
-                 research.artifacts() if hasattr(research,'artifacts') else {}, candidate),
+                 artifacts, candidate),
              'claim_materials':claim_materials((getattr(research,'record',None) or {}).get('recipe'),
-                 research.artifacts() if hasattr(research,'artifacts') else {}, candidate),
+                 artifacts, candidate),
              'revision_context':(getattr(research,'record',None) or {}).get('revision_context'),
-             'evidence':model_evidence(research.evidence_index()),
+             'evidence':material['evidence'],
+             'role_artifacts':{ref:artifact for ref,artifact in
+                               (artifacts).items()
+                               if ref.startswith('role:')},
+             'role_batches':(getattr(research,'record',None) or {}).get('role_batches',{}),
+             'decision_claims':(getattr(research,'record',None) or {}).get('decision_claims',[]),
              'methods':research.method_text,'previous_findings':list(findings)}
     # The caller's system belongs to the author, including tool workflow and
     # publication instructions. Review is a separate, tool-free role: inherit

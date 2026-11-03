@@ -6,8 +6,8 @@ FIELDS = {'name', 'goal', 'depends_on', 'input_refs', 'expected_outputs', 'check
           'output_refs', 'open_questions', 'assessment', 'model_status', 'claims', 'supersedes'}
 
 
-def update_recipe(current, initial, updates, plan, artifacts):
-    recipe = deepcopy(current) if current else {'schema_version': 2, 'revision': 0, 'stages': [],
+def update_recipe(current, initial, updates, plan, artifacts, *, version=2):
+    recipe = deepcopy(current) if current else {'schema_version': version, 'revision': 0, 'stages': [],
                                                'execution': [], 'active_stage_id':None}
     if initial is not None and current:
         raise ValueError('已有Recipe请用stage_updates调整，不能覆盖历史工作单')
@@ -21,10 +21,14 @@ def update_recipe(current, initial, updates, plan, artifacts):
     for patch in changes + updates:
         if not isinstance(patch, dict) or set(patch) - FIELDS - {'id'}:
             raise ValueError('阶段只接受研究意图、材料引用和模型判断；不能写入执行回执')
+        if version == 3 and 'claims' in patch:
+            raise ValueError('v3判断由分析角色填写；作者用decision_claim_ids选择，不改写角色成果')
         identifier = patch.get('id')
         stage = next((s for s in recipe['stages'] if s['id'] == identifier), None)
         if identifier and stage is None:
             raise ValueError('阶段ID未登记；新增阶段省略id，由程序分配')
+        if stage is not None and stage.get('owner') == 'subagent':
+            raise ValueError('角色原始成果只能由对应角色复核更新，作者不能覆盖')
         if stage is None:
             if not isinstance(patch.get('goal'), str) or not patch['goal'].strip():
                 raise ValueError('新增阶段需要goal')
@@ -112,7 +116,7 @@ def recipe_advice(recipe, artifacts=None, candidate=None):
         missing = [key for key in ('assessment','output_refs','claims') if not stage.get(key)]
         version = outcome_version(stage, artifacts or {}, candidate)
         stale = version['status'] == 'OLDER_OR_UNVERIFIED_CANDIDATE'
-        if stage.get('model_status') != 'skipped' and (missing or stale):
+        if stage.get('owner') != 'subagent' and stage.get('model_status') != 'skipped' and (missing or stale):
             result.append({'stage_id':stage['id'],'missing':missing,'outcome_version':version,
                            'next':'按当前证据更新判断和实际采用的稿件引用；旧版保留，不必逐工具填表，不阻止发布。'})
     return result
@@ -121,7 +125,9 @@ def recipe_advice(recipe, artifacts=None, candidate=None):
 def recipe_view(recipe, artifacts, candidate):
     if recipe is None:
         return None
-    view = deepcopy(recipe)
+    view = {key:deepcopy(value) for key,value in recipe.items()
+            if key not in ('execution','active_stage_id')}
     for stage in view.get('stages', []):
-        stage['outcome_version'] = outcome_version(stage, artifacts, candidate)
+        if stage.get('owner') != 'subagent':
+            stage['outcome_version'] = outcome_version(stage, artifacts, candidate)
     return view

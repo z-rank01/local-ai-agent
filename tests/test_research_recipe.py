@@ -46,10 +46,33 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         await run.publication_input(submission)
         self.assertEqual(run.record['recipe'],recipe)
 
+    async def test_each_external_submission_prepares_candidate_once(self):
+        _,run,draft,agent,_=await review_tests.ReviewTests().setup_review([
+            {'issues':[],'checks':['核对当前稿']}])
+        run.record['research_contract_version']=2
+        history=[{'role':'user','content':'原问题'}]
+        with patch.object(config,'PUBLISH_REVIEW_ENFORCE',False), \
+             patch.object(run,'publication_input',wraps=run.publication_input) as resolve, \
+             patch.object(run.publication,'validate_publication',
+                          wraps=run.publication.validate_publication) as validate, \
+             patch.object(run,'register_candidate_artifacts',
+                          wraps=run.register_candidate_artifacts) as register:
+            events=[e async for e in agent._dispatch_tool('brief_publish',draft,'c',None,'first',history)]
+            ready=next(e.data['result'] for e in events if e.kind=='tool_result')
+            events=[e async for e in agent._dispatch_tool('brief_publish',{**draft,
+                'review_ref':ready['review_ref'],'review_response':'核对后明确发布'},
+                'c',None,'second',history)]
+        self.assertEqual(next(e.data['result']['status'] for e in events
+                              if e.kind=='tool_result'),'PUBLISHED')
+        self.assertEqual(resolve.call_count,2)
+        self.assertEqual(validate.call_count,2)
+        self.assertEqual(register.call_count,2)
+
     async def test_old_outcome_is_marked_for_both_roles_without_rewriting_history(self):
         _,run,draft=await session_tests.ResearchSessionTests().prepare()
         await run.begin({'phase':'分析','stage_updates':[{'goal':'判断'}]})
         old=await run.publication_input(draft)
+        run.register_candidate_artifacts(old)
         ref='candidate:'+fingerprint(old)
         stage=run.record['recipe']['stages'][-1]['id']
         await run.begin({'phase':'分析','stage_updates':[{'id':stage,'assessment':'旧判断','output_refs':[ref],
@@ -67,6 +90,52 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         await run.begin({'phase':'分析','stage_updates':[{'id':stage,'assessment':'收窄判断',
             'output_refs':['candidate:'+fingerprint(revised)]}]})
         self.assertEqual(run.handoff_materials()['recipe']['stages'][-1]['outcome_version']['status'],'CURRENT_TEXT_REFERENCE')
+
+    async def test_handoff_summarizes_unused_calculations_and_excludes_execution_noise(self):
+        _,run,draft=await session_tests.ResearchSessionTests().prepare()
+        calculation={'operation':'divide','unit':'倍','result':'2','inputs':[
+            {'source':'constant:示例','period':'不适用','unit':'元','value':'2'},
+            {'source':'constant:示例','period':'不适用','unit':'元','value':'1'}]}
+        used={**draft,'calculations':[calculation]}
+        unused={**draft,'markdown':'另一稿','calculations':[calculation]}
+        run.register_candidate_artifacts(used,validated=True)
+        run.register_candidate_artifacts(unused,validated=True)
+        used_ref='calculation:'+fingerprint(used)+':0'
+        unused_ref='calculation:'+fingerprint(unused)+':0'
+        stage=run.record['recipe']['stages'][0]['id']
+        await run.begin({'phase':'分析','stage_updates':[{'id':stage,'claims':[
+            {'text':'计算结论','kind':'calculation','evidence_refs':[used_ref]}]}]})
+        artifacts=run.artifacts()
+        self.assertIn('inputs',artifacts[used_ref])
+        self.assertNotIn('inputs',artifacts[unused_ref])
+        self.assertIn('inputs',run.record['artifacts'][unused_ref])
+        recipe=run.handoff_materials()['recipe']
+        self.assertNotIn('execution',recipe)
+        self.assertNotIn('active_stage_id',recipe)
+
+    async def test_author_feedback_batch_does_not_duplicate_large_projections(self):
+        _,run,draft,path,manager,history,saved=await self.prepare_refresh()
+        history += [
+            {'role':'assistant','content':'','tool_calls':[{'id':'publish','function':{
+                'name':'brief_publish','arguments':{'draft_path':path}}}]},
+            {'role':'tool','tool_call_id':'publish','tool_name':'brief_publish',
+             'content':json.dumps({'status':'REVIEW_READY','review_ref':'returned-ref',
+                'review':{'issues':['完整意见只保留在latest_feedback']},
+                'recipe':{'stages':['不重复交接']},'artifacts':{'candidate':'不重复交接'}})}]
+        with patch('plugins.finance.research.revision.read_document',
+                   return_value=(json.dumps(draft),'file-hash')):
+            view=await run.author_messages(history,'原问题',manager)
+        payload=json.loads(view[1]['content'])
+        tool=payload['recent_tool_batch'][-1]
+        compact=json.loads(tool['content'])
+        self.assertEqual(compact['status'],'REVIEW_READY')
+        self.assertEqual(compact['review_ref'],'returned-ref')
+        self.assertNotIn('review',compact)
+        self.assertNotIn('recipe',compact)
+        self.assertNotIn('artifacts',compact)
+        archived=next(row for row in saved.values() if row.get('tool_name')=='brief_publish')
+        self.assertEqual(json.loads(archived['content'])['recipe']['stages'],['不重复交接'])
+        self.assertEqual(payload['latest_feedback']['review_ref'],'returned-ref')
 
     async def prepare_refresh(self):
         files,run,draft=await session_tests.ResearchSessionTests().prepare()
@@ -138,9 +207,10 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.record['current_candidate']['validation_status'],'READ_FAILED')
         self.assertIsNone(run.published)
 
-    async def test_new_research_can_register_evidence_without_reading_methods(self):
+    async def test_recipe_v2_can_register_evidence_without_reading_methods(self):
         run=ResearchSession(session_tests.Files(),conversation_id='c',model='frozen',allowed=True)
         await run.begin({'phase':'准备','scope':'公开资料','plan':['取证']})
+        run.record['research_contract_version']=2
         await run.begin({'phase':'获取','evidence_requests':[{'kind':'profile','symbol':'SH688178'}]})
         self.assertFalse(run.methods)
         self.assertTrue(run.pending_evidence)
@@ -363,6 +433,7 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
     async def test_dynamic_work_order_keeps_receipts_and_old_revision(self):
         run = ResearchSession(session_tests.Files(), conversation_id='c',model='frozen',allowed=True)
         result = await run.begin({'phase':'准备','scope':'现金流','plan':['读取原表']})
+        run.record['research_contract_version'] = 2
         recipe = copy.deepcopy(result['recipe'])
         offered = run.tool_names
         stage = recipe['stages'][0]['id']

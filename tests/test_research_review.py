@@ -206,6 +206,15 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,'取证需求'):await self.review(agent,draft)
         self.assertEqual(len(calls),1)
 
+    def test_previous_findings_only_carry_core_questions(self):
+        from plugins.finance.research_review import previous_findings
+        records={'latest':{'status':'COMPLETE','attempts':['reviews/2'],'issues':[
+            {'section':'结论','claim':'核心问题','evidence':'原文','category':'core_answer'},
+            {'section':'补充','claim':'可选拓展','evidence':'原文','category':'optional'},
+            {'section':'报告卡','claim':'发布后检查','evidence':'原文','category':'postpublication'}]}}
+        self.assertEqual(previous_findings(records),[
+            {'section':'结论','claim':'核心问题','evidence':'原文'}])
+
     def test_review_contract_rejects_scores_and_keeps_conditional_reasoning_instruction(self):
         for value in ({'confidence':0.9}, {'issues':['unsupported'],'checks':['x']}):
             with self.assertRaises(ValueError):parse_review(json.dumps(value))

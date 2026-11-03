@@ -4,7 +4,9 @@ backend: research-runtime
 tier: core
 cloud: write
 description: >-
-  用动态Recipe记录本轮研究目标、阶段产物和检查方式；stage_updates可新增、拆分、合并、跳过和重访阶段。
+  新研究为v3：先写目标与计划，再用agent_batch_create提交finance_evidence、finance_calculation、finance_analysis、finance_review四角色。
+  作者是编辑，不直接取证、计算或改写角色claims；等待整批终态后选择角色artifacts写稿并发布。
+  用动态Recipe记录本轮研究目标、阶段产物和检查方式；stage_updates可新增、拆分、合并、跳过和重访作者阶段。
   程序自动记录真实execution回执，模型用active_stage_id选择关联阶段；判断不等于执行成功，不要求固定阶段全部完成。
   开始或推进当前对话的公开投研：先 phase=准备（scope/targets/plan），再用 evidence_requests 取公告目录、
   公告原件、财报字段、公司概况或带时间行情，最后 phase=核对 并 brief_publish。返回本轮研究目录；

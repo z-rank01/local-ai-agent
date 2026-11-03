@@ -11,6 +11,33 @@
   },
   "review_prompt": "prompts/review.txt",
   "research_session": "plugins.finance.research.session:ResearchSession",
+  "agent_roles": [
+    {
+      "role_id": "finance_evidence",
+      "prompt_path": "prompts/evidence.md",
+      "tools": ["web_search", "web_fetch", "stock_public_evidence_find", "stock_public_evidence_read", "stock_report_read", "skill_list", "skill_info", "file_read", "code_exec"],
+      "output": {"artifact_kind": "source_excerpts", "recipe_namespace": "evidence", "schema": {"type": "object", "required": ["excerpts"], "properties": {"excerpts": {"type": "array", "items": {"type": "object", "required": ["id", "source_id", "quote"]}}}}}
+    },
+    {
+      "role_id": "finance_calculation",
+      "prompt_path": "prompts/calculation.md",
+      "tools": ["code_exec"],
+      "depends_on": ["finance_evidence"],
+      "output": {"artifact_kind": "calculation", "recipe_namespace": "calculations", "schema": {"type": "object", "required": ["calculations", "figures"], "properties": {"calculations": {"type": "array"}, "figures": {"type": "array"}}}}
+    },
+    {
+      "role_id": "finance_analysis",
+      "prompt_path": "prompts/analysis.md",
+      "depends_on": ["finance_evidence", "finance_calculation"],
+      "output": {"artifact_kind": "claims", "recipe_namespace": "analysis", "schema": {"type": "object", "required": ["claims"], "properties": {"claims": {"type": "array"}}}}
+    },
+    {
+      "role_id": "finance_review",
+      "prompt_path": "prompts/review.md",
+      "depends_on": ["finance_analysis"],
+      "output": {"artifact_kind": "claim_checks", "recipe_namespace": "review", "schema": {"type": "object", "required": ["claim_checks", "read_requests"], "properties": {"claim_checks": {"type": "array"}, "read_requests": {"type": "array"}}}}
+    }
+  ],
   "research_methods": [
     "harness-stock-research-v1",
     "harness-stock-research-v2",

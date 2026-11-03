@@ -656,7 +656,7 @@ class FinanceLoop(Agent):
         else:
             publication = research.publication
             candidate = publication.validate_publication(candidate, research.sources, research.read_text)
-            research.register_candidate_artifacts(candidate)
+            research.register_candidate_artifacts(candidate, validated=True)
             publication.render_charts(candidate.get('charts', []))
             try:
                 async with aclosing(self._review_candidate(candidate, session_id, messages)) as events:
@@ -702,8 +702,8 @@ class FinanceLoop(Agent):
                 result = {'error': '单独核对标出必须修改的关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
                           'review': review}
             else:
-                result = await research.publish({**candidate, **{key:params[key] for key in
-                    ('review_ref','review_response') if key in params}})
+                result = await research.publish_prepared(candidate, {key:params[key] for key in
+                    ('review_ref','review_response') if key in params})
         if isinstance(result, dict) and research.record:
             from .research.recipe import recipe_advice
             result.update(recipe=research.record.get('recipe'), artifacts=research.artifacts(),
@@ -727,20 +727,8 @@ class FinanceLoop(Agent):
         from contextlib import aclosing
         import uuid
         research=self.router.research
-        publication = research.publication
-        candidate = await research.publication_input(candidate)
-        candidate = publication.validate_publication(candidate, research.sources, research.read_text)
         if any(row.get('status') in ('STARTED','UNKNOWN') for row in research.review_records.values()):
             raise RuntimeError('存在未确认的单独核对请求，不自动重发；已保存稿件与证据')
-        if await research.queue_citation_reads(candidate):
-            raise ValueError('已按当前稿选中的引用登记原文回读；待原工具返回实际摘录后，再提交同一稿。未修改正文。')
-        # Mechanical errors are returned before another supplier call.
-        try:
-            publication.validate_visual_plan(candidate)
-            publication.validate_publication(candidate,research.sources,research.read_text)
-        except (ValueError, KeyError, TypeError):
-            await research.write('publication-attempts/rejected-'+uuid.uuid4().hex+'.json',candidate)
-            raise
         if research.published:
             research.check_review(candidate)
             return
@@ -752,10 +740,10 @@ class FinanceLoop(Agent):
         research.record['current_candidate'] = {'sha256':key, 'candidate':candidate}
         research.record.setdefault('artifacts', {})['draft:'+key] = {
             'kind':'candidate', 'sha256':key, 'title':candidate['title']}
-        for index, calculation in enumerate(candidate.get('calculations', [])):
-            research.record['artifacts']['calculation:'+key+':'+str(index)] = {
-                'kind':'validated_calculation', 'candidate_sha256':key, **calculation}
-        evidence_hash=fingerprint(research.evidence_index())
+        question=next((m['content'] for m in reversed(messages) if m.get('role')=='user'),'')
+        from .research.roles import review_context_fingerprint
+        evidence_hash=review_context_fingerprint(research,candidate,question)
+        research.record['review_question']=question
         old=research.review_records.get(key)
         if old and old.get('evidence_sha256') == evidence_hash:
             if old.get('status') == 'COMPLETE':
@@ -771,6 +759,7 @@ class FinanceLoop(Agent):
         await research.write(directory+'-candidate.json',candidate)
         research.record['current_candidate']['path'] = research.record['directory']+'/'+directory+'-candidate.json'
         record={'status':'STARTED','candidate_sha256':key,'evidence_sha256':evidence_hash,
+                'review_context_sha256':evidence_hash,
                 'attempts':(old or {}).get('attempts',[])+[directory], 'semantic_certification':False}
         research.review_records[key]=record
         research.record['phase']='核对'
@@ -779,7 +768,6 @@ class FinanceLoop(Agent):
         call_id='review_'+uuid.uuid4().hex
         yield AgentEvent('tool_start',data={'name':'research_review','call_id':call_id,
             'params':{'candidate_sha256':key},'summary':'单独核对关键结论'})
-        question=next((m['content'] for m in reversed(messages) if m.get('role')=='user'),'')
         system=next((m['content'] for m in messages if m.get('role')=='system'),'')
         context=review_messages(question,candidate,research,system,findings)
         receipt={}
@@ -818,7 +806,8 @@ class FinanceLoop(Agent):
             record.update(result,status='COMPLETE')
             from core import config as _config
             record['read_request_keys']=(await research.queue_review_reads(result['read_requests'])
-                                         if _config.PUBLISH_REVIEW_ENFORCE else [])
+                                         if _config.PUBLISH_REVIEW_ENFORCE
+                                         and research.record.get('research_contract_version') != 3 else [])
             record['native_call_id']=receipt.get('local_attempt_id')
             await research.write(directory+'-result.json',record)
             await research.checkpoint()

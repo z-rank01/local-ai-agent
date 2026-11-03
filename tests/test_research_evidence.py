@@ -6,6 +6,14 @@ from tests.test_research_session import Files
 from plugins.finance.research.session import ResearchSession
 
 
+class LegacyResearchSession(ResearchSession):
+    async def begin(self, params):
+        if self.record is None:
+            await super().begin({'phase':'准备', 'scope':params['scope'], 'plan':params['plan']})
+            self.record['research_contract_version'] = 2
+        return await super().begin(params)
+
+
 class EvidenceTests(unittest.IsolatedAsyncioTestCase):
     def test_explicit_provider_entries_and_finance_version_directory(self):
         steps = evidence_steps({'kind':'finance', 'symbol':'SH688178'})
@@ -38,7 +46,7 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):evidence_steps({'kind':'finance','symbol':'SZ000651','report_articles':['invented']})
 
     async def test_request_dedup_failure_and_real_receipt_advance(self):
-        run=ResearchSession(Files(),conversation_id='c',model='m',allowed=True)
+        run=LegacyResearchSession(Files(),conversation_id='c',model='m',allowed=True)
         request={'kind':'notice','article':'AN123'}
         await run.begin({'scope':'x','plan':['x'],'evidence_requests':[request]})
         self.assertFalse(run.methods)  # New research does not require method selection.
@@ -51,7 +59,7 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(run.pending_evidence)
 
     async def test_actual_unique_attachment_is_queued_not_guessed(self):
-        run=ResearchSession(Files(),conversation_id='c',model='m',allowed=True)
+        run=LegacyResearchSession(Files(),conversation_id='c',model='m',allowed=True)
         run.methods.add('method')
         await run.begin({'scope':'x','plan':['x'],'evidence_requests':[{'kind':'notice','article':'AN123'}]})
         result=await run.save_source({'url':'https://example.org/detail','title':'公告',
@@ -75,7 +83,7 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('已有足够材料',run.guidance())
 
     async def test_manual_detail_attachment_failure_is_visible_and_not_requeued(self):
-        run=ResearchSession(Files(),conversation_id='c',model='m',allowed=True)
+        run=LegacyResearchSession(Files(),conversation_id='c',model='m',allowed=True)
         run.methods.add('method');await run.begin({'scope':'x','plan':['x']})
         result={'url':'https://example.org/detail','document_links':[{'url':'https://example.org/report.pdf'}]}
         run.queue_document(result)
@@ -89,7 +97,7 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(run.pending_evidence)
 
     async def test_selected_financial_report_retains_terms_until_actual_pdf_receipt(self):
-        run=ResearchSession(Files(),conversation_id='c',model='m',allowed=True)
+        run=LegacyResearchSession(Files(),conversation_id='c',model='m',allowed=True)
         run.methods.add('method')
         await run.begin({'scope':'x','plan':['x'],'evidence_requests':[{'kind':'finance','symbol':'SZ000651',
             'report_articles':['AN123'],'terms':['应付股利']}]})

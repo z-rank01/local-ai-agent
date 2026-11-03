@@ -17,6 +17,18 @@ description: >-
 parameters:
   type: object
   properties:
+    decision_claim_ids:
+      type: array
+      items: {type: string}
+      description: v3必填；选择分析角色返回的claim ID，对应标题、首段与核心结论。不是作者新写的事实或推断。
+    calculation_refs:
+      type: array
+      items: {type: string}
+      description: v3派生值选择计算角色已校验的validated_calculation artifact引用；不要手填或改写算式。
+    chart_refs:
+      type: array
+      items: {type: string}
+      description: v3图表选择计算角色已校验的figure artifact引用。
     stage_updates:
       type: array
       description: 按已返回ID修改阶段，或省略ID新增。可拆分、合并、跳过和重访；保留旧版本，不以阶段完成数量限制研究。
@@ -129,7 +141,8 @@ parameters:
       items:
         type: object
         properties:
-          id: {type: string, description: 实际source_id}
+          artifact_ref: {type: string, description: v3使用取证角色返回的source_excerpt artifact引用，原句由程序带入，作者不改写}
+          id: {type: string, description: 实际source_id；v3省略并由artifact_ref确定}
           locator: {type: string, description: 页码或章节位置}
           quote: {type: string, description: 连续原文，允许换行或空白排版差异，不删词或拼接改写}
           excerpt:

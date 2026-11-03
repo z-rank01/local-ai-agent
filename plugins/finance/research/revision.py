@@ -12,31 +12,7 @@ METHOD = re.compile(r'^/workspace/\.skill_registry/versions/[a-f0-9]{64}/skills/
 
 
 async def read_document(session, path):
-    parts, offset, digest = [], 0, None
-    while True:
-        page = await session.router.dispatch('file_read', {'path': path, 'offset': offset}, session.conversation_id)
-        if page.get('error') or not isinstance(page.get('content'), str):
-            raise ValueError('修订所需文件未能读取：' + path)
-        if digest is not None and page.get('sha256') != digest:
-            raise ValueError('修订读取期间文件发生变化')
-        digest = page.get('sha256')
-        span = page.get('range') or {}
-        if not span:
-            if offset or page.get('next_offset') is not None:
-                raise ValueError('修订文件缺少完整分页')
-            return page['content'], digest
-        start, end = span.get('start'), span.get('end')
-        if start != offset or type(end) is not int or not offset < end <= offset + len(page['content']):
-            raise ValueError('修订文件分页不连续')
-        parts.append(page['content'][:end - start])
-        following = page.get('next_offset')
-        if following is None:
-            if span.get('total', page.get('total_chars', end)) != end:
-                raise ValueError('修订文件缺少尾页')
-            return ''.join(parts), digest
-        if following != end:
-            raise ValueError('修订文件游标不连续')
-        offset = following
+    return await session.read_document(path)
 
 
 async def previous_record(session, reference):

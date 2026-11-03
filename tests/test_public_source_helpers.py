@@ -65,13 +65,19 @@ class PublicSourceHelpersTests(unittest.TestCase):
             self.assertEqual(reader.read_rows(p, {'code': 'C'}, ['value'])['sources'], [])
 
 
+async def begin_v2(run, params):
+    result = await run.begin(params)
+    run.record['research_contract_version'] = 2
+    return result
+
+
 class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
     async def test_batch_can_fetch_without_method_discovery_in_new_research(self):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock
         from plugins.finance.loop import FinanceLoop
         run = ResearchSession(Files(), conversation_id='test', model='unchanged', allowed=True)
-        await run.begin({'scope': '研究', 'plan': ['选方法']})
+        await begin_v2(run, {'scope': '研究', 'plan': ['选方法']})
         dispatch = AsyncMock(return_value={'content': 'actual'})
         agent = FinanceLoop(llm=SimpleNamespace(), router=SimpleNamespace(research=run, dispatch=dispatch),
                             registry=SimpleNamespace(), audit=SimpleNamespace(record=lambda *args: None),
@@ -88,7 +94,7 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_optional_method_read_never_hides_authorized_tools(self):
         run = ResearchSession(Files(), conversation_id='test', model='unchanged', allowed=True)
-        await run.begin({'scope': '研究', 'plan': ['选方法', '取证']})
+        await begin_v2(run, {'scope': '研究', 'plan': ['选方法', '取证']})
         self.assertTrue({'skill_info', 'file_read'}.issubset(run.tool_names))
         self.assertTrue({'web_fetch', 'code_exec', 'brief_publish'}.issubset(run.tool_names))
         await run.observe({'name': 'file_read', 'status': 'error', 'params': {
@@ -101,7 +107,7 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
     async def test_download_then_actual_read_then_referenced_calculation_and_html(self):
         files = Files()
         run = ResearchSession(files, conversation_id='test', model='unchanged', allowed=True)
-        await run.begin({'scope': '已保存JSON回读', 'plan': ['读取并计算']})
+        await begin_v2(run, {'scope': '已保存JSON回读', 'plan': ['读取并计算']})
         await run.observe({'name': 'file_read', 'status': 'ok', 'params': {
             'path': '/workspace/skills/harness-stock-research-v3/references/finance.md'}, 'result': {}})
         raw = json.dumps({'data': [{'code': 'A', 'period': '2025', 'unit': '元', 'amount': 1000000}]})
@@ -114,7 +120,7 @@ class SavedJsonPublicationTests(unittest.IsolatedAsyncioTestCase):
             p = Path(tmp) / (source['source_id'] + '.json')
             p.write_text(files.files[source['saved_source']], encoding='utf8')
             receipt = reader.read_rows(p, {'code': 'A', 'period': '2025'}, ['amount'])
-        await run.begin({'phase': '核对'})
+        await begin_v2(run, {'phase': '核对'})
         params = {'title': '测试', 'markdown': '## 结论\n只检验材料链路。', 'as_of': '2026-10-19',
             'stance': '等待验证', 'sources': receipt['sources'], 'calculations': [
                 {'operation': 'divide', 'unit': '万元', 'inputs': [
