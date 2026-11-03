@@ -23,12 +23,16 @@ def _save_recipe(record, previous):
 
 
 def _excerpt(row, session):
+    if not isinstance(row, dict):
+        raise ValueError('摘录须为对象')
     source_id, quote = row.get('source_id'), row.get('quote')
-    if source_id not in session.sources or not isinstance(quote, str) or not quote.strip():
-        return None
+    if not isinstance(source_id, str) or source_id not in session.sources:
+        raise ValueError('source_id未在当前研究登记')
+    if not isinstance(quote, str) or not quote.strip():
+        raise ValueError('quote须为非空连续原句')
     if not any(literal_text(quote) in literal_text(text)
                for text in session.read_text.get(source_id, [])):
-        return None
+        raise ValueError('引文不在已登记的实际读取材料中；请核对原句，或通过原读取工具返回完整source_excerpts回执，不以保存文件或裸stdout代替读取登记')
     result = {'source_id':source_id, 'quote':quote}
     verified = next((excerpt for excerpt in session.excerpts.get(source_id, [])
                      if excerpt['sha256'] == session.sources[source_id]['sha256']
@@ -185,6 +189,7 @@ def record_role_result(session, batch_id, result):
     aliases = _aliases(record, batch_id)
     artifacts = record.setdefault('artifacts', {})
     rows = []
+    excerpt_errors = []
     for index, artifact in enumerate(result.get('artifacts', [])):
         ref = f'role:{batch_id}:{role_id}:{index}'
         content = deepcopy(artifact['content'])
@@ -196,8 +201,15 @@ def record_role_result(session, batch_id, result):
         if artifact['kind'] != 'source_excerpts':
             continue
         for excerpt_index, value in enumerate(content.get('excerpts', [])):
-            excerpt = _excerpt(value, session)
-            if excerpt is None:
+            try:
+                excerpt = _excerpt(value, session)
+            except ValueError as error:
+                detail = {'index': excerpt_index, 'error': str(error)}
+                if isinstance(value, dict):
+                    detail.update({key: value[key] for key in ('id', 'source_id')
+                                   if isinstance(value.get(key), str)})
+                row.setdefault('validation_errors', []).append(detail)
+                excerpt_errors.append({'artifact_ref': ref, **detail})
                 continue
             excerpt_ref = f'{ref}:{excerpt_index}'
             artifacts[excerpt_ref] = {'kind': 'source_excerpt', 'excerpt': excerpt,
@@ -247,7 +259,10 @@ def record_role_result(session, batch_id, result):
              'model_status': 'done' if result['status'] == 'COMPLETE' else 'partial',
              'output_refs': [ref for ref, artifact in artifacts.items()
                              if ref.startswith(f'role:{batch_id}:{role_id}:')],
-             'claims': claims, 'open_questions': problems + [
+             'claims': claims, 'open_questions': [
+                 f"摘录{error.get('id', error['index'])}：{error['error']}"
+                 for error in excerpt_errors
+             ] + problems + [
                  (issue.get('reason') or issue.get('claim') or str(issue))
                  if isinstance(issue, dict) else str(issue) for issue in result.get('issues', [])
              ] + (['执行错误：' + result['error']] if result.get('error') else [])}
@@ -255,6 +270,8 @@ def record_role_result(session, batch_id, result):
     refs = [ref for ref in artifacts if ref.startswith(f'role:{batch_id}:{role_id}:')]
     batch['roles'][role_id] = {'status': result['status'], 'namespace': namespace,
                                'artifact_refs': refs, 'result_ref': result.get('result_ref')}
+    if excerpt_errors:
+        batch['roles'][role_id]['validation_errors'] = excerpt_errors
     batch['artifact_refs'].extend(refs)
     _save_recipe(record, previous)
 

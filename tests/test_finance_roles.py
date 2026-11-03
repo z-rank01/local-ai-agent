@@ -93,6 +93,55 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calculation['operation']['enum'], ['sum','subtract','multiply','divide'])
         self.assertIn('不能填摘录别名', calculation['inputs']['items']['properties']['source']['description'])
 
+    async def test_real_unregistered_excerpts_report_errors_and_require_actual_read_receipt(self):
+        from plugins.finance.research.material_view import role_material_view
+        fixture = json.loads(Path('tests/fixtures/finance_excerpt_handoff.json').read_text(encoding='utf-8'))
+        run = ResearchSession(session_tests.Files(), conversation_id='c', model='m', allowed=True)
+        await run.begin({'scope':'真实摘录交接回放', 'plan':['读取'], 'phase':'准备'})
+        source = await run.save_source({'url':fixture['url'], 'title':'年度报告片段',
+            'sha256':'a'*64, 'fetched_at':'2026-11-03', 'page_count':219,
+            'total_chars':234999, 'media_type':'application/pdf', 'content':fixture['initial_read'],
+            '_source_file':{'base64':'cmF3', 'pages':fixture['pages']}})
+        key = source['source_id']
+        content = {'excerpts':[{**row, 'source_id':key} for row in fixture['excerpts']]}
+        original = copy.deepcopy(content)
+        result = {**asdict(RoleResult(role_id='finance_evidence', status='COMPLETE',
+            artifacts=[Artifact(kind='source_excerpts', content=content,
+                                producer_role='finance_evidence', sha256='b'*64)], issues=[])),
+            'result_ref':'original-result'}
+        # Actual failure: printing the role artifact is not a registered source read.
+        await run.observe({'name':'code_exec', 'status':'ok', 'params':{},
+                           'result':{'stdout':json.dumps({'artifacts':result['artifacts']})}})
+        await run.record_role_result('unregistered', result)
+        ref = 'role:unregistered:finance_evidence:0'
+        failures = run.artifacts()[ref]['validation_errors']
+        self.assertEqual([row['index'] for row in failures], [0, 1])
+        self.assertEqual(failures[0]['id'], fixture['excerpts'][0]['id'])
+        self.assertIn('source_excerpts', failures[0]['error'])
+        self.assertEqual(run.record['role_aliases']['unregistered'], {})
+        self.assertEqual(role_material_view(run, 'unregistered')['artifacts'][ref]['validation_errors'], failures)
+        self.assertEqual(len(run.role_batch_summary('unregistered')['roles']['finance_evidence']['validation_errors']), 2)
+        self.assertTrue(any('摘录' in question for question in run.record['recipe']['stages'][-1]['open_questions']))
+
+        receipt = json.dumps({'source_excerpts':[{**row, 'sha256':'a'*64}
+                                                for row in content['excerpts']]})
+        split = len(receipt) // 2
+        for chunk in (receipt[:split], receipt[split:]):
+            await run.source_excerpts({'stdout':chunk})
+        self.assertEqual(run.read_text[key], [fixture['initial_read']])
+        await run.observe({'name':'code_exec', 'status':'ok', 'params':{}, 'result':{'stdout':receipt}})
+        await run.record_role_result('registered', result)
+        aliases = run.record['role_aliases']['registered']
+        self.assertIn(fixture['excerpts'][0]['id'], aliases)
+        self.assertNotIn(fixture['excerpts'][1]['id'], aliases)
+        mapped = run.artifacts()[aliases[fixture['excerpts'][0]['id']]]['excerpt']
+        self.assertEqual(mapped['quote'], fixture['excerpts'][0]['quote'])
+        self.assertEqual(mapped['page'], fixture['excerpts'][0]['page'])
+        self.assertEqual(run.artifacts()['role:registered:finance_evidence:0']['validation_errors'][0]['index'], 1)
+        self.assertEqual(run.artifacts()[ref]['validation_errors'], failures)
+        self.assertEqual(content, original)
+        self.assertEqual(result['artifacts'][0]['content'], original)
+
     async def test_role_artifacts_are_mapped_once_and_author_selects_without_rewriting(self):
         _, run, _, batch_id = await self.prepare_roles()
         original = copy.deepcopy(run.record['artifacts'])

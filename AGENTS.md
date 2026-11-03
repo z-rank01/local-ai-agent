@@ -25,7 +25,7 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1077项、21项跳过，2026-11-03实测；Windows asyncio需可用本机socket）
+.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1078项、21项跳过，2026-11-03实测；Windows asyncio需可用本机socket）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -176,3 +176,5 @@ Recipe schema v2的成果更新可随原核对/发布提交，不逐工具强制
 Recipe交接的outcome_version只观察阶段采用候选的正文版本；旧版本评估不得冒充当前，UNBOUND及版本不一致只提示，不阻止授权工具或发布。显式货币换算同时核验系数方向及数值。核对建议新增的事实、时点和因果仍须对照原文，不能把建议自动当作事实。
 
 作者交接的反馈工具结果不重复携带已有Recipe、artifacts和review投影；未被claims采用的历史计算只保留摘要，采用的完整算式不改写。语义Recipe投影排除execution/active_stage_id，原始回执与完整历史仍可回读。previous_findings只保留core_answer，可选和发布后建议不自动扩展下轮任务。工具流只有在result成功解析及结果处理后才容忍尾部传输错误；结果处理失败仍按真实错误结束，不重试。
+
+金融角色成果与工具source_excerpts读取回执分层：完整原文已保存不等于已读，读取脚本须返回可按来源指纹、页码和字符范围核验的完整JSON；裸artifacts或切片JSON不登记读取。摘录映射失败逐项保存原索引、ID及具体错误，进入作者和依赖角色材料；有效项仍可采用，原始成果不改写，不以COMPLETE掩盖局部失败。
