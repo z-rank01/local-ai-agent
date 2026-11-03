@@ -91,3 +91,9 @@
 ### 交接投影与反馈范围
 
 作者交接保留实际原文与可回执回读的完整历史，但反馈工具结果不重复携带已由materials/latest_feedback提供的Recipe、artifacts和review；历史计算artifacts仅为索引进项保留摘要，被claims采用的算式保持完整。语义Recipe投影排除execution与active_stage_id，原始research.json及工具回执不改写。previous_findings仅保留core_answer，optional与postpublication留在本次反馈，不自动扩展下一轮任务。
+
+### 跨模型结构化请求（2026-11-04）
+
+无工具角色和独立核对共用冻结模型的 `structured_output` 能力。已确认型号由模型适配层派生请求：兼容云接口使用 `response_format={"type":"json_object"}`，本地 Ollama 使用 `format="json"`。金融 RoleSpec、Recipe、必需字段及引用校验保持一致；工具角色和作者正常使用工具协议。未知型号使用普通请求并严格校验，不能保证成功。
+
+本次新增登记 `qwen:qwen3.8-max`、`ollama:qwen3.8:27b`；DeepSeek 保留原登记。依据分别为[阿里云文档](https://www.alibabacloud.com/help/en/model-studio/qwen-structured-output)和[Ollama 文档](https://docs.ollama.com/capabilities/structured-outputs)，本机 Ollama 0.34.4 已安装该 Qwen。思考设置、模型默认选择及输出额度不随格式派生改变，显式格式冲突拒绝覆盖。冻结声明适用于聊天、子角色及检查点读取；旧快照不会因为目录新增能力而改变请求。实际格式参数进入原生回执与核对记录；非法 JSON、空响应和缺失字段仍真实失败，不修补事实或自动重发。

@@ -1018,6 +1018,10 @@ class ChatSessionService:
             if any(spec.get(k) != frozen.get(k) for k in ('id','provider_id','model','base_url')):
                 raise HTTPException(409, '冻结模型连接配置已变化，不能继续')
             spec = dict(spec)
+            if 'structured_output' in frozen:
+                spec['structured_output'] = copy.deepcopy(frozen['structured_output'])
+            else:
+                spec.pop('structured_output', None)
             if spec['kind'] == 'cloud':
                 if 'generation_parameters' not in frozen:
                     raise HTTPException(409, '旧检查点未冻结输出参数，不能原地续行；请创建关联的新运行')
@@ -1026,10 +1030,6 @@ class ChatSessionService:
                     spec['context_window'] = frozen['context_window']
                 else:
                     spec.pop('context_window', None)
-                if 'structured_output' in frozen:
-                    spec['structured_output'] = copy.deepcopy(frozen['structured_output'])
-                else:
-                    spec.pop('structured_output', None)
             if 'options' in frozen:
                 spec['options'] = frozen['options']
             else:
@@ -1038,8 +1038,7 @@ class ChatSessionService:
                 spec.pop('options', None)
             if spec['kind'] == 'local':
                 llm.think = spec.get('options', {}).get('think')
-            else:
-                llm.spec = spec
+            llm.spec = spec
             return spec, llm
         # Explicit thinking setting only; "default" leaves the client untouched so
         # static options apply and discovered models use the provider default.
@@ -1059,7 +1058,8 @@ class ChatSessionService:
                 llm.spec = {**spec, 'options': options}
                 spec = llm.spec
         if spec['kind'] == 'local':
-            spec = {**spec,'options':{'think':getattr(llm,'think',None)}}
+            spec = {**spec,'options':{**spec.get('options', {}), 'think':getattr(llm,'think',None)}}
+            llm.spec = spec
         else:
             from core.model_capacity import freeze_generation_parameters
             spec = freeze_generation_parameters(spec)

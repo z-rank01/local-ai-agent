@@ -13,6 +13,67 @@ from tests import test_in1
 
 
 class ModelExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_local_json_adapter_preserves_thinking_and_ordinary_tools(self):
+        seen = []
+        spec, client = self.runtime.models.resolve(model='ollama:gemma4:26b')
+        spec['structured_output'] = {'mode':'json_object'}
+        await client._client.aclose()
+        def respond(request):
+            seen.append(json.loads(request.content))
+            return httpx.Response(200,text=json.dumps({'done':True,'done_reason':'stop',
+                'message':{'content':'{"checks":["ok"]}'}})+'\n')
+        client._client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        profile = self.profile('ollama:gemma4:26b')
+        profile['model']['options']['think'] = True
+        result = await invoke(self.runtime,profile,'Return JSON','public',structured_output=True)
+        self.assertEqual(result['status'],'COMPLETE')
+        self.assertEqual(result['model_params']['format'],'json')
+        self.assertIs(seen[-1]['think'],True)
+        self.assertEqual(seen[-1]['format'],'json')
+        self.assertNotIn('response_format',seen[-1])
+        from core.model_execution import resolve_profile
+        _, frozen_client = resolve_profile(self.runtime,profile)
+        events = []
+        async for _ in frozen_client.with_json_object_output().chat_stream_with_tools(
+                [{'role':'user','content':'JSON'}],request_observer=lambda n,d:events.append((n,d))):
+            pass
+        self.assertEqual(events[0][1]['parameters']['format'],'json')
+        self.assertIs(seen[-1]['think'],True)
+        tool = {'type':'function','function':{'name':'fixture','parameters':{'type':'object'}}}
+        async for _ in frozen_client.chat_stream_with_tools([{'role':'user','content':'task'}],[tool]):
+            pass
+        self.assertNotIn('format',seen[-1])
+        self.assertEqual(seen[-1]['tools'],[tool])
+        self.assertNotIn('format',client.spec.get('options',{}))
+        self.assertEqual(len(seen),3)
+
+    async def test_local_frozen_capability_and_unknown_fallback(self):
+        from core.model_execution import resolve_profile
+        spec, client = self.runtime.models.resolve(model='ollama:gemma4:26b')
+        seen = []
+        def respond(request):
+            seen.append(json.loads(request.content))
+            return httpx.Response(200,text='{"done":true,"done_reason":"stop","message":{"content":"{}"}}\n')
+        await client._client.aclose()
+        client._client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        old = self.profile('ollama:gemma4:26b')
+        spec['structured_output'] = {'mode':'json_object'}
+        conv = self.runtime.store.get_conversation(old['conversation_id'])
+        for resolved in (resolve_profile(self.runtime,old)[1],
+                         self.service._execution_model(conv,frozen=old['model'])[1]):
+            self.assertFalse(resolved.supports_json_object_output)
+        await invoke(self.runtime,old,'JSON','public',structured_output=True)
+        self.assertNotIn('format',seen[-1])
+        new = self.profile('ollama:gemma4:26b')
+        spec.pop('structured_output')
+        for resolved in (resolve_profile(self.runtime,new)[1],
+                         self.service._execution_model(conv,frozen=new['model'])[1]):
+            self.assertTrue(resolved.supports_json_object_output)
+        new['model']['options']['format'] = {'type':'array'}
+        with self.assertRaisesRegex(ValueError,'冲突'):
+            await invoke(self.runtime,new,'JSON','public',structured_output=True)
+        self.assertEqual(len(seen),1)
+
     async def test_structured_role_request_and_empty_finish_keep_failed_receipt(self):
         seen = []
         def respond(request):

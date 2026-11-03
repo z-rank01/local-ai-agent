@@ -1,5 +1,16 @@
 [
   {
+    "provider_id": "ollama",
+    "provider_name": "Ollama",
+    "kind": "local",
+    "model": "qwen3.8:27b",
+    "structured_output": {
+      "mode": "json_object",
+      "reference": "https://docs.ollama.com/capabilities/structured-outputs",
+      "verified_at": "2026-11-04"
+    }
+  },
+  {
     "provider_id": "qwen",
     "provider_name": "通义千问",
     "kind": "cloud",
@@ -27,6 +38,11 @@
     "provider_name": "通义千问",
     "kind": "cloud",
     "model": "qwen3.8-max",
+    "structured_output": {
+      "mode": "json_object",
+      "reference": "https://www.alibabacloud.com/help/en/model-studio/qwen-structured-output",
+      "verified_at": "2026-11-04"
+    },
     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "api_key_env": "DASHSCOPE_API_KEY",
     "capabilities": [

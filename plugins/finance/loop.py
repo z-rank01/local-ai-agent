@@ -776,7 +776,7 @@ class FinanceLoop(Agent):
             if event=='native_model_request':
                 parameters=data.get('parameters',{})
                 record['request_parameters']={k:parameters[k] for k in
-                    ('model','max_tokens','response_format','thinking','reasoning_effort') if k in parameters}
+                    ('model','max_tokens','response_format','format','think','thinking','reasoning_effort') if k in parameters}
             if event=='native_model_result':
                 receipt.update(data)
                 record['native_receipt']={k:data[k] for k in (

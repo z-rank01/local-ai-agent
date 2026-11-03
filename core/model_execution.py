@@ -33,18 +33,17 @@ def resolve_profile(runtime, profile):
     spec = {**spec, 'options': frozen.get('options', {})}
     if 'context_window' in frozen:
         spec['context_window'] = frozen['context_window']
+    if 'structured_output' in frozen:
+        spec['structured_output'] = copy.deepcopy(frozen['structured_output'])
+    else:
+        spec.pop('structured_output', None)
     if spec['kind'] == 'cloud':
         if 'generation_parameters' not in frozen:
             raise ValueError('旧任务未冻结输出参数；请在会话中创建新任务')
         spec['generation_parameters'] = dict(frozen['generation_parameters'])
-        if 'structured_output' in frozen:
-            spec['structured_output'] = copy.deepcopy(frozen['structured_output'])
-        else:
-            spec.pop('structured_output', None)
     client = copy.copy(client)
-    if spec['kind'] == 'cloud':
-        client.spec = spec
-    else:
+    client.spec = spec
+    if spec['kind'] == 'local':
         client.think = spec['options'].get('think')
     return spec, client
 
@@ -84,9 +83,10 @@ async def invoke(runtime, profile, prompt, material, *, observe=None, request_id
     try:
         response = None
         if spec['kind'] == 'local':
-            event('native_model_request',{'input_hash':digest(messages),'message_count':2})
             payload = {'model':spec['model'],'messages':messages,'stream':True}
-            if client.think is not None: payload['think']=client.think
+            payload.update(client.request_parameters())
+            event('native_model_request',{'input_hash':digest(messages),'message_count':2,
+                'parameters': {'model':spec['model'],'stream':True,**client.request_parameters()}})
             parts=[]; terminal=None
             async with client._client.stream('POST',spec['base_url'].rstrip('/')+'/api/chat',json=payload) as stream:
                 stream.raise_for_status()

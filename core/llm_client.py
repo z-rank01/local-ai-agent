@@ -1,4 +1,5 @@
 import json as _json
+import copy
 import logging
 import re as _re
 from typing import AsyncGenerator
@@ -147,6 +148,31 @@ class LLMClient:
     def model(self) -> str:
         return self._model
 
+    @property
+    def supports_json_object_output(self) -> bool:
+        return getattr(self, 'spec', {}).get('structured_output', {}).get('mode') == 'json_object'
+
+    def with_json_object_output(self):
+        if not self.supports_json_object_output:
+            raise ValueError('当前冻结模型未确认支持 JSON 输出')
+        options = dict(self.spec.get('options', {}))
+        if 'format' in options and options['format'] != 'json':
+            raise ValueError('显式 format 与 JSON 输出冲突，未覆盖')
+        options['format'] = 'json'
+        client = copy.copy(self)
+        client.spec = {**self.spec, 'options': options}
+        return client
+
+    def request_parameters(self) -> dict:
+        """Native Ollama parameters, shared by chat and frozen delegated calls."""
+        parameters = {}
+        if self.think is not None:
+            parameters['think'] = self.think
+        options = getattr(self, 'spec', {}).get('options', {})
+        if 'format' in options:
+            parameters['format'] = options['format']
+        return parameters
+
     async def chat(self, system: str, user_message: str) -> str:
         payload = {
             "model": self._model,
@@ -156,8 +182,7 @@ class LLMClient:
             ],
             "stream": False,
         }
-        if self.think is not None:
-            payload["think"] = self.think
+        payload.update(self.request_parameters())
         try:
             resp = await self._client.post(f"{self._base_url}/api/chat", json=payload)
             resp.raise_for_status()
@@ -183,8 +208,7 @@ class LLMClient:
             "messages": messages,
             "stream": False,
         }
-        if self.think is not None:
-            payload["think"] = self.think
+        payload.update(self.request_parameters())
         if tools and self._supports_tools:
             payload["tools"] = tools
         try:
@@ -253,8 +277,7 @@ class LLMClient:
             "messages": normalized,
             "stream": True,
         }
-        if self.think is not None:
-            payload["think"] = self.think
+        payload.update(self.request_parameters())
         if tools and self._supports_tools:
             payload["tools"] = tools
         if request_observer:
@@ -264,7 +287,7 @@ class LLMClient:
             call_id = uuid.uuid4().hex
             request_observer('native_model_request', {
                 'call_id': call_id, 'model': 'ollama:' + self._model, 'local_attempt_id': call_id,
-                'parameters': {'stream': True, **({'think': self.think} if self.think is not None else {})},
+                'parameters': {'model': self._model, 'stream': True, **self.request_parameters()},
                 'tool_names': [item['function']['name'] for item in tools or []],
                 'message_count': len(normalized),
                 'input_chars': len(_json.dumps(normalized, ensure_ascii=False)),
@@ -359,8 +382,7 @@ class LLMClient:
             "messages": messages,
             "stream": True,
         }
-        if self.think is not None:
-            payload["think"] = self.think
+        payload.update(self.request_parameters())
         try:
             thinking_started = False
             in_thinking = False

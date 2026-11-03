@@ -332,7 +332,10 @@ class ModelRegistry:
             for item in json.loads(catalog_path.read_text(encoding='utf-8-sig')):
                 item = dict(item)
                 item['id'] = f"{item['provider_id']}:{item['model']}"
+                if item.get('kind') == 'local':
+                    item.setdefault('base_url', config.OLLAMA_BASE_URL)
                 static_specs.append(item)
+        static_specs = list({spec['id']: spec for spec in static_specs}.values())
         self._static_specs = static_specs
         # Merged snapshot (static + discovered) that resolve() matches against.
         self.specs = list(static_specs)
@@ -406,6 +409,7 @@ class ModelRegistry:
             if spec['kind'] == 'local':
                 client = LLMClient(spec['base_url'], spec['model'])
                 client.cloud = False
+                client.spec = spec
             else:
                 client = CompatibleClient(spec, self.budget)
             self.clients[spec['id']] = client
