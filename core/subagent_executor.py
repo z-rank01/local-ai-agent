@@ -1,5 +1,6 @@
 """Core adapter executing one role with a scoped context and tool registry."""
 from copy import copy
+import asyncio
 import json
 from core.agent import Agent
 from core.context_manager import ContextManager
@@ -31,6 +32,7 @@ class ObservedLLM:
     def __init__(self, client):
         self.client = client
         self.receipt = {}
+        self.calls = []
         self.observes_native_requests = True
 
     def __getattr__(self, name):
@@ -39,8 +41,14 @@ class ObservedLLM:
     async def chat_stream_with_tools(self, messages, tools=None, **options):
         parent = options.get('request_observer')
         def observe(event, data):
+            if event == 'native_model_request':
+                self.receipt = {'call_id':data.get('call_id'),
+                    'local_attempt_id':data.get('local_attempt_id'),
+                    'model':data.get('model'), 'model_params':data.get('parameters', {}),
+                    'result_status':'UNKNOWN'}
             if event == 'native_model_result':
-                self.receipt = dict(data)
+                self.receipt.update(data)
+                self.calls.append(dict(self.receipt))
             if parent:
                 parent(event, data)
         options['request_observer'] = observe
@@ -163,19 +171,33 @@ class AgentSubagentExecutor:
                     {'role':'user','content':json.dumps(material,ensure_ascii=False)}]
         response, tools = None, []
         child.router.research = None
-        async for event in child.run(messages, context.conversation_id + ':subagent:' + role.role_id):
-            if event.kind == 'message':
-                response = event.data.get('message', response)
-            elif event.kind == 'tool_end':
-                await extension.observe_tool(task, event.data)
-                tools.append({key:public(event.data.get(key)) for key in
-                              ('name','call_id','status','result')})
-            elif event.kind == 'error':
-                raise RuntimeError(event.text)
+        def receipt():
+            return {'model':observed.receipt, 'calls':observed.calls,
+                    'tools':tools, 'material_ref':material_ref}
+        try:
+            async for event in child.run(messages, context.conversation_id + ':subagent:' + role.role_id):
+                if event.kind == 'message':
+                    response = event.data.get('message', response)
+                elif event.kind == 'tool_end':
+                    tools.append({key:public(event.data.get(key)) for key in
+                                  ('name','call_id','status','result')})
+                    await extension.observe_tool(task, event.data)
+                elif event.kind == 'error':
+                    native_status = observed.receipt.get('result_status')
+                    return RoleResult(role_id=role.role_id,
+                        status=native_status if native_status in ('UNKNOWN','TRUNCATED') else 'FAILED',
+                        error=event.text, native_receipt=receipt())
+        except asyncio.CancelledError:
+            return RoleResult(role_id=role.role_id, status='UNKNOWN',
+                error='父运行停止；未确认回执不自动重发', native_receipt=receipt())
+        except Exception as exc:
+            return RoleResult(role_id=role.role_id, status='FAILED',
+                error=str(exc) or type(exc).__name__, native_receipt=receipt())
         if response is None:
-            raise ValueError('子Agent没有最终回答')
+            return RoleResult(role_id=role.role_id, status='FAILED',
+                error='子Agent没有最终回答', native_receipt=receipt())
         return self._structured(task, response.get('content', ''), status='COMPLETE',
-            native_receipt={'model':observed.receipt, 'tools':tools, 'material_ref':material_ref})
+            native_receipt=receipt())
 
 
 def subagent_bindings(agent):

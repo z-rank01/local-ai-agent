@@ -163,6 +163,48 @@ class SubagentTransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.native_receipt['tools'][0]['name'], 'file_read')
         self.assertEqual([row['function']['name'] for row in calls[0]], ['file_read'])
 
+    async def test_tool_role_preserves_failure_receipt_and_prior_tool(self):
+        for native_status, expected in [('UNKNOWN','UNKNOWN'), ('TRUNCATED','TRUNCATED'),
+                                        ('COMPLETE','FAILED')]:
+            with self.subTest(native_status=native_status):
+                class Model:
+                    observes_native_requests = True
+                    calls = 0
+                    async def chat_stream_with_tools(self, messages, tools=None, **options):
+                        self.calls += 1
+                        observe = options['request_observer']
+                        observe('native_model_request', {'call_id':str(self.calls),
+                            'parameters':{'max_tokens':393216}})
+                        if self.calls == 1:
+                            observe('native_model_result', {'result_status':'COMPLETE',
+                                'finish_reason':'tool_calls'})
+                            yield '', {'role':'assistant','content':'','tool_calls':[{'id':'read',
+                                'function':{'name':'file_read','arguments':'{"path":"/workspace/a.txt"}'}}]}
+                        else:
+                            observe('native_model_result', {'result_status':native_status,
+                                'http_status':503 if native_status == 'UNKNOWN' else 200,
+                                'visible_content_chars':0, 'terminal_received':native_status != 'UNKNOWN'})
+                            raise RuntimeError('真实失败，不重试')
+                class Registry:
+                    known_tools = frozenset({'file_read'})
+                    def get_definitions(self, **kwargs):
+                        return [{'type':'function','function':{'name':'file_read','parameters':{}}}]
+                    def call_limits(self): return {}
+                class Router:
+                    async def dispatch_stream(self, name, params, session_id):
+                        yield {'event':'result','result':{'content':'actual'}}
+                parent = Agent(llm=Model(), router=Router(), registry=Registry(),
+                    audit=SimpleNamespace(record=lambda *args:None), context_mgr=ContextManager(),
+                    prompt_builder=SimpleNamespace(build=lambda:''), memory=None)
+                result = await AgentSubagentExecutor(parent).run(RoleTask(
+                    role=role('analysis',tools=('file_read',)), text='读取', batch_id='batch'),
+                    SimpleNamespace(conversation_id='c'))
+                self.assertEqual(result.status, expected)
+                self.assertEqual(len(result.native_receipt['calls']), 2)
+                self.assertEqual(result.native_receipt['model']['model_params']['max_tokens'],393216)
+                self.assertEqual(result.native_receipt['tools'][0]['result']['content'],'actual')
+                self.assertEqual(parent.llm.calls, 2)
+
     async def test_finance_callback_follows_current_research_not_first_binding(self):
         from tests.subagent_fixtures import MemoryStore
         class Research:
