@@ -72,7 +72,7 @@ class ReviewReadbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(run.pending_evidence)
         self.assertEqual(run.evidence_requests[step['request_key']]['status'],'FAILED')
 
-    async def test_unknown_source_is_not_replaced_and_visual_check_precedes_supplier(self):
+    async def test_unknown_source_is_not_replaced_and_empty_chart_is_allowed(self):
         _,run,draft,agent,calls=await fixtures.ReviewTests().setup_review([
             {'issues':[],'checks':['需补读'],'read_requests':[{'source_id':'unknown','terms':['x']}]}])
         with self.assertRaisesRegex(ValueError,'本轮实际来源'):await fixtures.ReviewTests().review(agent,draft)
@@ -85,11 +85,9 @@ class ReviewReadbackTests(unittest.IsolatedAsyncioTestCase):
         await fixtures.ReviewTests().review(agent,draft)
         self.assertEqual(len(calls),1)
 
-    def test_no_chart_needs_no_reason_and_numeric_error_is_actionable(self):
-        from plugins.finance.publication import validate_visual_plan, number
+    def test_numeric_error_is_actionable(self):
+        from plugins.finance.publication import number
         from decimal import InvalidOperation
-        validate_visual_plan({'charts':[]})
-        validate_visual_plan({'charts':[],'visual_limitations':'资料只有定性观点，不绘制假数据'})
         with self.assertRaisesRegex(InvalidOperation,'数值格式无效'):number('not available')
 
     async def test_tool_returns_pending_not_publication_before_review_read(self):

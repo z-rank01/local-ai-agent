@@ -37,6 +37,34 @@ class ToolDeliveryTests(unittest.IsolatedAsyncioTestCase):
             await router.dispatch('skill_run', {'skill_name': 'calculator'})
         self.assertEqual(len(requests), 1)
 
+    async def test_completed_stream_result_survives_trailing_disconnect(self):
+        registry = ToolRegistry(config.TOOLS_DIR)
+        router = ToolRouter('http://files', 'http://runner', 'http://search', Mock(), Mock(), registry)
+        await router._client.aclose()
+        class BrokenTail(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b'{"event":"result","result":{"exit_code":0,"stdout":"actual"}}\n'
+                raise httpx.RemoteProtocolError('tail disconnected')
+        router._client = httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, stream=BrokenTail())))
+        self.addAsyncCleanup(router._client.aclose)
+        packets = [packet async for packet in router.dispatch_stream('code_exec', {})]
+        self.assertEqual(packets, [{'event':'result','result':{'exit_code':0,'stdout':'actual'}}])
+
+    async def test_result_processing_error_is_not_a_trailing_disconnect(self):
+        registry = ToolRegistry(config.TOOLS_DIR)
+        router = ToolRouter('http://files', 'http://runner', 'http://search', Mock(), Mock(), registry)
+        await router._client.aclose()
+        def handle(request):
+            if request.url.path.endswith('/stop'):
+                return httpx.Response(200, json={'confirmed':True})
+            return httpx.Response(200, text='{"event":"result","result":{"exit_code":0}}\n')
+        router._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        self.addAsyncCleanup(router._client.aclose)
+        with patch.object(router, '_limit_result', side_effect=httpx.RemoteProtocolError('projection failed')):
+            with self.assertRaisesRegex(httpx.RemoteProtocolError, 'projection failed'):
+                _ = [packet async for packet in router.dispatch_stream('code_exec', {})]
+
     async def test_spilled_results_can_be_read_in_each_workspace_without_crossing_roots(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(config, 'TOOL_RESULT_MAX_CHARS', 40):
             registries = ToolRegistry(config.TOOLS_DIR, enabled_backends=('skill-websearch',))

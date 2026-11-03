@@ -42,7 +42,3 @@ class FinanceCallPolicy:
     def render_charts(self, charts):
         from .publication import render_charts
         return render_charts(charts)
-
-    def validate_visual_plan(self, params):
-        from .publication import validate_visual_plan
-        return validate_visual_plan(params)

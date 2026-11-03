@@ -261,12 +261,21 @@ class ToolRouter:
                 if response.status_code == 404:
                     raise RuntimeError('工具服务版本过旧，缺少流式执行接口。请沿唯一入口重建工具镜像。')
                 response.raise_for_status()
-                async for line in response.aiter_lines():
+                lines = response.aiter_lines().__aiter__()
+                while True:
+                    try:
+                        line = await anext(lines)
+                    except StopAsyncIteration:
+                        break
+                    except httpx.HTTPError:
+                        if completed:
+                            break
+                        raise
                     if line.strip():
                         event=json.loads(line)
-                        completed=completed or event.get('event')=='result'
                         if event.get('event') == 'result':
                             event['result'] = await self._limit_result(tool, event['result'], session_id)
+                            completed = True
                         yield event
         finally:
             if not completed:

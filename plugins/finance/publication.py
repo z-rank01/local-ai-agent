@@ -104,16 +104,6 @@ def normalize_publication(params):
     return params
 
 
-def validate_visual_plan(params):
-    """Charts are optional.
-
-    A brief with no chart used to be rejected unless the model also wrote a
-    ``visual_limitations`` excuse, which turned a layout preference into a
-    publish blocker. The field is still honoured and still saved when given.
-    """
-    return params
-
-
 def validate_publication(params, sources, read_text):
     # Complete derived fields in a copy; the model's submitted draft stays intact.
     params = normalize_publication(params)
