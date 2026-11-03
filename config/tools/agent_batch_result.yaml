@@ -1,0 +1,12 @@
+name: agent_batch_result
+display_name: 等待子Agent成果
+backend: subagent-runtime
+tier: core
+cloud: write
+description: 等待当前批次全部角色到达真实终态，返回结构化artifacts、issues、真实终态及原生回执索引。完整角色原文保留在result_ref，可用context_evidence_read回读，不在此重复展开；不自动重试或发布。
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    batch_id: {type: string}
+  required: [batch_id]

@@ -1,0 +1,24 @@
+name: agent_batch_create
+display_name: 创建子Agent批次
+backend: subagent-runtime
+tier: core
+cloud: write
+description: >-
+  按插件已登记的角色创建一层子Agent批次。只选择role_id、明确task和已登记evidence_ids；
+  不能修改角色提示词、工具、模型或权限。返回实际batch_id和角色状态。
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    tasks:
+      type: array
+      minItems: 1
+      items:
+        type: object
+        additionalProperties: false
+        properties:
+          role_id: {type: string}
+          task: {type: string, minLength: 1}
+          evidence_ids: {type: array, items: {type: string}}
+        required: [role_id, task]
+  required: [tasks]

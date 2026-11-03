@@ -165,6 +165,16 @@ class ToolRegistry:
     def known_tools(self) -> frozenset[str]:
         return frozenset(self._tools)
 
+    @property
+    def declared_tools(self) -> frozenset[str]:
+        """Static declarations used to validate optional role tools, without activating them."""
+        names = set()
+        for path in self._sources(Path(config.TOOLS_DIR)):
+            definition = yaml.safe_load(path.read_text(encoding='utf-8'))
+            if isinstance(definition, dict) and definition.get('name') and definition.get('backend'):
+                names.add(definition['name'])
+        return frozenset(names)
+
     def get_backend(self, tool_name: str) -> str:
         return self._tools[tool_name]["backend"]
 

@@ -1,0 +1,12 @@
+name: agent_batch_status
+display_name: 查看子Agent批次
+backend: subagent-runtime
+tier: core
+cloud: write
+description: 查询当前运行内一个子Agent批次的角色状态、真实终态和已返回成果引用，不创建或恢复任务。
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    batch_id: {type: string}
+  required: [batch_id]

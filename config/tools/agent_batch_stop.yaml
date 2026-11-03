@@ -1,0 +1,12 @@
+name: agent_batch_stop
+display_name: 停止子Agent批次
+backend: subagent-runtime
+tier: core
+cloud: write
+description: 停止当前运行内的子Agent批次，保留已取得成果和真实终态；不停止其他研究或服务，不自动重试。
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    batch_id: {type: string}
+  required: [batch_id]

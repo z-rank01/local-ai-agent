@@ -1220,9 +1220,11 @@ class ChatSessionService:
         from harness.runtime.model_gateway import ConversationModelGateway
         permissions = frozenset((['workspace.read'] if not cloud or workspace_allowed else []) +
             (['workspace.write', 'scripts.execute'] if not cloud or (workspace_allowed and cloud_write_allowed) else []))
+        from core.subagent_executor import subagent_bindings
         router.bind_context(ExecutionContext(self._snapshot.id, self._snapshot.managed, self._snapshot.resolve,
             conversation.id, run_id or '', spec['id'], permissions,
-            ConversationModelGateway(self._runtime, router.execution_profile)))
+            ConversationModelGateway(self._runtime, router.execution_profile),
+            run_control=agent.run_control, **subagent_bindings(agent)))
         resume = getattr(self, '_resume_checkpoint', None)
         if os.environ.get('DAILY_SERVICES') == '1' and not answer_only and (not cloud or workspace_allowed):
             from harness.capabilities.skill_session import SkillSession
@@ -1280,7 +1282,9 @@ class ChatSessionService:
                 import hashlib
                 value['response_fingerprint'] = hashlib.sha256(self._store.get_message(response_to_message_id).content.encode()).hexdigest()
                 value['answer_only'] = answer_only
-                return value
+                from core.subagent_store import preserve_subagent_batches
+                previous = self.runs.store.get(control.id)['checkpoint']
+                return preserve_subagent_batches(previous, value)
             control.checkpoint_factory = checkpoint
             control.validate = lambda: self.validate_run_resume(self.runs.store.get(control.id))
         start_turn = getattr(turn, 'start_turn', None)

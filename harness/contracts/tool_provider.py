@@ -1,7 +1,7 @@
 """Small execution boundary for trusted providers inside workspace services."""
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 from .models import ModelGateway
 from .research import ResearchSession
 
@@ -17,6 +17,9 @@ class ExecutionContext:
     permissions: frozenset[str] = frozenset()
     model_gateway: ModelGateway | None = None
     research: ResearchSession | None = None
+    subagent_executor: Any = None
+    subagent_store: Any = None
+    run_control: Any = None
 
 
 class ToolProvider(Protocol):
