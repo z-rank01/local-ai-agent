@@ -1,0 +1,36 @@
+{
+  "description": "2026-11-03 Qwen announcement calculation visible output; exact public fields retained, runtime IDs omitted.",
+  "content": {
+    "calculations": [
+      {
+        "id": "calc_00_win_amount_to_yuan",
+        "operation": "单位换算：将公告披露的中标金额由万元统一为元",
+        "period": "公告日2026-10-10（中标通知书口径；运营期限3年，起算日未披露）",
+        "unit": "元",
+        "formula": "11,400.12 万元 × 10,000 元/万元",
+        "inputs": [
+          {
+            "name": "中标金额",
+            "source": "notice_pdf_p1（Sea497c9114a641a1，公告第1页“中标金额：11,400.12 万元”）／notice_pdf_p2（同公告“4．中标金额：11,400.12 万元”）",
+            "value": "11,400.12",
+            "unit": "万元",
+            "period": "公告日2026-10-10"
+          },
+          {
+            "name": "万元→元换算常数",
+            "source": "constant:人民币万元与元的十进制换算",
+            "value": "10,000",
+            "unit": "元/万元",
+            "period": "不适用"
+          }
+        ],
+        "notes": "公告明确“本项目所涉最终金额、履行条款等内容以正式签订的合同为准”，且取证角色在2026-10-10至2026-11-03检索范围内未见正式合同签订公告；本值仍为中标通知书口径，不得作为已生效合同金额使用。",
+        "evidence_refs": [
+          "notice_pdf_p1",
+          "notice_pdf_p2"
+        ]
+      }
+    ],
+    "figures": []
+  }
+}

@@ -58,9 +58,14 @@ def structured_result(task, text, *, status, native_receipt=None, error=''):
 
 def _validate_schema(value, schema):
     expected = schema.get('type')
-    types = {'object': dict, 'array': list, 'string': str, 'number': (int, float), 'boolean': bool}
+    types = {'object': dict, 'array': list, 'string': str, 'number': (int, float),
+             'integer': int, 'boolean': bool}
     if expected in types and not isinstance(value, types[expected]):
         raise ValueError('子Agent产物content须为' + expected)
+    if expected in ('integer', 'number') and isinstance(value, bool):
+        raise ValueError('子Agent产物content须为' + expected)
+    if 'enum' in schema and value not in schema['enum']:
+        raise ValueError('子Agent产物字段不符合登记枚举：' + str(value))
     missing = [key for key in schema.get('required', []) if key not in value]
     if missing:
         raise ValueError('子Agent产物缺少字段：' + ','.join(missing))

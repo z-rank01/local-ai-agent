@@ -16,6 +16,8 @@
 | 程序回执 | artifacts只登记真实来源、角色成果、已读取方法、工具回执、候选稿及校验后的计算；`role_batches` 与 `owner=subagent` 阶段保存producer_role、result_ref和真实状态，COMPLETE不表示事实认证 |
 | 作者与核对材料视图 | `material_view.py` 直接展开验证摘录、validated_calculation、figure与claim_checks，其他角色成果保留类型、指纹和result_ref；原始回执沿task_evidence完整回读，不在每次请求重复展开。来源received标明VERIFIED_ROLE_EXCERPTS，不以精简投影代替全部已读范围 |
 | 比值与百分数 | 同类量相除时统一货币单位；结果单位“倍”保存小数比例，“%”保存百分数（0.15倍=15%）。显式单位换算常数沿原算式。可省略派生result，由程序按Decimal精度计算；显式结果不符返回计算索引，不改写原稿。主体、期间和业务含义仍由模型核对 |
+
+计算角色的登记schema明确运算枚举、输入字段和引用命名空间：inputs.source只填精确金融source_id、calculation:前项零起始索引或constant:含义；摘录别名和artifact引用放在evidence_refs，不把说明文字拼进source。作者目录与角色系统上下文读取同一RoleSpec。完整原始成果保持不变；逐项校验按原索引保存成功项和错误，失败依赖不被替代，其他独立计算与图表仍可验证。作者选择计算或图表时，程序沿已保存dependency_refs补齐实际计算依赖并重排当前候选的索引，不重算事实、不改写原始算式或认证业务含义。
 | `brief_review` | 同一冻结模型、干净上下文，排除review自查和editorial_notes修订声明；显式呈现标题、立场、截止日和开头结论。返回review_ref、建议及claim_checks核心原句/原文/可证明范围对照，不发布；补读需求始终返回作者，v3由作者安排新角色批次复核 |
 | `brief_publish` | 先返回 `REVIEW_READY`；作者对照证据选择复核、修改或保留异议。明确发布再次携带实际 `review_ref` 和简短 `review_response`。同稿同角色上下文复用，变化后核对新版本；`PUBLISH_REVIEW_ENFORCE=false` 保持建议式，不要求意见清零 |
 | 核对版本身份 | v3 `review_context_sha256` 覆盖原问题、候选稿、方法正文、实际角色artifacts指纹和decision_claim_ids，排除execution噪声；角色成果或核心选择变化后旧核对不可复用 |

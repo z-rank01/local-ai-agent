@@ -88,28 +88,54 @@ def _validate_candidate(session, calculations, figures, aliases):
 
 
 def _validate_calculations(session, content, aliases):
-    calculations, errors = [], []
+    calculations, errors, indices = [], [], []
+    compact = []
+
+    def remap_inputs(calculation):
+        value = deepcopy(calculation)
+        for item in value.get('inputs', []):
+            source = item.get('source', '')
+            if source.startswith('calculation:'):
+                ref = source.removeprefix('calculation:')
+                if not ref.isdecimal() or int(ref) not in indices:
+                    raise ValueError('计算依赖须引用此前已校验的 calculation:零起始索引：' + source)
+                item['source'] = 'calculation:' + str(indices.index(int(ref)))
+        return value
+
     for index, calculation in enumerate(content['calculations']):
         try:
-            checked = _validate_candidate(session, [calculation], [], aliases)
-            calculations.extend(checked['calculations'])
+            candidate = remap_inputs(calculation)
+            checked = _validate_candidate(session, compact + [candidate], [], aliases)
+            validated = checked['calculations'][-1]
+            compact.append(validated)
+            original_indices = deepcopy(validated)
+            for item in original_indices['inputs']:
+                if item['source'].startswith('calculation:'):
+                    item['source'] = 'calculation:' + str(indices[int(item['source'].split(':')[1])])
+            calculations.append(original_indices)
+            indices.append(index)
         except (ValueError, KeyError, TypeError, DecimalException) as error:
-            errors.append({'index':index, 'error':str(error).replace('calculations[0]', f'calculations[{index}]', 1)})
-    if errors:
-        raw_figures = [figure for figure in content['figures']
-                       if all('calculation' not in item for item in figure.get('items', []))]
+            errors.append({'index':index, 'error':str(error)})
+    charts, chart_indices = [], []
+    for index, figure in enumerate(content['figures']):
         try:
-            charts = _validate_candidate(session, [], raw_figures, aliases)['charts'] if raw_figures else []
+            candidate = deepcopy(figure)
+            for item in candidate.get('items', []):
+                if 'calculation' in item:
+                    ref = item['calculation']
+                    if type(ref) is not int or ref not in indices:
+                        raise ValueError('图表引用了未通过校验的计算：' + str(ref))
+                    item['calculation'] = indices.index(ref)
+            checked = _validate_candidate(session, compact, [candidate], aliases)['charts'][0]
+            for item in checked['items']:
+                if 'calculation' in item:
+                    item['calculation'] = indices[item['calculation']]
+            charts.append(checked)
+            chart_indices.append(index)
         except (ValueError, KeyError, TypeError, DecimalException) as error:
-            charts = []
-            errors.append({'index':'figures', 'error':str(error)})
-        return {'calculations':calculations, 'charts':charts, 'errors':errors}
-    try:
-        charts = _validate_candidate(session, content['calculations'], content['figures'], aliases)['charts']
-    except (ValueError, KeyError, TypeError, DecimalException) as error:
-        charts = []
-        errors.append({'index':'figures', 'error':str(error)})
-    return {'calculations':calculations, 'charts':charts, 'errors':errors}
+            errors.append({'index':f'figures[{index}]', 'error':str(error)})
+    return {'calculations':calculations, 'calculation_indices':indices,
+            'charts':charts, 'chart_indices':chart_indices, 'errors':errors}
 
 
 def _claim_id(batch_id, role_id, text):
@@ -192,18 +218,24 @@ def record_role_result(session, batch_id, result):
                                                    for error in checked['errors'])
                 artifacts[row['ref']].update(validation_errors=checked['errors'],
                                               validation_error=row['validation_error'])
-            for index, calculation in enumerate(checked['calculations']):
+            calculation_refs = {index: row['ref'] + ':validated:' + str(index)
+                                for index in checked['calculation_indices']}
+            for index, calculation in zip(checked['calculation_indices'], checked['calculations']):
                 ref = row['ref'] + ':validated:' + str(index)
                 artifacts[ref] = {'kind': 'validated_calculation', 'calculation': calculation,
                     'producer_role': role_id, 'sha256': fingerprint(calculation),
+                    'dependency_refs': {item['source'].split(':')[1]: calculation_refs[int(item['source'].split(':')[1])]
+                                        for item in calculation['inputs'] if item['source'].startswith('calculation:')},
                     'semantic_certification': False}
                 identifier = calculation.get('id')
                 if isinstance(identifier, str):
                     aliases[identifier] = ref
-            for index, figure in enumerate(checked['charts']):
+            for index, figure in zip(checked['chart_indices'], checked['charts']):
                 ref = row['ref'] + ':figure:' + str(index)
                 artifacts[ref] = {'kind': 'figure', 'figure': figure,
-                    'producer_role': role_id, 'sha256': fingerprint(figure)}
+                    'producer_role': role_id, 'sha256': fingerprint(figure),
+                    'calculation_refs': {str(item['calculation']): calculation_refs[item['calculation']]
+                                         for item in figure['items'] if 'calculation' in item}}
                 if index < len(row['content'].get('figures', [])):
                     identifier = row['content']['figures'][index].get('id')
                     if isinstance(identifier, str):
@@ -269,12 +301,31 @@ def adopt_author_materials(session, params):
     calculation_refs = list(params.pop('calculation_refs', []))
     for row in params.pop('calculations', []):
         calculation_refs.append(row.get('artifact_ref'))
-    calculations = []
-    for ref in calculation_refs:
+    calculations, selected_calculations, visiting = [], {}, set()
+
+    def adopt_calculation(ref):
+        if ref in selected_calculations:
+            return selected_calculations[ref]
+        if ref in visiting:
+            raise ValueError('已校验计算的依赖存在循环：' + str(ref))
         artifact = artifacts.get(ref, {})
         if artifact.get('kind') != 'validated_calculation':
             raise ValueError('v3计算须选择计算角色已校验的calculation_refs：' + str(ref))
-        calculations.append(deepcopy(artifact['calculation']))
+        visiting.add(ref)
+        calculation = deepcopy(artifact['calculation'])
+        for item in calculation['inputs']:
+            if item['source'].startswith('calculation:'):
+                dependency = artifact.get('dependency_refs', {}).get(item['source'].split(':')[1])
+                if not dependency:
+                    raise ValueError('已校验计算缺少实际依赖引用：' + str(ref))
+                item['source'] = 'calculation:' + str(adopt_calculation(dependency))
+        selected_calculations[ref] = len(calculations)
+        calculations.append(calculation)
+        visiting.remove(ref)
+        return selected_calculations[ref]
+
+    for ref in calculation_refs:
+        adopt_calculation(ref)
     params['calculations'] = calculations
     chart_refs = list(params.pop('chart_refs', []))
     for row in params.pop('charts', []):
@@ -284,7 +335,14 @@ def adopt_author_materials(session, params):
         artifact = artifacts.get(ref, {})
         if artifact.get('kind') != 'figure':
             raise ValueError('v3图表须选择计算角色已校验的chart_refs：' + str(ref))
-        charts.append(deepcopy(artifact['figure']))
+        chart = deepcopy(artifact['figure'])
+        for item in chart['items']:
+            if 'calculation' in item:
+                dependency = artifact.get('calculation_refs', {}).get(str(item['calculation']))
+                if not dependency:
+                    raise ValueError('已校验图表缺少实际计算引用：' + str(ref))
+                item['calculation'] = adopt_calculation(dependency)
+        charts.append(chart)
     params['charts'] = charts
     sources = []
     for row in params.get('sources', []):

@@ -23,7 +23,140 @@
       "prompt_path": "prompts/calculation.md",
       "tools": ["code_exec"],
       "depends_on": ["finance_evidence"],
-      "output": {"artifact_kind": "calculation", "recipe_namespace": "calculations", "schema": {"type": "object", "required": ["calculations", "figures"], "properties": {"calculations": {"type": "array"}, "figures": {"type": "array"}}}}
+      "output": {
+        "artifact_kind": "calculation",
+        "recipe_namespace": "calculations",
+        "schema": {
+          "type": "object",
+          "required": [
+            "calculations",
+            "figures"
+          ],
+          "properties": {
+            "calculations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "operation",
+                  "inputs",
+                  "unit",
+                  "evidence_refs"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "sum",
+                      "subtract",
+                      "multiply",
+                      "divide"
+                    ],
+                    "description": "单项仅一个运算；subtract、multiply、divide恰好两个输入。多项算式拆成依赖前项的多条计算。"
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "result": {
+                    "type": "string",
+                    "description": "省略，由程序计算；不得填写近似值。"
+                  },
+                  "evidence_refs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "取证摘录别名或实际artifact引用；这里与inputs.source不是同一种引用。"
+                  },
+                  "inputs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "source",
+                        "period"
+                      ],
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "description": "精确的金融source_id（例如S0123）；不能填摘录别名、task_evidence编号或附加说明。前项结果用calculation:零起始索引；常数用constant:含义且period=不适用。"
+                        },
+                        "value": {
+                          "type": "string",
+                          "description": "原文或常数原值；前项计算引用可省略。"
+                        },
+                        "unit": {
+                          "type": "string",
+                          "description": "原值实际单位；前项计算可省略并继承。"
+                        },
+                        "period": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "figures": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "title",
+                  "unit",
+                  "period",
+                  "items"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "period": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "label"
+                      ],
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "type": "string",
+                          "description": "精确金融source_id；原值须在摘录内。"
+                        },
+                        "value": {
+                          "type": "string"
+                        },
+                        "calculation": {
+                          "type": "integer",
+                          "description": "本成果calculations的零起始索引，引用时省略value。"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
     {
       "role_id": "finance_analysis",

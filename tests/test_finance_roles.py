@@ -76,6 +76,23 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, 'claims'):
             structured_result(task, '{"artifacts":[{"kind":"claims","content":{}}]}', status='COMPLETE')
 
+    async def test_real_calculation_receipt_fails_shared_contract_without_repair(self):
+        from core.tool_registry import ToolRegistry
+        from harness.runtime.subagents.materials import role_contract, role_prompt
+        roles = load_role_specs(Path('plugins'), ToolRegistry(config.TOOLS_DIR).declared_tools)
+        spec = roles['finance_calculation']
+        content = json.loads(Path('tests/fixtures/finance_calculation_contract.json').read_text(encoding='utf-8'))['content']
+        original = copy.deepcopy(content)
+        payload = {'artifacts':[{'kind':'calculation','content':content}]}
+        with self.assertRaisesRegex(ValueError, '枚举'):
+            structured_result(RoleTask(role=spec,text='计算'), json.dumps(payload), status='COMPLETE')
+        self.assertEqual(content, original)
+        schema = role_contract(spec)['output']['schema']
+        self.assertIn(json.dumps(schema, ensure_ascii=False), role_prompt(spec))
+        calculation = schema['properties']['calculations']['items']['properties']
+        self.assertEqual(calculation['operation']['enum'], ['sum','subtract','multiply','divide'])
+        self.assertIn('不能填摘录别名', calculation['inputs']['items']['properties']['source']['description'])
+
     async def test_role_artifacts_are_mapped_once_and_author_selects_without_rewriting(self):
         _, run, _, batch_id = await self.prepare_roles()
         original = copy.deepcopy(run.record['artifacts'])
@@ -86,7 +103,7 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(run.handoff_materials()['role_aliases'][batch_id])
         self.assertEqual(run.artifacts()[aliases['C1']]['calculation']['result'], '200')
         self.assertNotIn('C2', aliases)
-        self.assertNotIn('F2', aliases)
+        self.assertIn('F2', aliases)
         calculation = next(artifact for artifact in run.record['artifacts'].values()
                            if artifact.get('kind') == 'role_calculation')
         self.assertEqual(calculation['validation_errors'][0]['index'], 1)
@@ -158,6 +175,46 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stage['role_status'], 'FAILED')
         self.assertIn('文字形式的资料缺口', stage['open_questions'])
         self.assertIn('执行错误：upstream unavailable', stage['open_questions'])
+
+    async def test_calculation_dependencies_keep_original_indices_after_partial_failure_and_selection(self):
+        _, run, _, original_batch = await self.prepare_roles()
+        source = next(iter(run.sources))
+        batch = 'dependency-batch'
+        run.record['role_aliases'][batch] = dict(run.record['role_aliases'][original_batch])
+        base = {'operation':'sum', 'unit':'元', 'evidence_refs':['E1'],
+                'inputs':[{'source':source, 'value':'100', 'unit':'元', 'period':'2025'}]}
+        calculations = [dict(copy.deepcopy(base), id='D'+str(i)) for i in range(5)]
+        calculations[0]['inputs'][0]['value'] = '999'
+        calculations[1]['operation'] = 'multiply'
+        calculations[1]['inputs'].append({'source':'constant:倍数', 'value':'2', 'unit':'倍', 'period':'不适用'})
+        calculations[2]['inputs'] = [{'source':'calculation:1','period':'2025'}]
+        calculations[3]['inputs'] = [{'source':'calculation:0','period':'2025'}]
+        figures = [{'id':'G'+str(i),'title':'图','period':'2025','unit':'元',
+                    'items':[{'label':'值','calculation':value}]} for i,value in enumerate((0,2))]
+        content = {'calculations':calculations, 'figures':figures}
+        original = copy.deepcopy(content)
+        await run.record_role_result(batch, asdict(RoleResult(role_id='finance_calculation',
+            status='COMPLETE', artifacts=[Artifact(kind='calculation', content=content,
+                producer_role='finance_calculation', sha256='b'*64)])))
+        aliases = run.record['role_aliases'][batch]
+        for key in ('D0','D3','G0'):
+            self.assertNotIn(key, aliases)
+        self.assertTrue(aliases['D2'].endswith(':validated:2'))
+        self.assertTrue(aliases['G1'].endswith(':figure:1'))
+        self.assertEqual(run.artifacts()[aliases['D2']]['calculation']['result'], '200')
+        artifact = next(a for a in run.artifacts().values() if a.get('sha256') == 'b'*64)
+        self.assertEqual([e['index'] for e in artifact['validation_errors']], [0,3,'figures[0]'])
+        self.assertEqual(artifact['content'], original)
+        claim = next(s['claims'][0]['id'] for s in run.record['recipe']['stages']
+                     if s.get('producer_role') == 'finance_analysis')
+        params = await run.publication_input({'title':'依赖', 'markdown':'营业收入100元',
+            'as_of':'2025','stance':'等待', 'sources':[{'artifact_ref':aliases['E1']}],
+            'calculation_refs':[aliases['D4'],aliases['D2']], 'chart_refs':[aliases['G1']],
+            'decision_claim_ids':[claim]})
+        self.assertEqual([c['id'] for c in params['calculations']], ['D4','D1','D2'])
+        self.assertEqual(params['calculations'][2]['inputs'][0]['source'], 'calculation:1')
+        self.assertEqual(params['charts'][0]['items'][0]['calculation'], 2)
+        self.assertEqual(content, original)
 
     async def test_v3_review_reuses_only_same_role_context_and_explicit_publish(self):
         files, run, _, batch_id = await self.prepare_roles()

@@ -25,7 +25,7 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1075项、21项跳过，2026-11-03实测；Windows asyncio需可用本机socket）
+.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1077项、21项跳过，2026-11-03实测；Windows asyncio需可用本机socket）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -156,6 +156,8 @@ local_agent是聊天Agent内部的单次本地Gemma4:26b调用；无工具、发
 ## 插件前端贡献（构建登记）
 
 通用子Agent的领域材料、工具前后处理、成果登记与摘要由当前回合策略提供的可选SubagentExtension承担；金融实现位于plugins/finance/subagents.py，Harness传输和Core执行器不判断金融v3或处理来源保存。作者与角色共用登记RoleSpec契约；evidence_ids只接受已授权task_evidence编号，source_id和artifact_ref不能替代。显式材料与结果完整分页回读；停止等待本地角色收尾，已开始且无确认回执的角色保留UNKNOWN。历史批次只读不重启执行，映射失败单列保存；新契约指纹不允许旧检查点静默切换实现。已知供应商stop与本地交付成功分开，空正文失败不自动重发。
+
+金融计算的运算枚举与输入引用格式在登记RoleSpec中维护，不能只告诉角色字段名却遗漏允许值。inputs.source使用精确source_id，摘录别名放evidence_refs；多步计算引用前项索引。校验保留原始索引与实际dependency_refs，作者选择子集或图表时补齐依赖并重排候选索引，原成果不变。非法运算、来源和失败依赖仍返回真实错误，不猜测修正或补造计算。
 
 插件清单的 `ui.settings` 指向 `apps/web/src/plugins/<插件ID>/` 内的 TSX 入口。构建/开发/类型检查先运行 `scripts/generate-extensions.mjs`，生成已忽略的 extensions/generated.ts，不手工加宿主组件导入。面板只消费 CapabilityPanelProps 与通用 HTTP 接口，独立延迟加载；金融/搜索控制 API 和领域类型归各自前端包。新增 UI 资源需原入口构建并刷新生效，不加载任意远程 JavaScript。随源码包及已信任的本地包都经同一构建登记；未经信任的远程代码不因此获得执行或提示权限。
 
