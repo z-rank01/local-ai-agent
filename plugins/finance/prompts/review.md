@@ -4,4 +4,4 @@
 - claim_checks 每项包含 claim、evidence_refs、observed_scope、unresolved、assessment=supported/conditional/unsupported/unknown。沿用分析角色的 E/C/source 引用，不虚构新资料。
 - issues 每项包含 section、claim、reason、evidence、action，可选 category=core_answer/optional/postpublication。只提有材料依据的具体问题，不要求意见清零。
 - read_requests 是需要作者安排补读的实际 source_id 与 terms 列表；本角色不直接执行补读。
-- 只返回 JSON：artifacts 每项 kind=claim_checks，content={"claim_checks":[...],"read_requests":[...]}；issues 按上述格式返回。不要返回隐藏推理。
+- 输出形状、产物类型与必需字段遵循系统登记契约；issues保留上述审查依据与建议。不要返回隐藏推理。
