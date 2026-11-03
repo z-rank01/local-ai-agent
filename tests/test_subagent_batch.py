@@ -52,7 +52,7 @@ class SubagentBatchTests(unittest.IsolatedAsyncioTestCase):
         created = runner.create((RoleTask(role=role('evidence'), text='取证'),))
         parent.cancel()
         result = await asyncio.wait_for(runner.result(created['batch_id']), 1)
-        self.assertEqual(result['results']['evidence']['status'], 'STOPPED')
+        self.assertEqual(result['results']['evidence']['status'], 'UNKNOWN')
 
     async def test_transport_error_is_unknown_once(self):
         calls = []

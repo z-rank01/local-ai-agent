@@ -29,3 +29,14 @@ def author_material_view(session):
                                          'content_sha256', 'tool', 'status', 'call_id',
                                          'result_sha256', 'result_status', 'source_id')}
     return {'evidence':evidence, 'artifacts':artifacts}
+
+
+def role_material_view(session, batch_id):
+    """One copy of usable evidence, calculations and analysis for dependent roles."""
+    material = author_material_view(session)
+    artifacts = {ref: value for ref, value in material['artifacts'].items()
+                 if ref.startswith('role:' + batch_id + ':')}
+    for ref, artifact in session.artifacts().items():
+        if ref in artifacts and artifact.get('kind') == 'role_claims':
+            artifacts[ref] = artifact
+    return {'aliases':session.record.get('role_aliases', {}).get(batch_id, {}), 'artifacts':artifacts}

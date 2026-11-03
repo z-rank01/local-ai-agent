@@ -122,6 +122,7 @@ def build_runtime() -> RuntimeServices:
     from harness.runtime.subagents.transport import SubagentTransport
     roles = load_role_specs(config._PROJECT_ROOT / 'plugins', tool_registry.declared_tools,
                             config._PROJECT_ROOT / 'config' / 'subagents.json')
+    tool_registry.subagent_roles = roles
     router.bind_provider('subagent-runtime', SubagentTransport(roles))
     from harness.capabilities.loader import register_adapters
     register_adapters(runtime, config._PROJECT_ROOT / 'plugins')

@@ -155,6 +155,8 @@ local_agent是聊天Agent内部的单次本地Gemma4:26b调用；无工具、发
 
 ## 插件前端贡献（构建登记）
 
+通用子Agent的领域材料、工具前后处理、成果登记与摘要由当前回合策略提供的可选SubagentExtension承担；金融实现位于plugins/finance/subagents.py，Harness传输和Core执行器不判断金融v3或处理来源保存。作者与角色共用登记RoleSpec契约；evidence_ids只接受已授权task_evidence编号，source_id和artifact_ref不能替代。显式材料与结果完整分页回读；停止等待本地角色收尾，已开始且无确认回执的角色保留UNKNOWN。历史批次只读不重启执行，映射失败单列保存；新契约指纹不允许旧检查点静默切换实现。已知供应商stop与本地交付成功分开，空正文失败不自动重发。
+
 插件清单的 `ui.settings` 指向 `apps/web/src/plugins/<插件ID>/` 内的 TSX 入口。构建/开发/类型检查先运行 `scripts/generate-extensions.mjs`，生成已忽略的 extensions/generated.ts，不手工加宿主组件导入。面板只消费 CapabilityPanelProps 与通用 HTTP 接口，独立延迟加载；金融/搜索控制 API 和领域类型归各自前端包。新增 UI 资源需原入口构建并刷新生效，不加载任意远程 JavaScript。随源码包及已信任的本地包都经同一构建登记；未经信任的远程代码不因此获得执行或提示权限。
 
 插件启动恢复先登记全部文件/容器提供者，再按生命周期依赖顺序恢复保存的启用意图；单个失败保留具体状态，不阻断无关能力。清单基础校验共用 harness/contracts/plugin_manifest.py，目录展示与启动登记须一致。

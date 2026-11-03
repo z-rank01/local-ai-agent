@@ -1414,6 +1414,7 @@ class ChatSessionService:
             yield emit('conversation.updated', data={'conversation':self._conversation_summary(latest).model_dump()})
             yield emit('session.completed')
         finally:
+            await router.close_context()
             if router.research is not None:
                 await router.research.close()
             turn = getattr(agent, 'turn', None)

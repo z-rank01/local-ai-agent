@@ -8,6 +8,7 @@ class ModelRequest:
     request_id: str
     prompt: str
     material: Any
+    structured_output: bool = False
 
 
 class ModelGateway(Protocol):

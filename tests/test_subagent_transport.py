@@ -10,6 +10,7 @@ from harness.contracts.subagents import RoleTask
 from harness.contracts.tool_provider import ExecutionContext
 from harness.runtime.subagents.transport import SubagentTransport
 from tests.subagent_fixtures import MemoryStore, role, complete_result
+from plugins.finance.subagents import FinanceSubagentExtension
 
 
 class SubagentTransportTests(unittest.IsolatedAsyncioTestCase):
@@ -120,7 +121,7 @@ class SubagentTransportTests(unittest.IsolatedAsyncioTestCase):
         gateway = Gateway()
         context = SimpleNamespace(read_evidence=lambda key:{'content':key})
         agent = SimpleNamespace(registry=SimpleNamespace(known_tools=set()), context_mgr=context)
-        result = await AgentSubagentExecutor(agent).run(RoleTask(role=role('analysis'),
+        result = await AgentSubagentExecutor(agent).run(RoleTask(role=role('analysis', depends_on=('evidence',)),
             text='分析', batch_id=batch_id), SimpleNamespace(model_gateway=gateway, subagent_store=store))
         self.assertEqual(result.status, 'COMPLETE')
         self.assertEqual(gateway.material['prior_results']['evidence']['artifacts'][0]['content'], {'source':'actual'})
@@ -167,6 +168,8 @@ class SubagentTransportTests(unittest.IsolatedAsyncioTestCase):
         class Research:
             active = False
             record = {}
+            def role_batch_summary(self, batch_id):
+                return None
             async def record_role_result(self, batch_id, result):
                 self.active = True
                 self.recorded = (batch_id, result['role_id'])
@@ -177,7 +180,8 @@ class SubagentTransportTests(unittest.IsolatedAsyncioTestCase):
                 research.record = {'research_contract_version':3}
                 return complete_result(task.role.role_id)
         context = ExecutionContext('default', Path('.'), Path,
-            subagent_executor=Executor(), subagent_store=MemoryStore(), research=research)
+            subagent_executor=Executor(), subagent_store=MemoryStore(), research=research,
+            subagent_extension=FinanceSubagentExtension(SimpleNamespace(research=research)))
         transport = SubagentTransport({'finance_evidence':role('finance_evidence')}).bind(context)
         created = await transport.call_tool('agent_batch_create', {
             'tasks':[{'role_id':'finance_evidence','task':'取证'}]}, 'c')
@@ -228,7 +232,8 @@ class SubagentTransportTests(unittest.IsolatedAsyncioTestCase):
             prompt_builder=SimpleNamespace(build=lambda:''), memory=None)
         result = await AgentSubagentExecutor(parent).run(RoleTask(
             role=role('finance_evidence',tools=('web_fetch',),kind='source_excerpts'), text='取证'),
-            SimpleNamespace(conversation_id='c'))
+            SimpleNamespace(conversation_id='c', subagent_extension=
+                FinanceSubagentExtension(SimpleNamespace(research=research))))
         self.assertEqual(result.status, 'COMPLETE')
         self.assertEqual(result.native_receipt['tools'][0]['result']['source_id'], 'Sactual')
         self.assertTrue(research.observed[0]['subagent'])

@@ -53,6 +53,8 @@ class NativeStreamReceipt:
         self.failure_category=None
         self.rejection={}
         self.provider_error_code=None
+        self.visible_content_chars = 0
+        self.reasoning_chars = 0
 
     def headers(self,status,headers):
         self.http_status=status
@@ -90,6 +92,11 @@ class NativeStreamReceipt:
             self.request_id(error.get('request_id'))
         choices=chunk.get('choices')
         for choice in choices if isinstance(choices,list) else []:
+            delta = choice.get('delta', {}) if isinstance(choice, dict) else {}
+            if isinstance(delta.get('content'), str):
+                self.visible_content_chars += len(delta['content'])
+            if isinstance(delta.get('reasoning_content'), str):
+                self.reasoning_chars += len(delta['reasoning_content'])
             reason=choice.get('finish_reason') if isinstance(choice,dict) else None
             if reason is not None:
                 if reason in ('stop','tool_calls','length','content_filter','function_call'):
@@ -117,6 +124,8 @@ class NativeStreamReceipt:
                 'finish_reason_status':'CONFLICT' if len(self.finishes)>1 else 'UNRECOGNISED' if self.unknown_finish else 'REPORTED' if self.finishes else 'NOT_REPORTED',
                 'usage':self.usage,'usage_status':self.usage_status,
                 'failure_category':self.failure_category,'elapsed_seconds':round(time.monotonic()-self.started,3),
+                'visible_content_chars':self.visible_content_chars, 'reasoning_chars':self.reasoning_chars,
+                'terminal_received':bool(self.finishes) and not self.unknown_finish,
                 **self.rejection}
         if len(self.request_ids)==1: result['provider_request_id']=next(iter(self.request_ids))
         if self.provider_error_code: result['provider_error_code']=self.provider_error_code

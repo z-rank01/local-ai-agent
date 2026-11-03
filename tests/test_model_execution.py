@@ -13,6 +13,24 @@ from tests import test_in1
 
 
 class ModelExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_structured_role_request_and_empty_finish_keep_failed_receipt(self):
+        seen = []
+        def respond(request):
+            seen.append(json.loads(request.content))
+            return httpx.Response(200, text='data: '+json.dumps({'choices':[{'delta':{
+                'reasoning_content':'hidden'}, 'finish_reason':'stop'}]})+'\n\ndata: [DONE]\n\n')
+        await self.cloud(respond)
+        spec, _ = self.runtime.models.resolve(model='qwen:qwen3.5-flash')
+        spec['structured_output'] = {'mode':'json_object'}
+        profile = self.profile()
+        with patch('core.providers.read_key', return_value='fixture-key'):
+            result = await invoke(self.runtime, profile, 'JSON', 'public', structured_output=True)
+        self.assertEqual(result['status'], 'FAILED')
+        self.assertEqual(result['failure_category'], 'EMPTY_RESULT')
+        self.assertEqual(seen[0]['response_format'], {'type':'json_object'})
+        self.assertNotIn('response_format', spec.get('options', {}))
+        self.assertEqual(len(seen), 1)
+
     async def test_output_capacity_survives_profile_and_checkpoint_resolution(self):
         from core.model_execution import resolve_profile
         conv=self.runtime.store.create_conversation(title='frozen',model='qwen:qwen3.5-flash')

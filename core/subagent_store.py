@@ -2,6 +2,7 @@
 from dataclasses import asdict
 from hashlib import sha256
 import json
+from harness.runtime.subagents.materials import read_material, role_contract, role_prompt
 
 
 def preserve_subagent_batches(history, checkpoint):
@@ -42,6 +43,8 @@ class RunSubagentStore:
                 'plugin':task.role.plugin_id, 'plugin_version':task.role.plugin_version,
                 'tools':sorted(task.role.tools), 'depends_on':list(task.role.depends_on),
                 'prompt_sha256':sha256(task.role.prompt.encode()).hexdigest(),
+                'effective_prompt_sha256':sha256(role_prompt(task.role).encode()).hexdigest(),
+                'output_contract':role_contract(task.role)['output'],
                 'output_namespace':task.role.recipe_namespace,
                 'evidence_ids':list(task.evidence_ids)} for task in tasks]})
         self.control.manager.store.update(self.control.id, checkpoint=checkpoint)
@@ -58,14 +61,13 @@ class RunSubagentStore:
             'data':{'batch_id':batch_id, 'role_id':result.role_id, 'status':result.status,
                     'result_ref':result_ref}})
 
+    def save_error(self, batch_id, error):
+        checkpoint, batch = self._entry(batch_id)
+        batch['postprocessing_error'] = str(error)
+        self.control.manager.store.update(self.control.id, checkpoint=checkpoint)
+
     def _read_result(self, result_ref):
-        cursor, chunks = 0, []
-        while True:
-            page = self.context.read_evidence(result_ref, cursor)
-            chunks.append(page.get('content', ''))
-            cursor = page.get('next_cursor')
-            if cursor is None:
-                return json.loads(''.join(chunks))['result']
+        return json.loads(read_material(self.context.read_evidence, result_ref)['content'])['result']
 
     def get_batch(self, batch_id):
         checkpoint = self.control.manager.store.get(self.control.id)['checkpoint']
@@ -77,4 +79,5 @@ class RunSubagentStore:
             results[role_id] = {**self._read_result(row['result_ref']),
                                 'result_ref':row['result_ref']}
         return {'batch_id':batch_id, 'role_ids':list(batch['role_ids']),
-                'spec_ref':batch.get('spec_ref'), 'results':results}
+                'spec_ref':batch.get('spec_ref'), 'results':results,
+                **({'postprocessing_error':batch['postprocessing_error']} if batch.get('postprocessing_error') else {})}

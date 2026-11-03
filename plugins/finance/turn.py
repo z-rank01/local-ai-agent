@@ -19,6 +19,10 @@ DELIVERY_GUIDANCE = (
 
 
 class FinanceTurn(NullTurn):
+    def subagent_extension(self):
+        from .subagents import FinanceSubagentExtension
+        return FinanceSubagentExtension(self)
+
     def __init__(self, context=None):
         super().__init__()
         self.bridge = (context or {}).get('stock-bridge')

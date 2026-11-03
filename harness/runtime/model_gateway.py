@@ -13,4 +13,5 @@ class ConversationModelGateway:
         if not isinstance(request.prompt, str) or not request.prompt.strip():
             raise ValueError('模型请求须包含非空指令文本')
         profile, material = deepcopy((self._profile, request.material))
-        return await invoke(self._runtime, profile, request.prompt, material, request_id=request.request_id)
+        return await invoke(self._runtime, profile, request.prompt, material, request_id=request.request_id,
+                            structured_output=request.structured_output)

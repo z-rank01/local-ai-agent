@@ -76,6 +76,12 @@ class ToolRouter:
         self._providers = {owner: provider.bind(context) if isinstance(provider, ContextualTransport) else provider
                            for owner, provider in self._providers.items()}
 
+    async def close_context(self):
+        for provider in self._providers.values():
+            close = getattr(provider, 'close_context', None)
+            if close is not None:
+                await close()
+
     def _workspace_params(self, tool, params):
         snapshot = getattr(self, 'workspace_snapshot', None)
         if snapshot is None or self._registry.get_backend(tool) not in {'skill-files', 'skill-runner'}:

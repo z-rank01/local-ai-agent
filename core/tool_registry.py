@@ -214,6 +214,13 @@ class ToolRegistry:
             else:
                 desc = tool.get("description", "")
 
+            if tool['name'] == 'agent_batch_create' and hasattr(self, 'subagent_roles'):
+                from harness.runtime.subagents.materials import role_contract
+                roles = self.available_subagent_roles()
+                desc += ('\n任务只写目标、范围和补查需求，不重定义输出格式。evidence_ids只能填本轮已登记的'
+                         'task_evidence编号，不能填source_id或artifact_ref；没有就省略。依赖材料由系统交接。'
+                         '\n已登记角色契约：' + json.dumps([role_contract(role) for role in roles.values()], ensure_ascii=False))
+
             defs.append({
                 "type": "function",
                 "function": {
@@ -223,6 +230,12 @@ class ToolRegistry:
                 },
             })
         return defs
+
+    def available_subagent_roles(self):
+        owners = set(self.ownership().values())
+        return {key: role for key, role in getattr(self, 'subagent_roles', {}).items()
+                if role.tools <= self.known_tools and (not role.plugin_id or
+                    any(owner in owners for owner in self._call_policies.plugin_owners.get(role.plugin_id, ())))}
 
     def get_max_result_chars(self, tool_name: str) -> int:
         """Result characters handed back to the model; 0 means unlimited.

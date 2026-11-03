@@ -13,12 +13,22 @@ def environment(spec, snapshot, method):
     prompts.update({'plugin:' + item.identity: item.fingerprint for item in contributions})
     prompts.update({'plugin-error:' + identity: sha256(error.encode()).hexdigest()
                     for identity, error in errors.items()})
+    subagents = sha256()
+    paths = [config._PROJECT_ROOT / name for name in (
+        'config/subagents.json', 'harness/contracts/subagents.py', 'core/subagent_executor.py',
+        'core/subagent_store.py')]
+    paths += sorted((config._PROJECT_ROOT / 'harness/runtime/subagents').glob('*.py'))
+    for path in paths:
+        if path.is_file():
+            subagents.update(path.relative_to(config._PROJECT_ROOT).as_posix().encode())
+            subagents.update(path.read_bytes())
     return {'format': 1, 'model': {k: spec[k] for k in
             ('id','provider_id','model','base_url','options','context_window','generation_parameters','structured_output') if k in spec},
             'workspace_id': snapshot.id, 'workspace_version': snapshot.record['version'],
             'roots': {k:str(v) for k,v in snapshot.roots.items()}, 'cloud_read': snapshot.record['cloud_read'],
             'cloud_write': snapshot.record['cloud_write'], 'method': method, 'prompts': prompts,
-            'call_contributions': contribution_versions(config._PROJECT_ROOT / 'plugins')}
+            'call_contributions': contribution_versions(config._PROJECT_ROOT / 'plugins'),
+            'subagent_contracts': subagents.hexdigest()}
 
 
 def capture(agent, messages, frozen, response_id, archive):

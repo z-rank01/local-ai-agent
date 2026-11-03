@@ -6,7 +6,8 @@ from core.context_manager import ContextManager
 from harness.contracts.models import ModelRequest
 from harness.contracts.subagents import RoleResult
 from harness.runtime.subagents.results import public, structured_result, visible_text
-from harness.runtime.turns import NullTurn
+from harness.runtime.subagents.extensions import NullSubagentExtension
+from harness.runtime.subagents.materials import read_material, role_prompt
 
 
 class ScopedRegistry:
@@ -66,38 +67,38 @@ class ProfileSubagentExecutor:
             error=answer.get('error', ''), raw_text=visible_text(answer.get('text', '')))
 
 
-class ResearchToolTurn(NullTurn):
-    def __init__(self, research):
-        self._research = research
-
-    def before_tool(self, tool, arguments):
-        if tool == 'web_fetch' and self._research is not None and self._research.active:
-            return {**arguments, 'include_file':True}
-        return arguments
-
-    async def after_tool(self, tool, result):
-        if tool == 'web_fetch' and self._research is not None and self._research.active:
-            return await self._research.save_source(result)
-        return result
-
-
 class AgentSubagentExecutor:
     def __init__(self, agent):
         self.agent = agent
         self.known_tools = agent.registry.known_tools
 
-    def _material(self, task, store=None):
-        evidence = [self.agent.context_mgr.read_evidence(key) for key in task.evidence_ids]
+    def validate(self, tasks):
+        for task in tasks:
+            for key in task.evidence_ids:
+                self.agent.context_mgr.read_evidence(key)
+            missing = task.role.tools - self.known_tools
+            if missing:
+                raise PermissionError('角色所需能力本轮未启用：' + ','.join(sorted(missing)))
+
+    def available_roles(self, fallback):
+        registry = self.agent.registry
+        return registry.available_subagent_roles() if hasattr(registry, 'available_subagent_roles') else fallback
+
+    def _extension(self, context):
+        return getattr(context, 'subagent_extension', None) or NullSubagentExtension()
+
+    def _material(self, task, context):
+        evidence = [read_material(self.agent.context_mgr.read_evidence, key) for key in task.evidence_ids]
         material = {'task': task.text, 'evidence': evidence}
+        store = getattr(context, 'subagent_store', None)
+        prior = {}
         if task.batch_id and store is not None:
             batch = store.get_batch(task.batch_id)
-            material['prior_results'] = {role_id: {
+            prior = {role_id: {
                 key: value for key, value in row.items()
                 if key in ('status', 'artifacts', 'issues', 'result_ref')}
-                for role_id, row in batch['results'].items() if role_id != task.role.role_id}
-            research = getattr(getattr(self.agent, 'router', None), 'research', None)
-            if research is not None:
-                material['recipe_artifacts'] = research.role_materials(task.batch_id)
+                for role_id, row in batch['results'].items() if role_id in task.role.depends_on}
+        material.update(self._extension(context).material(task, prior))
         return material
 
     def _structured(self, task, text, *, status, native_receipt=None, error=''):
@@ -119,13 +120,14 @@ class AgentSubagentExecutor:
 
     async def run(self, task, context):
         if not task.role.tools:
-            material = self._material(task, getattr(context,'subagent_store',None))
+            material = self._material(task, context)
+            material_ref = self._archive_material(material)
             answer = await context.model_gateway.generate(ModelRequest(
                 request_id=task.batch_id + ':' + task.role.role_id,
-                prompt=task.role.prompt, material=material))
+                prompt=role_prompt(task.role), material=material, structured_output=True))
             return self._structured(task, answer.get('text', ''), status=answer['status'],
                 native_receipt={**{key:value for key,value in answer.items() if key != 'text'},
-                                'material_ref':self._archive_material(material)},
+                                'material_ref':material_ref},
                 error=answer.get('error', ''))
         return await self._run_with_tools(task, context)
 
@@ -148,13 +150,16 @@ class AgentSubagentExecutor:
         child.context_mgr.reader = self.agent.context_mgr.reader
         child.context_mgr.evidence_ids = set(task.evidence_ids)
         child.allowed_tool_names = set(role.tools)
-        research = getattr(child.router, 'research', None)
-        child.turn = ResearchToolTurn(research)
+        extension = self._extension(context)
+        child.turn = extension.tool_turn(task)
         child.memory = None
         child.run_control = None
-        material = self._material(task, getattr(context,'subagent_store',None))
+        child.evidence_history = []
+        child.extra_system_sections = []
+        child.continuing_checkpoint = True  # Explicit role material, no ambient workspace prefetch.
+        material = self._material(task, context)
         material_ref = self._archive_material(material)
-        messages = [{'role':'system','content':role.prompt},
+        messages = [{'role':'system','content':role_prompt(role)},
                     {'role':'user','content':json.dumps(material,ensure_ascii=False)}]
         response, tools = None, []
         child.router.research = None
@@ -162,8 +167,7 @@ class AgentSubagentExecutor:
             if event.kind == 'message':
                 response = event.data.get('message', response)
             elif event.kind == 'tool_end':
-                if research is not None and research.active:
-                    await research.observe({**event.data, 'subagent':True, 'role_id':role.role_id})
+                await extension.observe_tool(task, event.data)
                 tools.append({key:public(event.data.get(key)) for key in
                               ('name','call_id','status','result')})
             elif event.kind == 'error':
@@ -177,4 +181,5 @@ class AgentSubagentExecutor:
 def subagent_bindings(agent):
     from .subagent_store import RunSubagentStore
     return {'subagent_executor':AgentSubagentExecutor(agent),
-            'subagent_store':RunSubagentStore(agent.run_control, agent.context_mgr)}
+            'subagent_store':RunSubagentStore(agent.run_control, agent.context_mgr),
+            'subagent_extension':agent.turn.subagent_extension()}

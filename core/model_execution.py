@@ -49,9 +49,11 @@ def resolve_profile(runtime, profile):
     return spec, client
 
 
-async def invoke(runtime, profile, prompt, material, *, observe=None, request_id=None):
+async def invoke(runtime, profile, prompt, material, *, observe=None, request_id=None, structured_output=False):
     """One call, no retry or fallback. Receipts exclude prose and reasoning."""
     spec, client = resolve_profile(runtime, profile)
+    if structured_output and getattr(client, 'supports_json_object_output', False) is True:
+        client = client.with_json_object_output()
     if spec['kind']=='cloud':
         from .providers import read_key
         if not read_key(spec['api_key_env']):
@@ -133,10 +135,16 @@ async def invoke(runtime, profile, prompt, material, *, observe=None, request_id
             result.update(status='FAILED',error='HTTP_REJECTED',http_status=exc.response.status_code)
         if isinstance(exc,(httpx.ConnectError,httpx.ConnectTimeout)):
             result.update(status='FAILED',error='MODEL_UNAVAILABLE')
-        if native.get('result_status') in ('COMPLETE','FAILED','TRUNCATED'):
+        if native.get('result_status') in ('FAILED','TRUNCATED'):
             result['status']=native['result_status']
+        elif native.get('result_status') == 'COMPLETE':
+            result['status'] = 'FAILED'  # Known provider finish is not successful local delivery.
         if native.get('result_status')=='TRUNCATED':
             result.update(text=''.join(parts),finish_reason=native.get('finish_reason'))
     finally:
+        for key in ('result_status','delivery_status','visible_content_chars','reasoning_chars',
+                    'terminal_received','elapsed_seconds'):
+            if key in native:
+                result[key] = native[key]
         ledger.finish_research(call_id,result)
     return result

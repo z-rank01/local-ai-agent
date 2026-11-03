@@ -10,6 +10,19 @@ RID='12345678-1234-1234-1234-123456789abc'
 RESPONSE_ID='chatcmpl-1234567890abcdef'
 
 class NativeResponseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reasoning_only_finish_is_known_empty_delivery(self):
+        client = await self.client([{'id': RESPONSE_ID, 'choices':[{'delta':{
+            'reasoning_content':'hidden-test-reasoning'}, 'finish_reason':'stop'}]}])
+        with self.assertRaises(RuntimeError):
+            await self.run_client(client)
+        receipt = self.receipt()
+        self.assertEqual(receipt['failure_category'], 'EMPTY_RESULT')
+        self.assertEqual(receipt['result_status'], 'COMPLETE')
+        self.assertEqual(receipt['delivery_status'], 'FAILED')
+        self.assertEqual(receipt['visible_content_chars'], 0)
+        self.assertGreater(receipt['reasoning_chars'], 0)
+        self.assertTrue(receipt['terminal_received'])
+
     async def client(self, chunks=(), status=200, error=None, headers=None, raw=None, timeout=False):
         self.requests=[]
         client=CompatibleClient({'id':'qwen:mock','model':'mock','api_key_env':'IN1_FAKE_KEY',

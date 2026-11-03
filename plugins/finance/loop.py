@@ -781,7 +781,8 @@ class FinanceLoop(Agent):
                 receipt.update(data)
                 record['native_receipt']={k:data[k] for k in (
                     'local_attempt_id','result_status','finish_reason','failure_category',
-                    'delivery_status','http_status','usage','usage_status','elapsed_seconds') if k in data}
+                    'delivery_status','http_status','usage','usage_status','elapsed_seconds',
+                    'visible_content_chars','reasoning_chars','terminal_received') if k in data}
         options={'request_observer':observe} if getattr(self.llm,'observes_native_requests',False) else {}
         control=getattr(self,'run_control',None)
         if control: control.begin_step('模型单独核对')

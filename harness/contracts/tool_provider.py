@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol, runtime_checkable
 from .models import ModelGateway
 from .research import ResearchSession
+from .subagents import SubagentExtension
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class ExecutionContext:
     subagent_executor: Any = None
     subagent_store: Any = None
     run_control: Any = None
+    subagent_extension: SubagentExtension | None = None
 
 
 class ToolProvider(Protocol):

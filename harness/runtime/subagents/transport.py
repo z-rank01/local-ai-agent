@@ -2,6 +2,7 @@
 from .batch import BatchRunner
 from .spec import role_tasks
 from harness.runtime.evidence import fingerprint
+from .extensions import NullSubagentExtension
 
 
 def _view(batch):
@@ -24,18 +25,18 @@ class SubagentTransport:
         self.store = store
         self.parent_control = parent_control
         self.context = context
+        self.extension = getattr(context, 'subagent_extension', None) or NullSubagentExtension()
         self._batch_runner = None
 
     def bind(self, context):
-        return SubagentTransport(self.roles, context.subagent_executor,
+        executor = context.subagent_executor
+        roles = executor.available_roles(self.roles) if hasattr(executor, 'available_roles') else self.roles
+        return SubagentTransport(roles, executor,
                                  context.subagent_store, context.run_control, context)
 
     async def _record_result(self, batch_id, result):
-        research = self.context.research
-        if research is None or not research.active or research.record.get('research_contract_version') != 3:
-            return
         stored = self.store.get_batch(batch_id)['results'][result.role_id]
-        await research.record_role_result(batch_id, stored)
+        await self.extension.saved_result(batch_id, stored)
 
     def _runner(self):
         if self.executor is None or self.store is None:
@@ -50,6 +51,8 @@ class SubagentTransport:
         runner = self._runner()
         if tool == 'agent_batch_create':
             tasks = role_tasks(arguments.get('tasks'), self.roles)
+            if hasattr(self.executor, 'validate'):
+                self.executor.validate(tasks)
             return runner.create(tasks)
         batch_id = arguments.get('batch_id')
         if not isinstance(batch_id, str) or not batch_id:
@@ -58,12 +61,13 @@ class SubagentTransport:
             return _view(runner.status(batch_id))
         if tool == 'agent_batch_result':
             result = await runner.result(batch_id)
-            research = self.context.research
-            if research is not None and hasattr(research, 'role_batch_summary'):
-                summary = research.role_batch_summary(batch_id)
-                if summary is not None:
-                    result['research_roles'] = summary
+            result.update(self.extension.batch_summary(batch_id))
             return _view(result)
         if tool == 'agent_batch_stop':
             return _view(await runner.stop(batch_id))
         raise ValueError('未登记的子Agent工具')
+
+    async def close_context(self):
+        if self._batch_runner is not None:
+            for batch_id in tuple(self._batch_runner._tasks):
+                await self._batch_runner.stop(batch_id)

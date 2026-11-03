@@ -24,7 +24,8 @@ def structured_result(task, text, *, status, native_receipt=None, error=''):
     if status != 'COMPLETE':
         return RoleResult(role_id=task.role.role_id, status=status, error=error,
                           native_receipt=native_receipt or {}, raw_text=raw)
-    value = json.loads(raw)
+    fenced = re.fullmatch(r'```(?:json)?\s*\n(.*?)\n```', raw, flags=re.S | re.I)
+    value = json.loads(fenced.group(1) if fenced else raw)
     if not isinstance(value, dict):
         raise ValueError('子Agent结果须为对象')
     items = value.get('artifacts')

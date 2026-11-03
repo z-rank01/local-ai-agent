@@ -18,6 +18,10 @@ class NullSourceReview:
 
 
 class NullTurn:
+    def subagent_extension(self):
+        from .subagents.extensions import NullSubagentExtension
+        return NullSubagentExtension()
+
     def __init__(self):
         self.quality_research = False
         self.reply_purpose_enabled = False
