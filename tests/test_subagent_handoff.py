@@ -1,6 +1,7 @@
 import asyncio
 import json
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from harness.contracts.subagents import RoleTask
 from harness.runtime.subagents.batch import BatchRunner
@@ -34,6 +35,39 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 structured_result(task, invalid, status='COMPLETE')
         self.assertIn('figures', role_prompt(spec))
+
+    def test_real_fenced_preamble_preserves_payload_and_entire_visible_receipt(self):
+        from dataclasses import replace
+        fixture = json.loads((Path(__file__).parent / 'fixtures' /
+                              'finance_fenced_preamble.json').read_text(encoding='utf-8'))
+        spec = replace(role('finance_evidence', kind='source_excerpts'),
+                       output_schema={'type':'object', 'required':['excerpts']})
+        task = RoleTask(role=spec, text='read the saved original')
+        raw = fixture['raw_text']
+        result = structured_result(task, raw, status='COMPLETE')
+        self.assertEqual(result.raw_text, raw)
+        self.assertEqual(result.artifacts[0].content, fixture['content'])
+        self.assertEqual(result.issues, tuple({'reason':x} for x in fixture['issues']))
+        failed = structured_result(task, raw, status='UNKNOWN', error='network unknown')
+        self.assertEqual(failed.status, 'UNKNOWN')
+        self.assertEqual(failed.artifacts, ())
+        self.assertEqual(failed.raw_text, raw)
+
+    def test_fence_extraction_rejects_ambiguity_truncation_and_invalid_contract(self):
+        from dataclasses import replace
+        spec = replace(role('calculation', kind='calculation'),
+                       output_schema={'type':'object', 'required':['calculations','figures']})
+        task = RoleTask(role=spec, text='calculate')
+        valid = '{"artifacts":[{"kind":"calculation","content":{"calculations":[],"figures":[]}}]}'
+        fenced = '```json\n' + valid + '\n```'
+        for invalid in (fenced + '\n' + fenced, '说明\n' + fenced[:-3],
+                        '说明\n```json\n' + valid[:-3] + '\n```',
+                        '说明\n' + fenced.replace(',"figures":[]', ''),
+                        '说明\n' + fenced.replace('"kind":"calculation"', '"kind":"claims"'),
+                        '说明\n' + valid):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    structured_result(task, invalid, status='COMPLETE')
 
     async def test_invalid_evidence_does_not_start_any_model(self):
         def denied(key):

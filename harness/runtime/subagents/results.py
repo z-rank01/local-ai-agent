@@ -24,8 +24,16 @@ def structured_result(task, text, *, status, native_receipt=None, error=''):
     if status != 'COMPLETE':
         return RoleResult(role_id=task.role.role_id, status=status, error=error,
                           native_receipt=native_receipt or {}, raw_text=raw)
-    fenced = re.fullmatch(r'```(?:json)?\s*\n(.*?)\n```', raw, flags=re.S | re.I)
-    value = json.loads(fenced.group(1) if fenced else raw)
+    # A single complete JSON fence identifies its payload even when the model
+    # adds a prose preamble. Keep that prose in raw_text, never infer JSON from
+    # braces or choose among multiple blocks, and never repair the payload.
+    fences = list(re.finditer(r'^```([^\r\n]*)\r?$', raw, flags=re.M))
+    if (len(fences) == 2 and fences[0].group(1).strip().lower() in ('', 'json')
+            and not fences[1].group(1).strip()):
+        payload = raw[fences[0].end():fences[1].start()].strip()
+    else:
+        payload = raw
+    value = json.loads(payload)
     if not isinstance(value, dict):
         raise ValueError('子Agent结果须为对象')
     items = value.get('artifacts')
