@@ -190,4 +190,14 @@ Stock_Agent_Workspace/
 <div class="callout"><strong>落地要求：</strong>以这份清单指导实现，不做一轮纯命名或纯拆文件的“大扫除”。每批围绕一个可验证功能边界完成迁移，保持用户可见行为、数据与运行语义连续。</div>
 </section>
 <section><span class="num">11 / 设计依据</span><h2>借鉴机制，不照搬产品体量</h2><p>本方案基于双仓库静态审阅及前轮核验的一手资料。Cordis 借鉴生命周期与组合；VS Code 借鉴界面贡献点；OpenCode 借鉴服务端运行状态；Pi 借鉴核心与扩展分层。新增验收、编码原则与扩展取舍属于本项目设计要求，当前不绑定新的大型框架。</p><div class="sources"><a href="https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md">DeepSeek / Cordis</a><a href="https://code.visualstudio.com/api/references/contribution-points">VS Code 贡献点</a><a href="https://opencode.ai/docs/server/">OpenCode 服务端</a><a href="https://github.com/earendil-works/pi">Pi</a><a href="https://agentskills.io/home">Agent Skills</a><a href="https://alistair.cockburn.us/hexagonal-architecture">Ports &amp; Adapters</a></div></section>
-</details><section id="subagent-extension-20261103"><h2>通用子Agent扩展 · 2026-11-03</h2><p>Harness管理一层批次、依赖、权限与回执；Core实现冻结模型和父检查点适配。当前插件回合策略提供可选SubagentExtension，金融插件负责来源处理、Recipe映射与摘要。作者和子角色共用登记输出契约；角色材料完整分页，停止等待收尾，历史结果不重启执行。四场景及人工验收状态仅看股票仓库计划。</p></section></main><footer><p>2026-10-28 实现与验收证据快照。当前进度唯一来源：股票仓库 docs/计划.md。单文件、无外部脚本／字体；页面不操作真实能力或账户。窄屏表格可横向滚动。</p></footer></body></html>
+</details><section id="subagent-extension-20261103"><h2>通用子Agent扩展 · 2026-11-03</h2><p>Harness管理一层批次、依赖、权限与回执；Core实现冻结模型和父检查点适配。当前插件回合策略提供可选SubagentExtension，金融插件负责来源处理、Recipe映射与摘要。四场景及人工验收状态仅看股票仓库计划。</p>
+<div class="diagram" role="img" aria-label="作者通过通用Harness委派角色，金融插件提供可选领域扩展，成果返回作者，建议核对后由作者明确发布">
+<div class="layer"><strong>聊天／作者 AI</strong><span>读取登记 RoleSpec · 任务只写目标与材料范围 · 冻结本会话模型和授权</span></div>
+<div class="arrow">↓ agent_batch_create / status / result / stop　↑ 成果引用与真实终态</div>
+<div class="layer core"><strong>通用 Harness BatchRunner ＋ Core executor/store</strong><span>一层调度 · 依赖等待 · 受限工具 · 模型执行 · 取消收尾 · 父检查点与 task_evidence</span></div>
+<div class="arrow">当前回合提供可选 SubagentExtension；无插件时为空实现</div>
+<div class="grid two"><div class="node"><strong>通用角色</strong><span>config/subagents.json<br>文件读取、材料整理等基础能力<br>同一登记输出契约注入角色系统上下文</span></div><div class="node"><strong>金融插件扩展</strong><span>取证 → 计算 → 分析 → 角色审查<br>绑定当前研究、保存来源、映射 Recipe<br>补充材料与摘要，不承担通用调度</span></div></div>
+<div class="arrow">↑ 完整成果归档一次；作者与依赖角色读取必要投影和可回读引用</div>
+<div class="layer"><strong>作者选择成果并写作 → 候选稿独立核对 → 作者明确发布</strong><span>角色审查与候选稿核对保留两级；核对是建议，COMPLETE 不证明内容正确</span></div>
+<div class="supervisor">显式证据与大成果完整分页；保存、映射失败释放等待并返回具体错误。父停止等待本地收尾，外部未确认保持 UNKNOWN；重启后历史结果只读，不自动执行或重发。金融 source_id、task_evidence 编号与 artifact 引用分别解释。</div>
+</div></section></main><footer><p>主体为2026-10-28架构快照，通用子Agent扩展于2026-11-03补充。当前进度唯一来源：股票仓库 docs/计划.md。单文件、无外部脚本／字体；页面不操作真实能力或账户。窄屏表格可横向滚动。</p></footer></body></html>
