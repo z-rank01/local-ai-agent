@@ -1,7 +1,8 @@
 """IN4.19 acceptance client for the existing BFF, never an application launcher.
 
 Each invocation starts one explicit scenario or collects its existing run.
-It inherits the source conversation's model/workspace and never retries a POST.
+It inherits the source workspace and model unless explicitly selected for a new
+user-authorized acceptance conversation, and never retries a POST.
 """
 import argparse
 import hashlib
@@ -73,6 +74,7 @@ def main():
     parser.add_argument('scenario', choices=PROMPTS)
     parser.add_argument('--source-conversation', required=True)
     parser.add_argument('--variant', default='v1')
+    parser.add_argument('--model', help='仅在用户明确授权时，为新验收会话选择模型；不修改来源会话或旧运行')
     parser.add_argument('--collect', action='store_true')
     parser.add_argument('--question-file', type=Path, help='本次公开自然问题；只选择验收输入，不改变模型、权限或执行入口')
     parser.add_argument('--revision-of', default='', help='原已保存research.json；新建关联修订，不恢复旧运行')
@@ -100,20 +102,22 @@ def main():
         if output.exists():
             raise RuntimeError('验收记录已存在；使用--collect读取，禁止自动重发')
         source = get(client, '/api/conversations/' + args.source_conversation)
+        model = args.model or source['model']
         workspaces = get(client, '/api/workspaces')
         entries = workspaces.get('workspaces', []) if isinstance(workspaces, dict) else workspaces
         workspace = next(w for w in entries if w['id'] == source['workspace_id'])
-        if not source['model'].startswith('ollama:') and (
+        if not model.startswith('ollama:') and (
                 not workspace.get('cloud_read') or not workspace.get('cloud_write')):
             raise RuntimeError('原工作区没有既有读写授权；本客户端不扩大权限')
         status = get(client, '/api/admin/stock-service')
         if status.get('worker', {}).get('enabled') or status.get('worker', {}).get('busy'):
             raise RuntimeError('日常worker未暂停，未提交验收')
         result = {'scenario': args.scenario, 'source_conversation': source['id'],
-                  'workspace_id': source['workspace_id'], 'model': source['model'],
+                  'workspace_id': source['workspace_id'], 'model': model,
+                  'source_model': source['model'], 'explicit_model_selection': args.model,
                   'request_id': uuid.uuid4().hex, 'status': 'PREPARED'}
         response = client.post('/api/conversations', json={'title': 'IN4.19交付收尾 · ' + args.scenario + ' · ' + args.variant,
-            'model': source['model'], 'workspace_id': source['workspace_id'],
+            'model': model, 'workspace_id': source['workspace_id'],
             'capability_ids': source.get('capability_ids', [])})
         response.raise_for_status()
         result['conversation_id'] = response.json()['id']
