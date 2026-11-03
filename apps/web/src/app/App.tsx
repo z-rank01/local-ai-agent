@@ -143,8 +143,13 @@ export default function App(): JSX.Element {
   const modelSaving=useRef(false);
   const liveRun=currentRun&&RUN_LIVE.has(currentRun.status)?currentRun:undefined;
   const busy=turnPending||Boolean(liveRun);
-  const refreshRuns=useCallback(async()=>{
-    const next=await fetchRuns(); setRunList(next); setRunError(''); return next;
+  const runsRequest=useRef<Promise<RunList>|null>(null);
+  const refreshRuns=useCallback(()=>{
+    if(runsRequest.current)return runsRequest.current;
+    const request=fetchRuns().then(next=>{setRunList(next);setRunError('');return next;});
+    runsRequest.current=request;
+    void request.finally(()=>{if(runsRequest.current===request)runsRequest.current=null;}).catch(()=>{});
+    return request;
   },[]);
 
   const chooseModel=async(model: string)=>{
