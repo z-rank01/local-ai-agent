@@ -25,7 +25,7 @@
 .\scripts\start-daily.ps1 -AcceptanceState 'simulation/in45-method-acceptance-20261010' # 同一入口的验收配置核对；须已保存对应独立目录且worker=false
 .\scripts\check-env.ps1          # 环境自检
 .\scripts\stop-backend.ps1       # 应急：只停聊天后端（页面打不开时用）
-.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1029项、21项跳过，2026-11-02实测；Windows asyncio需可用本机socket）
+.\.conda\python.exe -m tests.run_offline # 离线驱动禁止真实HTTP（1065项、21项跳过，2026-11-03实测；Windows asyncio需可用本机socket）
 npm run build --prefix apps/web  # 前端构建（BFF 托管 apps/web/dist）；系统 TEMP 权限拒绝时用同一入口 -RebuildWeb
 docker compose up -d             # 工具容器（websearch profile 由页面开关管理）
 ```
@@ -91,7 +91,7 @@ powershell Start-Process …（由聊天后端调用）
 - 前端 `apps/web/src/` 为组件化结构：`app/`（App.tsx 编排层 + 顶栏/会话抽屉/输入胶囊（含 A 能力栏）/阅读栏/工作台 Sheet/设置/阅读器等区块）、`panels/`（工作区、技能、股票、打包任务）、`ui/`（Collapse/Panel/Popover 等基元）、`lib/`（storage/format/appearance/transcript/report/notify/confirm/flags）；`styles.css` 是唯一令牌来源（Apple 设计系统，旧三栏紫系已废弃）。能力管理侧栏 v2 在 `panels/capabilities/CapabilityManager.tsx`，旧界面保留为 `SkillsPanelLegacy.tsx`；两侧与 Composer 共用 App 的 `useCapabilityRegistry` 与 selection，`VITE_CAPABILITY_BAR_A` 是能力面总开关，关闭时同时回退 Composer 与侧栏。界面无常驻侧栏：顶栏细条 + 全屏阅读栏 + 底部悬浮输入胶囊；会话抽屉与工作台 Sheet 两级浮层默认收起；唯一"退出"按钮在会话抽屉底部。
 - 提示词在 `config/prompts/`（从旧 gateway/ 迁入；`core/config.py` 的 `PROMPTS_DIR` 指到这里）。普通聊天通用系统内容维护在 `prompts/modules/01..07`；搜索与金融专属内容在各自 `plugins/<id>/prompts/`，由清单 `prompts` 声明并按本轮登记工具选择。新增能力提示不改通用 Agent 分支。插件提示文件和触发声明一起进入检查点兼容指纹；`prompts/system.txt` 只是 modules 缺失时的兜底占位。自主研究的单独核对角色使用 `plugins/finance/prompts/review.txt`，不作为普通聊天模块注入；它与原模块一起进入检查点兼容指纹。
 
-聊天自主研究的evidence_requests由程序展开为原工具调用，不另起执行后端。evidence-index.json只登记实际收到的资料及模型标注；reviews保存同模型单独核对的候选稿/可见结果，不保存隐藏思维链、不进入正文。新研究research_contract_version=2保存动态Recipe，方法正文、父稿与历史问题明确交接；供应商序列化后可见材料沿原task_evidence归档并关联实际调用，不能把下载/保存冒充已纳入请求。brief_review或brief_publish先返回建议；brief_publish首次REVIEW_READY不发布，作者带review_ref与简短review_response明确发布，可保留有依据的异议，不要求意见清零。同稿同证据回执复用，失败/UNKNOWN不重发；旧契约不改写。详见docs/金融研究Recipe契约.md。研究不按累计时长、轮数、搜索/抓取次数或无进展计数强制收尾；进展计数仅作诊断，后台提交按已授权目标选择，受理不代表执行，不开启日常worker或恢复账户/旧任务。STOCK_WINDOW_SECONDS废弃；broker v2无研究deadline/max_steps，已保存v1保持原契约，不自动升级或重发。单次网络超时、当前授权、账户准入及用户停止仍生效。
+历史v1/v2研究的evidence_requests由程序展开为原工具调用，不另起执行后端；新研究使用research_contract_version=3，由finance_evidence、finance_calculation、finance_analysis、finance_review四个声明式角色分别填写摘录、已校验计算、claims及核对建议。作者等待整批终态后以decision_claim_ids和实际artifact引用编辑报告，不能覆盖角色原始成果或另开直接取证／计算路径。金融映射位于plugins/finance/research/roles.py，通用调度不在金融插件内。evidence-index.json只登记实际收到的资料及模型标注；reviews保存同模型单独核对的候选稿/可见结果，不保存隐藏思维链、不进入正文。方法正文、父稿与历史问题明确交接；供应商序列化后可见材料沿原task_evidence归档并关联实际调用，不能把下载/保存冒充已纳入请求。brief_review或brief_publish先返回建议；brief_publish首次REVIEW_READY不发布，作者带review_ref与简短review_response明确发布，可保留有依据的异议，不要求意见清零。v3核对指纹覆盖原问题、候选稿、方法、角色成果与核心claims选择。同版回执复用，失败/UNKNOWN不重发；旧契约不改写。详见docs/金融研究Recipe契约.md。研究不按累计时长、轮数、搜索/抓取次数或无进展计数强制收尾；进展计数仅作诊断，后台提交按已授权目标选择，受理不代表执行，不开启日常worker或恢复账户/旧任务。STOCK_WINDOW_SECONDS废弃；broker v2无研究deadline/max_steps，已保存v1保持原契约，不自动升级或重发。单次网络超时、当前授权、账户准入及用户停止仍生效。
 
 ## 约定
 
@@ -151,6 +151,8 @@ Harness 当前实现：正式聊天的方法型 Skill 通过 Runner 的版本接
 
 local_agent是聊天Agent内部的单次本地Gemma4:26b调用；无工具、发布、账户操作或递归权限，主模型已为Gemma4时不开放。只接受本轮已授权材料/登记证据，复用运行控制、轨迹和原模型账本；失败不切换、不下载，取消或缺终态保持UNKNOWN。
 
+通用子Agent通过 `agent_batch_create/status/result/stop` 提供一层委派。角色声明在 `config/subagents.json` 或插件 `agent_roles` 中，工具只能收窄，禁止递归委派、创建研究或发布。可选能力声明在 `ToolRegistry.declared_tools` 校验，执行只使用本轮实际注册的工具子集。Harness BatchRunner只依赖执行协议与可选成果回调，按真实本地终态释放批次和依赖等待；保存或映射失败须返回错误，不能悬置。Core executor/store负责受限上下文、材料归档及父检查点适配；大成果按next_cursor完整恢复，依赖角色取得实际artifacts，父运行停止传播，UNKNOWN不自动重试。ResearchToolTurn在独立来源会话中为子角色web_fetch启用include_file并沿用原save_source，通用turn.research赋值不覆盖来源会话。成果保存于父检查点及task_evidence，不创建独立顶层run或第二数据库。文字issues按reason保存，映射型artifacts按数组语义展开；kind、content、引用与raw_text不改写，非法类型仍失败。多值claims文本用分号连接，页码和字符定位只采用已验证摘录，其他声明标为未确认。角色计算逐项校验并保留错误索引，不把一项错误扩散为整批或改写近似结果；提示角色将result留空由程序计算。金融四角色已声明并接入v3 Recipe，映射仅在plugins/finance/research/roles.py；作者与独立核对共用material_view.py精简视图，只直接展开验证摘录、有效计算、图表及审查建议，原始角色成果沿result_ref和task_evidence完整回读，不在每次请求重复展开。历史v2只作兼容，实际部署与场景状态以股票仓库docs/计划.md为准。
+
 ## 插件前端贡献（构建登记）
 
 插件清单的 `ui.settings` 指向 `apps/web/src/plugins/<插件ID>/` 内的 TSX 入口。构建/开发/类型检查先运行 `scripts/generate-extensions.mjs`，生成已忽略的 extensions/generated.ts，不手工加宿主组件导入。面板只消费 CapabilityPanelProps 与通用 HTTP 接口，独立延迟加载；金融/搜索控制 API 和领域类型归各自前端包。新增 UI 资源需原入口构建并刷新生效，不加载任意远程 JavaScript。随源码包及已信任的本地包都经同一构建登记；未经信任的远程代码不因此获得执行或提示权限。
@@ -168,3 +170,5 @@ local_agent是聊天Agent内部的单次本地Gemma4:26b调用；无工具、发
 Recipe schema v2的成果更新可随原核对/发布提交，不逐工具强制填表。execution阶段选择只作诊断，模型通过output_refs明确采用产物；claims稳定ID与条件、反证、未解问题进入原交接包，不替代原文。核对阶段为发布前，不要求未来报告卡；实际交付仍在发布后验证。百分点仅在比率差值计算中产生，不允许比例水平直接换算。部署与实景以股票计划为准。
 
 Recipe交接的outcome_version只观察阶段采用候选的正文版本；旧版本评估不得冒充当前，UNBOUND及版本不一致只提示，不阻止授权工具或发布。显式货币换算同时核验系数方向及数值。核对建议新增的事实、时点和因果仍须对照原文，不能把建议自动当作事实。
+
+作者交接的反馈工具结果不重复携带已有Recipe、artifacts和review投影；未被claims采用的历史计算只保留摘要，采用的完整算式不改写。语义Recipe投影排除execution/active_stage_id，原始回执与完整历史仍可回读。previous_findings只保留core_answer，可选和发布后建议不自动扩展下轮任务。工具流只有在result成功解析及结果处理后才容忍尾部传输错误；结果处理失败仍按真实错误结束，不重试。

@@ -1,24 +1,31 @@
 # 金融研究 Recipe 与材料交接契约
 
-本契约适用于新建 `research_contract_version=2` 研究。源码、部署、内容验收分别记录；当前进度只看股票仓库 `docs/计划.md`。历史研究不改写，不自动恢复旧任务或 UNKNOWN。
+新建研究使用 `research_contract_version=3` 与 `Recipe.schema_version=3`。源码、部署、内容验收分别记录；当前进度只看股票仓库 `docs/计划.md`。v2 保留历史读取和兼容，不作为另一条新研究路径；旧研究不改写，不自动恢复旧任务或 UNKNOWN。
 
 独立核对只使用核对角色系统指令，不继承作者的研究启动、工具编排及写稿发布指令；同一冻结模型、方法正文、原问题和实际材料仍然保留。作者按原问题及Recipe目标判断补查、收窄或发布，核对意见不会自动扩展用户要求；建议式模式不要求意见清零。
 
-| 接口 | 契约 |
+| v3 部分 | 当前契约 |
 | --- | --- |
-| `research_begin` | 首次可传 `recipe.stages`，省略时从 `plan` 创建；`stage_updates` 按返回 ID 修改，省略 ID 新增；`active_stage_id` 选择关联后续回执的阶段。返回 Recipe 版本、稳定阶段 ID 和实际 artifacts 索引 |
-| 工作单字段 | 目标、依赖、预期产出、检查方式、输入/产物引用、未解问题、模型判断及核心 claims。模型状态不等于执行状态，阶段不控制工具权限或运行时长 |
-| 程序回执 | artifacts 只登记实际来源、已读取方法、工具回执、候选稿及程序校验后的计算。Recipe.execution 自动登记回执引用及实际状态，未选阶段明确未关联，不自动宣布目标完成。模型不能写入这些回执或引用未登记产物 |
+| 通用角色执行 | Harness通过 `agent_batch_create/status/result/stop` 执行一层角色，父检查点与task_evidence保存角色声明、实际输入、结构化成果和真实终态；不新建顶层run、模型客户端或数据库 |
+| `finance_evidence` | 使用受限公开资料工具取得来源，输出真实source_id、连续excerpts和定位；工具回执进入父研究，不能只存在于子角色私有上下文 |
+| `finance_calculation` | 依据取证成果给出输入、期间、单位和算式；现有Decimal校验生成validated_calculation及figure，失败保留候选但不给作者采用 |
+| `finance_analysis` | 依赖前两类成果，分别提出fact/calculation/inference claims、条件、反证和缺口，不生成或发布最终报告 |
+| `finance_review` | 只读返回claim_checks、issues及read_requests，供作者决定是否复核；不是发布否决权 |
+| 作者编辑 | 等待四个必需角色整批终态后，选择 `decision_claim_ids`、`sources[].artifact_ref`、`calculation_refs` 和可选 `chart_refs` 写稿；不得改写 `owner=subagent` 的阶段、原文、算式或判断，不另开直接取证／计算路径 |
+| `research_begin` | v3只建立目标与作者编辑阶段，不接收直接 `evidence_requests`；`stage_updates` 不能覆盖角色阶段或自填角色claims。返回实际角色归属和artifacts索引 |
+| 程序回执 | artifacts只登记真实来源、角色成果、已读取方法、工具回执、候选稿及校验后的计算；`role_batches` 与 `owner=subagent` 阶段保存producer_role、result_ref和真实状态，COMPLETE不表示事实认证 |
+| 作者与核对材料视图 | `material_view.py` 直接展开验证摘录、validated_calculation、figure与claim_checks，其他角色成果保留类型、指纹和result_ref；原始回执沿task_evidence完整回读，不在每次请求重复展开。来源received标明VERIFIED_ROLE_EXCERPTS，不以精简投影代替全部已读范围 |
 | 比值与百分数 | 同类量相除时统一货币单位；结果单位“倍”保存小数比例，“%”保存百分数（0.15倍=15%）。显式单位换算常数沿原算式。可省略派生result，由程序按Decimal精度计算；显式结果不符返回计算索引，不改写原稿。主体、期间和业务含义仍由模型核对 |
-| `brief_review` | 同一冻结模型、干净上下文，排除review自查和editorial_notes修订声明；显式呈现标题、立场、截止日和开头结论。返回review_ref、建议及claim_checks核心原句/原文/可证明范围对照，不发布；补读需求始终返回作者 |
-| `brief_publish` | 新契约先返回 `REVIEW_READY`；作者对照证据选择补查、修改或保留异议。实际返回的 `review_ref` 随原核对记录保存，后续作者交接及检查点恢复持续携带。明确发布再次携带该引用和简短 `review_response`。同稿同证据复用，变更后核对新版本；不要求意见清零 |
+| `brief_review` | 同一冻结模型、干净上下文，排除review自查和editorial_notes修订声明；显式呈现标题、立场、截止日和开头结论。返回review_ref、建议及claim_checks核心原句/原文/可证明范围对照，不发布；补读需求始终返回作者，v3由作者安排新角色批次复核 |
+| `brief_publish` | 先返回 `REVIEW_READY`；作者对照证据选择复核、修改或保留异议。明确发布再次携带实际 `review_ref` 和简短 `review_response`。同稿同角色上下文复用，变化后核对新版本；`PUBLISH_REVIEW_ENFORCE=false` 保持建议式，不要求意见清零 |
+| 核对版本身份 | v3 `review_context_sha256` 覆盖原问题、候选稿、方法正文、实际角色artifacts指纹和decision_claim_ids，排除execution噪声；角色成果或核心选择变化后旧核对不可复用 |
 
 ## 状态与上下文
 
 | 部分 | 保存与使用 |
 | --- | --- |
 | 唯一研究状态 | Recipe 随原研究状态进入原运行检查点；`research.json.recipe` 是工作区投影。旧版本留在 `recipe_history`，原始材料不另建副本库 |
-| 写作者交接 | 收到新核对反馈时建立recipe-author-v2输入包：原问题、Recipe、全部已返回证据、所选方法、最近提交稿及最新核对意见；其后全部连续操作继续进入请求，包括另存新稿、脚本参数与回执，不每步重置为两条消息。新一版核对再建立边界；边界无法定位时保留原视图。完整可见历史另存原task_evidence并可回读 |
+| 写作者交接 | v3收到新核对反馈时建立recipe-author-v3输入包（历史v2保持原版本）：原问题、Recipe、全部已返回证据、实际角色成果、所选方法、最近提交稿及最新核对意见；其后全部连续操作继续进入请求，包括另存新稿、脚本参数与回执，不每步重置为两条消息。新一版核对再建立边界；边界无法定位时保留原视图。完整可见历史另存原task_evidence并可回读 |
 | 核对交接 | 当前稿、同版证据、方法、Recipe、已知冲突与历史问题；作者自查肯定不进入独立核对视图。claim_provenance只记录原句及引文能否在当前稿/实际返回资料中定位；模型assessment和观察日期仍是模型标注，引用匹配不认证语义，不增加发布否决权 |
 | 请求材料清单 | 从建立研究之前首次工具流请求起，供应商完成消息序列化后归档可见协议，关联实际调用 ID、消息指纹、证据 ID 和原文范围。初始清单可跨原检查点保留；记录完整材料是否在本次请求中，不以保存或下载状态冒充已纳入请求 |
 | 安全与隔离 | 沿用当前会话、工作区和云读授权；归档不保存隐藏思维链、认证头或密钥，不授予新权限 |
@@ -72,3 +79,7 @@
 作者与核对输入中的阶段和claim均带程序投影outcome_version。采用候选稿的正文指纹与当前稿不一致或无法核实时标OLDER_OR_UNVERIFIED_CANDIDATE；只读旧评估不自动变为当前结论。模型通过原stage_updates更新判断及采用的新candidate引用，历史记录保留；CURRENT_TEXT_REFERENCE仅代表正文引用匹配，不认证计算或金融语义。无候选引用标UNBOUND，不隐藏工具、不强制补表。实际校验后的候选及计算同时登记到原artifacts。
 
 显式货币换算的除法系数单位须为输入单位/输出单位，乘法相反，系数数值须与货币单位尺度一致；错误返回calculations索引，不修改原稿。
+
+### 交接投影与反馈范围
+
+作者交接保留实际原文与可回执回读的完整历史，但反馈工具结果不重复携带已由materials/latest_feedback提供的Recipe、artifacts和review；历史计算artifacts仅为索引进项保留摘要，被claims采用的算式保持完整。语义Recipe投影排除execution与active_stage_id，原始research.json及工具回执不改写。previous_findings仅保留core_answer，optional与postpublication留在本次反馈，不自动扩展下一轮任务。
