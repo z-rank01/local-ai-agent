@@ -46,6 +46,36 @@ $dailyWebToken = (& $dailyPython -c "from core.ui_session import session_token; 
 if ($LASTEXITCODE -ne 0 -or $dailyWebToken.Length -lt 32) { throw 'Unable to prepare browser session credential' }
 $dailyBrowserUrl = 'http://127.0.0.1:9510/#session=' + $dailyWebToken
 
+# Reopening an authenticated live stack must not rebuild or redeploy it.
+# If its launcher was lost, this same entry owns the replacement controller;
+# the BFF still performs the normal drain and requests all Docker operations.
+$dailyExisting = $false
+try {
+    $dailyExistingStatus = Invoke-RestMethod 'http://127.0.0.1:9510/api/status' -Headers @{ 'X-Harness-Session' = $dailyWebToken } -TimeoutSec 5
+    $dailyExisting = [bool]$dailyExistingStatus.daily_services
+} catch {}
+if ($dailyExisting) {
+    if ($Build -or $RebuildWeb) { throw 'Exit the running stack before rebuilding; no build was attempted.' }
+    $dailyRecoveredController = $null
+    try {
+        $dailyExistingController = Invoke-RestMethod 'http://127.0.0.1:9511/health' -TimeoutSec 2
+        if ($dailyExistingController.service -ne 'daily-launcher-service-supervisor') { throw 'Unexpected controller identity' }
+    } catch {
+        if (Get-NetTCPConnection -LocalPort 9511 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Controller identity could not be verified on port 9511; no process was replaced.'
+        }
+        $dailyRecoveredController = New-DailyServiceSupervisor $dailyRoot
+        Write-DailyProcessIdentity 'launcher_pid' $PID
+        Write-DailySupervisorLog $dailyRecoveredController 'recovered controller for authenticated existing BFF; awaiting normal page exit'
+        Write-Warn2 'Recovered launcher controller. Exit from the page, then start again to load updated code.'
+    }
+    if ($Desktop) {
+        Start-Process -FilePath $dailyPython -ArgumentList @((Join-Path $PSScriptRoot 'desktop_window.py'), $dailyBrowserUrl) -WorkingDirectory $dailyRoot
+    } else { Start-Process $dailyBrowserUrl }
+    if ($dailyRecoveredController) { Wait-DailyServiceSupervisor $dailyRecoveredController }
+    return
+}
+
 # Use the stock service's configured loopback Ollama endpoint when available.
 $dailyOllamaUrl = 'http://127.0.0.1:11434'
 $dailyServicesFile = Join-Path $dailyRoot 'data/private/daily-services.json'

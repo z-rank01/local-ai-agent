@@ -85,6 +85,23 @@ function New-DailyServiceSupervisor([string]$ProjectRoot) {
 
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 9511)
     $listener.Start()
+    # Windows PowerShell Start-Process may inherit native handles. A surviving
+    # child must never retain this listening socket after the launcher exits.
+    try {
+        if (-not ('DailySocketHandle' -as [type])) {
+            Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class DailySocketHandle {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+}
+"@
+        }
+        if (-not [DailySocketHandle]::SetHandleInformation($listener.Server.Handle, 1, 0)) {
+            throw "Cannot disable controller socket inheritance: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
+        }
+    } catch { $listener.Stop(); throw }
     return @{
         Listener = $listener
         Token = $token
@@ -444,11 +461,18 @@ function Invoke-DailyServiceSupervisorRequest($Context) {
 }
 
 function Wait-DailyServiceSupervisor($Context) {
+    Write-DailySupervisorLog $Context "controller loop started pid=$PID"
+    try {
     while (-not $Context.ShutdownRequested) {
         foreach ($key in @($Context.Preparations.Keys)) { $null = Read-DailyPluginPreparation $Context $key }
         Invoke-DailyServiceSupervisorRequest $Context
         if (-not $Context.ShutdownRequested) { Start-Sleep -Milliseconds 100 }
     }
-    try { $Context.Listener.Stop() } catch {}
-    Write-DailySupervisorLog $Context 'launcher supervisor stopped'
+    } catch {
+        Write-DailySupervisorLog $Context ("controller loop failed: " + $_.Exception.Message) -IsError
+        throw
+    } finally {
+        try { $Context.Listener.Stop() } catch {}
+        Write-DailySupervisorLog $Context "launcher supervisor stopped; shutdown_requested=$($Context.ShutdownRequested)"
+    }
 }
