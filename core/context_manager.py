@@ -180,18 +180,61 @@ class ContextManager:
         # Keep whole user turns; never split a tool request from its responses.
         while safe_boundary > 0 and work_msgs[safe_boundary].get('role') != 'user':
             safe_boundary -= 1
+        preserved_question = []
         if safe_boundary < 2:
-            return messages
+            # A long autonomous turn may have only one user message. Compact
+            # completed exchanges inside that turn, never an outstanding call.
+            if not work_msgs or work_msgs[0].get('role') != 'user':
+                return messages
+            pending = set()
+            invalid = False
+            candidates = []
+            limit = max(1, len(work_msgs) - self._preserve_recent)
+            for index, message in enumerate(work_msgs):
+                if message.get('role') == 'assistant':
+                    for call in message.get('tool_calls', []):
+                        call_id = call.get('id')
+                        if not call_id or call_id in pending:
+                            invalid = True
+                        else:
+                            pending.add(call_id)
+                elif message.get('role') == 'tool':
+                    call_id = message.get('tool_call_id')
+                    if call_id not in pending:
+                        invalid = True
+                    else:
+                        pending.remove(call_id)
+                boundary = index + 1
+                if (2 < boundary <= len(work_msgs) and not pending and not invalid
+                        and (boundary == len(work_msgs) or work_msgs[boundary].get('role') != 'tool')):
+                    candidates.append(boundary)
+            if not candidates:
+                return messages
+            preferred = [boundary for boundary in candidates if boundary <= limit]
+            safe_boundary = preferred[-1] if preferred else candidates[0]
+            preserved_question = [work_msgs[0]]
+            # Recent messages are a preference, not permission to send an
+            # oversized tail. Include later complete exchanges when necessary.
+            for boundary in candidates:
+                if boundary < safe_boundary:
+                    continue
+                safe_boundary = boundary
+                if self.estimate_tokens(system_msgs + preserved_question + work_msgs[boundary:]) <= int(
+                        self._context_window * self._compact_threshold):
+                    break
 
-        to_summarize = work_msgs[:safe_boundary]
-        to_keep = work_msgs[safe_boundary:]
+        to_summarize = work_msgs[len(preserved_question):safe_boundary]
+        to_keep = preserved_question + work_msgs[safe_boundary:]
 
         conv_parts: list[str] = []
         for m in to_summarize:
             role = m.get("role", "unknown")
-            content = m.get("content", "")
+            content = m.get("content") or ""
             evidence_id = self.archive(m)
             self.evidence_ids.add(evidence_id)
+            if m.get('tool_calls'):
+                import json
+                content += '\n工具调用：' + json.dumps(m['tool_calls'], ensure_ascii=False)
             if content:
                 conv_parts.append(f"[{role}; evidence_id={evidence_id}]: {content}")
 

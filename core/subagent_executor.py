@@ -156,6 +156,8 @@ class AgentSubagentExecutor:
             compact_threshold=self.agent.context_mgr._compact_threshold, llm=observed)
         child.context_mgr.archive = self.agent.context_mgr.archive
         child.context_mgr.reader = self.agent.context_mgr.reader
+        child.context_mgr.summary_profile = self.agent.context_mgr.summary_profile
+        child.context_mgr.summary_cache_reader = self.agent.context_mgr.summary_cache_reader
         child.context_mgr.evidence_ids = set(task.evidence_ids)
         child.allowed_tool_names = set(role.tools)
         extension = self._extension(context)

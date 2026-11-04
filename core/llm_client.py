@@ -167,7 +167,9 @@ class LLMClient:
 
     def request_parameters(self) -> dict:
         """Native Ollama parameters, shared by chat and frozen delegated calls."""
-        parameters = {}
+        # The harness archives and compacts history. Never let Ollama silently
+        # discard the user question or tool evidence to make a request fit.
+        parameters = {'truncate': False}
         if self.think is not None:
             parameters['think'] = self.think
         options = getattr(self, 'spec', {}).get('options', {})

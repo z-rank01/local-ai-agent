@@ -70,6 +70,23 @@ def classify_rejection(status, body, headers):
             (('llama runner process has terminated', 'runner process has terminated'), 'RUNNER_TERMINATED'),
             (('context length exceeded', 'input length exceeds'), 'CONTEXT_LENGTH_EXCEEDED'))
             if local_message.startswith(prefixes)), 'UNCLASSIFIED')
+    if local_message:
+        # New Ollama runners wrap structured context errors in a JSON string.
+        # Read only the fixed type and integer counts, never provider prose.
+        import json
+        try:
+            nested = json.loads(body['error'])
+        except (ValueError, TypeError):
+            nested = None
+        inner = nested.get('error') if isinstance(nested, dict) else None
+        if isinstance(inner, dict) and inner.get('type') == 'exceed_context_size_error':
+            result['local_error_kind'] = 'CONTEXT_LENGTH_EXCEEDED'
+            result['rejection_category'] = 'CONTEXT_LENGTH_EXCEEDED'
+            for key in ('n_prompt_tokens', 'n_ctx'):
+                if type(inner.get(key)) is int and inner[key] > 0:
+                    result[key] = inner[key]
+    if local_message == 'no user query found in messages':
+        result['local_error_kind'] = 'CHAT_TEMPLATE_MISSING_USER'
     if code:
         result['provider_error_code'] = code
     refs = {ref for value in (body.get('request_id'), error.get('request_id'), headers.get('x-request-id'))
