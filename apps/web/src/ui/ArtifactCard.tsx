@@ -17,7 +17,9 @@ export function ArtifactCard({title, badge, meta = [], actionLabel, onOpen}: Art
         <span className="report-badge">{badge}</span>
         <div className="report-title">{title}</div>
         {meta.length ? <div className="report-meta">
-          {meta.map(item => <span key={item} className="chip chip-quiet chip-mono">{item}</span>)}
+          {meta.map(item => item.length > 16
+            ? <span key={item} className="report-meta-note">{item}</span>
+            : <span key={item} className="chip chip-quiet chip-mono">{item}</span>)}
         </div> : null}
       </div>
       <button type="button" className="btn btn-secondary" onClick={onOpen}>{actionLabel}</button>

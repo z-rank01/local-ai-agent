@@ -1,6 +1,7 @@
 import type {ConversationSummary, TranscriptBlock, UIStreamEvent} from '../types';
 import {artifactTypeForTool} from '../extensions/artifacts';
 import type {ReportPage, ReportSection} from './reportDocument';
+import {workspaceDocumentKey} from './workspaceDocument';
 
 export type ReadingReport = {
   htmlBrief?: import('./htmlBrief').HtmlBrief;
@@ -29,6 +30,17 @@ export function isLocalReportBlock(block: TranscriptBlock): boolean {
   const result = block.toolResult as {local_result_available?: unknown} | null | undefined;
   return Boolean(artifactTypeForTool(block.label) && block.messageId
     && (localReportContent(block) || result?.local_result_available === true));
+}
+
+export function structuredWorkspaceDocumentPaths(blocks: TranscriptBlock[]): Set<string> {
+  const paths = new Set<string>();
+  for (const block of blocks) {
+    if (!isLocalReportBlock(block)) continue;
+    const result = block.toolResult as {path?: unknown} | null | undefined;
+    const path = typeof result?.path === 'string' ? workspaceDocumentKey(result.path) : '';
+    if (path) paths.add(path);
+  }
+  return paths;
 }
 
 export function buildGenericArtifactInfo(block: TranscriptBlock): ReadingReport & {meta: string[]} {

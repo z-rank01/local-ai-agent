@@ -33,8 +33,11 @@ test('shared Markdown renders headings lists quotes tables and code without arbi
     import {renderToStaticMarkup} from 'react-dom/server';
     import {Markdown} from './src/ui/Markdown';
     import {BriefReaderContext} from './src/lib/briefReader';
-    export function renderBrief(content) {
-      return renderToStaticMarkup(React.createElement(BriefReaderContext.Provider,{value:()=>{}},React.createElement(Markdown,{content})));
+    export {workspaceDocumentKey,workspaceDocumentKind,prepareWorkspaceDocument} from './src/lib/workspaceDocument';
+    export {structuredWorkspaceDocumentPaths} from './src/lib/report';
+    export function renderBrief(content,suppressed=[]) {
+      return renderToStaticMarkup(React.createElement(BriefReaderContext.Provider,{value:()=>{}},
+        React.createElement(Markdown,{content,suppressedDocumentPaths:new Set(suppressed)})));
     }
     export function render(content) {
       return renderToStaticMarkup(React.createElement(Markdown,{content,compactHeadings:true,onSourceReference:()=>{}}));
@@ -58,4 +61,34 @@ test('shared Markdown renders headings lists quotes tables and code without arbi
   assert.ok(titled.includes('实际报告标题'));
   assert.ok(!renderedModule.exports.renderBrief('正文引用：[资料](/workspace/reports/report.html)').includes('class="report-card"'));
   assert.ok(!renderedModule.exports.render('[下载](/workspace/report.html)').includes('class="report-card"'));
+
+  const markdown=renderedModule.exports.renderBrief('阅读文档：[研究笔记](/workspace/reports/note.md)');
+  assert.ok(markdown.includes('Markdown 文档') || markdown.includes('研究笔记'));
+  assert.ok(markdown.includes('note.md'));
+  assert.ok(markdown.includes('>阅读文档</button>'));
+  const duplicatePath='/workspace/reports/report.html';
+  assert.ok(!renderedModule.exports.renderBrief('阅读简报：[同一份报告](/workspace/reports/report.html)',[duplicatePath]).includes('class="report-card"'));
+  const different=renderedModule.exports.renderBrief('[另一份报告](/workspace/reports/other.html)',[duplicatePath]);
+  assert.ok(different.includes('class="report-card"'));
+  assert.ok(different.includes('另一份报告'));
+  const inline=renderedModule.exports.renderBrief('正文引用：[资料](/workspace/reports/report.html)',[duplicatePath]);
+  assert.ok(!inline.includes('class="report-card"'));
+  assert.ok(inline.includes('正文引用：'));
+  assert.ok(!renderedModule.exports.renderBrief('[越界](/workspace/../secret.html)').includes('class="report-card"'));
+
+  assert.equal(renderedModule.exports.workspaceDocumentKind('/workspace/a.html'),'html');
+  assert.equal(renderedModule.exports.workspaceDocumentKind('/roots/main/b.markdown'),'markdown');
+  assert.equal(renderedModule.exports.workspaceDocumentKind('/workspace/a.pdf'),null);
+  assert.equal(renderedModule.exports.workspaceDocumentKey('/workspace/a%20b.md'),'/workspace/a b.md');
+  assert.equal(renderedModule.exports.workspaceDocumentKey('/workspace/a.md?x=1'),'');
+  const prepared=renderedModule.exports.prepareWorkspaceDocument({name:'note.md',path:'/workspace/note.md',content:'# 正文',is_binary:false,truncated:false},'default');
+  assert.equal(prepared.kind,'markdown');assert.equal(prepared.content,'# 正文');assert.equal(prepared.title,'note.md');
+  assert.throws(()=>renderedModule.exports.prepareWorkspaceDocument({name:'note.md',path:'/workspace/note.md',content:'# 正文',is_binary:false,truncated:true},'default'));
+  const paths=renderedModule.exports.structuredWorkspaceDocumentPaths([
+    {label:'brief_publish',messageId:'m1',toolResult:{status:'PUBLISHED',path:duplicatePath}},
+    {label:'brief_publish',messageId:'m2',toolResult:{status:'PUBLISHED',path:'/workspace/note.md'}},
+    {label:'brief_publish',messageId:'m3',toolResult:{status:'PUBLISHED',path:'/workspace/../secret.html'}},
+    {label:'other',messageId:'m4',toolResult:{status:'PUBLISHED',path:'/workspace/other.html'}},
+  ]);
+  assert.deepEqual([...paths].sort(),['/workspace/note.md',duplicatePath].sort());
 });

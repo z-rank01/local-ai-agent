@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {formatTime} from '../lib/format';
-import {isLocalReportBlock, type ReadingReport} from '../lib/report';
+import {isLocalReportBlock, structuredWorkspaceDocumentPaths, type ReadingReport} from '../lib/report';
 import {
   assistantGroupStatus,
   buildAssistantTimeline,
@@ -61,6 +61,7 @@ export function AssistantTurn({
   const timeline = buildAssistantTimeline(ordered, status, versionNumber, versionCount);
   const traceSteps = timeline.map(withoutVersionBadge);
   const showTrace = traceSteps.some((step) => step.kind !== 'assistant') || traceSteps.length > 1;
+  const structuredDocumentPaths = structuredWorkspaceDocumentPaths(ordered);
   return (
     <article className="msg msg-ai" data-turn={item.id}>
       <header className="msg-head">
@@ -91,7 +92,7 @@ export function AssistantTurn({
           if (!block.text && block.status !== 'running') {
             return null;
           }
-          return block.text ? <Markdown key={block.id} content={block.text} /> : null;
+          return block.text ? <Markdown key={block.id} content={block.text} suppressedDocumentPaths={structuredDocumentPaths} /> : null;
         }
         return block.text ? <Markdown key={block.id} content={block.text} /> : null;
       })}

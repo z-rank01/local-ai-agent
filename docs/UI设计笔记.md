@@ -18,6 +18,7 @@
 | 会话抽屉 | 左 322px；新建、搜索、会话列表、任务卡、唯一「退出」按钮 |
 | 工作台 Sheet | 右侧固定，默认 400px，可拖 340–760px；Sheet head + 可折叠 Panel；窗口剩余 <560px 时改为覆盖式 |
 | Composer | 底部悬浮胶囊；附件（按需）、输入、单一状态/工具行排布；常态底行承载能力与发送，运行态复用为运行控制；窄屏不横向滚动 |
+| 文档卡片 | `ArtifactCard` 统一承载 HTML/Markdown；结构化成果优先，独立链接兜底；同一 AssistantTurn 按规范化工作区路径去重，不按工具名或标题。短元信息用胶囊，长说明普通换行 |
 | 基元 | `Panel` 折叠、`Collapse` grid 折叠、`Popover` portal/焦点回退、`Switch` role=switch、`Chip/Badge`、`Button/icon` |
 | 页面模式 | 列表用单张分组卡片+行分隔，不用每项独立浮卡；详情就地展开；浮层不裁剪 |
 

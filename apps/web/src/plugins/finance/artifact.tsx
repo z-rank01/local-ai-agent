@@ -10,7 +10,7 @@ export async function getArtifactInfo(block: TranscriptBlock, savedContent?: str
     : {}) as Record<string, unknown>;
   if (block.label === 'brief_publish' && typeof toolResult.path === 'string' && conversationId) {
     const conversation = await fetchConversation(conversationId);
-    const preview = await fetchWorkspacePreview(toolResult.path, 200000, conversation.workspace_id);
+    const preview = await fetchWorkspacePreview(toolResult.path, 1_000_000, conversation.workspace_id);
     const htmlBrief = prepareHtmlBrief(preview, conversation.workspace_id);
     return {title: htmlBrief.title, meta: htmlBrief.meta, content: preview.content ?? '',
       htmlBrief, sourceMessageId: block.messageId ?? undefined,

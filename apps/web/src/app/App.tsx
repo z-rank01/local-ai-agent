@@ -1,6 +1,6 @@
 import {confirmCapabilityLeave} from '../lib/capabilityLeave';
 import {BriefReaderContext} from '../lib/briefReader';
-import {prepareHtmlBrief} from '../lib/htmlBrief';
+import {prepareWorkspaceDocument} from '../lib/workspaceDocument';
 import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {
   DEFAULT_BASE_URL, fetchRuns, fetchRun, controlRun, observeRun,
@@ -1244,17 +1244,16 @@ export default function App(): JSX.Element {
     setReadingReport(report.sourceMessageId ? reportReadingPositionsRef.current.get(report.sourceMessageId) ?? report : report);
   }, []);
 
-  const briefSequence = useRef(0);
-  useEffect(() => { ++briefSequence.current; }, [workspaceId, conversationId]);
-  const openWorkspaceBrief = useCallback(async (path: string) => {
-    const sequence = ++briefSequence.current;
+  const documentSequence = useRef(0);
+  useEffect(() => { ++documentSequence.current; }, [workspaceId, conversationId]);
+  const openWorkspaceDocument = useCallback(async (path: string) => {
+    const sequence = ++documentSequence.current;
     try {
       const file = await fetchWorkspacePreview(path, 1_000_000, workspaceId);
-      if (sequence !== briefSequence.current) return;
-      const brief = prepareHtmlBrief(file, workspaceId);
-      openConversationReport({title: brief.title, content: '', htmlBrief: brief});
+      if (sequence !== documentSequence.current) return;
+      openConversationReport(prepareWorkspaceDocument(file, workspaceId));
     } catch (cause) {
-      if (sequence === briefSequence.current) notify(cause instanceof Error ? cause.message : '简报读取失败', 'error');
+      if (sequence === documentSequence.current) notify(cause instanceof Error ? cause.message : '文档读取失败', 'error');
     }
   }, [workspaceId, openConversationReport]);
 
@@ -1512,7 +1511,7 @@ export default function App(): JSX.Element {
   return (
     <WorkspaceContext.Provider value={workspaceId}>
     <CapabilityRegistryContext.Provider value={capabilityRegistry}>
-    <BriefReaderContext.Provider value={openWorkspaceBrief}>
+    <BriefReaderContext.Provider value={openWorkspaceDocument}>
     <ToolNamesContext.Provider value={Object.fromEntries((status?.tool_catalog ?? []).map(tool => [tool.name, tool.display_name]))}>
       <IconSprite />
       <TopBar
@@ -1641,7 +1640,7 @@ export default function App(): JSX.Element {
           onAttach: attachWorkspacePath,
           onDetach: detachWorkspacePath,
           onError: handlePanelError,
-          onReadBrief: openWorkspaceBrief,
+          onReadBrief: openWorkspaceDocument,
           onDeliverBrief: conversationId ? deliverBrief : undefined,
         }}
         skills={{

@@ -740,8 +740,11 @@ mark { background: var(--accent-soft-2); color: var(--fg); border-radius: 3px; p
 }
 .report-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
 .report-badge { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; color: var(--muted); }
-.report-title { font-size: var(--text-sm); font-weight: 600; }
-.report-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+.report-title { font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
+.report-meta { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.report-meta .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.report-meta-note { flex: 1 1 100%; min-width: 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; overflow-wrap: anywhere; }
+.report-card > .btn { flex: none; }
 
 .reader {
   position: fixed; inset: 0; z-index: 80;

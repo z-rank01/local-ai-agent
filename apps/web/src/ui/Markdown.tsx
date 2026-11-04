@@ -1,5 +1,5 @@
 import {BriefReaderContext} from '../lib/briefReader';
-import {isWorkspaceHtml} from '../lib/htmlBrief';
+import {workspaceDocumentKey, workspaceDocumentKind} from '../lib/workspaceDocument';
 import {useWorkspaceId} from '../lib/workspace';
 import {workspaceRawUrl} from '../api';
 import {copyText} from '../lib/format';
@@ -98,10 +98,12 @@ function messageHref(href: string | undefined, workspaceId: string): string | un
 function Anchor({node, href, children, ...rest}: AnchorProps): JSX.Element {
   const workspaceId = useWorkspaceId();
   const readBrief = useContext(BriefReaderContext);
-  if (href && readBrief && isWorkspaceHtml(href)) {
-    let path = href;
-    try { path = decodeURIComponent(href); } catch { path = ''; }
-    if (isWorkspaceHtml(path)) return <button type="button" className="report-source-link" onClick={() => readBrief(path)}>阅读简报</button>;
+  const kind = href ? workspaceDocumentKind(href) : null;
+  const path = workspaceDocumentKey(href ?? '');
+  if (href && readBrief && kind && path) {
+    return <button type="button" className="report-source-link" onClick={() => readBrief(path)}>
+      {kind === 'html' ? '阅读简报' : '阅读文档'}
+    </button>;
   }
   return (
     <a {...rest} href={messageHref(href, workspaceId)} target="_blank" rel="noreferrer">
@@ -118,28 +120,41 @@ function Table({node, children, ...rest}: TableProps): JSX.Element {
   );
 }
 
-// A standalone delivery link may have the publisher's fixed "阅读简报：" prefix.
-// Other inline references retain their sentence layout.
-const Paragraph: NonNullable<Components['p']> = ({node, children, ...rest}) => {
+type ParagraphNode = {
+  type: string;
+  value?: string;
+  tagName?: string;
+  properties?: {href?: unknown};
+  children?: ParagraphNode[];
+};
+type ParagraphProps = React.HTMLAttributes<HTMLParagraphElement> & {
+  node?: ParagraphNode;
+  suppressedPaths?: ReadonlySet<string>;
+};
+
+// A standalone delivery link may have a document prefix. Other inline
+// references retain their sentence layout and never participate in deduping.
+function Paragraph({node, children, suppressedPaths, ...rest}: ParagraphProps): JSX.Element | null {
   const readBrief = useContext(BriefReaderContext);
   const nodes = node?.children ?? [];
-  const prefixed = nodes.length === 2 && nodes[0].type === 'text' && /^\s*阅读简报[:：]\s*$/.test(nodes[0].value);
+  const deliveryPrefix = /^\s*阅读(?:简报|文档)[:：]\s*$/;
+  const prefixed = nodes.length === 2 && nodes[0].type === 'text' && deliveryPrefix.test(nodes[0].value ?? '');
   const link = nodes.length === 1 ? nodes[0] : prefixed ? nodes[1] : undefined;
   if (readBrief && link?.type === 'element' && link.tagName === 'a') {
-    const href = link.properties.href;
-    let path = '';
-    if (typeof href === 'string') {
-      try { path = decodeURIComponent(href); } catch { /* Keep the ordinary link on malformed encoding. */ }
-    }
-    if (isWorkspaceHtml(path)) {
-      const label = textOf(children).trim().replace(/^阅读简报[:：]\s*/, '');
-      return <ArtifactCard title={label && label !== '阅读简报' ? label : 'HTML 简报'}
-        badge="工作区文件" meta={[path.split('/').pop() || 'HTML']}
-        actionLabel="阅读简报" onOpen={() => readBrief(path)} />;
+    const href = link.properties?.href;
+    const path = typeof href === 'string' ? workspaceDocumentKey(href) : '';
+    const kind = typeof href === 'string' ? workspaceDocumentKind(href) : null;
+    if (kind && path) {
+      if (suppressedPaths?.has(path)) return null;
+      const label = textOf(children).trim().replace(/^阅读(?:简报|文档)[:：]\s*/, '');
+      const fallback = kind === 'html' ? 'HTML 简报' : 'Markdown 文档';
+      return <ArtifactCard title={label && !['阅读简报', '阅读文档'].includes(label) ? label : fallback}
+        badge="工作区文件" meta={[path.split('/').pop() || fallback]}
+        actionLabel={kind === 'html' ? '阅读简报' : '阅读文档'} onOpen={() => readBrief(path)} />;
     }
   }
   return <p {...rest}>{children}</p>;
-};
+}
 
 const components: Components = {
   pre: CodeBlock,
@@ -149,13 +164,15 @@ const components: Components = {
   p: Paragraph,
 };
 
-export function Markdown({content, className, compactHeadings = false, onSourceReference}: {
+export function Markdown({content, className, compactHeadings = false, onSourceReference, suppressedDocumentPaths}: {
   content: string; className?: string; compactHeadings?: boolean;
   onSourceReference?: (alias: string) => void;
+  suppressedDocumentPaths?: ReadonlySet<string>;
 }): JSX.Element {
   const reportComponents: Components = {...components,
     ...(compactHeadings ? {h1: ({children}: {children?: React.ReactNode}) => <h3>{children}</h3>,
       h2: ({children}: {children?: React.ReactNode}) => <h4>{children}</h4>} : {}),
+    p: props => <Paragraph {...props} suppressedPaths={suppressedDocumentPaths} />,
     a: props => {
       const alias = /^#report-source-(\d+)$/.exec(props.href ?? '')?.[1];
       return alias && onSourceReference
