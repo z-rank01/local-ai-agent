@@ -189,5 +189,6 @@ document.querySelector('[role="tablist"]').addEventListener('keydown',e=>{
   tabs[i].focus();tabs[i].click();
 });
 </script>
-<section><h2>2026-11-02 成果交接修复契约</h2><p>阶段成果可随核对/发布提交；核心判断通过稳定 ID 关联实际材料、条件、反证和缺口。调用时阶段选择不代表采用产物，模型通过 output_refs 记录采用。核对只评价发布前候选内容，报告卡和刷新阅读在发布后检查。</p><p>此说明为源码契约，部署与四场景实际通过状态统一见股票仓库 docs/计划.md。</p></section></body>
-</html>
+<section><h2>2026-11-02 成果交接修复契约</h2><p>阶段成果可随核对/发布提交；核心判断通过稳定 ID 关联实际材料、条件、反证和缺口。调用时阶段选择不代表采用产物，模型通过 output_refs 记录采用。核对只评价发布前候选内容，报告卡和刷新阅读在发布后检查。</p><p>此说明为源码契约，部署与四场景实际通过状态统一见股票仓库 docs/计划.md。</p></section>
+<section><h2>2026-11-04 归档与模型回执</h2><p>序列化请求 → 原 task_evidence 完整材料清单 → research.json 中的 manifest_ref；父运行保留授权引用，完整清单可分页回读。作者和独立核对通过 claim_materials.ref → 共享 artifacts 读取成果，避免逐条重复展开。</p><p>本地和云端分别记录模型终态与客户端交付状态；缺终态保持 UNKNOWN。首末数据块与网络失败阶段仅供诊断，不重发或调整配置。工程修复不代表正式报告或内容验收通过。</p></section>
+</body></html>

@@ -15,6 +15,58 @@ from tests import test_research_session as session_tests, test_research_review a
 
 
 class RecipeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manifest_ranges_are_archived_once_and_failure_does_not_register_reference(self):
+        _,run,_=await session_tests.ResearchSessionTests().prepare()
+        saved={}
+        def archive(row):
+            key=fingerprint(row);saved[key]=copy.deepcopy(row);return key
+        manager=SimpleNamespace(archive=archive,evidence_ids=set())
+        run.method_text={f'method-{i}':'真实材料'+str(i) for i in range(300)}
+        history=[{'role':'user','content':'\n'.join(run.method_text.values())}]
+        for i in range(47):
+            index=run.capture_input(history,{'call_id':str(i)},manager)
+            original=json.loads(saved[index['manifest_ref']]['content'])
+            methods=[row for row in original['materials'] if row['kind']=='method']
+            self.assertEqual(len(methods),300)
+            self.assertTrue(all(row['included'] for row in methods))
+            self.assertIn(index['manifest_ref'],manager.evidence_ids)
+        # Regression for the 47 manifests that pushed research.json over 10 MiB.
+        self.assertLess(len(json.dumps(run.request_materials).encode()),100000)
+        self.assertGreater(sum(len(row['content'].encode()) for row in saved.values()
+            if row.get('record_kind')=='research_request_manifest'),1000000)
+        before=copy.deepcopy(run.request_materials)
+        def failing(row):
+            if row.get('record_kind')=='research_request_manifest':
+                raise OSError('archive unavailable')
+            return archive(row)
+        manager.archive=failing
+        with self.assertRaisesRegex(OSError,'archive unavailable'):
+            run.capture_input(history,{'call_id':'failed'},manager)
+        self.assertEqual(run.request_materials,before)
+
+    async def test_shared_artifacts_keep_claim_evidence_without_repeated_bodies(self):
+        _,run,draft=await session_tests.ResearchSessionTests().prepare()
+        await run.begin({'phase':'分析','stage_updates':[{'goal':'解释原文'}]})
+        ref='source:shared'
+        run.record['artifacts'][ref]={'kind':'source','path':'/workspace/source.txt','sha256':'a'*64}
+        stage=run.record['recipe']['stages'][-1]['id']
+        await run.publication_input({**draft,'stage_updates':[{'id':stage,'claims':[
+            {'text':'条件结论'+str(i),'kind':'inference','conditions':'同期间',
+             'counterevidence':'相反信号','unresolved':'缺附注','evidence_refs':[ref]}
+            for i in range(4)]}]})
+        # Historical/missing navigation stays explicit; new submissions reject it.
+        for claim in run.record['recipe']['stages'][-1]['claims']:
+            claim['evidence_refs'].append('missing')
+        author=run.handoff_materials()
+        reviewer=json.loads(review_messages('问题',draft,run,'')[1]['content'])
+        for view in (author,reviewer):
+            self.assertEqual(view['artifacts'][ref]['path'],'/workspace/source.txt')
+            for row in view['claim_materials'][-4:]:
+                self.assertEqual(row['claim']['counterevidence'],'相反信号')
+                self.assertNotIn('artifact',row['materials'][0])
+                self.assertFalse(row['materials'][0]['missing'])
+                self.assertTrue(row['materials'][1]['missing'])
+
     async def test_submission_stage_results_reach_writer_and_reviewer_without_changing_draft(self):
         _,run,draft=await session_tests.ResearchSessionTests().prepare()
         await run.begin({'phase':'分析','stage_updates':[{'goal':'解释原文'}]})
@@ -170,6 +222,7 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(receipt['tool'],'author_candidate_refresh')
         self.assertEqual(receipt['result_status'],'FAILED')
         manifest=run.capture_input(view,{'local_attempt_id':'next-call'},manager)
+        manifest=json.loads(saved[manifest['manifest_ref']]['content'])
         missing=next(x for x in manifest['materials'] if x['kind']=='current_candidate')
         self.assertFalse(missing['included']);self.assertEqual(missing['coverage'],'READ_FAILED')
         self.assertIsNone(missing['sha256'])
@@ -506,10 +559,14 @@ class RecipeTests(unittest.IsolatedAsyncioTestCase):
             material_observer.reset(token)
         manifest=data['material_manifest']
         self.assertEqual(manifest['call_id'],'actual-call')
+        self.assertNotIn('materials',manifest)
+        self.assertEqual(run.request_materials[-1],manifest)
+        manifest=json.loads(archive[manifest['manifest_ref']]['content'])
         self.assertTrue(all(row['included'] for row in manifest['materials']))
         self.assertNotIn('HIDDEN',json.dumps(archive))
         self.assertEqual(set(archive),manager.evidence_ids)
         absent=run.capture_input([{'role':'user','content':'没有原文'}],{'call_id':'next'},manager)
+        absent=json.loads(archive[absent['manifest_ref']]['content'])
         self.assertTrue(all(not row['included'] for row in absent['materials']))
         draft['review']['conflicts']=['指标可能错配']
         draft['editorial_notes']=['自称已经修复全部核心错误']

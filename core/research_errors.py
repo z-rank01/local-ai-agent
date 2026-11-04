@@ -37,6 +37,7 @@ def classify_rejection(status, body, headers):
                 404: 'ENDPOINT_OR_MODEL_UNAVAILABLE', 429: 'RATE_LIMIT'}.get(status, 'UNCLASSIFIED')
     body = body if isinstance(body, dict) else {}
     error = body.get('error', body)
+    local_message = error.strip().lower() if isinstance(error, str) else ''
     error = error if isinstance(error, dict) else {}
     code = safe_error_code(error.get('code')) or safe_error_code(error.get('type'))
     if code and (status in (400, 422) or category == 'UNCLASSIFIED'
@@ -60,6 +61,15 @@ def classify_rejection(status, body, headers):
                 'the incremental_output parameter must be "true" when enable_thinking is true')):
             category = 'PARAMETER_COMBINATION_INVALID'
     result = {'http_status': status, 'rejection_category': category}
+    if local_message:
+        # Native Ollama uses a string error. Never persist that free text: it
+        # may echo prompts, local paths or credentials. Classify known prefixes.
+        result['rejection_body_chars'] = len(body['error'])
+        result['local_error_kind'] = next((kind for prefixes, kind in (
+            (('model requires more system memory', 'out of memory', 'cuda out of memory'), 'MEMORY_REQUIRED'),
+            (('llama runner process has terminated', 'runner process has terminated'), 'RUNNER_TERMINATED'),
+            (('context length exceeded', 'input length exceeds'), 'CONTEXT_LENGTH_EXCEEDED'))
+            if local_message.startswith(prefixes)), 'UNCLASSIFIED')
     if code:
         result['provider_error_code'] = code
     refs = {ref for value in (body.get('request_id'), error.get('request_id'), headers.get('x-request-id'))

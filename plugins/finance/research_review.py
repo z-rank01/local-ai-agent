@@ -38,9 +38,7 @@ def review_messages(question, candidate, research, system, findings=()):
                  artifacts, candidate),
              'revision_context':(getattr(research,'record',None) or {}).get('revision_context'),
              'evidence':material['evidence'],
-             'role_artifacts':{ref:artifact for ref,artifact in
-                               (artifacts).items()
-                               if ref.startswith('role:')},
+             'artifacts':artifacts,
              'role_batches':(getattr(research,'record',None) or {}).get('role_batches',{}),
              'decision_claims':(getattr(research,'record',None) or {}).get('decision_claims',[]),
              'methods':research.method_text,'previous_findings':list(findings)}

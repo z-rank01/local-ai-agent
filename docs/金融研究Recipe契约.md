@@ -97,3 +97,11 @@
 无工具角色和独立核对共用冻结模型的 `structured_output` 能力。已确认型号由模型适配层派生请求：兼容云接口使用 `response_format={"type":"json_object"}`，本地 Ollama 使用 `format="json"`。金融 RoleSpec、Recipe、必需字段及引用校验保持一致；工具角色和作者正常使用工具协议。未知型号使用普通请求并严格校验，不能保证成功。
 
 本次新增登记 `qwen:qwen3.8-max`、`ollama:qwen3.8:27b`；DeepSeek 保留原登记。依据分别为[阿里云文档](https://www.alibabacloud.com/help/en/model-studio/qwen-structured-output)和[Ollama 文档](https://docs.ollama.com/capabilities/structured-outputs)，本机 Ollama 0.34.4 已安装该 Qwen。思考设置、模型默认选择及输出额度不随格式派生改变，显式格式冲突拒绝覆盖。冻结声明适用于聊天、子角色及检查点读取；旧快照不会因为目录新增能力而改变请求。实际格式参数进入原生回执与核对记录；非法 JSON、空响应和缺失字段仍真实失败，不修补事实或自动重发。
+
+### 请求清单与成果引用（2026-11-04）
+
+实际序列化材料的完整范围清单归档到原 task_evidence；research.json 的 request_materials 只保存 manifest_ref、请求身份、消息证据索引与材料数量。引用登记在同一父运行授权证据集合内，完整清单可沿 context_evidence_read 分页回读；归档失败明确失败，不保存假引用。无归档器的历史兼容调用保留内嵌清单，既有失败文件不改写，10 MiB 文件策略不放宽。
+
+作者和独立核对共用 artifacts 字典；claim_materials 只导航到对应 ref，不逐条复制成果正文。claims 的条件、反证、未知、原始产物与采用的计算保持原样。核对字典同时包含非角色产物，避免引用化后丢失候选计算等材料；缺失引用仍明确标记，导航不认证内容。
+
+本地工具流与云端流均记录原生结束状态、可见正文长度、终态、用量及交付状态；首末数据块时间与网络失败阶段只作诊断。Ollama HTTP 错误在关闭响应前读取并只保存固定错误分类，不存供应商自由文本或隐藏推理。缺终态、损坏流、服务端错误和 length 不冒充完成，不自动重试、换模型或调整思考及超时。

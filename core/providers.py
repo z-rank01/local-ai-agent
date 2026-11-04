@@ -293,7 +293,7 @@ class CompatibleClient:
         except httpx.RequestError as error:
             receipt.delivery_status='FAILED'
             if receipt.failure_category is None:
-                receipt.failure_category='NETWORK_TIMEOUT' if isinstance(error,httpx.TimeoutException) else 'NETWORK_ERROR'
+                receipt.network_failure(error)
             raise RuntimeError('无法连接所选模型或响应超时；没有自动重试或切换模型。') from None
         except (asyncio.CancelledError,GeneratorExit):
             if receipt.delivery_status!='COMPLETE':

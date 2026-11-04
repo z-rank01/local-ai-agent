@@ -55,6 +55,24 @@ class NativeStreamReceipt:
         self.provider_error_code=None
         self.visible_content_chars = 0
         self.reasoning_chars = 0
+        self.first_chunk_at = None
+        self.last_chunk_at = None
+        self.failure_stage = None
+
+    def activity(self):
+        now = time.monotonic()
+        if self.first_chunk_at is None:
+            self.first_chunk_at = now
+        self.last_chunk_at = now
+
+    def network_failure(self, exc):
+        # Exception prose may contain request data. Only retain fixed phases.
+        import httpx
+        self.failure_category = 'NETWORK_TIMEOUT' if isinstance(exc, httpx.TimeoutException) else 'NETWORK_ERROR'
+        self.failure_stage = next((phase for cls, phase in (
+            (httpx.ConnectTimeout, 'connect'), (httpx.ReadTimeout, 'read'),
+            (httpx.WriteTimeout, 'write'), (httpx.PoolTimeout, 'pool'))
+            if isinstance(exc, cls)), 'transport')
 
     def headers(self,status,headers):
         self.http_status=status
@@ -76,6 +94,7 @@ class NativeStreamReceipt:
             if isinstance(body.get('error'),dict): self.request_id(body['error'].get('request_id'))
 
     def chunk(self,chunk):
+        self.activity()
         if not isinstance(chunk,dict):
             self.failure_category='STREAM_PROTOCOL_ERROR'
             return
@@ -105,6 +124,7 @@ class NativeStreamReceipt:
                     self.unknown_finish=True
 
     def result(self):
+        now = time.monotonic()
         if self.http_status in (400,401,403,404,422,429):
             status='FAILED'
         elif (self.http_status is not None and self.http_status>=400
@@ -124,6 +144,10 @@ class NativeStreamReceipt:
                 'finish_reason_status':'CONFLICT' if len(self.finishes)>1 else 'UNRECOGNISED' if self.unknown_finish else 'REPORTED' if self.finishes else 'NOT_REPORTED',
                 'usage':self.usage,'usage_status':self.usage_status,
                 'failure_category':self.failure_category,'elapsed_seconds':round(time.monotonic()-self.started,3),
+                'failure_stage':self.failure_stage,
+                'first_chunk_seconds':round(self.first_chunk_at-self.started,3) if self.first_chunk_at is not None else None,
+                'last_chunk_seconds':round(self.last_chunk_at-self.started,3) if self.last_chunk_at is not None else None,
+                'idle_seconds':round(now-self.last_chunk_at,3) if self.last_chunk_at is not None else None,
                 'visible_content_chars':self.visible_content_chars, 'reasoning_chars':self.reasoning_chars,
                 'terminal_received':bool(self.finishes) and not self.unknown_finish,
                 **self.rejection}

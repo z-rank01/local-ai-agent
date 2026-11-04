@@ -90,7 +90,7 @@ def claim_materials(recipe, artifacts, candidate=None):
              'body_reference_observed':bool(body and (claim.get('id', '\0') in body or
                                                      literal_text(claim['text']) in body)),
              'semantic_certification':False,
-             'materials':[{ 'ref':ref, 'artifact':artifacts.get(ref),
+             'materials':[{ 'ref':ref, 'artifact_location':'artifacts',
                             'missing':ref not in artifacts}
                           for ref in claim.get('evidence_refs', [])]}
             for stage in (recipe or {}).get('stages', []) for claim in stage.get('claims', [])]

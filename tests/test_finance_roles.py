@@ -296,7 +296,7 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(record['review_context_sha256'], ready['review_ref'].split(':')[-1])
             context = json.loads(calls[0][1]['content'])
             self.assertEqual(context['question'], '原公告问题')
-            self.assertTrue(context['role_artifacts'])
+            self.assertTrue(context['artifacts'])
             events = [event async for event in agent._dispatch_tool('brief_publish',
                 {**submission, 'review_ref':ready['review_ref'], 'review_response':'保留期内边界，明确发布'},
                 'c', None, 'two', history)]

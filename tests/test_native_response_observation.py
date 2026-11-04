@@ -102,6 +102,8 @@ class NativeResponseTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(receipt['response_id'])
         self.assertIsNone(receipt['usage'])
         self.assertEqual(receipt['failure_category'],'NETWORK_TIMEOUT')
+        self.assertEqual(receipt['failure_stage'],'read')
+        self.assertIsNone(receipt['first_chunk_seconds'])
         self.assertNotIn('not-safe-request-body',json.dumps(self.observed))
 
     async def test_early_eof_is_unknown_even_with_done_marker(self):

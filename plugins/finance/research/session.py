@@ -363,8 +363,22 @@ class ResearchSession:
                 locate('previous_candidate',previous['sha256'],previous['candidate']['markdown'])
         if current.get('candidate', {}).get('markdown'):
             locate('current_candidate',current['sha256'],current['candidate']['markdown'])
-        self.request_materials.append(manifest)
-        return manifest
+        # Range observations grow with every request. Store the complete manifest
+        # in the existing authorized evidence archive, not in every checkpoint.
+        if archive:
+            manifest_ref = archive({'role':'tool', 'record_kind':'research_request_manifest',
+                                    'content':encoded(manifest)})
+            if not manifest_ref:
+                raise RuntimeError('请求材料清单归档未返回证据引用')
+            manager.evidence_ids.add(manifest_ref)
+            index = {k:v for k,v in manifest.items() if k != 'materials'}
+            index.update(manifest_ref=manifest_ref, material_count=len(manifest['materials']),
+                         manifest_storage='task_evidence')
+        else:
+            # Legacy/offline callers without an archive must not lose evidence.
+            index = manifest
+        self.request_materials.append(index)
+        return index
 
     def received_text(self, key, text):
         if not text:

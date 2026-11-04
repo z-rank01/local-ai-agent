@@ -1,6 +1,8 @@
 import json as _json
 import copy
 import logging
+import asyncio
+import uuid
 import re as _re
 from typing import AsyncGenerator
 
@@ -280,11 +282,12 @@ class LLMClient:
         payload.update(self.request_parameters())
         if tools and self._supports_tools:
             payload["tools"] = tools
+        from .native_response import NativeStreamReceipt
+        call_id = uuid.uuid4().hex
+        receipt = NativeStreamReceipt(call_id)
         if request_observer:
-            import uuid
             from .native_tool_schema import tool_schema_observation
             from harness.runtime.request_materials import observe_materials
-            call_id = uuid.uuid4().hex
             request_observer('native_model_request', {
                 'call_id': call_id, 'model': 'ollama:' + self._model, 'local_attempt_id': call_id,
                 'parameters': {'model': self._model, 'stream': True, **self.request_parameters()},
@@ -305,6 +308,16 @@ class LLMClient:
             async with self._client.stream(
                 "POST", f"{self._base_url}/api/chat", json=payload
             ) as resp:
+                receipt.headers(resp.status_code, resp.headers)
+                if resp.status_code >= 400:
+                    await resp.aread()
+                    try:
+                        error_body = resp.json()
+                    except ValueError:
+                        error_body = None
+                    receipt.rejection_body(error_body, resp.headers)
+                    receipt.failure_category = 'HTTP_REJECTION'
+                    receipt.failure_stage = 'http_response'
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line.strip():
@@ -312,11 +325,33 @@ class LLMClient:
                     try:
                         chunk = _json.loads(line)
                     except _json.JSONDecodeError:
-                        continue
+                        receipt.failure_category = 'STREAM_PROTOCOL_ERROR'
+                        raise RuntimeError('本地模型流包含无效 JSON，未忽略或重发。') from None
+                    if not isinstance(chunk, dict):
+                        receipt.failure_category = 'STREAM_PROTOCOL_ERROR'
+                        raise RuntimeError('本地模型流结构无效，未重发。')
+                    receipt.activity()
+                    if chunk.get('error'):
+                        receipt.rejection_body(chunk, resp.headers)
+                        receipt.failure_category = 'STREAM_PROVIDER_ERROR'
+                        raise RuntimeError('本地模型流返回错误，已保留回执，未重发。')
 
                     msg = chunk.get("message", {})
                     thinking = msg.get("thinking", "")
                     content = msg.get("content", "")
+                    receipt.visible_content_chars += len(content)
+                    receipt.reasoning_chars += len(thinking)
+                    if chunk.get('done'):
+                        reason = chunk.get('done_reason') or 'stop'
+                        if reason in ('stop', 'length', 'tool_calls'):
+                            receipt.finishes.add(reason)
+                        else:
+                            receipt.unknown_finish = True
+                        usage = {target:chunk[source] for source,target in (
+                            ('prompt_eval_count','prompt_tokens'), ('eval_count','completion_tokens'))
+                            if type(chunk.get(source)) is int and chunk[source] >= 0}
+                        receipt.usage = usage or None
+                        receipt.usage_status = 'REPORTED' if usage else 'NOT_REPORTED'
 
                     if msg.get("tool_calls"):
                         tool_calls_acc.extend(msg["tool_calls"])
@@ -354,23 +389,39 @@ class LLMClient:
                         break
 
             if not stream_done:
+                receipt.failure_category = 'EARLY_EOF'
                 raise RuntimeError('本地模型流提前结束，已有内容保留。')
+            if receipt.result()['result_status'] != 'COMPLETE':
+                receipt.failure_category = 'INCOMPLETE_RESULT'
+                raise RuntimeError('本地模型返回未完整结果，已有内容保留，未自动重发。')
             if tool_calls_acc:
                 accumulated["tool_calls"] = tool_calls_acc
-
+            if not accumulated['content'] and not tool_calls_acc:
+                receipt.failure_category = 'EMPTY_RESULT'
+                raise RuntimeError('本地模型没有返回回答或工具调用，未自动重发。')
+            receipt.delivery_status = 'COMPLETE'
             yield ("", accumulated)
 
         except httpx.HTTPStatusError as exc:
-            try:
-                payload = exc.response.json()
-                detail = payload.get('error') or payload.get('detail') if isinstance(payload, dict) else ''
-            except (ValueError, RuntimeError):
-                detail = ''
-            if isinstance(detail, str) and detail.strip():
-                logger.warning('Ollama HTTP %s: %s', exc.response.status_code, detail[:240])
+            receipt.delivery_status = 'FAILED'
             raise RuntimeError(f'本地模型请求失败（HTTP {exc.response.status_code}），未切换模型或禁用工具。') from None
-        except httpx.RequestError:
+        except httpx.RequestError as exc:
+            receipt.delivery_status = 'FAILED'
+            receipt.network_failure(exc)
             raise RuntimeError('本地模型连接失败或超时，已保留收到的内容。') from None
+        except (asyncio.CancelledError, GeneratorExit):
+            if receipt.delivery_status != 'COMPLETE':
+                receipt.delivery_status = 'CANCELLED'
+                receipt.failure_category = 'CALLER_CANCELLED'
+            raise
+        except BaseException:
+            receipt.delivery_status = 'FAILED'
+            receipt.failure_category = receipt.failure_category or 'STREAM_PROTOCOL_ERROR'
+            raise
+        finally:
+            if request_observer:
+                request_observer('native_model_result', {'call_id':call_id,
+                    'model':'ollama:' + self._model, **receipt.result()})
 
     async def chat_stream(self, messages: list) -> AsyncGenerator[str, None]:
         """Stream a final text response (no tools).

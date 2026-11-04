@@ -6,6 +6,14 @@ from tests.subagent_fixtures import role
 
 
 class SubagentContractTests(unittest.TestCase):
+    def test_local_qwen_extra_closing_array_is_a_real_failure_not_fence_repair(self):
+        # Syntax-only anonymisation of 9e3052672070: one complete JSON fence,
+        # valid top-level artifacts/issues followed by an extra closing array.
+        task=RoleTask(role=role('evidence',kind='source_excerpts'),text='取证')
+        text='说明\n```json\n{"artifacts":[],"issues":["材料缺口"]}]\n```'
+        with self.assertRaisesRegex(ValueError,'Extra data'):
+            structured_result(task,text,status='COMPLETE')
+
     def test_role_permissions_and_dependencies_are_narrowed(self):
         selected = role_spec({'role_id':'reader','prompt':'读取','tools':['file_read'],
             'depends_on':['prepare'], 'output':{'artifact_kind':'source','recipe_namespace':'evidence'}},
