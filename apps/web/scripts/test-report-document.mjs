@@ -32,12 +32,17 @@ test('shared Markdown renders headings lists quotes tables and code without arbi
     import React from 'react';
     import {renderToStaticMarkup} from 'react-dom/server';
     import {Markdown} from './src/ui/Markdown';
+    import {AssistantTurn} from './src/app/AssistantTurn';
+    export function renderTurn(blocks) {
+      return renderToStaticMarkup(React.createElement(BriefReaderContext.Provider,{value:()=>{}},
+        React.createElement(AssistantTurn,{item:{id:'turn',blocks},busy:false,onReadReport:()=>{}})));
+    }
     import {BriefReaderContext} from './src/lib/briefReader';
     export {workspaceDocumentKey,workspaceDocumentKind,prepareWorkspaceDocument} from './src/lib/workspaceDocument';
     export {structuredWorkspaceDocumentPaths} from './src/lib/report';
-    export function renderBrief(content,suppressed=[]) {
+    export function renderBrief(content,suppressed=[],previous=[]) {
       return renderToStaticMarkup(React.createElement(BriefReaderContext.Provider,{value:()=>{}},
-        React.createElement(Markdown,{content,suppressedDocumentPaths:new Set(suppressed)})));
+        React.createElement(Markdown,{content,suppressedDocumentPaths:new Set(suppressed),precedingDocumentContents:previous})));
     }
     export function render(content) {
       return renderToStaticMarkup(React.createElement(Markdown,{content,compactHeadings:true,onSourceReference:()=>{}}));
@@ -66,6 +71,16 @@ test('shared Markdown renders headings lists quotes tables and code without arbi
   assert.ok(markdown.includes('Markdown 文档') || markdown.includes('研究笔记'));
   assert.ok(markdown.includes('note.md'));
   assert.ok(markdown.includes('>阅读文档</button>'));
+  const repeated = '[first](/workspace/a.md)\n\n[second](/workspace/a.md)';
+  assert.equal((renderedModule.exports.renderBrief(repeated).match(/class="report-card"/g)||[]).length,1);
+  assert.equal((renderedModule.exports.renderBrief('[second](/workspace/a.md)',[],['[first](/workspace/a.md)']).match(/class="report-card"/g)||[]).length,0);
+  assert.equal((renderedModule.exports.renderBrief(repeated).match(/class="report-card"/g)||[]).length,1);
+  const block=(id,path)=>({id,kind:'tool',label:'brief_publish',status:'completed',messageId:id,toolResult:{status:'PUBLISHED',path}});
+  const turn=renderedModule.exports.renderTurn([block('a','/workspace/a.md'),block('b','/workspace/a.md'),block('c','/workspace/b.md')]);
+  assert.equal((turn.match(/正在读取成果信息/g)||[]).length,2);
+  const links=[{id:'a',kind:'assistant',text:'[first](/workspace/a.md)'},{id:'b',kind:'assistant',text:'[second](/workspace/a.md)'}];
+  assert.equal((renderedModule.exports.renderTurn(links).match(/class="report-card"/g)||[]).length,1);
+  assert.equal((renderedModule.exports.renderTurn(links).match(/class="report-card"/g)||[]).length,1);
   const duplicatePath='/workspace/reports/report.html';
   assert.ok(!renderedModule.exports.renderBrief('阅读简报：[同一份报告](/workspace/reports/report.html)',[duplicatePath]).includes('class="report-card"'));
   const different=renderedModule.exports.renderBrief('[另一份报告](/workspace/reports/other.html)',[duplicatePath]);

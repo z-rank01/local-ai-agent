@@ -164,10 +164,38 @@ const components: Components = {
   p: Paragraph,
 };
 
-export function Markdown({content, className, compactHeadings = false, onSourceReference, suppressedDocumentPaths}: {
+// Each render computes ownership from immutable earlier text, never from shared
+// render-time state (React may replay or render sibling components separately).
+type DocumentNode = {type: string; value?: string; url?: string; children?: DocumentNode[]};
+function dedupeDocumentLinks(this: {parse: (text: string) => DocumentNode}, options: {previous: string[]}) {
+  const parse = this.parse.bind(this);
+  return (tree: DocumentNode) => {
+    const seen = new Set<string>();
+    const visit = (node: DocumentNode, remove: boolean) => {
+      node.children = node.children?.filter(child => {
+        const parts = child.children ?? [];
+        const link = parts.length === 1 ? parts[0] : parts.length === 2 && parts[0].type === 'text'
+          && /^\s*阅读(?:简报|文档)[:：]\s*$/.test(parts[0].value ?? '') ? parts[1] : undefined;
+        if (child.type === 'paragraph' && link?.type === 'link' && workspaceDocumentKind(link.url ?? '')) {
+          const path = workspaceDocumentKey(link.url!);
+          const duplicate = seen.has(path);
+          seen.add(path);
+          if (remove && duplicate) return false;
+        }
+        visit(child, remove);
+        return true;
+      });
+    };
+    options.previous.forEach(text => visit(parse(text), false));
+    visit(tree, true);
+  };
+}
+
+export function Markdown({content, className, compactHeadings = false, onSourceReference, suppressedDocumentPaths, precedingDocumentContents = []}: {
   content: string; className?: string; compactHeadings?: boolean;
   onSourceReference?: (alias: string) => void;
   suppressedDocumentPaths?: ReadonlySet<string>;
+  precedingDocumentContents?: string[];
 }): JSX.Element {
   const reportComponents: Components = {...components,
     ...(compactHeadings ? {h1: ({children}: {children?: React.ReactNode}) => <h3>{children}</h3>,
@@ -180,17 +208,19 @@ export function Markdown({content, className, compactHeadings = false, onSourceR
         : <Anchor {...props} />;
     },
   };
-  const render = (text: string): JSX.Element => (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeKatex, rehypeHighlight]}
+  const readDocument = useContext(BriefReaderContext);
+  const parts = splitReportDisclosures(content);
+  const render = (text: string, index: number): JSX.Element => (
+    <ReactMarkdown remarkPlugins={[remarkGfm, ...(readDocument ? [[dedupeDocumentLinks, {previous: [...precedingDocumentContents, ...parts.slice(0, index).map(part => part.content)]}]] as [typeof dedupeDocumentLinks, {previous: string[]}][] : [])]} rehypePlugins={[rehypeKatex, rehypeHighlight]}
       components={reportComponents}>{text}</ReactMarkdown>
   );
   return (
     <div className={['md', className].filter(Boolean).join(' ')}>
-      {splitReportDisclosures(content).map((part, index) => part.kind === 'disclosure'
+      {parts.map((part, index) => part.kind === 'disclosure'
         ? <details className="md-disclosure" key={index}>
-            <summary>{part.title}</summary><div className="md">{render(part.content)}</div>
+            <summary>{part.title}</summary><div className="md">{render(part.content, index)}</div>
           </details>
-        : <React.Fragment key={index}>{render(part.content)}</React.Fragment>)}
+        : <React.Fragment key={index}>{render(part.content, index)}</React.Fragment>)}
     </div>
   );
 }

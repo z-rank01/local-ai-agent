@@ -1,3 +1,4 @@
+import {workspaceDocumentKey} from '../lib/workspaceDocument';
 import {useState} from 'react';
 import {formatTime} from '../lib/format';
 import {isLocalReportBlock, structuredWorkspaceDocumentPaths, type ReadingReport} from '../lib/report';
@@ -81,8 +82,11 @@ export function AssistantTurn({
           onOpenConversation={onOpenConversation}
         />
       ) : null}
-      {ordered.map((block) => {
+      {ordered.map((block, index) => {
         if (isLocalReportBlock(block)) {
+          const result = block.toolResult as {path?: string};
+          const path = workspaceDocumentKey(result.path ?? '');
+          if (path && structuredWorkspaceDocumentPaths(ordered.slice(0, index)).has(path)) return null;
           return <ArtifactBlockCard key={block.id} block={block} onReadReport={onReadReport} conversationId={conversationId} />;
         }
         if (showTrace && block.kind !== 'assistant') {
@@ -92,7 +96,7 @@ export function AssistantTurn({
           if (!block.text && block.status !== 'running') {
             return null;
           }
-          return block.text ? <Markdown key={block.id} content={block.text} suppressedDocumentPaths={structuredDocumentPaths} /> : null;
+          return block.text ? <Markdown key={block.id} content={block.text} suppressedDocumentPaths={structuredDocumentPaths} precedingDocumentContents={ordered.slice(0, index).filter(previous => previous.kind === 'assistant').map(previous => previous.text || '')} /> : null;
         }
         return block.text ? <Markdown key={block.id} content={block.text} /> : null;
       })}
