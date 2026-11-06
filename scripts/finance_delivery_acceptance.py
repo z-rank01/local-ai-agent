@@ -134,6 +134,13 @@ def main():
             with client.stream('POST', '/api/chat/stream', json={'conversation_id': result['conversation_id'],
                     'workspace_id': result['workspace_id'], 'model': result['model'],
                     'request_id': result['request_id'], 'message': prompt}) as response:
+                if response.is_error:
+                    response.read()
+                    try:
+                        detail = response.json().get('detail')
+                    except (ValueError, AttributeError):
+                        detail = None
+                    result.update(http_status=response.status_code, rejection_detail=detail)
                 response.raise_for_status()
                 for line in response.iter_lines():
                     if not line.strip():
