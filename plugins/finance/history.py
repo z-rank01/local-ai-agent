@@ -1,21 +1,23 @@
 """Finance report/source projection and its provenance annotations."""
 from harness.contracts.history_projection import HistoryProjection
+from .delivered_history import delivered_history
 from .material_view import project_materials
 from plugins.finance.report_context import MATERIAL_VIEW_VERSION
 
 
 def project_history(history, archive):
-    result = project_materials(history, archive)
+    delivered = delivered_history(history, archive)
+    result = project_materials(delivered.messages, archive)
     entries = result.priors + result.reports + result.other_sources
     if not entries:
-        return HistoryProjection(history)
+        return delivered
     binding = result.binding
     version = MATERIAL_VIEW_VERSION if result.reports else 'prior-explanation-index-v2'
     prior_version = result.prior_version if result.priors else None
-    return HistoryProjection(result.messages, {row['evidence_id'] for row in entries},
+    return HistoryProjection(result.messages, delivered.evidence_ids | {row['evidence_id'] for row in entries},
         {'view_version': version, 'prior_version': prior_version,
          'source_view': bool(result.other_sources)},
-        {'version': version, 'prior_explanation_index_version': prior_version,
+        {**delivered.audit,'version': version, 'prior_explanation_index_version': prior_version,
          'task_material_binding_version': binding['version'] if binding else None,
          'task_material_binding_selection': binding['selection'] if binding else None,
          'task_material_binding_count': len(binding['references']) if binding else 0,
