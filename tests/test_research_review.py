@@ -41,8 +41,10 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
               'options':{'thinking':{'type':'enabled'},'reasoning_effort':'high'}}
         client=CompatibleClient(spec,CallBudget('unused',0));await client._client.aclose()
         payloads=[]
+        read_timeouts=[]
         def handler(request):
             payloads.append(json.loads(request.content))
+            read_timeouts.append(request.extensions['timeout']['read'])
             body=json.dumps({'issues':[],'checks':['已对照原文']},ensure_ascii=False)
             chunk={'choices':[{'delta':{'content':body},'finish_reason':'stop'}]}
             return httpx.Response(200,text='data: '+json.dumps(chunk)+'\n\ndata: [DONE]\n\n')
@@ -53,12 +55,14 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
             _=[item async for item in client.chat_stream_with_tools([{'role':'user','content':'普通回答'}])]
         self.assertEqual(payloads[0]['response_format'],{'type':'json_object'})
         self.assertNotIn('response_format',payloads[1])
+        self.assertEqual(read_timeouts,[300.0,client._client.timeout.read])
         for payload in payloads:
             self.assertEqual(payload['model'],'same-model')
             self.assertEqual(payload['max_tokens'],393216)
             self.assertEqual(payload['thinking'],{'type':'enabled'})
             self.assertEqual(payload['reasoning_effort'],'high')
         saved=run.review_records[fingerprint(draft)]
+        self.assertEqual(saved['read_idle_timeout_seconds'],300.0)
         self.assertEqual(saved['request_parameters']['response_format'],{'type':'json_object'})
         self.assertEqual(saved['native_receipt']['result_status'],'COMPLETE')
         self.assertNotIn('response_format',client.spec['options'])

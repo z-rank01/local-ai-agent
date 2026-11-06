@@ -14,6 +14,27 @@ def previous_findings(records):
             if r.get('category','core_answer') == 'core_answer']
 
 
+def reference_review_claims(payload):
+    """Use stage-scoped references only for exact copies in the review payload."""
+    recipe = payload.get('recipe') or {}
+    claims = {}
+    for stage in recipe.get('stages', []):
+        for claim in stage.get('claims', []):
+            if claim.get('id'):
+                key = (stage['id'], claim['id'])
+                claims[key] = None if key in claims else claim
+    for field in ('claim_materials', 'decision_claims'):
+        rows = []
+        for row in payload.get(field, []):
+            claim = row.get('claim')
+            if (isinstance(claim, dict) and row.get('claim_id', claim.get('id')) == claim.get('id')
+                    and claim == claims.get((row.get('stage_id'), claim.get('id')))):
+                row = {k: v for k, v in row.items() if k != 'claim'}
+                row['claim_id'] = claim['id']
+            rows.append(row)
+        payload[field] = rows
+
+
 def review_messages(question, candidate, research, system, findings=()):
     from .research.recipe import claim_materials, recipe_view
     from .research.material_view import author_material_view
@@ -42,6 +63,8 @@ def review_messages(question, candidate, research, system, findings=()):
              'role_batches':(getattr(research,'record',None) or {}).get('role_batches',{}),
              'decision_claims':(getattr(research,'record',None) or {}).get('decision_claims',[]),
              'methods':research.method_text,'previous_findings':list(findings)}
+    if (getattr(research, 'record', None) or {}).get('research_contract_version') == 3:
+        reference_review_claims(payload)
     # The caller's system belongs to the author, including tool workflow and
     # publication instructions. Review is a separate, tool-free role: inherit
     # materials and the frozen client, not the author's execution directives.

@@ -123,6 +123,14 @@ class CompatibleClient:
     def supports_json_object_output(self):
         return self.spec.get('structured_output', {}).get('mode') == 'json_object'
 
+    def with_stream_read_timeout(self, seconds):
+        """Derive a per-request transport policy while sharing the connection pool."""
+        from copy import copy
+        client = copy(self)
+        client._stream_timeout = httpx.Timeout(self._client.timeout)
+        client._stream_timeout.read = seconds
+        return client
+
     def with_json_object_output(self):
         """Derive one structured call without mutating the frozen conversation."""
         from copy import copy
@@ -177,6 +185,7 @@ class CompatibleClient:
         call_id = self.budget.reserve(self.spec['id'])
         from .native_response import NativeStreamReceipt
         receipt = NativeStreamReceipt(uuid.uuid4().hex)
+        stream_timeout = getattr(self, '_stream_timeout', None)
         from .run_manager import current_run
         run_control = current_run.get()
         if run_control:
@@ -188,6 +197,7 @@ class CompatibleClient:
             request_observer('native_model_request', {
                 'call_id': call_id, 'model': self.spec['id'], 'local_attempt_id': receipt.attempt_id,
                 'parameters': {key: value for key, value in payload.items() if key not in ('messages', 'tools')},
+                **({'read_idle_timeout_seconds': stream_timeout.read} if stream_timeout is not None else {}),
                 'tool_names': [item['function']['name'] for item in tools or []],
                 'message_count': len(clean),
                 'input_chars': len(json.dumps(clean,ensure_ascii=False)),
@@ -199,7 +209,8 @@ class CompatibleClient:
         probe, dsml = '', False
         try:
             async with self._client.stream('POST', self.spec['base_url'].rstrip('/') + '/chat/completions',
-                headers={'Authorization': f'Bearer {key}'}, json=payload) as response:
+                headers={'Authorization': f'Bearer {key}'}, json=payload,
+                **({'timeout': stream_timeout} if stream_timeout is not None else {})) as response:
                 receipt.headers(response.status_code,response.headers)
                 if response.status_code >= 400:
                     receipt.failure_category='HTTP_REJECTED'

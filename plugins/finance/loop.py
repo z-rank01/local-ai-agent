@@ -650,6 +650,26 @@ class FinanceLoop(Agent):
         if hasattr(self.router, 'authorize_publication'):
             await self.router.authorize_publication(name, params)
         candidate = await research.publication_input(params)
+        if (name == 'brief_publish' and research.record.get('research_contract_version') == 3
+                and params.get('review_ref') and params.get('review_response')):
+            # An explicit publication decision addresses an existing review.
+            # Do not silently turn a stale decision into a new paid review.
+            from .research_review import fingerprint
+            from .research.roles import review_context_fingerprint
+            prepared = research.publication.validate_publication(candidate, research.sources, research.read_text)
+            key = fingerprint(prepared)
+            question = next((m['content'] for m in reversed(messages) if m.get('role') == 'user'), '')
+            context_hash = review_context_fingerprint(research, prepared, question)
+            expected = key + ':' + context_hash
+            record = research.review_records.get(key, {})
+            if (record.get('status') != 'COMPLETE' or not record.get('feedback_returned')
+                    or record.get('evidence_sha256') != context_hash
+                    or params['review_ref'] != expected):
+                yield AgentEvent('tool_result', data={'result': {
+                    'status': 'REVIEW_REFERENCE_MISMATCH',
+                    'message': '发布决定与当前稿件或证据不匹配。请查看最近核对回执和实际工作稿。'
+                               '如确需提交修改版，先单独提交该版核对。本次没有调用核对模型或发布。'}})
+                return
         if await research.queue_citation_reads(candidate):
             result = {'status': 'EVIDENCE_PENDING',
                       'message': '已登记当前稿选中的原文回读，待实际摘录返回后再提交；未修改正文。'}
@@ -705,6 +725,15 @@ class FinanceLoop(Agent):
                 result = await research.publish_prepared(candidate, {key:params[key] for key in
                     ('review_ref','review_response') if key in params})
         if isinstance(result, dict) and research.record:
+            if result.get('status') in ('REVIEW_COMPLETE', 'REVIEW_READY'):
+                result['publish_instruction'] = (
+                    '若现稿已回答问题，保留原提交参数，调用brief_publish，带本次review_ref及你自己的'
+                    'review_response。可说明证据局限或不同意的建议。只有确实需要修改正文或证据时才提交新稿。')
+                if params.get('draft_path'):
+                    result['reviewed_draft_path'] = params['draft_path']
+                    basis = {k:v for k,v in params.items() if k not in ('review_ref','review_response')}
+                    if basis.keys() <= {'draft_path','decision_claim_ids','calculation_refs','chart_refs'}:
+                        result['same_draft_publish_parameters'] = {**basis, 'review_ref':result['review_ref']}
             from .research.recipe import recipe_advice
             result.update(recipe=research.record.get('recipe'), artifacts=research.artifacts(),
                           recipe_advice=recipe_advice(research.record.get('recipe'), research.artifacts(), candidate))
@@ -752,6 +781,8 @@ class FinanceLoop(Agent):
         review_client = self.llm
         if getattr(self.llm, 'supports_json_object_output', False) is True:
             review_client = self.llm.with_json_object_output()
+        if hasattr(review_client, 'with_stream_read_timeout'):
+            review_client = review_client.with_stream_read_timeout(300.0)
         serial=sum(len(row.get('attempts',[])) for row in research.review_records.values())+1
         findings=previous_findings(research.review_records)
         directory=f'reviews/{serial}'
@@ -774,6 +805,8 @@ class FinanceLoop(Agent):
         def observe(event,data):
             self.audit.record(event,{'session_id':session_id,'research_phase':'review','candidate_sha256':key,**data})
             if event=='native_model_request':
+                if data.get('read_idle_timeout_seconds') is not None:
+                    record['read_idle_timeout_seconds'] = data['read_idle_timeout_seconds']
                 parameters=data.get('parameters',{})
                 record['request_parameters']={k:parameters[k] for k in
                     ('model','max_tokens','response_format','format','think','thinking','reasoning_effort') if k in parameters}
@@ -782,7 +815,8 @@ class FinanceLoop(Agent):
                 record['native_receipt']={k:data[k] for k in (
                     'local_attempt_id','result_status','finish_reason','failure_category',
                     'delivery_status','http_status','usage','usage_status','elapsed_seconds',
-                    'visible_content_chars','reasoning_chars','terminal_received') if k in data}
+                    'visible_content_chars','reasoning_chars','terminal_received','failure_stage',
+                    'first_chunk_seconds','last_chunk_seconds','idle_seconds') if k in data}
         options={'request_observer':observe} if getattr(self.llm,'observes_native_requests',False) else {}
         control=getattr(self,'run_control',None)
         if control: control.begin_step('模型单独核对')

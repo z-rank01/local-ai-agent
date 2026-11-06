@@ -286,19 +286,35 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
             'as_of':'2025-12-31', 'stance':'等待验证', 'sources':[{'artifact_ref':aliases['E1']}],
             'decision_claim_ids':[claim['id']]}
         history = [{'role':'user','content':'原公告问题'}]
+        path = run.record['directory'] + '/draft.json'
+        files.files[path] = json.dumps(submission, ensure_ascii=False)
         with patch.object(config, 'PUBLISH_REVIEW_ENFORCE', False):
             events = [event async for event in agent._dispatch_tool(
-                'brief_publish', submission, 'c', None, 'one', history)]
+                'brief_publish', {'draft_path':path}, 'c', None, 'one', history)]
             ready = next(event.data['result'] for event in events if event.kind == 'tool_result')
             self.assertEqual(ready['status'], 'REVIEW_READY')
+            self.assertEqual(ready['same_draft_publish_parameters'],
+                             {'draft_path':path, 'review_ref':ready['review_ref']})
             self.assertIsNone(run.published)
             record = run.review_records[ready['candidate_sha256']]
             self.assertEqual(record['review_context_sha256'], ready['review_ref'].split(':')[-1])
             context = json.loads(calls[0][1]['content'])
             self.assertEqual(context['question'], '原公告问题')
             self.assertTrue(context['artifacts'])
+            stage_claims = {(stage['id'], item['id']): item for stage in context['recipe']['stages']
+                            for item in stage.get('claims', [])}
+            for row in context['claim_materials'] + context['decision_claims']:
+                self.assertNotIn('claim', row)
+                self.assertIn((row['stage_id'], row['claim_id']), stage_claims)
+            changed = {**submission, 'markdown': submission['markdown'] + '新增陈述。',
+                       'review_ref':ready['review_ref'], 'review_response':'发布'}
+            events = [event async for event in agent._dispatch_tool(
+                'brief_publish', changed, 'c', None, 'stale', history)]
+            self.assertEqual(events[-1].data['result']['status'], 'REVIEW_REFERENCE_MISMATCH')
+            self.assertEqual(len(calls), 1)
+            self.assertIsNone(run.published)
             events = [event async for event in agent._dispatch_tool('brief_publish',
-                {**submission, 'review_ref':ready['review_ref'], 'review_response':'保留期内边界，明确发布'},
+                {**ready['same_draft_publish_parameters'], 'review_response':'保留期内边界，明确发布'},
                 'c', None, 'two', history)]
             self.assertEqual(next(event.data['result']['status'] for event in events
                                   if event.kind == 'tool_result'), 'PUBLISHED')
