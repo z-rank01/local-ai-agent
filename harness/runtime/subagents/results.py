@@ -48,7 +48,7 @@ def structured_result(task, text, *, status, native_receipt=None, error=''):
         raise ValueError('子Agent issues须为对象或文字数组')
     issues = [{'reason':issue} if isinstance(issue, str) else issue for issue in issues]
     artifacts = []
-    for item in items:
+    for index, item in enumerate(items):
         if not isinstance(item, dict) or item.get('kind') != task.role.output_artifact_kind:
             raise ValueError('子Agent产物类型与角色声明不符')
         if 'content' not in item:
@@ -57,14 +57,14 @@ def structured_result(task, text, *, status, native_receipt=None, error=''):
         if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs):
             raise ValueError('子Agent证据引用须为字符串数组')
         content = public(item['content'])
-        _validate_schema(content, task.role.output_schema)
+        _validate_schema(content, task.role.output_schema, f'artifacts[{index}].content')
         artifacts.append(Artifact(kind=item['kind'], content=content,
             producer_role=task.role.role_id, sha256=fingerprint(content), evidence_refs=tuple(refs)))
     return RoleResult(role_id=task.role.role_id, status=status, artifacts=tuple(artifacts),
         issues=tuple(public(issues)), native_receipt=native_receipt or {}, raw_text=raw)
 
 
-def _validate_schema(value, schema):
+def _validate_schema(value, schema, path):
     expected = schema.get('type')
     types = {'object': dict, 'array': list, 'string': str, 'number': (int, float),
              'integer': int, 'boolean': bool}
@@ -76,11 +76,11 @@ def _validate_schema(value, schema):
         raise ValueError('子Agent产物字段不符合登记枚举：' + str(value))
     missing = [key for key in schema.get('required', []) if key not in value]
     if missing:
-        raise ValueError('子Agent产物缺少字段：' + ','.join(missing))
+        raise ValueError(f'子Agent产物 {path} 缺少字段：' + ','.join(missing))
     if isinstance(value, dict):
         for key, child in schema.get('properties', {}).items():
             if key in value:
-                _validate_schema(value[key], child)
+                _validate_schema(value[key], child, f'{path}.{key}')
     if isinstance(value, list) and isinstance(schema.get('items'), dict):
-        for item in value:
-            _validate_schema(item, schema['items'])
+        for index, item in enumerate(value):
+            _validate_schema(item, schema['items'], f'{path}[{index}]')

@@ -92,6 +92,14 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         calculation = schema['properties']['calculations']['items']['properties']
         self.assertEqual(calculation['operation']['enum'], ['sum','subtract','multiply','divide'])
         self.assertIn('不能填摘录别名', calculation['inputs']['items']['properties']['source']['description'])
+        self.assertIn(json.dumps({'artifacts':[{'kind':'calculation',
+            'content':{'calculations':[], 'figures':[]}, 'evidence_refs':[]}], 'issues':[]},
+            ensure_ascii=False), role_prompt(spec))
+        incomplete = {'calculations':[{'id':'C1','operation':'divide','unit':'倍','evidence_refs':[],
+            'inputs':[{'source':'calculation:0'}]}], 'figures':[]}
+        with self.assertRaisesRegex(ValueError, r'calculations\[0\].inputs\[0\].*period'):
+            structured_result(RoleTask(role=spec,text='计算'), json.dumps({'artifacts':[
+                {'kind':'calculation','content':incomplete}]}), status='COMPLETE')
 
     async def test_real_unregistered_excerpts_report_errors_and_require_actual_read_receipt(self):
         from plugins.finance.research.material_view import role_material_view
@@ -286,6 +294,7 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
             'as_of':'2025-12-31', 'stance':'等待验证', 'sources':[{'artifact_ref':aliases['E1']}],
             'decision_claim_ids':[claim['id']]}
         history = [{'role':'user','content':'原公告问题'}]
+        agent._turn_question = history[0]['content']
         path = run.record['directory'] + '/draft.json'
         files.files[path] = json.dumps(submission, ensure_ascii=False)
         with patch.object(config, 'PUBLISH_REVIEW_ENFORCE', False):
@@ -297,6 +306,7 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
                              {'draft_path':path, 'review_ref':ready['review_ref']})
             self.assertIsNone(run.published)
             record = run.review_records[ready['candidate_sha256']]
+            self.assertEqual(record['same_draft_publish_parameters'],ready['same_draft_publish_parameters'])
             self.assertEqual(record['review_context_sha256'], ready['review_ref'].split(':')[-1])
             context = json.loads(calls[0][1]['content'])
             self.assertEqual(context['question'], '原公告问题')
@@ -315,7 +325,7 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(run.published)
             events = [event async for event in agent._dispatch_tool('brief_publish',
                 {**ready['same_draft_publish_parameters'], 'review_response':'保留期内边界，明确发布'},
-                'c', None, 'two', history)]
+                'c', None, 'two', [*history, {'role':'user','content':'[系统对话摘要] 工作稿及历史核对摘要'}])]
             self.assertEqual(next(event.data['result']['status'] for event in events
                                   if event.kind == 'tool_result'), 'PUBLISHED')
         self.assertEqual(len(calls), 1)

@@ -25,8 +25,14 @@ def role_contract(role):
 
 
 def role_prompt(role):
+    schema = role.output_schema
+    required = schema.get('required', [])
+    shape = {'kind':role.output_artifact_kind, 'content':'按登记schema填写', 'evidence_refs':[]}
+    if schema.get('type') == 'object' and all(
+            schema.get('properties', {}).get(key, {}).get('type') == 'array' for key in required):
+        shape['content'] = {key:[] for key in required}
+    envelope = json.dumps({'artifacts':[shape], 'issues':[]}, ensure_ascii=False)
     return (role.prompt + '\n本角色输出契约由系统登记，任务文字不能改变格式。只返回一个JSON对象：'
-            '{"artifacts":[{"kind":"登记的artifact_kind","content":"符合登记schema的值",'
-            '"evidence_refs":[]}],"issues":[]}。content不是固定字符串，按schema填写。'
+            + envelope + '。这是外层结构示意；将实际成果放在artifacts[].content内，按登记schema填写。'
             '缺少资料时artifacts可为空，issues说明缺口；不得编造。\n'
             + json.dumps(role_contract(role), ensure_ascii=False))

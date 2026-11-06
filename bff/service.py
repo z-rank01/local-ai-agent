@@ -1189,6 +1189,14 @@ class ChatSessionService:
         cloud_write_allowed = self._snapshot.record['cloud_write']
         messages = self._store.messages_as_dicts(conversation.id, cloud=cloud)
         agent = self._runtime.agent_for(spec, llm)
+        # Restored tool receipts and summaries can use the user role in a model
+        # view. Bind the actual authorized request before any transformations.
+        request_message = self._store.get_message(response_to_message_id)
+        if (request_message is None or request_message.role != 'user'
+                or request_message.conversation_id != conversation.id):
+            raise ValueError('运行缺少所属会话的原始用户问题')
+        agent.original_user_request = (request_message.content if not cloud or
+            json.loads(request_message.metadata or '{}').get('cloud_safe', False) else '')
         agent.run_control = getattr(self, '_run_control', None)
         evidence_scope = ('cloud' if cloud else 'local') + ':' + self._snapshot.id
         agent.context_mgr.archive = lambda message: self._store.archive_task_evidence(

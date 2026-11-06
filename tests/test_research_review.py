@@ -32,6 +32,24 @@ def tearDownModule():
 
 
 class ReviewTests(unittest.IsolatedAsyncioTestCase):
+    def test_cited_page_context_is_bound_to_actually_received_page(self):
+        from plugins.finance.research.material_view import cited_page_context
+        body = '披露期间为前三季度。拟分红金额见本段。尚待股东会审议。'
+        quote = '拟分红金额见本段。'
+        start = body.index(quote)
+        loc = {'page':1, 'start':start, 'end':start+len(quote)}
+        run = SimpleNamespace(sources={'S1':{'sha256':'digest'}},
+            excerpts={'S1':[{**loc,'quote':quote,'sha256':'digest'}]},
+            _source_pages={'S1':[{'page':1,'text':body}]}, read_text={'S1':[quote]})
+        citation = {'id':'S1','quote':quote,'excerpt':loc}
+        candidate = {'sources':[citation, citation]}
+        self.assertEqual(cited_page_context(run, candidate), [])
+        run.read_text['S1'] = ['[第 1 页]\n' + body]
+        self.assertEqual(cited_page_context(run, candidate), [
+            {'source_id':'S1','sha256':'digest','page':1,'start':0,'end':len(body),'text':body}])
+        run.sources['S1']['sha256'] = 'changed'
+        self.assertEqual(cited_page_context(run, candidate), [])
+
     async def test_verified_json_mode_is_review_only_and_actual_parameters_are_saved(self):
         import httpx
         from core.providers import CompatibleClient, CallBudget

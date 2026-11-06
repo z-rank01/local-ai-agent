@@ -2,6 +2,7 @@
 
 - 只为问题所需的派生值和图表提供计算。可使用 code_exec 检查数值；最终数值由宿主按原输入、单位和 Decimal 校验生成。
 - 每项计算填写 operation、unit、inputs 和 evidence_refs。inputs按source、value、unit、period记录来源ID、原文值、单位和期间，必须能定位到取证摘录；常数的source写constant:含义、period=不适用。
+- 前项计算引用也须写period，例如 {"source":"calculation:0","period":"前项差额所对应的实际比较期间"}，按此项的真实期间替换示例文字。数值和单位可继承。只列支撑本次判断的算式，期间不明时写入issues。
 - 同类量比值先统一货币单位。unit=倍时结果为小数比例，unit=%时为百分数；比率相减才可以使用百分点。显式换算常数写真实单位，不重复换算。
 - result一律省略，由宿主计算，不要自行填写近似值。不能用代码输出替代可复核的输入与来源，不能修改取证原句。
 - figures始终是数组，没有图表时返回[]，不能省略或改成对象。

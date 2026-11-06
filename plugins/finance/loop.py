@@ -83,7 +83,10 @@ class FinanceLoop(Agent):
         source_read_tools = tools_for_role('source_read')
         source_read_seen = any(m.get('role') == 'tool' and m.get('tool_name') in source_read_tools
                               for m in evidence_messages)
-        current_user_question=next((m.get('content','') for m in reversed(messages) if m.get('role')=='user'),'')
+        current_user_question = getattr(self, 'original_user_request', None)
+        if current_user_question is None:
+            current_user_question = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
+        self._turn_question = current_user_question
         source_quote_originals = turn.source_quote_originals
         source_read_records = turn.source_read_records
         source_index = turn.source_index
@@ -200,7 +203,7 @@ class FinanceLoop(Agent):
             source_repair_protocol = []
             source_index_message = None
             program_source_message = None
-            user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
+            user_request = current_user_question
             lookup_index = turn.lookup_index
             purpose_pending = bool((turn.reply_purpose_enabled or getattr(self, 'turn_reply_purpose_enabled', False))
                 and self.allow_tools and source_read_seen and (not cloud or workspace_granted))
@@ -658,7 +661,7 @@ class FinanceLoop(Agent):
             from .research.roles import review_context_fingerprint
             prepared = research.publication.validate_publication(candidate, research.sources, research.read_text)
             key = fingerprint(prepared)
-            question = next((m['content'] for m in reversed(messages) if m.get('role') == 'user'), '')
+            question = self._review_question(messages)
             context_hash = review_context_fingerprint(research, prepared, question)
             expected = key + ':' + context_hash
             record = research.review_records.get(key, {})
@@ -704,7 +707,6 @@ class FinanceLoop(Agent):
                               'semantic_certification') if key in review},
                           'message': '核对建议已保存；本次调用不发布或改写报告。请对照证据自行决定修改或brief_publish，建议不认证事实、不强制采纳。'}
                 review['feedback_returned'] = True
-                await research.checkpoint()
             elif new_contract and (not review.get('feedback_returned')
                     or params.get('review_ref') != review_ref
                     or not isinstance(params.get('review_response'), str) or not params['review_response'].strip()):
@@ -717,7 +719,6 @@ class FinanceLoop(Agent):
                                     '明确发布时再次brief_publish，携带本review_ref及简短review_response。'
                                     '不要求逐条填表或意见清零；修改稿件或证据将核对新版本。'}
                 review['feedback_returned'] = True
-                await research.checkpoint()
             elif review_blocks(review):
                 result = {'error': '单独核对标出必须修改的关键问题，请补查或修订后重新提交；原稿与核对记录已保存。',
                           'review': review}
@@ -734,6 +735,14 @@ class FinanceLoop(Agent):
                     basis = {k:v for k,v in params.items() if k not in ('review_ref','review_response')}
                     if basis.keys() <= {'draft_path','decision_claim_ids','calculation_refs','chart_refs'}:
                         result['same_draft_publish_parameters'] = {**basis, 'review_ref':result['review_ref']}
+                # After the author takes another tool step the original tool
+                # reply can leave the handoff. Keep its bounded publication
+                # guidance with the reviewed version, along with review_ref.
+                for field in ('publish_instruction','reviewed_draft_path','same_draft_publish_parameters'):
+                    review.pop(field, None)
+                    if field in result:
+                        review[field] = result[field]
+                await research.checkpoint()
             from .research.recipe import recipe_advice
             result.update(recipe=research.record.get('recipe'), artifacts=research.artifacts(),
                           recipe_advice=recipe_advice(research.record.get('recipe'), research.artifacts(), candidate))
@@ -750,6 +759,11 @@ class FinanceLoop(Agent):
         if name == 'research_begin' and status == 'ok' and isinstance(result, dict) and 'phase' in result:
             return '研究阶段：' + str(result['phase'])
         return None
+
+    def _review_question(self, messages):
+        if hasattr(self, '_turn_question'):
+            return self._turn_question
+        return next((m['content'] for m in reversed(messages) if m.get('role') == 'user'), '')
 
     async def _review_candidate(self, candidate, session_id, messages):
         from .research_review import fingerprint, review_messages, parse_review, previous_findings, claim_provenance
@@ -769,7 +783,7 @@ class FinanceLoop(Agent):
         research.record['current_candidate'] = {'sha256':key, 'candidate':candidate}
         research.record.setdefault('artifacts', {})['draft:'+key] = {
             'kind':'candidate', 'sha256':key, 'title':candidate['title']}
-        question=next((m['content'] for m in reversed(messages) if m.get('role')=='user'),'')
+        question=self._review_question(messages)
         from .research.roles import review_context_fingerprint
         evidence_hash=review_context_fingerprint(research,candidate,question)
         research.record['review_question']=question

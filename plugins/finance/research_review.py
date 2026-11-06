@@ -37,7 +37,7 @@ def reference_review_claims(payload):
 
 def review_messages(question, candidate, research, system, findings=()):
     from .research.recipe import claim_materials, recipe_view
-    from .research.material_view import author_material_view
+    from .research.material_view import author_material_view, cited_page_context
     material = author_material_view(research)
     artifacts = material['artifacts']
     instructions=(Path(__file__).parent/'prompts/review.txt').read_text(encoding='utf-8')
@@ -65,6 +65,7 @@ def review_messages(question, candidate, research, system, findings=()):
              'methods':research.method_text,'previous_findings':list(findings)}
     if (getattr(research, 'record', None) or {}).get('research_contract_version') == 3:
         reference_review_claims(payload)
+        payload['cited_page_context'] = cited_page_context(research, candidate)
     # The caller's system belongs to the author, including tool workflow and
     # publication instructions. Review is a separate, tool-free role: inherit
     # materials and the frozen client, not the author's execution directives.

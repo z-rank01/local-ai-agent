@@ -400,6 +400,8 @@ def review_context_fingerprint(session, candidate, question):
         return fingerprint(session.evidence_index())
     artifacts = {ref: {key: artifact.get(key) for key in ('kind', 'sha256', 'producer_role')}
                  for ref, artifact in session.artifacts().items() if ref.startswith('role:')}
+    from .material_view import cited_page_context
     return fingerprint({'contract': 3, 'question': question, 'candidate': candidate,
                         'methods': session.method_text, 'role_artifacts': artifacts,
+                        'cited_page_context': cited_page_context(session, candidate),
                         'decision_claim_ids': session.record.get('decision_claim_ids', [])})
