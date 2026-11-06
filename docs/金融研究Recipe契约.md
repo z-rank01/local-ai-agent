@@ -119,3 +119,7 @@
 在仓库根目录运行 `.\.conda\python.exe -m tests.finance_recipe_replay <工作区ID> <研究ID>`。可用 `--batch`、`--role` 单选，用 `--show-artifacts` 在本机查看通过解析的公开产物。此模块只在 tests 中，由开发者显式执行，不注册 API、工具或运行时开关。
 
 回放从原库按会话、工作区、批次及角色定位 result_ref，使用当前登记角色与生产解析器，分列原状态、当前解析结果、已存映射错误及核对与作者决定的对应关系。无确认输出单列；不会调用模型、更新研究或发布。产物哈希相同只能证明解析得到同一内容。依赖实际收到的请求、财务原件核实及页面行为仍须分别检查。
+
+`--stage` 支持 evidence、calculation、analysis、role_review、author、review、publication、followup。角色材料的 prepared_input 是角色调用前归档的交接包；serialized_requests 单列可用实际尝试编号关联的传输清单。evidence 核验登记原件哈希和页内字符位置；followup 列出同会话后续运行检查点引用的历史索引。业务结论仍须阅读原件。
+
+单阶段命令为 `.\.conda\python.exe -m tests.finance_recipe_probe <工作区ID> <研究ID> <原运行ID> <核对尝试ID> --stage review --change "本次要测试的提示修改"`。默认仅验证材料，增加 `--live` 才调用一次冻结的 DeepSeek，沿原模型账本登记新调用。仅支持能核实原云读授权、逐条消息哈希、已发布运行绑定及模型参数的无工具核对样本。没有可验证的角色序列化输入或原工具声明时采用离线测试。单次核对仍可能携带完整候选稿和材料，应按回执统计实际用量。
