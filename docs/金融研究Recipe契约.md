@@ -123,3 +123,5 @@
 `--stage` 支持 evidence、calculation、analysis、role_review、author、review、publication、followup。角色材料的 prepared_input 是角色调用前归档的交接包；serialized_requests 单列可用实际尝试编号关联的传输清单。evidence 核验登记原件哈希和页内字符位置；followup 列出同会话后续运行检查点引用的历史索引。业务结论仍须阅读原件。
 
 单阶段命令为 `.\.conda\python.exe -m tests.finance_recipe_probe <工作区ID> <研究ID> <原运行ID> <核对尝试ID> --stage review --change "本次要测试的提示修改"`。默认仅验证材料，增加 `--live` 才调用一次冻结的 DeepSeek，沿原模型账本登记新调用。仅支持能核实原云读授权、逐条消息哈希、已发布运行绑定及模型参数的无工具核对样本。没有可验证的角色序列化输入或原工具声明时采用离线测试。单次核对仍可能携带完整候选稿和材料，应按回执统计实际用量。
+
+无工具子角色使用相同命令，将尝试 ID 选为原模型账本的 ledger_call_id，并指定 `--stage analysis` 或 `--stage role_review` 与 `--batch <批次ID>`。工具从 role_prompt 和原材料重建消息后验证模型账本的 input_hash 与 execution_hash。旧版本角色提示变化导致哈希不匹配时，在新调用前停止。分析与角色审查均在万德斯正式修订样本上取得哈希匹配。带工具的取证、计算以及作者的原工具声明未能从这些历史档案完整核实，使用离线回放。

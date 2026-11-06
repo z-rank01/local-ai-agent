@@ -8,11 +8,11 @@ from contextlib import closing
 
 from harness.contracts.subagents import RoleTask
 from harness.runtime.subagents.results import structured_result
-from harness.runtime.subagents.spec import load_role_specs
-from tests.finance_recipe_stages import evidence, followups, publication, request_view, review_rows, source_positions
+from tests.finance_recipe_stages import (evidence, followups, ledger_input, publication, registered_roles,
+                                        request_view, review_rows, source_positions)
 
 
-def inspect_role(db, research, workspace, batch_id, role, saved, show):
+def inspect_role(db, research, workspace, batch_id, role, saved, show, ledger=None):
     row = {'batch': batch_id, 'role': role.role_id, 'recorded': saved['status'],
            'result_ref': saved.get('result_ref')}
     scopes = ('cloud:' + workspace, 'local:' + workspace)
@@ -44,6 +44,14 @@ def inspect_role(db, research, workspace, batch_id, role, saved, show):
                                   if index.get('local_attempt_id') and any(
                                       index['local_attempt_id'] == c.get('local_attempt_id') for c in calls)]
     row['downstream_input'] = 'UNCONFIRMED'
+    if native.get('ledger_call_id'):
+        row['calls'].append({k:native.get(k) for k in ('ledger_call_id','status','usage')})
+        if ledger is not None:
+            try:
+                ledger_input(db, ledger, research, workspace, native, role)
+                row['role_input'] = 'LEDGER_HASH_MATCH'
+            except ValueError as exc:
+                row['role_input'] = str(exc)
     if result['status'] in ('UNKNOWN', 'STOPPED', 'TRUNCATED') or not raw:
         return dict(row, replay='NO_CONFIRMED_OUTPUT')
     try:
@@ -79,19 +87,16 @@ def main():
     research = json.loads((path / 'research.json').read_text(encoding='utf-8'))
     if research.get('id') != args.research or research.get('research_contract_version') != 3:
         parser.error('expected matching v3 research')
-    plugins = root / 'plugins'
-    tools = {name for manifest in plugins.glob('*/plugin.json')
-             for role in json.loads(manifest.read_text(encoding='utf-8')).get('agent_roles', [])
-             for name in role.get('tools', [])}
-    roles = load_role_specs(plugins, tools)
+    roles = registered_roles(root)
     selected_role = {'evidence':'finance_evidence', 'calculation':'finance_calculation',
                      'analysis':'finance_analysis', 'role_review':'finance_review'}.get(args.stage, args.role)
     if args.role and selected_role != args.role:
         parser.error('conflicting stage and role')
     out = {}
-    with closing(sqlite3.connect((root / 'data/conversations.db').as_uri() + '?mode=ro', uri=True)) as db:
+    with closing(sqlite3.connect((root / 'data/conversations.db').as_uri() + '?mode=ro', uri=True)) as db, \
+         closing(sqlite3.connect((root / 'data/model-calls.sqlite').as_uri() + '?mode=ro', uri=True)) as ledger:
         if args.stage in ('all', 'roles', 'evidence', 'calculation', 'analysis', 'role_review'):
-            out['roles'] = [inspect_role(db, research, args.workspace, batch, roles[name], result, args.show_artifacts)
+            out['roles'] = [inspect_role(db, research, args.workspace, batch, roles[name], result, args.show_artifacts, ledger)
                             for batch, data in research['role_batches'].items() if not args.batch or args.batch == batch
                             for name, result in data['roles'].items() if not selected_role or name == selected_role]
             if not out['roles']:
