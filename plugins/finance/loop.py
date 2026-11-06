@@ -672,6 +672,9 @@ class FinanceLoop(Agent):
                     or params['review_ref'] != expected):
                 yield AgentEvent('tool_result', data={'result': {
                     'status': 'REVIEW_REFERENCE_MISMATCH',
+                    'current_candidate_sha256':key, 'current_evidence_sha256':context_hash,
+                    'candidate_changed':params['review_ref'].partition(':')[0] != key,
+                    'review_context_changed':params['review_ref'].partition(':')[2] != context_hash,
                     'message': '发布决定与当前稿件或证据不匹配。请查看最近核对回执和实际工作稿。'
                                '如确需提交修改版，先单独提交该版核对。本次没有调用核对模型或发布。'}})
                 return
@@ -754,8 +757,12 @@ class FinanceLoop(Agent):
                         review[field] = result[field]
                 await research.checkpoint()
             from .research.recipe import recipe_advice
-            result.update(recipe=research.record.get('recipe'), artifacts=research.artifacts(),
-                          recipe_advice=recipe_advice(research.record.get('recipe'), research.artifacts(), candidate))
+            if research.record.get('review_protocol') == 'delta-v1' and result.get('status') in ('REVIEW_READY','REVIEW_COMPLETE'):
+                result['review_scope'] = review.get('scope')
+                result['revision_material'] = review.get('author_revision')
+            else:
+                result.update(recipe=research.record.get('recipe'), artifacts=research.artifacts(),
+                              recipe_advice=recipe_advice(research.record.get('recipe'), research.artifacts(), candidate))
         yield AgentEvent('tool_result', data={'result': result})
 
     def _tool_error(self, name, error):
@@ -809,6 +816,24 @@ class FinanceLoop(Agent):
             review_client = review_client.with_stream_read_timeout(300.0)
         serial=sum(len(row.get('attempts',[])) for row in research.review_records.values())+1
         findings=previous_findings(research.review_records)
+        system=next((m['content'] for m in messages if m.get('role')=='system'),'')
+        context=review_messages(question,candidate,research,system,findings)
+        scope = None
+        baseline = research.record.get('review_baseline')
+        if research.record.get('review_protocol') == 'delta-v1' and research.record.get('research_contract_version') == 3:
+            from .review_delta import plan_revision, table_context
+            full = json.loads(context[1]['content'])
+            full['received_sha256'] = fingerprint(research.read_text)
+            payload, scope = plan_revision(full, candidate, baseline)
+            if scope['mode'] != 'reuse':
+                payload['open_findings'] = [r for r in (baseline or {}).get('findings',[])
+                                            if r['state'] in ('unverified','retained')]
+                payload['table_context'] = table_context(research.read_text, candidate.get('sources', []), payload)
+                context[1]['content'] = json.dumps(payload, ensure_ascii=False)
+                scope = dict(scope, sent_payload_sha256=fingerprint(payload),
+                             cited_sources=[s['id'] for s in candidate.get('sources',[])],
+                             table_sources=sorted({r['source_id'] for r in payload['table_context']}),
+                             artifact_refs=sorted(payload.get('verified_artifacts',payload.get('artifacts',{}))))
         directory=f'reviews/{serial}'
         # Existing file tool creates nested parents. Save submitted prose before review.
         await research.write(directory+'-candidate.json',candidate)
@@ -817,14 +842,27 @@ class FinanceLoop(Agent):
                 'review_context_sha256':evidence_hash,
                 'attempts':(old or {}).get('attempts',[])+[directory], 'semantic_certification':False}
         research.review_records[key]=record
+        if scope:
+            record['scope'] = scope
+            record['author_revision'] = {k:payload[k] for k in ('diff','table_context') if k in payload}
+            record['author_revision']['source_ids'] = [s['id'] for s in candidate.get('sources', [])]
+            if scope['mode'] == 'reuse':
+                prior = research.review_records[baseline['key']]
+                for field in ('issues','checks','claim_checks','claim_provenance','read_requests','read_request_keys','author_revision','findings'):
+                    if field in prior:
+                        record[field] = prior[field]
+                record.update(status='COMPLETE', reused_from=baseline['key']+':'+prior['evidence_sha256'])
+                research.record['review_baseline'] = dict(baseline, key=key, candidate=candidate,
+                                                         evidence_sha256=evidence_hash)
+                await research.write(directory+'-result.json',record)
+                await research.checkpoint()
+                return
         research.record['phase']='核对'
         research.progress('phase','核对')
         await research.checkpoint()
         call_id='review_'+uuid.uuid4().hex
         yield AgentEvent('tool_start',data={'name':'research_review','call_id':call_id,
             'params':{'candidate_sha256':key},'summary':'单独核对关键结论'})
-        system=next((m['content'] for m in messages if m.get('role')=='system'),'')
-        context=review_messages(question,candidate,research,system,findings)
         receipt={}
         def observe(event,data):
             self.audit.record(event,{'session_id':session_id,'research_phase':'review','candidate_sha256':key,**data})
@@ -856,6 +894,9 @@ class FinanceLoop(Agent):
             visible=re.sub(r'<think>.*?(?:</think>|$)','',response.get('content') or '',flags=re.S|re.I).strip()
             await research.write(directory+'-response.txt',visible)
             result=parse_review(visible)
+            if scope:
+                from .review_delta import mark_numeric_advice
+                mark_numeric_advice(result['issues'],payload['table_context'])
             if 'claim_checks' in result:
                 result['claim_provenance']=claim_provenance(result['claim_checks'],candidate,research)
             previous=[len(r.get('issues',[])) for k,r in research.review_records.items()
@@ -863,6 +904,13 @@ class FinanceLoop(Agent):
             if not previous or len(result['issues'])<min(previous):
                 research.progress('review_improvement',len(result['issues']))
             record.update(result,status='COMPLETE')
+            if scope:
+                from .review_delta import track_findings
+                record['findings'] = track_findings((baseline or {}).get('findings',[]),
+                    result['issues'], json.loads(visible).get('finding_updates') or [])
+                research.record['review_baseline'] = {'key':key, 'candidate':candidate,
+                    'material_sha256':scope['material_sha256'],'evidence_sha256':evidence_hash,
+                    'findings':record['findings']}
             from core import config as _config
             record['read_request_keys']=(await research.queue_review_reads(result['read_requests'])
                                          if _config.PUBLISH_REVIEW_ENFORCE

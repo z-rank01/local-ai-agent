@@ -401,7 +401,11 @@ def review_context_fingerprint(session, candidate, question):
     artifacts = {ref: {key: artifact.get(key) for key in ('kind', 'sha256', 'producer_role')}
                  for ref, artifact in session.artifacts().items() if ref.startswith('role:')}
     from .material_view import cited_page_context, publication_links
-    return fingerprint({'contract': 3, 'question': question, 'candidate': candidate,
+    revision_material = {}
+    if session.record.get('review_protocol') == 'delta-v1':
+        revision_material = {'review_protocol':'delta-v1', 'source_material':fingerprint(session.evidence_index()['sources']),
+                             'decision_claims':session.record.get('decision_claims', [])}
+    return fingerprint({**revision_material,'contract': 3, 'question': question, 'candidate': candidate,
                         'methods': session.method_text, 'role_artifacts': artifacts,
                         'cited_page_context': cited_page_context(session, candidate),
                         'source_links': publication_links(candidate, session.sources),

@@ -1,0 +1,31 @@
+import unittest
+
+from plugins.finance.review_delta import changes, mark_numeric_advice, table_context, track_findings
+
+
+class ReviewDeltaTests(unittest.TestCase):
+    def test_removed_counterevidence_keeps_the_original_section(self):
+        result = changes({'markdown':'# 排序\n一拖优先\n## 反证\n潍柴现金流更强'},
+                         {'markdown':'# 排序\n一拖优先'})
+        diff = result['markdown'][0]
+        self.assertIn('潍柴现金流更强',diff['before'])
+        self.assertEqual(diff['after'],[])
+
+    def test_product_table_column_survives_numeric_reinterpretation(self):
+        heading = '分产品 营业收入 营业成本 毛利率 收入同比 成本同比 毛利率同比'
+        quote = '989,271 850,378 14.04 -9.72 -10.20'
+        text = heading+'\n农业机械 '+quote+' 增加0.46个百分点'
+        citation = {'id':'S1','quote':quote}
+        for revision in ('毛利率同比减少10.20个百分点','成本同比-10.20%，毛利率增加0.46个百分点'):
+            rows = table_context({'S1':[text]},[citation],{'diff':{'markdown':revision}})
+            self.assertIn(heading,rows[0]['text'])
+            self.assertIn('增加0.46个百分点',rows[0]['text'])
+        issue = {'reason':'毛利率下降10.20个百分点','action':'调整结论'}
+        mark_numeric_advice([issue],rows)
+        self.assertIn('待核实',issue['numeric_basis'])
+
+    def test_missing_update_preserves_open_finding(self):
+        rows = track_findings([], [{'section':'利润','claim':'成本同比下降'}], [])
+        self.assertEqual(track_findings(rows,[],[]),rows)
+        resolved = track_findings(rows,[],[{'id':rows[0]['id'],'state':'addressed','reason':'已对照原表'}])
+        self.assertEqual(resolved[0]['state'],'addressed')

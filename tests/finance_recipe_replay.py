@@ -122,6 +122,8 @@ def main():
             out['source_positions'] = source_positions(research, root / 'data/workspace/.harness' / args.workspace)
         if args.stage in ('all', 'review'):
             out['reviews'] = review_rows(research, path)
+            from .finance_recipe_stages import revision_replay
+            out['revision_replay'] = revision_replay(db, research, args.workspace, path, out['reviews'], args.show_artifacts)
         if args.stage in ('all', 'publication'):
             out['publication'] = publication(research, path)
             out['report_html'] = out['publication']['report_html']

@@ -186,6 +186,28 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(run.review_records[fingerprint(draft)]['semantic_certification'])
         self.assertEqual(run.review_records[fingerprint(draft)]['native_call_id'],'attempt-1')
 
+    async def test_delta_local_then_internal_reuse_and_changed_source(self):
+        ok={'issues':[],'checks':['当前范围已核对']}
+        _,run,draft,agent,calls=await self.setup_review([ok,ok,ok])
+        run.record['research_contract_version']=3
+        await self.review(agent,draft)
+        edited=copy.deepcopy(draft)
+        edited['review']['limitations']='估值缺少同日价格'
+        await self.review(agent,edited)
+        payload=json.loads(calls[-1][0][1]['content'])
+        self.assertEqual(payload['basis']['mode'],'local')
+        self.assertIn('review',payload['diff'])
+        self.assertNotIn('role_batches',payload)
+        note=copy.deepcopy(edited)
+        note['editorial_notes']=['整理材料']
+        await self.review(agent,note)
+        self.assertEqual(len(calls),2)
+        self.assertTrue(run.review_records[fingerprint(note)]['reused_from'])
+        run.read_text[next(iter(run.sources))].append('新增原件行')
+        await self.review(agent,note)
+        self.assertEqual(len(calls),3)
+        self.assertEqual(run.review_records[fingerprint(note)]['scope']['mode'],'full')
+
     async def test_issues_revision_and_changed_evidence_require_new_review(self):
         issue={'section':'理由','claim':'2025亏损所以当前仍亏损','reason':'缺当前期间',
                'evidence':'只有2025原文','action':'补查或限定历史期间','severity':'blocking'}

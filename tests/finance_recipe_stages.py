@@ -1,5 +1,6 @@
 """Read-only views of the recorded parent turn and its request manifests."""
 import json
+import re
 from hashlib import sha256
 
 from harness.runtime.evidence import fingerprint
@@ -95,6 +96,8 @@ def review_rows(research, path=None):
         candidate = value.get('candidate_sha256')
         receipt = value.get('native_receipt') or {}
         rows.append({'status': value['status'], 'ref': value.get('review_ref'), 'candidate': candidate,
+                     'evidence_sha256':value.get('evidence_sha256'), 'scope':value.get('scope'),
+                     'reused_from':value.get('reused_from'),
                      'candidate_change': ('FIRST' if previous is None else
                                           'SAME' if previous == candidate else 'CHANGED'),
                      'candidate_seen_before': candidate in seen,
@@ -107,6 +110,54 @@ def review_rows(research, path=None):
         previous = candidate
         seen.add(candidate)
     return rows
+
+
+def revision_replay(db, research, workspace, path, rows, show=False):
+    from plugins.finance.review_delta import plan_revision, table_context
+    indices = {r.get('local_attempt_id'):r for r in research.get('request_materials', [])}
+    evidence_file = path/'evidence-index.json'
+    saved = json.loads(evidence_file.read_text('utf8')).get('sources',{}) if evidence_file.exists() else {}
+    baseline = None
+    results = []
+    for row in rows:
+        item = {'attempt':row['native_attempt'], 'usage':row['usage'], 'candidate':row['candidate']}
+        results.append(item)
+        if row.get('reused_from'):
+            item.update(mode='reuse', reused_from=row['reused_from'], model_calls=0)
+            continue
+        try:
+            index = indices[row['native_attempt']]
+            messages = confirmed_messages(db,research,workspace,index)
+            payload = json.loads(messages[-1]['content'])
+            if row.get('scope'):
+                item.update(scope=row['scope'], historical_chars=len(messages[-1]['content']),
+                            verified_payload=fingerprint(payload)==row['scope'].get('sent_payload_sha256'))
+                if show:
+                    item.update(diff=payload.get('diff'),table_context=payload.get('table_context'))
+                continue
+            ref = row['attempt_refs'][-1]
+            if not re.fullmatch(r'reviews/\d+', ref):
+                raise ValueError('invalid attempt path')
+            candidate = json.loads((path/(ref+'-candidate.json')).read_text('utf8'))
+            if fingerprint(candidate) != row['candidate']:
+                raise ValueError('candidate mismatch')
+            projected, scope = plan_revision(payload,candidate,baseline)
+            if projected:
+                spans = {k:saved[k].get('received',[]) for k,v in payload['evidence']['sources'].items()
+                         if k in saved and saved[k].get('sha256') == v.get('sha256')}
+                projected['table_context'] = table_context(spans, candidate.get('sources', []), projected)
+                item['table_source_ids'] = sorted({r['source_id'] for r in projected['table_context']})
+            item.update(scope=scope, historical_chars=len(messages[-1]['content']),
+                        projected_chars=len(json.dumps(projected,ensure_ascii=False)) if projected else 0)
+            if show:
+                item.update(diff=projected.get('diff'), table_context=projected.get('table_context'))
+            if row['status']=='COMPLETE':
+                baseline = {'key':row['candidate'],'candidate':candidate,
+                            'evidence_sha256':row['evidence_sha256'],'material_sha256':scope['material_sha256']}
+        except (ValueError,KeyError,IndexError,OSError) as exc:
+            item['unconfirmed'] = str(exc)
+            baseline = None
+    return results
 
 
 def publication(research, path):
