@@ -22,6 +22,8 @@ class FinanceLoop(Agent):
     def __init__(self, host=None, **kwargs):
         if host is not None:
             host.derive(self)
+            if hasattr(host, 'original_user_request'):
+                self.original_user_request = host.original_user_request
             self._finance_host = host
         else:
             self._finance_host = None
@@ -126,7 +128,7 @@ class FinanceLoop(Agent):
             source_task_view_active = False
             def index_prior_explanations(history):
                 nonlocal explanation_view_active, explanation_view_version, source_task_view_active, prior_explanation_index_version
-                if not (self.allow_tools and (not cloud or workspace_granted) and source_read_seen
+                if not (self.allow_tools and (not cloud or workspace_granted)
                         and getattr(self.context_mgr, 'archive', None) is not None
                         and getattr(self.context_mgr, 'reader', None) is not None):
                     return history
@@ -727,9 +729,17 @@ class FinanceLoop(Agent):
                     ('review_ref','review_response') if key in params})
         if isinstance(result, dict) and research.record:
             if result.get('status') in ('REVIEW_COMPLETE', 'REVIEW_READY'):
+                from .research.material_view import publication_links
+                result['source_links'] = publication_links(candidate, research.sources)
                 result['publish_instruction'] = (
                     '若现稿已回答问题，保留原提交参数，调用brief_publish，带本次review_ref及你自己的'
                     'review_response。可说明证据局限或不同意的建议。只有确实需要修改正文或证据时才提交新稿。')
+                if all(issue.get('category') in ('optional','postpublication')
+                       and issue.get('severity') != 'blocking' for issue in review.get('issues', [])):
+                    result['publish_instruction'] = (
+                        '本次核对没有列出核心问题。请先作作者决定：若你认可这版对原问题的回答，'
+                        '使用当前review_ref明确发布，可将可选建议和保留意见写入review_response。'
+                        '若你自己发现会改变核心判断的错误，再有针对性地修订。')
                 if params.get('draft_path'):
                     result['reviewed_draft_path'] = params['draft_path']
                     basis = {k:v for k,v in params.items() if k not in ('review_ref','review_response')}
@@ -738,7 +748,7 @@ class FinanceLoop(Agent):
                 # After the author takes another tool step the original tool
                 # reply can leave the handoff. Keep its bounded publication
                 # guidance with the reviewed version, along with review_ref.
-                for field in ('publish_instruction','reviewed_draft_path','same_draft_publish_parameters'):
+                for field in ('publish_instruction','source_links','reviewed_draft_path','same_draft_publish_parameters'):
                     review.pop(field, None)
                     if field in result:
                         review[field] = result[field]

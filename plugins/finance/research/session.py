@@ -971,10 +971,11 @@ class ResearchSession:
         return self.published
 
     def references(self, params):
+        from .material_view import publication_links
+        links = publication_links(params, self.sources)
         references = '\n\n## 论证与参考\n'
         for item in params['sources']:
-            source = self.sources[item['id']]
-            references += f"\n- [{item['id']}]({source['url']})：{item['locator']}。原文：{item['quote']}\n"
+            references += f"\n- [{item['id']}]({links[item['id']]})：{item['locator']}。原文：{item['quote']}\n"
         for calc in params.get('calculations', []):
             references += '\n- 计算：' + json.dumps(calc, ensure_ascii=False) + '\n'
         return references + '\n资料限制：' + params['review']['limitations']

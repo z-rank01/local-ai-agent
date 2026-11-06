@@ -185,6 +185,9 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         reviewed = json.loads(review_messages('原问题', normalized, run, '')[1]['content'])
         self.assertEqual(reviewed['evidence'],
                          {key:handoff[key] for key in ('sources', 'requests', 'reading')})
+        source_id = normalized['sources'][0]['id']
+        url = reviewed['publication_context']['source_links'][source_id]
+        self.assertIn(f'[{source_id}]({url})', run.references(normalized))
         self.assertEqual(run.record['decision_claims'][0]['claim']['producer_role'], 'finance_analysis')
         with self.assertRaisesRegex(ValueError, '不能覆盖'):
             await run.begin({'phase':'分析', 'stage_updates':[{'id':role_stage['id'], 'assessment':'作者改写'}]})
@@ -307,6 +310,8 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(run.published)
             record = run.review_records[ready['candidate_sha256']]
             self.assertEqual(record['same_draft_publish_parameters'],ready['same_draft_publish_parameters'])
+            self.assertEqual(ready['source_links'],record['source_links'])
+            self.assertIn('没有列出核心问题',record['publish_instruction'])
             self.assertEqual(record['review_context_sha256'], ready['review_ref'].split(':')[-1])
             context = json.loads(calls[0][1]['content'])
             self.assertEqual(context['question'], '原公告问题')

@@ -236,6 +236,7 @@
     ]
   },
   "tool_roles": {
+    "history_projection": ["brief_publish"],
     "research_blocked": [
       "stock_research_resume", "stock_research_cancel",
       "stock_candidate_screen",

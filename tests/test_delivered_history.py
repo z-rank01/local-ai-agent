@@ -1,11 +1,12 @@
 import hashlib
 import json
 import unittest
+from types import SimpleNamespace
 
 from plugins.finance.history import project_history
 
 
-class DeliveredHistoryTests(unittest.TestCase):
+class DeliveredHistoryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.saved = {}
         directory = '/workspace/reports/chat-research/' + 'a' * 32
@@ -60,3 +61,32 @@ class DeliveredHistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'归档'):
             project_history(history, lambda _:None)
         self.assertEqual(history[6], self.turn[6])
+
+    async def test_host_routes_published_parent_without_direct_stock_read(self):
+        from core import config
+        from core.agent import Agent
+        from core.tool_registry import ToolRegistry
+        from plugins.finance.loop import FinanceLoop
+        registry = ToolRegistry(config.TOOLS_DIR, enabled_backends=('stock-bridge','research-runtime'))
+        processed = []
+        async def process(messages):
+            processed.append(list(messages))
+            return messages
+        class Client:
+            cloud = True
+            async def chat_stream_with_tools(self, messages, tools=None, **kwargs):
+                yield '', {'role':'assistant', 'content':'请按报告中列出的原件核对。'}
+        host = Agent(llm=Client(), router=SimpleNamespace(), registry=registry,
+            audit=SimpleNamespace(record=lambda *args:None),
+            context_mgr=SimpleNamespace(process=process, archive=self.archive,
+                reader=lambda *args:{}, evidence_ids=set()),
+            prompt_builder=SimpleNamespace(build=lambda **kwargs:'test'), max_rounds=1)
+        host.workspace_cloud_allowed = True
+        host.original_user_request = self.question['content']
+        self.assertEqual(FinanceLoop(host).original_user_request,self.question['content'])
+        events = [e async for e in host.run(self.turn + [self.question])]
+        self.assertEqual(events[-1].kind,'done')
+        self.assertTrue(processed)
+        self.assertIn('history_index', json.dumps(processed[0]))
+        self.assertNotIn('原值与反证', json.dumps(processed[0],ensure_ascii=False))
+        self.assertTrue(host.context_mgr.evidence_ids)

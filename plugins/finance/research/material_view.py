@@ -2,6 +2,16 @@
 from harness.runtime.evidence import model_evidence
 
 
+def publication_links(candidate, sources):
+    """The exact source labels and destinations used by the report renderer."""
+    links = {}
+    for citation in candidate.get('sources', []):
+        key = citation.get('id')
+        if key in sources and sources[key].get('url'):
+            links[key] = sources[key]['url']
+    return links
+
+
 def _verified_citation_range(citation, excerpts, source_sha):
     quote = citation.get('quote')
     if not isinstance(quote, str) or not quote or not source_sha:

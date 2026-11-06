@@ -144,7 +144,7 @@ class ToolRegistry:
         return limits
 
     def history_projectors(self, history):
-        tools = self.tools_for_role('source_read')
+        tools = self.tools_for_role('source_read') | self.tools_for_role('history_projection')
         owners = {self.get_owner(row['tool_name']) for row in history
                   if row.get('role') == 'tool' and row.get('tool_name') in tools}
         return [provider for owner in sorted(owners)
