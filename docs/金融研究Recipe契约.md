@@ -116,6 +116,6 @@
 
 ### 开发时离线回放角色结果
 
-在仓库根目录运行 `\.\.conda\python.exe -m tests.finance_recipe_replay <工作区ID> <研究ID>`（PowerShell 可执行文件为 `.\.conda\python.exe`）。可用 `--batch`、`--role` 单选，用 `--show-artifacts` 在本机查看通过解析的公开产物。此模块只在 tests 中，由开发者显式执行，不注册 API、工具或运行时开关。
+在仓库根目录运行 `.\.conda\python.exe -m tests.finance_recipe_replay <工作区ID> <研究ID>`。可用 `--batch`、`--role` 单选，用 `--show-artifacts` 在本机查看通过解析的公开产物。此模块只在 tests 中，由开发者显式执行，不注册 API、工具或运行时开关。
 
 回放从原库按会话、工作区、批次及角色定位 result_ref，使用当前登记角色与生产解析器，分列原状态、当前解析结果、已存映射错误及核对与作者决定的对应关系。无确认输出单列；不会调用模型、更新研究或发布。产物哈希相同只能证明解析得到同一内容。依赖实际收到的请求、财务原件核实及页面行为仍须分别检查。
