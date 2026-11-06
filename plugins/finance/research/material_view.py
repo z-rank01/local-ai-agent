@@ -2,34 +2,59 @@
 from harness.runtime.evidence import model_evidence
 
 
+def _verified_citation_range(citation, excerpts, source_sha):
+    quote = citation.get('quote')
+    if not isinstance(quote, str) or not quote or not source_sha:
+        return None
+    loc = citation.get('excerpt')
+    matches = set()
+    for excerpt in excerpts:
+        if excerpt.get('sha256') != source_sha:
+            continue
+        page, start, end = (excerpt.get(k) for k in ('page', 'start', 'end'))
+        text = excerpt.get('quote')
+        if (not all(type(n) is int for n in (page, start, end)) or not isinstance(text, str)
+                or end - start != len(text)):
+            continue
+        if loc is not None:
+            if (isinstance(loc, dict) and all(type(loc.get(k)) is int for k in ('page', 'start', 'end'))
+                    and (page, start, end) == (loc['page'], loc['start'], loc['end']) and quote == text):
+                matches.add((page, start, end))
+        else:
+            # A citation may contain an exact subquote of a registered excerpt
+            # without supplying offsets. Never choose between distinct matches.
+            offset = text.find(quote)
+            if offset >= 0:
+                if text.rfind(quote) != offset:
+                    return None
+                matches.add((page, start + offset, start + offset + len(quote)))
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
 def cited_page_context(session, candidate):
     """Show context for verified citations on pages already received in this session."""
     intervals = {}
     pages = {}
     for citation in candidate.get('sources', []):
         key = citation.get('id')
-        loc = citation.get('excerpt')
-        if (not isinstance(loc, dict) or key not in session.sources
-                or any(type(loc.get(field)) is not int for field in ('page', 'start', 'end'))):
+        if key not in session.sources:
             continue
         source_sha = session.sources[key].get('sha256')
-        if not source_sha or not any(
-            all(excerpt.get(field) == loc.get(field) for field in ('page', 'start', 'end'))
-            and excerpt.get('sha256') == source_sha and excerpt.get('quote') == citation.get('quote')
-            for excerpt in session.excerpts.get(key, [])
-        ):
+        loc = _verified_citation_range(citation, session.excerpts.get(key, []), source_sha)
+        if loc is None:
             continue
-        page_key = key, loc['page']
+        page, quote_start, quote_end = loc
+        page_key = key, page
         if page_key not in pages:
-            body = next((p['text'] for p in session._source_pages.get(key, []) if p['page'] == loc['page']), '')
+            body = next((p['text'] for p in session._source_pages.get(key, []) if p['page'] == page), '')
             pages[page_key] = body if body and any(body in span for span in session.read_text.get(key, [])) else ''
         body = pages[page_key]
-        if not body or body[loc['start']:loc['end']] != citation['quote']:
+        if not body or body[quote_start:quote_end] != citation['quote']:
             continue
         # A short disclosure page often gives the period for a dividend in the
         # paragraph preceding the cited amount. On long pages show only neighbors.
         start, end = ((0, len(body)) if len(body) <= 2048 else
-                      (max(0, loc['start'] - 256), min(len(body), loc['end'] + 256)))
+                      (max(0, quote_start - 256), min(len(body), quote_end + 256)))
         intervals.setdefault(page_key, []).append((start, end))
     result = []
     for (key, page), spans in sorted(intervals.items()):

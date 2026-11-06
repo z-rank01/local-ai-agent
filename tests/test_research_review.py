@@ -47,6 +47,10 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         run.read_text['S1'] = ['[第 1 页]\n' + body]
         self.assertEqual(cited_page_context(run, candidate), [
             {'source_id':'S1','sha256':'digest','page':1,'start':0,'end':len(body),'text':body}])
+        plain = {'sources':[{'id':'S1','quote':'分红金额'}]}
+        self.assertEqual(cited_page_context(run, plain), cited_page_context(run, candidate))
+        run.excerpts['S1'].append({**run.excerpts['S1'][0], 'page':2})
+        self.assertEqual(cited_page_context(run, plain), [])
         run.sources['S1']['sha256'] = 'changed'
         self.assertEqual(cited_page_context(run, candidate), [])
 

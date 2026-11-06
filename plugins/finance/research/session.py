@@ -731,7 +731,12 @@ class ResearchSession:
         if payload is None or not self.active:
             return result
         key = 'S' + sha256((result['url'] + result['sha256']).encode()).hexdigest()[:16]
-        if key not in self.sources:
+        labels = result.get('publication_labels') or []
+        # Re-observe identical bytes with new visible metadata in the current
+        # research directory, preserving the parent's archived file and offsets.
+        enrich = (key in self.sources and labels and labels != self.sources[key].get('publication_labels')
+                  and self._source_pages.get(key) == payload['pages'])
+        if key not in self.sources or enrich:
             extension = 'pdf' if result['media_type'] == 'application/pdf' else 'html'
             await self.write(f'sources/{key}.{extension}', payload['base64'], binary=True)
             saved = {**result, 'pages': payload['pages']}
@@ -740,6 +745,8 @@ class ResearchSession:
                 ('url', 'title', 'sha256', 'fetched_at', 'page_count', 'total_chars', 'media_type')}
             self.sources[key]['path'] = self.record['directory'] + f'/sources/{key}.json'
             self.sources[key]['artifact_sha256'] = sha256(encoded(saved).encode('utf-8')).hexdigest()
+            if labels:
+                self.sources[key]['publication_labels'] = labels
         self._source_pages[key] = payload['pages']
         self.received_text(key, result['content'])
         result['source_id'] = key

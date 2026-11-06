@@ -6,6 +6,17 @@ import app
 
 
 class FetchTransportTests(unittest.IsolatedAsyncioTestCase):
+    def test_visible_publication_labels_ignore_url_and_unrelated_dates(self):
+        html = '''<title>资金公示_县人民政府</title><meta name="PubDate" content="2026-07-07">
+            <h2>资金公示</h2><p>发布时间：2026-06-24 【字体：大】</p>
+            <table><tr><th>索引号</th><td>文号</td></tr>
+            <tr><th>发布日期</th><td>2026-07-13</td></tr></table>
+            <h2>相关新闻</h2><p>发布时间：2020-01-01</p>'''
+        self.assertEqual(app._publication_labels(html), [
+            {'label':'发布时间','value':'2026-06-24','location':'正文标题相邻字段'},
+            {'label':'发布日期','value':'2026-07-13','location':'公开信息表'}])
+        self.assertEqual(app._publication_labels('<p>公示时间为2026年6月24日至30日</p>'),[])
+
     async def test_jsonp_preserves_raw_receipt_and_actual_pdf_target(self):
         from unittest.mock import patch
         raw = b'callback({"data":{"attach_url_web":"https://pdf.example.org/notice.PDF?token=1"}});'

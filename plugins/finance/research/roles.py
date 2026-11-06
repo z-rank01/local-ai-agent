@@ -404,4 +404,6 @@ def review_context_fingerprint(session, candidate, question):
     return fingerprint({'contract': 3, 'question': question, 'candidate': candidate,
                         'methods': session.method_text, 'role_artifacts': artifacts,
                         'cited_page_context': cited_page_context(session, candidate),
+                        'publication_labels': {key:source['publication_labels'] for key,source in
+                            session.sources.items() if source.get('publication_labels')},
                         'decision_claim_ids': session.record.get('decision_claim_ids', [])})

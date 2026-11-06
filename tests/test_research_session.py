@@ -149,6 +149,25 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             await damaged.begin({'phase': '准备', 'revision_of': old.record['directory'] + '/research.json'})
         self.assertIsNone(damaged.record)
 
+    async def test_new_fetch_can_register_visible_dates_without_rewriting_parent(self):
+        files, old, params = await self.prepare()
+        await old.publish(params)
+        key = next(iter(old.sources))
+        parent_path = old.sources[key]['path']
+        original = files.files[parent_path]
+        revision = ResearchSession(files, conversation_id='revision', model='selected', allowed=True)
+        await revision.begin({'revision_of':old.record['directory']+'/research.json','phase':'准备'})
+        saved = json.loads(original)
+        pages = saved.pop('pages')
+        labels = [{'label':'发布时间','value':'2026-06-24','location':'正文标题相邻字段'}]
+        await revision.save_source({**saved,'publication_labels':labels,
+            '_source_file':{'pages':pages,'base64':base64.b64encode(b'html').decode()}})
+        self.assertEqual(files.files[parent_path],original)
+        self.assertEqual(revision.sources[key]['publication_labels'],labels)
+        new_path = revision.sources[key]['path']
+        self.assertTrue(new_path.startswith(revision.record['directory']+'/sources/'))
+        self.assertEqual(json.loads(files.files[new_path])['pages'],pages)
+
     async def test_revision_incomplete_without_draft_inherits_verified_sources_only(self):
         files, old, _ = await self.prepare()
         await old.incomplete()

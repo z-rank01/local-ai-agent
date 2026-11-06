@@ -218,6 +218,7 @@ async def web_fetch(req: WebFetchRequest):
 
     content_type = resp.headers.get("content-type", "")
 
+    publication_labels = []
     if 'application/pdf' in content_type or resp.content.startswith(b'%PDF-'):
         try:
             pages = pdf_pages(resp.content)
@@ -230,6 +231,7 @@ async def web_fetch(req: WebFetchRequest):
         pages = [{'page': 1, 'text': resp.text}]
     elif "text/html" in content_type or "application/xhtml" in content_type:
         text = _extract_readable_text(resp.text, req.url)
+        publication_labels = _publication_labels(resp.text)
         pages = [{'page': 1, 'text': text}]
     elif "text/" in content_type or "application/json" in content_type:
         text = resp.text
@@ -257,6 +259,8 @@ async def web_fetch(req: WebFetchRequest):
             include_file=req.include_file, media_type=content_type)
         if 'html' in content_type or document_links:
             result['document_links'] = document_links
+        if publication_labels:
+            result['publication_labels'] = publication_labels
         return result
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -277,6 +281,36 @@ def _document_links(html: str, url: str) -> list[dict]:
         if len(links) == 20:
             break
     return links
+
+def _publication_labels(html):
+    """Visible article labels only. Preserve the literal field separately from body offsets."""
+    soup = BeautifulSoup(html, 'lxml')
+    date = r'\d{4}(?:-\d{1,2}-\d{1,2}|/\d{1,2}/\d{1,2}|年\d{1,2}月\d{1,2}日)(?:\s+\d{2}:\d{2}(?::\d{2})?)?'
+    found = []
+    title = soup.title.get_text(strip=True) if soup.title else ''
+    for heading in soup.find_all(['h1','h2']):
+        caption = heading.get_text(strip=True)
+        neighbor = heading.find_next_sibling()
+        if not caption or not title.startswith(caption) or neighbor is None:
+            continue
+        match = re.match(r'^(发布时间|发布日期)\s*[:：]\s*(' + date + r')(?!\d)',
+                         neighbor.get_text(' ', strip=True))
+        if match:
+            found.append({'label':match[1], 'value':match[2], 'location':'正文标题相邻字段'})
+    for table in soup.find_all('table'):
+        headers = {th.get_text(strip=True) for th in table.find_all('th')}
+        if not headers.intersection({'索引号','发文机构','公开目录'}):
+            continue
+        for th in table.find_all('th'):
+            label = th.get_text(strip=True).rstrip(':：')
+            cell = th.find_next_sibling('td')
+            if label not in ('发布时间','发布日期') or cell is None:
+                continue
+            value = cell.get_text(' ', strip=True)
+            if re.fullmatch(date, value):
+                found.append({'label':label, 'value':value, 'location':'公开信息表'})
+    return found
+
 
 def _extract_readable_text(html: str, url: str) -> str:
     """Use readability to extract main content, then strip tags."""

@@ -84,6 +84,7 @@ research_begin 建立本轮研究再作答。不要凭训练知识直接给结�
   - 已返回source_excerpts时优先复用其source_id和page/start/end，用sources[].excerpt交付，程序补入原句，避免再次抄写。
   - 直接打印已保存报告的页文本不等于登记了页码摘录。以已核读页码作依据时，用当前方法的 read_report.py 等实际返回 source_excerpts（source_id、sha256、page、start、end、quote），不要用裸 stdout 代替可复核摘录。
   - report.html 生成后，回复里只用返回路径的 Markdown 链接展示报告卡；不要在聊天正文里贴 HTML 或整篇 JSON。
+  - 网页公开日期用来源实际返回的publication_labels说明字段与位置；正文另有落款或公示期时分别呈现。只在收到的证据范围内限定未知。
 
 Recipe成果边界：四个角色分别填写原文摘录、计算、claims与核对建议；owner=subagent的阶段和原始artifacts不由作者修改。
 作者只在自己的编辑阶段记录assessment、output_refs与open_questions，可随brief_review/brief_publish或草稿JSON携带stage_updates。

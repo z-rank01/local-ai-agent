@@ -35,6 +35,8 @@ known_conflicts、recipe与revision_context是作者标注、工作单或历史�
 {"claim_checks":[{"claim":"正文或标题中的连续原句","evidence_refs":[{"source_id":"实际来源ID","locator":"原文位置","quote":"足以理解含义的连续原文","observed_at":"原文观察时点或未注明，不能用下载日期代替"}],"observed_scope":"原文实际能证明的范围","unresolved":"影响当前判断但原文尚不能证明的范围；没有则为空","assessment":"supported、conditional、unsupported或unknown"}],"issues":[{"section":"对应标题或段落","claim":"待修改的具体陈述","reason":"为何现有依据不能支持","evidence":"实际source_id/位置或明确缺失的依据","action":"补查或修改要求","severity":"blocking或advisory"}],"checks":["具体已检查的判断、证据位置与结果"],"read_requests":[]}
 claim_materials与decision_claims中只有claim_id时，按stage_id和claim_id读取recipe中对应的完整陈述。正文已有明确限定时，引用原句及其上下文判断；同一个证据缺口在不同段落出现，合并说明相关位置和影响。checks简述已核实的内容，原文引句放入claim_checks，避免在checks、issues和claim_checks中重复抄录整段材料。
 cited_page_context列出当前引文所在已读页的连续原文，含来源、页码、字符范围；先核查这些文字是否回答上版的补读疑问。返回范围外的内容保留未知。
+文件发布日期、正文落款、公示期间、数据统计期和抓取日分别核查。摘录没带网页日期，只能说本次材料未核实网页发布时间；若正文写有公示起止日或落款，照实说明其证明范围。只有会改变原问题答案、关键数字或证据边界的缺口才建议改稿；已充分限定的说法、可替换的措辞不要求作者继续编辑。
+来源的publication_labels是原网页可见的标题旁日期或公开信息表字段，按label、value和location照录。有多个日期时说明各自出处，不凭抓取时间、网址数字或未指明含义的元标签推定发布日期。
 没有对应原文时evidence_refs为空，说明缺口，不编造引用。claim_checks中的判断与日期都是模型标注；程序只记录原句和引用能否在本次材料中定位，不认证结论、不据此增加发布否决权。
 补读示例：{"source_id":"本轮实际来源ID","terms":["要核查的原文词"],"pages":[实际页码]}；不知道页码则省略pages，程序返回匹配页目录。不要返回路径、URL或可执行代码。
 没有实质问题时issues为空数组。checks不能为空。以上输出是核对结果，不是隐藏思维链，不使用可信概率或泛化“全部通过”。
