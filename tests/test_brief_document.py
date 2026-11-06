@@ -56,7 +56,7 @@ class BriefDocumentTests(unittest.TestCase):
         self.assertEqual(html.count('<svg '), 2)
         self.assertIn('class="verdict"', html)
         self.assertIn('id="references"', html)
-        self.assertIn('<details open>', html)
+        self.assertIn('<details><summary>查看来源与精确数值', html)
         self.assertIn('name="brief-edition" content="v2"', html)
         self.assertIn('2026-10-15 18:03', html)
         self.assertIn('原来源。', html)

@@ -58,6 +58,8 @@ def read_package(path: Path):
                   if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
                   and target.id == 'SKILL_METADATA' for target in node.targets)), None)
     if not isinstance(value, dict) or not isinstance(value.get('description'), str) or not value['description'].strip():
+        if any(line.lstrip().startswith('# SKILL_METADATA') for line in code.splitlines()):
+            raise ValueError('SKILL_METADATA 是注释；请在该 Python 技能中声明含 description 的字典后刷新目录')
         raise ValueError('旧式 Python Skill 缺少有效 SKILL_METADATA.description')
     if not any(isinstance(node, ast.FunctionDef) and node.name == 'run' for node in tree.body):
         raise ValueError('旧式 Python Skill 缺少 run(params)')

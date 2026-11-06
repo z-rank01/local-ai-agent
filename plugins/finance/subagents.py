@@ -36,6 +36,10 @@ class FinanceSubagentExtension(NullSubagentExtension):
         # Validated domain artifacts replace the duplicate raw role output.
         from .research.material_view import role_material_view
         material = role_material_view(research, task.batch_id)
+        selected = {path:body for path,body in getattr(research,'method_text',{}).items()
+                    if '/market-research-methods-v1/references/' in path and body}
+        if selected:
+            material['selected_method_notes'] = selected
         return {'recipe_artifacts': material, 'prior_results': {
             role: {key: row[key] for key in ('status', 'issues', 'result_ref') if key in row}
             for role, row in prior_results.items()}}

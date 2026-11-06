@@ -39,6 +39,7 @@ def inspect_role(db, research, workspace, batch_id, role, saved, show, ledger=No
             body = json.loads(material[0])
             row['prepared_input'] = {'material_ref':material_ref, 'task':body.get('task'),
                                      'prior_roles':list(body.get('prior_results') or {})}
+            row['prepared_input']['method_sections'] = list((body.get('recipe_artifacts') or {}).get('selected_method_notes',{}))
     row['serialized_requests'] = [request_view(db, research, workspace, index, show)
                                   for index in research.get('request_materials', [])
                                   if index.get('local_attempt_id') and any(

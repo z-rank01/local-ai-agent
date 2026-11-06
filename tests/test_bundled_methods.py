@@ -14,11 +14,16 @@ class BundledMethodsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             for name in ('default', 'named'):
                 workspace = Path(directory) / name
-                self.assertEqual(install_methods(workspace), ['document-compare', 'harness-public-sources-v1', 'harness-public-sources-v2', 'harness-public-sources-v3', 'harness-stock-research-v1', 'harness-stock-research-v2', 'harness-stock-research-v3', 'harness-stock-research-v4', 'meeting-notes', 'table-reconcile'])
+                self.assertEqual(install_methods(workspace), ['document-compare', 'harness-public-sources-v1', 'harness-public-sources-v2', 'harness-public-sources-v3', 'harness-stock-research-v1', 'harness-stock-research-v2', 'harness-stock-research-v3', 'harness-stock-research-v4', 'market-research-methods-v1', 'meeting-notes', 'table-reconcile'])
                 target = workspace / 'skills/harness-stock-research-v1'
                 package, error = parse_package(target, target.parent)
                 self.assertIsNone(error)
                 self.assertEqual(len(package.references), 7)
+                market,error=parse_package(workspace/'skills/market-research-methods-v1',target.parent)
+                self.assertIsNone(error)
+                self.assertEqual(set(market.references),{
+                    'references/'+name+'.md' for name in
+                    ('wb-daily','wb-mainline','wb-first-look','kimi-chain','kimi-ideas')})
                 edited = target / 'references/company.md'
                 edited.write_text('User edit', encoding='utf-8')
                 self.assertEqual(install_methods(workspace), [])
@@ -32,7 +37,7 @@ class BundledMethodsTests(unittest.TestCase):
             edited = workspace / 'skills/harness-stock-research-v2/references/finance.md'
             edited.parent.mkdir(parents=True)
             edited.write_text('User finance method', encoding='utf-8')
-            self.assertEqual(install_methods(workspace), ['document-compare', 'harness-public-sources-v1', 'harness-public-sources-v2', 'harness-public-sources-v3', 'harness-stock-research-v1', 'harness-stock-research-v3', 'harness-stock-research-v4', 'meeting-notes', 'table-reconcile'])
+            self.assertEqual(install_methods(workspace), ['document-compare', 'harness-public-sources-v1', 'harness-public-sources-v2', 'harness-public-sources-v3', 'harness-stock-research-v1', 'harness-stock-research-v3', 'harness-stock-research-v4', 'market-research-methods-v1', 'meeting-notes', 'table-reconcile'])
             self.assertEqual(edited.read_text(encoding='utf-8'), 'User finance method')
             self.assertTrue((workspace/'skills/harness-stock-research-v3/scripts/extract.py').is_file())
 

@@ -25,7 +25,7 @@ export function useInventory(
       (value) => ({status: 'fulfilled' as const, value}),
       (reason: unknown) => ({status: 'rejected' as const, reason}),
     );
-    const contentPromise = includeSkills ? fetchManagedSkills(workspaceId) : Promise.resolve(null);
+    const contentPromise = settle(includeSkills ? fetchManagedSkills(workspaceId) : Promise.resolve(null));
     // Publish Plugin/package rows as soon as they arrive; a cold Skill runner can
     // take noticeably longer and must not blank the whole capability surface.
     const [capabilities, installs] = await Promise.all([
@@ -40,7 +40,7 @@ export function useInventory(
         .map((row) => formatBackendError((row as {reason: unknown}).reason));
       setPluginError(reasons.join('；'));
     }
-    const content = await settle(contentPromise);
+    const content = await contentPromise;
     if (skillSerial === sequence.current.skills && content.status === 'fulfilled' && content.value) {setSkills(content.value.skills); setInvalid(content.value.invalid); setSkillsWorkspace(workspaceId);}
     if (includeSkills && skillSerial === sequence.current.skills) setSkillError(content.status === 'rejected' ? formatBackendError(content.reason) : '');
     if (includeSkills && skillSerial === sequence.current.skills) setLoading(false);

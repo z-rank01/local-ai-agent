@@ -133,3 +133,11 @@ delta-v1 只在新建研究时冻结。首稿完整核对，编辑工作文件�
 原 reviews 结果保存父稿、稿件与依据指纹、范围、实际材料引用和未结意见。仅内部自查或编制备注改变时，记录沿用的回执，实际模型调用次数为零。发布必须携带当前稿的 review_ref 和作者自己的 review_response。UNKNOWN、失败或截断沿原规则收尾。
 
 开发者使用 python -m tests.finance_recipe_replay <工作区ID> <研究ID> --stage review。revision_replay 将历史原生用量与离线生成的用户消息字符数分别展示。缺少已验证的原调用材料时显示 unconfirmed。表格邻文根据来源哈希匹配后从归档的已接收文本重建。
+
+### 自然问题与方法材料
+
+行业、短期、长期和全球事件问题共用一份研究。角色根据证据区分业务相关、经营质量和估值；没有可信成分表时，候选只代表本次调查范围。收盘价、商品、利率、汇率和海外行情必须标明观察日期和单位，事件发生与市场反应分开核验。候选筛选只支持已实现的最新价、涨跌幅及流动性范围；不能用无日期快照认定历史区间涨跌。全球事件若缺公开原件或行情，保留未知。
+
+能力栏方法包 market-research-methods-v1 是笔记。wb-daily、wb-mainline、wb-first-look 对应 WorkBuddy 每日简报、市场主线、公司初看；kimi-chain、kimi-ideas 对应 Kimi 产业链传导、机会选题。章节路径均为 references/<ID>.md。作者通过版本化 skill_info 和 file_read 选读；角色通过 recipe_artifacts.selected_method_notes 接收已读正文。方法不授予取数权限。调试时对照工作区目录、会话的 capability_ids、研究登记的 methods、实际请求的 method_inputs 或角色账本哈希。目录状态不能证明实际模型输入。
+
+作者先回答读者，再提供证据。正式稿首屏说明判断、关键理由与未知，论证与参考默认折叠。

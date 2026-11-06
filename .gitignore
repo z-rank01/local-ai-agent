@@ -52,3 +52,6 @@ apps/web/src/extensions/generated.ts
 
 # Agent session workspace
 /.zcode/
+
+/temp/*
+!/temp/README.md

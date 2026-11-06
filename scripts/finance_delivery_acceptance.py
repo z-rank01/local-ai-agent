@@ -20,6 +20,10 @@ from core.ui_session import session_token
 
 BASE = 'http://127.0.0.1:9510'
 PROMPTS = {
+    'industry': '农机这行最近怎么样，有哪几家值得看看？',
+    'short_market': '最近有什么行业可以看一看？',
+    'long_market': '往后几年看，哪些行业比较有机会？',
+    'global_market': '最近世界上这么动荡，对市场有啥影响？看股票的话该注意什么？',
     'announcement': '请核实万德斯（688178）最近公开披露的中标公告，分析这件事对经营和是否继续研究这家公司意味着什么。请查明公告日期及能查到的后续状态，区分合同总额、履约期、收入、利润和回款，给出依据、反证和观察条件，交付一份易读的HTML研究简报。',
     'earnings': '请依据格力电器（000651）最近已经披露的正式财务报告，分析盈利、经营现金流和分红是否支持继续研究。请核对最新可取得的报告期，区分累计与单季、同比与环比，以及分红预案和实施状态；给出关键依据、反证和观察条件，交付易读的HTML研究简报。',
     'policy': '请研究中国农机报废更新补贴政策最近的公开进展，以及它可能怎样传导到一拖股份（601038）的经营。请区分政策目标、已经执行的措施、实际落地证据和公司直接关系，保留不受益或传导失败的反证，交付易读的HTML研究简报。',
@@ -122,7 +126,7 @@ def main():
         response.raise_for_status()
         result['conversation_id'] = response.json()['id']
         result['status'] = 'SUBMITTING'
-        prompt = question + SCOPE
+        prompt = question if args.scenario in ('industry','short_market','long_market','global_market') else question + SCOPE
         if args.revision_of:
             prompt += ('\n请通过research_begin.revision_of引用' + args.revision_of +
                        '，创建关联修订。核验继承来源与固定方法，原目录全部保留；在新目录重新写作、单独核对并发布。')

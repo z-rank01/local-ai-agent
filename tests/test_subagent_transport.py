@@ -205,6 +205,27 @@ class SubagentTransportTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result.native_receipt['tools'][0]['result']['content'],'actual')
                 self.assertEqual(parent.llm.calls, 2)
 
+    async def test_method_chapter_reaches_tool_free_request_only_after_read(self):
+        from unittest.mock import patch
+        chapter='/workspace/.skill_registry/versions/'+'a'*64+'/skills/market-research-methods-v1/references/kimi-chain.md'
+        research=SimpleNamespace(active=True,record={'research_contract_version':3},method_text={})
+        requests=[]
+        class Gateway:
+            async def generate(self,request):
+                requests.append(request.material['recipe_artifacts'])
+                return {'status':'COMPLETE','text':'{"artifacts":[{"kind":"analysis","content":{"answer":"ok"}}]}'}
+        executor=AgentSubagentExecutor(SimpleNamespace(registry=SimpleNamespace(known_tools=set()),
+            context_mgr=SimpleNamespace()))
+        context=SimpleNamespace(model_gateway=Gateway(),
+            subagent_extension=FinanceSubagentExtension(SimpleNamespace(research=research)))
+        task=RoleTask(role=role('analysis'),text='哪些行业值得看看？',batch_id='batch')
+        with patch('plugins.finance.research.material_view.role_material_view',side_effect=lambda *_:{}):
+            await executor.run(task,context)
+            research.method_text[chapter]='核对直接业务关系与反证'
+            await executor.run(task,context)
+        self.assertNotIn('selected_method_notes',requests[0])
+        self.assertEqual(requests[1]['selected_method_notes'],{chapter:'核对直接业务关系与反证'})
+
     async def test_finance_callback_follows_current_research_not_first_binding(self):
         from tests.subagent_fixtures import MemoryStore
         class Research:

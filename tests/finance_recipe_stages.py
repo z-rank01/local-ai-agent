@@ -54,6 +54,8 @@ def request_view(db, research, workspace, index, show):
     materials = manifest['materials']
     result['located_materials'] = sum(bool(m['included']) for m in materials)
     result['total_materials'] = len(materials)
+    result['method_inputs'] = [{k:m.get(k) for k in ('ref','sha256','included','ranges')}
+                               for m in materials if m['kind']=='method']
     if show:
         result['materials'] = materials
     return result

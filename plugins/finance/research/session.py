@@ -21,7 +21,7 @@ from ..call_policy import FinanceCallPolicy
 from harness.runtime.evidence import model_evidence, fingerprint
 
 METHOD_FAMILIES = ('harness-stock-research-v1', 'harness-stock-research-v2',
-                   'harness-stock-research-v3', 'harness-stock-research-v4')
+                   'harness-stock-research-v3', 'harness-stock-research-v4','market-research-methods-v1')
 
 PHASES = ('准备', '获取', '分析', '核对', '交付')
 # Research withholds only what can destroy data or change the harness. The old

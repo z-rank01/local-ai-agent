@@ -81,7 +81,7 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
     refs = ''
     if reference:
         refs = ('<section class="references" id="references"><h2>论证与参考</h2>'
-                '<details open><summary>来源与精确数值（可收起）</summary>'+body[reference.end():]+'</details></section>')
+                '<details><summary>查看来源与精确数值</summary>'+body[reference.end():]+'</details></section>')
         body = body[:reference.start()]
     else:
         refs = '<section class="references" id="references"><h2>论证与参考</h2><p>来源请核对正文引用；未新增来源声明。</p></section>'
