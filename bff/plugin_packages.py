@@ -1,5 +1,5 @@
 """Local package management; imported content is not executed by these routes."""
-import asyncio
+import re
 import zipfile
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
@@ -8,11 +8,11 @@ from starlette.concurrency import run_in_threadpool
 
 from core import config
 from harness.infrastructure.capability_store import CapabilityStore
-from harness.infrastructure.plugin_packages import PluginPackages
+from harness.infrastructure.plugin_packages import PluginPackages, mutation_lock
 from .deps import get_runtime
 
 router = APIRouter()
-_mutation = asyncio.Lock()
+_mutation = mutation_lock
 
 
 def packages():
@@ -28,6 +28,48 @@ class PackageAction(BaseModel):
     action: str
     revision: str | None = None
     trusted: bool = False
+
+
+class SourceGrant(BaseModel):
+    public_key: str
+    permissions: list[str]
+    actions: list[str]
+    host_scope: bool
+    kind: str = 'plugin'
+    approved_revision: str | None = None
+
+
+@router.get('/api/plugin-packages/grants/{workspace_id}')
+async def source_grants(workspace_id: str, request: Request):
+    from .app import _is_loopback_host
+    if not _is_loopback_host(request.client.host if request.client else None):
+        raise HTTPException(403, '仅允许本机查看来源授权')
+    store = packages().store
+    return {'grants': [{'identity': identity, **value} for category in ('host_package_grant', 'skill_source_grant')
+                       for identity, value in store.list(workspace_id, category).items()]}
+
+
+@router.put('/api/plugin-packages/grants/{workspace_id}/{identity}')
+async def set_package_grant(workspace_id: str, identity: str, body: SourceGrant, request: Request):
+    from harness.infrastructure.package_authority import valid_identity
+    from .app import require_local_control
+    from .deps import get_chat_service
+    require_local_control(request)
+    get_chat_service().workspaces.get(workspace_id)
+    if (body.kind not in ('skill', 'plugin') or body.host_scope != (body.kind == 'plugin')
+            or not valid_identity(identity, body.kind)
+            or (body.approved_revision is not None and not re.fullmatch('[0-9a-f]{64}', body.approved_revision))
+            or not re.fullmatch('[0-9a-f]{64}',body.public_key)
+            or set(body.actions)-{'import','install','upgrade','uninstall','status','enable','disable'}):
+        raise HTTPException(422,'需要具体宿主包、来源公钥和明确的管理操作')
+    async with _mutation:
+        store = packages().store
+        category = 'host_package_grant' if body.kind == 'plugin' else 'skill_source_grant'
+        if body.actions:
+            store.save(workspace_id,identity,body.model_dump(),category)
+        else:
+            store.remove(workspace_id,identity,category)
+    return {'identity':identity,'workspace_id':workspace_id,'actions':body.actions}
 
 
 @router.get('/api/plugin-packages')

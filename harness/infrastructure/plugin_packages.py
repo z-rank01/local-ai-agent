@@ -3,11 +3,14 @@ import json
 from pathlib import Path
 import re
 import tempfile
+import asyncio
 import time
 
 from harness.contracts.plugin_manifest import read_manifest
 from harness.contracts.plugin_payload import validate_payload
 from harness.infrastructure.plugin_archive import read_package, content_revision
+
+mutation_lock = asyncio.Lock()
 
 
 def rename_with_brief_hold_retry(package: Path, destination: Path):
@@ -29,6 +32,9 @@ class PluginPackages:
 
     def import_source(self, source: Path):
         files = read_package(source)
+        return self.import_files(files,source)
+
+    def import_files(self, files, source):
         metadata = json.loads(files['plugin.json'])
         identity = metadata.get('id') if isinstance(metadata, dict) else None
         if not isinstance(identity, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,47}', identity):

@@ -120,11 +120,8 @@ async def change_capability(identity: str, body: CapabilityAction, request: Requ
             return await setter(runtime, body.enabled, lambda: bool(get_chat_service()._active_conversations))
         except (ValueError, RuntimeError, OSError, httpx.HTTPError, TimeoutError) as exc:
             raise HTTPException(409, str(exc)) from exc
-    store = CapabilityStore(runtime.store._connect)
-    # Keep the explicit intent even if activation or drain fails; state shows the error.
-    store.save('__host__', identity, {'enabled': body.enabled}, 'plugin')
+    from harness.capabilities.enabling import set_managed_enabled
     try:
-        enabled = {name for name, state in store.list('__host__', 'plugin').items() if state.get('enabled')}
-        return await (manager.activate(identity, enabled_dependencies=enabled) if body.enabled else manager.deactivate(identity))
+        return await set_managed_enabled(runtime,identity,body.enabled)
     except (ValueError, RuntimeError, httpx.HTTPError, TimeoutError) as exc:
         raise HTTPException(409, str(exc)) from exc

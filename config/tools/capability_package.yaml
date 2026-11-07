@@ -1,0 +1,16 @@
+name: capability_package
+display_name: 管理已授权来源的插件
+backend: capability-management
+tier: extended
+cloud: write
+description: 在宿主授予当前工作区的包管理权限内查看、导入、安装、升级或卸载特定插件。安装请求须提供发布者对实际包版本的签名；待重启只代表已登记。
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    kind: {enum: [plugin, skill], type: string, description: 插件为宿主级部署，技能按工作区固定版本}
+    identity: {type: string}
+    action: {enum: [status,import,install,upgrade,enable,disable,uninstall], type: string}
+    path: {type: string, description: 本工作区内的插件目录或 ZIP}
+    signature: {type: string, description: 已授权发布者的 Ed25519 签名（十六进制）}
+  required: [identity,action]

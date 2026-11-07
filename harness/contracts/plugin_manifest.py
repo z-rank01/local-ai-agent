@@ -43,4 +43,6 @@ def read_manifest(manifest: Path, packages: Path) -> dict:
         raise ValueError('调用限额须为工具到非负整数或配置项名称的映射')
     if value.get('tool_registration') == 'managed' and value.get('execution') not in ('files', 'container'):
         raise ValueError('不支持的托管插件执行环境')
+    if value.get('tool_registration') == 'managed' and value.get('http_router'):
+        raise ValueError('托管工具包不能在宿主进程注册 Python 路由')
     return value

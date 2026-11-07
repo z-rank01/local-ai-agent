@@ -20,6 +20,8 @@ class SkillCatalog:
         invalid = {row['name']: row.get('error', '技能校验未通过') for row in snapshot.get('invalid', [])}
         for name, entry in snapshot['versions'].items():
             state = deepcopy(states.get(name, {'enabled': True, 'active': None, 'history': [], 'follow_updates': True}))
+            if state.get('signed_import'):
+                continue
             state['missing'] = False
             state.pop('candidate_error', None)
             active = state['active']
@@ -37,6 +39,8 @@ class SkillCatalog:
             states[name] = state
             self.store.save(self.workspace_id, name, state)
         for name, state in states.items():
+            if state.get('signed_import'):
+                continue
             if name not in snapshot['versions']:
                 state['missing'] = name not in invalid
                 if name in invalid:

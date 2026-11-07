@@ -1,4 +1,5 @@
 import {useEffect, useId, useMemo, useRef, useState} from 'react';
+import {SourceGrants} from './SourceGrants';
 import type {SkillsPanelProps} from '../capabilityPanelTypes';
 import {Icon} from '../../ui/Icon';
 import {Popover} from '../../ui/Popover';
@@ -33,6 +34,7 @@ export function CapabilityManager({
   const [history, setHistory] = useState(false);
   const [expanded, setExpanded] = useState('');
   const [menu, setMenu] = useState(false);
+  const [showGrants, setShowGrants] = useState(false);
   const [importKind, setImportKind] = useState<'plugin' | 'skill'>();
   const importAnchor = useRef<HTMLButtonElement>(null);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -130,8 +132,10 @@ export function CapabilityManager({
               导入 {kind === 'skill' ? 'Skill' : 'Plugin'}
             </button>
           ))}
+          <button role="menuitem" onClick={() => {setMenu(false); setShowGrants(!showGrants);}}>管理受信来源</button>
         </div>
       </Popover>
+      {showGrants && <SourceGrants key={workspaceId} workspaceId={workspaceId}/>}
 
       <label className="capm-search">
         <Icon name="i-search" className="ico-sm" />

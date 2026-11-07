@@ -22,6 +22,7 @@ class ExecutionContext:
     subagent_store: Any = None
     run_control: Any = None
     subagent_extension: SubagentExtension | None = None
+    runner_operation: Callable | None = None
 
 
 class ToolProvider(Protocol):

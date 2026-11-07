@@ -20,6 +20,24 @@ class ImportRequest(BaseModel):
     path: str
 
 
+class CaptureImport(ImportRequest):
+    name: str
+
+
+@router.post('/capabilities/skills/capture-import')
+def capture_import(request: CaptureImport):
+    """Capture only. The host checks the signer's grant before installing this revision."""
+    from sandbox import validate_workspace_cwd
+    from skill_paths import validate_name
+    try:
+        source = Path(validate_workspace_cwd(request.path))
+        if source.name != validate_name(request.name) or not source.is_dir():
+            raise ValueError('目录名必须与签名技能名称相同')
+        return SkillVersions(source.parent, storage().storage).capture(request.name)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 class DiffRequest(BaseModel):
     name: str
     before: str | None = None
