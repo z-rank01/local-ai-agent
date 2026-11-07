@@ -310,6 +310,11 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(run.published)
             record = run.review_records[ready['candidate_sha256']]
             self.assertEqual(record['same_draft_publish_parameters'],ready['same_draft_publish_parameters'])
+            self.assertIn('file_edit',record['edit_instruction'])
+            for denied in ('code_exec','shell_exec'):
+                error = agent._tool_error(denied,ValueError('当前步骤未开放此工具'))
+                self.assertIn('file_edit',error['next'])
+                self.assertNotIn(denied,run.tool_names)
             self.assertEqual(ready['source_links'],record['source_links'])
             self.assertIn('没有列出核心问题',record['publish_instruction'])
             self.assertEqual(record['review_context_sha256'], ready['review_ref'].split(':')[-1])

@@ -73,6 +73,31 @@ class ResearchSessionTests(unittest.IsolatedAsyncioTestCase):
             'evidence_sha256':fingerprint(run.evidence_index())}
         return files, run, params
 
+    async def test_rejected_author_script_receipt_survives_checkpoint_connect_timeout(self):
+        import httpx
+        from unittest.mock import patch
+        files,run,_ = await self.prepare()
+        run.record['research_contract_version'] = 3
+        dispatch = files.dispatch
+        for filename in ('research.json','evidence-index.json'):
+            attempts = []
+            async def timeout(tool, params, session):
+                attempts.append(params['path'])
+                if params['path'].endswith('/'+filename):
+                    raise httpx.ConnectTimeout('')
+                return await dispatch(tool,params,session)
+            event = {'name':'shell_exec','status':'error','call_id':'rejected-edit',
+                     'result':{'error':'当前步骤未开放此工具；本步骤未执行。'}}
+            with patch.object(files,'dispatch',timeout), self.assertRaises(httpx.ConnectTimeout) as caught:
+                await run.observe(event)
+            self.assertIn('rejected-edit',str(caught.exception))
+            self.assertIn('file_write',str(caught.exception))
+            self.assertIn(filename,str(caught.exception))
+            self.assertEqual(run.record['checkpoint_error']['tool_status'],'error')
+            self.assertEqual(run.trace[-1]['tool'],'shell_exec')
+            self.assertEqual(attempts.count(run.record['directory']+'/'+filename),1)
+            self.assertIsNone(run.published)
+
     async def test_publish_preserves_original_and_is_idempotent(self):
         files, run, params = await self.prepare()
         result = await run.publish(params)

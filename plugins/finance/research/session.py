@@ -464,10 +464,13 @@ class ResearchSession:
         return universe - self.blocked_tools
 
     async def write(self, name, value, *, binary=False):
-        result = await self.router.dispatch('file_write', {
-            'path': self.record['directory'] + '/' + name,
-            'content': value if isinstance(value, str) else encoded(value),
-            'encoding': 'base64' if binary else 'utf-8'}, self.conversation_id)
+        path = self.record['directory'] + '/' + name
+        try:
+            result = await self.router.dispatch('file_write', {
+                'path': path, 'content': value if isinstance(value, str) else encoded(value),
+                'encoding': 'base64' if binary else 'utf-8'}, self.conversation_id)
+        except httpx.ConnectTimeout as exc:
+            raise httpx.ConnectTimeout(f'file_write 连接超时：{path}') from exc
         if not isinstance(result, dict) or not result.get('written'):
             raise RuntimeError('研究文件未保存成功')
 
@@ -816,7 +819,13 @@ class ResearchSession:
                 'phase':self.record['phase'], 'tool':name, 'producer_role':event.get('role_id'),
                 'status':event['status'],
                 'result_status':result.get('status') if isinstance(result,dict) else None})
-        await self.checkpoint()
+        try:
+            await self.checkpoint()
+        except httpx.ConnectTimeout as exc:
+            call_id = event.get('call_id')
+            self.record['checkpoint_error'] = {'tool':name, 'call_id':call_id,
+                'tool_status':event['status'],'stage':'receipt_checkpoint','error':str(exc)}
+            raise httpx.ConnectTimeout(f'{name}（{call_id}）回执已取得，保存检查点失败：{exc}') from exc
 
     async def read_document(self, path):
         parts, offset, digest = [], 0, None

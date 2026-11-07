@@ -745,13 +745,18 @@ class FinanceLoop(Agent):
                         '若你自己发现会改变核心判断的错误，再有针对性地修订。')
                 if params.get('draft_path'):
                     result['reviewed_draft_path'] = params['draft_path']
+                    if 'file_edit' in research.tool_names:
+                        result['edit_instruction'] = (
+                            '如果决定改稿，file_read 此工作稿取得 sha256，用 file_edit 的 expected_sha256、'
+                            'old_text、new_text 修改；多次编辑使用最新哈希。完成后 brief_review 新稿。'
+                            '若决定按本稿发布，沿用送审参数，附本次 review_ref 和你自己的 review_response。')
                     basis = {k:v for k,v in params.items() if k not in ('review_ref','review_response')}
                     if basis.keys() <= {'draft_path','decision_claim_ids','calculation_refs','chart_refs'}:
                         result['same_draft_publish_parameters'] = {**basis, 'review_ref':result['review_ref']}
                 # After the author takes another tool step the original tool
                 # reply can leave the handoff. Keep its bounded publication
                 # guidance with the reviewed version, along with review_ref.
-                for field in ('publish_instruction','source_links','reviewed_draft_path','same_draft_publish_parameters'):
+                for field in ('publish_instruction','edit_instruction','source_links','reviewed_draft_path','same_draft_publish_parameters'):
                     review.pop(field, None)
                     if field in result:
                         review[field] = result[field]
@@ -768,6 +773,9 @@ class FinanceLoop(Agent):
     def _tool_error(self, name, error):
         result = super()._tool_error(name, error)
         research = getattr(self.router, 'research', None)
+        if (research is not None and research.active and name in ('code_exec','shell_exec')
+                and name not in research.tool_names and 'file_edit' in research.tool_names):
+            result['next'] = '如需修改作者工作稿，请 file_read 取得 sha256，再用 file_edit 精确编辑；修改后重新送审。'
         if name in ('brief_review', 'brief_publish') and research is not None and research.record and research.record.get('draft'):
             result['draft'] = research.record['draft']
         return result
