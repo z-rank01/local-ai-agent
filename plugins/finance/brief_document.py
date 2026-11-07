@@ -63,7 +63,7 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
     if stance not in (None, '继续研究', '等待验证', '暂不关注'):
         raise ValueError('未知研究立场')
     stance_class = {'继续研究': 'stance-positive', '暂不关注': 'stance-negative'}.get(stance, 'stance-neutral')
-    stance_badge = f'<span class="badge stance-badge">{stance}</span>' if stance else ''
+    stance_detail = f'<p>作者立场：{escape(stance)}</p>' if stance else ''
     md = MarkdownIt('commonmark', {'html': False}).enable('table')
     md.validateLink = lambda url: (url.startswith('#') or
         (urlsplit(url).scheme == 'https' and bool(urlsplit(url).hostname)
@@ -105,10 +105,10 @@ def render_document(markdown, *, title, generated_at, model, material_sha256,
 <title>{escape(title)}</title><style>{css}</style></head>
 <body class="{stance_class}"><main class="sheet"><header>
 <div class="eyebrow">RESEARCH BRIEF / {escape(provenance)}</div><h1>{escape(title)}</h1>
-<div class="meta">{stance_badge}<span class="badge">{escape(edition)}</span><span>{escape(model)} · {escape(authorship)}</span><span>生成时间：{display_time}</span></div>
-<p class="unit">报告范围：{escape(scope_label)} · 资料时点：{escape(as_of)}</p>
-<p class="unit">{escape(material_note)}</p>
+<p class="unit">资料时点：{escape(as_of)}</p>
 <nav class="reading"><a href="#references">论证与参考</a></nav>
 </header><article class="body">{body}</article>
-<footer>{escape(provenance)} · 原始模型输出另行保留；排版完成不代表事实或推断自动认证。</footer>
+<footer><details><summary>报告说明</summary>{stance_detail}
+<p>研究范围：{escape(scope_label)}</p><p>生成时间：{display_time} · {escape(model)} · {escape(authorship)} · {escape(edition)}</p>
+<p>{escape(material_note)}</p></details></footer>
 </main></body></html>'''

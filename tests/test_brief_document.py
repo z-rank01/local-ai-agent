@@ -68,6 +68,9 @@ class BriefDocumentTests(unittest.TestCase):
         plain = render_document('结论：等待验证。', **args)
         self.assertNotIn('<span class="badge stance-badge">', plain)
         shown = render_document('原正文。', stance='等待验证', **args)
-        self.assertIn('<span class="badge stance-badge">等待验证</span>', shown)
+        self.assertIn('<p>作者立场：等待验证</p>', shown)
+        header = shown.split('<header>',1)[1].split('</header>',1)[0]
+        self.assertNotIn('等待验证', header)
+        self.assertNotIn('模型生成 · 程序排版', header)
         with self.assertRaises(ValueError):
             render_document('正文', stance='<script>', **args)
