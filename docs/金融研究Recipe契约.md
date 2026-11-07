@@ -141,3 +141,4 @@ delta-v1 只在新建研究时冻结。首稿完整核对，编辑工作文件�
 能力栏方法包 market-research-methods-v1 是笔记。wb-daily、wb-mainline、wb-first-look 对应 WorkBuddy 每日简报、市场主线、公司初看；kimi-chain、kimi-ideas 对应 Kimi 产业链传导、机会选题。章节路径均为 references/<ID>.md。作者通过版本化 skill_info 和 file_read 选读；角色通过 recipe_artifacts.selected_method_notes 接收已读正文。方法不授予取数权限。调试时对照工作区目录、会话的 capability_ids、研究登记的 methods、实际请求的 method_inputs 或角色账本哈希。目录状态不能证明实际模型输入。
 
 作者先回答读者，再提供证据。正式稿首屏说明判断、关键理由与未知，论证与参考默认折叠。
+新研究的作者可使用本轮实际开放的工作区 code_exec、shell_exec 编辑工作稿。沿用 Runner 挂载、云写授权和工具策略；普通作者脚本输出只作为工具回执。重新核对以实际提交的稿件及证据指纹为准。

@@ -454,12 +454,14 @@ class ResearchSession:
         if self.record and self.record.get('research_contract_version',1)<2 and not self.methods:
             return METHOD_TOOLS
         known = getattr(self.router, 'known_tools', None)
-        universe = frozenset(known) if known else RESEARCH_FALLBACK_TOOLS
+        universe = frozenset(known) if known is not None else RESEARCH_FALLBACK_TOOLS
         if self.record and self.record.get('research_contract_version') == 3:
             author_only = {'research_begin', 'agent_batch_create', 'agent_batch_status',
                            'agent_batch_result', 'agent_batch_stop', 'brief_review', 'brief_publish',
                            'file_read', 'file_write', 'file_edit', 'file_list', 'skill_list', 'skill_info',
                            'context_evidence_read'}
+            if self.record.get('author_workspace_scripts'):
+                author_only.update(('code_exec', 'shell_exec'))
             return universe & author_only - self.blocked_tools
         return universe - self.blocked_tools
 
@@ -596,6 +598,7 @@ class ResearchSession:
             self.record = {'id': identifier, 'conversation_id': self.conversation_id,
                 'research_contract_version': 3,
                 'review_protocol': 'delta-v1',
+                'author_workspace_scripts': True,
                 'request_materials': self.request_materials,
                 'model': self.model, 'started_at': datetime.now(timezone.utc).isoformat(),
                 'scope': params['scope'], 'targets': params.get('targets', []),
@@ -786,7 +789,10 @@ class ResearchSession:
             for key, source in self.sources.items():
                 if path == source['path']:
                     self.received_text(key, result.get('content', ''))
-        if success and name in ('code_exec', 'shell_exec') and isinstance(result, dict):
+        if (success and name in ('code_exec', 'shell_exec') and isinstance(result, dict)
+                and (event.get('subagent') or event.get('registered_evidence_step')
+                     or not self.record.get('author_workspace_scripts')
+                     or self.record.get('research_contract_version') != 3)):
             await self.source_excerpts(result)
         if success and name == 'research_begin':
             self.progress('phase', self.record['phase'])

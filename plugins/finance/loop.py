@@ -249,7 +249,7 @@ class FinanceLoop(Agent):
                             allowed=research.tool_names, evidence_step=step)) as events:
                         async for event in events:
                             if event.kind == 'tool_end':
-                                await research.observe(event.data)
+                                await research.observe({**event.data, 'registered_evidence_step':True})
                             yield event
                     continue
                 active = [d for d in tool_defs if autonomous or research_enabled or d['function']['name'] not in budgets or budgets[d['function']['name']] <= 0 or
@@ -750,6 +750,10 @@ class FinanceLoop(Agent):
                             '如果决定改稿，file_read 此工作稿取得 sha256，用 file_edit 的 expected_sha256、'
                             'old_text、new_text 修改；多次编辑使用最新哈希。完成后 brief_review 新稿。'
                             '若决定按本稿发布，沿用送审参数，附本次 review_ref 和你自己的 review_response。')
+                        if research.record.get('author_workspace_scripts'):
+                            result['edit_instruction'] += (
+                                '多字段 JSON 修订可选已授权的 code_exec 或 shell_exec，在原工作区编辑工作稿；'
+                                '回读确认后提交新稿核对。容器写入被拒时可用 file_edit。')
                     basis = {k:v for k,v in params.items() if k not in ('review_ref','review_response')}
                     if basis.keys() <= {'draft_path','decision_claim_ids','calculation_refs','chart_refs'}:
                         result['same_draft_publish_parameters'] = {**basis, 'review_ref':result['review_ref']}

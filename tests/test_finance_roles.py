@@ -138,6 +138,8 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
             await run.source_excerpts({'stdout':chunk})
         self.assertEqual(run.read_text[key], [fixture['initial_read']])
         await run.observe({'name':'code_exec', 'status':'ok', 'params':{}, 'result':{'stdout':receipt}})
+        self.assertEqual(run.read_text[key], [fixture['initial_read']])
+        await run.observe({'name':'code_exec','subagent':True,'status':'ok','params':{},'result':{'stdout':receipt}})
         await run.record_role_result('registered', result)
         aliases = run.record['role_aliases']['registered']
         self.assertIn(fixture['excerpts'][0]['id'], aliases)
@@ -215,7 +217,12 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, '四个金融角色'):
             await run.publication_input({'decision_claim_ids':['invented']})
         self.assertNotIn('web_fetch', run.tool_names)
-        self.assertNotIn('code_exec', run.tool_names)
+        self.assertTrue({'code_exec','shell_exec'} <= run.tool_names)
+        files.known_tools = frozenset()
+        self.assertEqual(run.tool_names, frozenset())
+        del files.known_tools
+        del run.record['author_workspace_scripts']
+        self.assertFalse({'code_exec','shell_exec'} & run.tool_names)
         self.assertIn('agent_batch_create', run.tool_names)
         files, run, _, batch_id = await self.prepare_roles()
         aliases = run.record['role_aliases'][batch_id]
@@ -311,10 +318,7 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
             record = run.review_records[ready['candidate_sha256']]
             self.assertEqual(record['same_draft_publish_parameters'],ready['same_draft_publish_parameters'])
             self.assertIn('file_edit',record['edit_instruction'])
-            for denied in ('code_exec','shell_exec'):
-                error = agent._tool_error(denied,ValueError('当前步骤未开放此工具'))
-                self.assertIn('file_edit',error['next'])
-                self.assertNotIn(denied,run.tool_names)
+            self.assertIn('code_exec',record['edit_instruction'])
             self.assertEqual(ready['source_links'],record['source_links'])
             self.assertIn('没有列出核心问题',record['publish_instruction'])
             self.assertEqual(record['review_context_sha256'], ready['review_ref'].split(':')[-1])
