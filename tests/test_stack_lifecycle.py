@@ -15,7 +15,7 @@ class StackLifecycleTests(unittest.IsolatedAsyncioTestCase):
         async def containers(): order.append('containers')
         async def plugins(): order.append('plugins')
         with patch.object(module,'get_chat_service',return_value=SimpleNamespace(runs=SimpleNamespace(close=runs))), \
-             patch.object(module,'get_runtime',return_value=SimpleNamespace(container_packages={'example':SimpleNamespace(client=SimpleNamespace(stop=plugins))})), \
+             patch.object(module,'get_runtime',return_value=SimpleNamespace(capability_services={'finance':stock_service},container_packages={'example':SimpleNamespace(client=SimpleNamespace(stop=plugins))})), \
              patch.object(stock_service,'status',AsyncMock(return_value={'online':True})), \
              patch.object(stock_service,'request',side_effect=stock), \
              patch.object(module,'_stop_tool_containers',side_effect=containers), \

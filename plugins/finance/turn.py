@@ -47,7 +47,7 @@ class FinanceTurn(NullTurn):
         host.turn_loop_enabled = self.loop_enabled
         host.turn_source_review_enabled = self.source_review_enabled
         host.turn_reply_purpose_enabled = self.reply_purpose_enabled
-        return FinanceLoop(host).run(messages, session_id, conversation_key)
+        return FinanceLoop(host).prepare(messages, session_id, conversation_key)
 
     async def configure(self, method_id, answer_only):
         self.quality_research = self.bridge is not None and not answer_only
@@ -110,9 +110,16 @@ class FinanceTurn(NullTurn):
         return sections
 
     def before_tool(self, tool, arguments):
+        if self.research is not None and self.research.active and tool not in self.research.tool_names:
+            raise ValueError('当前步骤未开放此工具；请核对已授权工具与能力状态。本步骤未执行。')
         if tool == 'web_fetch':
             return {**arguments, 'include_file': bool(self.research and self.research.active)}
         return arguments
+
+    def execution_scope(self):
+        if self.research is not None and self.research.active:
+            return self.research.tool_names
+        return None
 
     async def after_tool(self, tool, result):
         if tool != 'web_fetch' or not isinstance(result, dict):

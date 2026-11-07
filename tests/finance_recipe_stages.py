@@ -13,7 +13,7 @@ def registered_roles(root):
     plugins = root / 'plugins'
     granted = {tool for manifest in plugins.glob('*/plugin.json')
                for role in json.loads(manifest.read_text(encoding='utf8')).get('agent_roles', [])
-               for tool in role.get('tools', [])}
+               for tool in role.get('tools', []) + role.get('optional_tools', [])}
     return load_role_specs(plugins, granted)
 
 
@@ -23,13 +23,16 @@ def ledger_input(db, ledger, research, workspace, native, role):
     entry = evidence(db, research, workspace, native.get('material_ref'), cloud_only=True)
     if not entry or json.loads(entry[1]).get('record_kind') != 'subagent_input':
         raise ValueError('Missing cloud-authorized role material')
-    messages = [{'role':'system', 'content':role_prompt(role)}, {'role':'user', 'content':entry[0]}]
     receipt = ledger.execute('SELECT execution_hash,input_hash FROM research_receipts WHERE call_id=?',
                              (native['ledger_call_id'],)).fetchone()
-    digest = sha256(json.dumps(messages, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-    if not receipt or tuple(receipt) != (native.get('execution_hash'), digest):
-        raise ValueError('Role prompt and material do not match the original call hash')
-    return messages
+    from dataclasses import replace
+    # A historical no-tool receipt may predate optional capability inheritance.
+    for spec in (role,replace(role,inherit_tools=False,optional_tools=frozenset())):
+        messages = [{'role':'system','content':role_prompt(spec)}, {'role':'user','content':entry[0]}]
+        digest = sha256(json.dumps(messages,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+        if receipt and tuple(receipt)==(native.get('execution_hash'),digest):
+            return messages
+    raise ValueError('Role prompt and material do not match the original call hash')
 
 
 def evidence(db, research, workspace, ref, *, cloud_only=False):

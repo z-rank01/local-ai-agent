@@ -1,6 +1,8 @@
 """Finance-owned orchestration on the host's frozen model and authorized tools."""
 from __future__ import annotations
 
+from harness.runtime.rounds import NEXT_ROUND, TurnRounds, execute_turn
+from harness.runtime.model_step import model_step
 from contextlib import aclosing
 import asyncio
 import json
@@ -59,7 +61,13 @@ class FinanceLoop(Agent):
 
     # ── Public API ──────────────────────────────────────────────────────
 
-    async def run(
+    async def run(self, messages, session_id='default', conversation_key=None):
+        """Compatibility entry for direct policy fixtures. Production enters through Agent.run."""
+        async with aclosing(execute_turn(self.prepare(messages, session_id, conversation_key))) as events:
+            async for event in events:
+                yield event
+
+    async def prepare(
         self,
         messages: list[dict],
         session_id: str = "default",
@@ -73,7 +81,8 @@ class FinanceLoop(Agent):
         from core import config
         import uuid
         conversation_key = conversation_key or session_id
-        messages = strip_think_tags_from_history(messages)
+        if self._finance_host is None:
+            messages = strip_think_tags_from_history(messages)
         evidence_messages = getattr(self, 'evidence_history', messages)
         tools_for_role = getattr(self.registry, 'tools_for_role', lambda role: set())
         from harness.runtime.turns import NullTurn
@@ -81,7 +90,8 @@ class FinanceLoop(Agent):
         if turn is None:
             turn = self.registry.create_turn() if hasattr(self.registry, 'create_turn') else NullTurn()
         self.turn = turn
-        turn.start(evidence_messages)
+        if self._finance_host is None:
+            turn.start(evidence_messages)
         source_read_tools = tools_for_role('source_read')
         source_read_seen = any(m.get('role') == 'tool' and m.get('tool_name') in source_read_tools
                               for m in evidence_messages)
@@ -216,7 +226,8 @@ class FinanceLoop(Agent):
             from .research_material_view import ResearchMaterialView
             research_view = ResearchMaterialView()
             research_guidance_message = None
-            while research_enabled or (research is not None and research.active) or self.max_rounds <= 0 or round_number < self.max_rounds:
+            async def advance_round():
+                nonlocal complete_sources, execution_retries, incomplete_delivery, messages, program_source_message, purpose_pending, research_guidance_message, round_number, skill_session, source_calculation_index, source_comparison_index, source_index, source_index_message, source_quote_originals, source_read_records, source_read_seen, source_repair_protocol
                 if getattr(self,'local_agent_unknown',False):
                     yield AgentEvent('error',text='本地Gemma4调用终态未知，已保留成果；不自动重发或切换模型。')
                     return
@@ -231,7 +242,6 @@ class FinanceLoop(Agent):
                                      + (f'\n[阅读草稿（未完成核对）]({draft})' if draft else ''))
                     return
                 if autonomous and research.pending_evidence:
-                    import uuid
                     step = research.pending_evidence[0]
                     skill_session = getattr(self.router, 'skill_session', None)
                     if skill_session is not None:
@@ -251,7 +261,8 @@ class FinanceLoop(Agent):
                             if event.kind == 'tool_end':
                                 await research.observe({**event.data, 'registered_evidence_step':True})
                             yield event
-                    continue
+                    yield NEXT_ROUND
+                    return
                 active = [d for d in tool_defs if autonomous or research_enabled or d['function']['name'] not in budgets or budgets[d['function']['name']] <= 0 or
                           counts.get(d['function']['name'], 0) < budgets[d['function']['name']]]
                 discovery = turn.allowed_tools()
@@ -419,10 +430,7 @@ class FinanceLoop(Agent):
                             +json.dumps({'current_user_message':current_user_question},ensure_ascii=False)}]
                     stream_source = self._model_stream(final_messages, active or None, **final_request_options)
                 control = getattr(self, 'run_control', None)
-                if control:
-                    await control.boundary(messages)
-                    control.begin_step('模型请求')
-                async with aclosing(stream_source) as stream:
+                async with aclosing(model_step(stream_source, messages, control)) as stream:
                     async for token, msg in stream:
                         if msg is not None:
                             accumulated = msg
@@ -454,10 +462,6 @@ class FinanceLoop(Agent):
                                         yield AgentEvent('token', text=token)
                             else:
                                 yield AgentEvent("token", text=token)
-                if not accumulated:
-                    raise RuntimeError("模型未返回完整消息，已取得的结果仍保留。")
-                if control:
-                    control.end_step()
                 calls = accumulated.get('tool_calls') or []
                 if purpose_step:
                     analysis_decision = turn.analysis_decision
@@ -472,7 +476,8 @@ class FinanceLoop(Agent):
                             raise RuntimeError('回复用途选择未返回有效analysis声明或实际读取调用；本次未完成，不自动重发。')
                         self.audit.record('reply_purpose_selected', {'session_id': session_id,
                             'version': 'current-question-purpose-v1', 'mode': 'analysis', 'tool_call_count': 0})
-                        continue
+                        yield NEXT_ROUND
+                        return
                     accumulated = {**accumulated, 'content': ''}
                 for tc in calls:
                     if not tc.get('id'):
@@ -505,7 +510,8 @@ class FinanceLoop(Agent):
                                 '若next_cursor仍非空，尚未完整读到末尾，不声称全文已读或文件没有某条款。'
                                 '已核对条款可以交付，其他未核事项及影响分别说明。'})
                             round_number += 1
-                            continue
+                            yield NEXT_ROUND
+                            return
                         yield AgentEvent('quality_rejected', data={'quality_status':'rejected_source_execution',
                             'message':{'role':'system','content':'来源补查参数生成没有返回工具调用，原文核对未完成。'},
                             'rejected_answer':accumulated.get('content',''),
@@ -524,7 +530,8 @@ class FinanceLoop(Agent):
                             yield AgentEvent(kind, data=data)
                         if review.action == 'continue':
                             source_repair_protocol = []
-                            continue
+                            yield NEXT_ROUND
+                            return
                         accumulated = review.message
                         pending_tokens = review.pending_tokens
                         self.pending_review = review.pending_text
@@ -551,7 +558,8 @@ class FinanceLoop(Agent):
                             messages.append({'role': 'system', 'content':
                                 '当前研究尚未通过brief_publish交付。若可以继续，请实际读取方法、获取原文并完成发布；'
                                 '只说将检索不会执行。可按任务需要选择已授权的后台研究；受理不等于取得报告。确实无法推进时明确失败原因。'})
-                            continue
+                            yield NEXT_ROUND
+                            return
                         await research.incomplete()
                         raise RuntimeError('研究未完成交付；已保存研究记录与工具结果。已提交后台任务以原回执为准，不因此重发或取消。')
                     if (tool_defs and self.allow_tools and
@@ -562,7 +570,8 @@ class FinanceLoop(Agent):
                             raise RuntimeError('模型只给出了待执行代码，没有完成所述操作。已有工具结果保留；代码未自动运行，任务尚未完成。')
                         execution_retries += 1
                         messages.append({'role': 'system', 'content': '执行检查：你刚才说要继续操作，却只输出了代码，代码块不会被执行。请根据用户原任务及只读/讨论等限制判断：若仍需且已获授权执行，使用实际工具调用继续；若用户只需要示例或存在阻碍，明确说明未执行及原因。不新增用户未授权的操作，不把代码示例当作已完成结果。'})
-                        continue
+                        yield NEXT_ROUND
+                        return
                     if self.allow_tools and self.memory and not cloud:
                         try:
                             await self.memory.update_memory_after_turn(session_id, conversation_key,
@@ -629,7 +638,13 @@ class FinanceLoop(Agent):
                     name = call['function']['name']
                     counts[name] = counts.get(name, 0) + 1
                 round_number += 1
-            yield AgentEvent('error', text='本轮调用已达到上限；已完成的工具结果保留，请继续追问。')
+                yield NEXT_ROUND
+
+            def permitted():
+                return research_enabled or (research is not None and research.active) or self.max_rounds <= 0 or round_number < self.max_rounds
+
+            exhausted = AgentEvent('error', text='本轮调用已达到上限；已完成的工具结果保留，请继续追问。')
+            yield TurnRounds(advance_round, permitted, exhausted)
         except Exception as exc:
             if hasattr(exc,'source_visible_response'):
                 yield AgentEvent('quality_rejected', data={'quality_status':'rejected_source_execution',

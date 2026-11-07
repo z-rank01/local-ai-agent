@@ -3,7 +3,7 @@ from copy import deepcopy
 from uuid import uuid4
 
 FIELDS = {'name', 'goal', 'depends_on', 'input_refs', 'expected_outputs', 'checks',
-          'output_refs', 'open_questions', 'assessment', 'model_status', 'claims', 'supersedes'}
+          'output_refs', 'open_questions', 'assessment', 'model_status', 'claims', 'supersedes','required_roles'}
 
 
 def update_recipe(current, initial, updates, plan, artifacts, *, version=2):
@@ -47,6 +47,8 @@ def update_recipe(current, initial, updates, plan, artifacts, *, version=2):
                 raise ValueError(key + '须由非空文字组成')
             if key in {'input_refs', 'output_refs'} and any(ref not in artifacts for ref in value):
                 raise ValueError('材料引用必须来自返回的artifacts索引')
+            if key == 'required_roles' and set(value) - {'finance_evidence','finance_calculation','finance_analysis','finance_review'}:
+                raise ValueError('工作单需要的金融角色未登记')
             if key == 'claims':
                 value = deepcopy(value)
                 old_claims = stage.get('claims', [])

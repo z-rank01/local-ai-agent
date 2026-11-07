@@ -1,0 +1,13 @@
+name: stock_industry_members
+display_name: 查询行业成分
+backend: stock-bridge
+tier: extended
+cloud: read
+description: 读取东方财富行业分类的当前成分和采集时间。用实际板块名称查询并按页读取，仅形成候选范围，不能证明历史成员关系或业务收入，不建立后台研究。
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    industry: {type: string, minLength: 1, maxLength: 80}
+    page: {type: integer, minimum: 1}
+  required: [industry]

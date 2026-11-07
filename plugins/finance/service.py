@@ -130,6 +130,14 @@ class StockService:
         from .brief_material import prepare_material
         return prepare_material(messages, references, cloud_allowed=cloud_allowed)
 
+    async def shutdown_service(self, targets):
+        status = await self.status()
+        if status['online']:
+            await self.request('/api/control/action', {'action':'shutdown'},timeout=40)
+        elif targets.get('stock-bridge'):
+            raise ValueError('股票后台未接入安全关闭接口，请先在股票服务中暂停并关闭后再退出')
+        targets.pop('stock-bridge',None)
+
     def shutdown_targets(self):
         from urllib.parse import urlparse
         value = os.environ.get('STOCK_BRIDGE_URL', '')

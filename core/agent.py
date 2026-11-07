@@ -1,6 +1,8 @@
 """Framework-neutral model/tool loop with provider-owned turn policies."""
 from __future__ import annotations
 
+from harness.runtime.rounds import NEXT_ROUND, TurnRounds, execute_turn
+from harness.runtime.model_step import model_step
 from contextlib import aclosing
 import asyncio
 import json
@@ -133,9 +135,7 @@ class Agent:
 
     async def run(self, messages: list[dict], session_id: str = 'default',
                   conversation_key: str | None = None) -> AsyncGenerator[AgentEvent, None]:
-        from . import config
         from harness.runtime.turns import NullTurn
-        import uuid
 
         conversation_key = conversation_key or session_id
         messages = strip_think_tags_from_history(messages)
@@ -145,12 +145,14 @@ class Agent:
         self.turn = turn
         turn.start(getattr(self, 'evidence_history', messages))
         policy_stream = turn.stream(self, messages, session_id, conversation_key)
-        if policy_stream is not None:
-            async with aclosing(policy_stream) as events:
-                async for event in events:
-                    yield event
-            return
+        program = policy_stream if policy_stream is not None else self._ordinary_turn(messages, session_id, conversation_key, turn)
+        async with aclosing(execute_turn(program)) as events:
+            async for event in events:
+                yield event
 
+    async def _ordinary_turn(self, messages, session_id, conversation_key, turn):
+        from . import config
+        import uuid
         cloud = getattr(self.llm, 'cloud', False)
         try:
             ws_sections = []
@@ -204,7 +206,8 @@ class Agent:
             user_request = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), '')
             round_number, execution_retries = 0, 0
             receipt_closed = False
-            while receipt_closed or self.max_rounds <= 0 or round_number < self.max_rounds:
+            async def advance_round():
+                nonlocal execution_retries, receipt_closed, round_number
                 if getattr(self, 'local_agent_unknown', False):
                     yield AgentEvent('error', text='本地Gemma4调用终态未知，已保留成果；不自动重发或切换模型。')
                     return
@@ -230,20 +233,13 @@ class Agent:
                         {'session_id': session_id, 'view_version': 'generic-turn-v1', **data})
                 stream_source = self.llm.chat_stream_with_tools(messages, active or None, **request_options)
                 control = getattr(self, 'run_control', None)
-                if control:
-                    await control.boundary(messages)
-                    control.begin_step('模型请求')
                 accumulated = None
-                async with aclosing(stream_source) as stream:
+                async with aclosing(model_step(stream_source, messages, control)) as stream:
                     async for token, message in stream:
                         if message is not None:
                             accumulated = message
                         elif token:
                             yield AgentEvent('token', text=token)
-                if not accumulated:
-                    raise RuntimeError('模型未返回完整消息，已取得的结果仍保留。')
-                if control:
-                    control.end_step()
                 calls = accumulated.get('tool_calls') or []
                 for call in calls:
                     if not call.get('id'):
@@ -263,7 +259,8 @@ class Agent:
                             raise RuntimeError('模型只给出了待执行代码，没有完成所述操作。已有工具结果保留；代码未自动运行，任务尚未完成。')
                         execution_retries += 1
                         messages.append({'role': 'system', 'content': '执行检查：你刚才说要继续操作，却只输出了代码，代码块不会被执行。请根据用户原任务及只读/讨论等限制判断：若仍需且已获授权执行，使用实际工具调用继续；若用户只需要示例或存在阻碍，明确说明未执行及原因。不新增用户未授权的操作，不把代码示例当作已完成结果。'})
-                        continue
+                        yield NEXT_ROUND
+                        return
                     if self.allow_tools and self.memory and not cloud:
                         try:
                             await self.memory.update_memory_after_turn(session_id, conversation_key,
@@ -314,7 +311,13 @@ class Agent:
                     name = call['function']['name']
                     counts[name] = counts.get(name, 0) + 1
                 round_number += 1
-            yield AgentEvent('error', text='本轮调用已达到上限；已完成的工具结果保留，请继续追问。')
+                yield NEXT_ROUND
+
+            def permitted():
+                return receipt_closed or self.max_rounds <= 0 or round_number < self.max_rounds
+
+            exhausted = AgentEvent('error', text='本轮调用已达到上限；已完成的工具结果保留，请继续追问。')
+            yield TurnRounds(advance_round, permitted, exhausted)
         except Exception as exc:
             logger.error('Agent loop failed: %s', type(exc).__name__)
             yield AgentEvent('error', text=str(exc) or type(exc).__name__)
@@ -361,7 +364,6 @@ class Agent:
                 params = json.loads(raw) if isinstance(raw, str) else raw
                 if not isinstance(params, dict):
                     raise ValueError('工具参数必须是 JSON 对象')
-                self._validate_tool(name, params, research)
                 params = turn.before_tool(name, params)
                 policy_for = getattr(self.registry, 'execution_policy', None)
                 call_policy = policy_for(name) if policy_for else None
@@ -422,10 +424,6 @@ class Agent:
                 turn_boundary = True
         if turn_boundary:
             yield AgentEvent('turn_boundary')
-
-    def _validate_tool(self, name, params, research):
-        if research is not None and research.active and name not in research.tool_names:
-            raise ValueError('当前步骤未开放此工具；请核对已授权工具与能力状态。本步骤未执行。')
 
     async def _dispatch_tool(self, name, params, session_id, control, call_id, messages):
         result = None

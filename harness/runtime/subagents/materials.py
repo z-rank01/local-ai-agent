@@ -20,6 +20,8 @@ def read_material(reader, evidence_id):
 def role_contract(role):
     return {'role_id': role.role_id, 'purpose': role.prompt.splitlines()[0],
             'tools': sorted(role.tools), 'depends_on': list(role.depends_on),
+            **({'optional_tools':sorted(role.optional_tools),'inherit_tools':True} if role.inherit_tools else
+               {'optional_tools': sorted(role.optional_tools)} if role.optional_tools else {}),
             'output': {'artifact_kind': role.output_artifact_kind,
                        'recipe_namespace': role.recipe_namespace, 'schema': role.output_schema}}
 

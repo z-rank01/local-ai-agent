@@ -311,13 +311,25 @@ def adopt_author_materials(session, params):
                 and all(row['status'] in TERMINAL_SUBAGENT_STATUSES
                         for row in batch['roles'].values())
                 for batch in session.record.get('role_batches', {}).values())
-    if not ready:
+    stages = session.record['recipe']['stages']
+    scoped = session.record.get('workspace_capabilities') and any('required_roles' in stage for stage in stages)
+    if scoped:
+        required = {role for stage in stages for role in stage.get('required_roles', [])}
+        completed = {name for batch in session.record.get('role_batches', {}).values()
+                     for name,row in batch['roles'].items() if row['status']=='COMPLETE' and row.get('artifact_refs')}
+        if not required or required - completed:
+            raise ValueError('Recipe仍缺少需要的角色成果：'+','.join(sorted(required-completed)))
+    elif not ready:
         raise ValueError('请先创建四个金融角色并等待整批终态；作者不能跳过角色直接提交事实或计算')
     params = deepcopy(params)
     artifacts = session.artifacts()
     calculation_refs = list(params.pop('calculation_refs', []))
+    author_calculations = []
     for row in params.pop('calculations', []):
-        calculation_refs.append(row.get('artifact_ref'))
+        if session.record.get('workspace_capabilities') and 'artifact_ref' not in row:
+            author_calculations.append(deepcopy(row))
+        else:
+            calculation_refs.append(row.get('artifact_ref'))
     calculations, selected_calculations, visiting = [], {}, set()
 
     def adopt_calculation(ref):
@@ -361,21 +373,43 @@ def adopt_author_materials(session, params):
                 item['calculation'] = adopt_calculation(dependency)
         charts.append(chart)
     params['charts'] = charts
+    # Inline author calculations refer to earlier inline rows by their original index.
+    offset = len(calculations)
+    for index, row in enumerate(author_calculations):
+        if not row.get('inputs'):
+            raise ValueError('已校验计算须包含可追溯的输入')
+        for operand in row.get('inputs', []):
+            source = operand.get('source')
+            if isinstance(source, str) and source.startswith('calculation:'):
+                prior = source.removeprefix('calculation:')
+                if not prior.isdecimal() or not 0 <= int(prior) < index:
+                    raise ValueError('作者计算只能引用前面已登记的计算')
+                operand['source'] = f'calculation:{offset + int(prior)}'
+        calculations.append(row)
     sources = []
     for row in params.get('sources', []):
-        artifact = artifacts.get(row.get('artifact_ref'), {})
-        if artifact.get('kind') != 'source_excerpt':
-            raise ValueError('v3引文须选择取证角色的artifact_ref')
-        excerpt = artifact['excerpt']
+        if session.record.get('workspace_capabilities') and 'artifact_ref' not in row:
+            excerpt = _excerpt({**row, 'source_id': row.get('id')}, session)
+        else:
+            artifact = artifacts.get(row.get('artifact_ref'), {})
+            if artifact.get('kind') != 'source_excerpt':
+                raise ValueError('v3引文须选择取证角色的artifact_ref')
+            excerpt = artifact['excerpt']
         source = {'id': excerpt['source_id'], 'quote': excerpt['quote'], 'locator': excerpt['locator']}
         if all(key in excerpt for key in ('page', 'start', 'end')):
             source['excerpt'] = {key: excerpt[key] for key in ('page', 'start', 'end')}
         sources.append(source)
     params['sources'] = sources
+    if author_calculations:
+        checked = validate_publication({'title': '作者补算', 'markdown': '作者补算',
+            'as_of': '以材料为准', 'stance': '等待验证', 'sources': sources,
+            'calculations': calculations}, session.sources, session.read_text)
+        params['calculations'] = checked['calculations']
     decisions = params.pop('decision_claim_ids', [])
     claims = {claim['id']: (stage, claim) for stage in session.record['recipe']['stages']
               if stage.get('owner') == 'subagent' for claim in stage.get('claims', [])}
-    if not isinstance(decisions, list) or not decisions or any(ref not in claims for ref in decisions):
+    facts_only = scoped and 'finance_analysis' not in required and bool(sources)
+    if not isinstance(decisions, list) or (not decisions and not facts_only) or any(ref not in claims for ref in decisions):
         raise ValueError('decision_claim_ids须选择分析角色实际返回的claims，供标题、首段和核心结论使用')
     selected = []
     for ref in decisions:

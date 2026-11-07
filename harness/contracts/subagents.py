@@ -17,6 +17,9 @@ class RoleSpec:
     output_schema: dict[str, Any] = field(default_factory=dict)
     plugin_id: str = ''
     plugin_version: str = ''
+    optional_tools: frozenset[str] = frozenset()
+    inherit_tools: bool = False
+    optional_dependencies: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +28,7 @@ class RoleTask:
     text: str
     evidence_ids: tuple[str, ...] = ()
     batch_id: str = ''
+    tool_scope: frozenset[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)

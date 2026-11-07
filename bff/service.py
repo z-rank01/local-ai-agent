@@ -1224,6 +1224,7 @@ class ChatSessionService:
             allowed=not cloud or bool(workspace_allowed and cloud_write_allowed))
             if turn.loop_enabled else None)
         turn.research = router.research
+        router.execution_scope = getattr(turn, 'execution_scope', None)
         from harness.contracts.tool_provider import ExecutionContext
         from harness.runtime.model_gateway import ConversationModelGateway
         permissions = frozenset((['workspace.read'] if not cloud or workspace_allowed else []) +

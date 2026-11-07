@@ -1,5 +1,6 @@
 """Core adapter executing one role with a scoped context and tool registry."""
 from copy import copy
+from dataclasses import replace
 import asyncio
 import json
 from core.agent import Agent
@@ -18,7 +19,7 @@ class ScopedRegistry:
 
     @property
     def known_tools(self):
-        return self.allowed
+        return self.allowed & self._registry.known_tools
 
     def get_definitions(self, **kwargs):
         return [row for row in self._registry.get_definitions(**kwargs)
@@ -84,9 +85,7 @@ class AgentSubagentExecutor:
         for task in tasks:
             for key in task.evidence_ids:
                 self.agent.context_mgr.read_evidence(key)
-            missing = task.role.tools - self.known_tools
-            if missing:
-                raise PermissionError('角色所需能力本轮未启用：' + ','.join(sorted(missing)))
+            self._effective_task(task)
 
     def available_roles(self, fallback):
         registry = self.agent.registry
@@ -94,6 +93,37 @@ class AgentSubagentExecutor:
 
     def _extension(self, context):
         return getattr(context, 'subagent_extension', None) or NullSubagentExtension()
+
+    def _effective_task(self, task):
+        from harness.runtime.subagents.spec import NON_DELEGATABLE
+        registry = self.agent.registry
+        role = task.role
+        names = set(registry.known_tools)
+        scope = getattr(self.agent,'allowed_tool_names',None)
+        if scope is not None:
+            names.intersection_update(scope)
+        if task.tool_scope is not None:
+            names.intersection_update(task.tool_scope)
+        policy = getattr(getattr(self.agent, 'turn', None), 'execution_scope', None)
+        parent_scope = policy() if policy else None
+        if parent_scope is not None:
+            names.intersection_update(parent_scope)
+        groups = getattr(registry,'tools_for_role',lambda _:set())
+        names.difference_update(NON_DELEGATABLE | set(groups('parent_only')) | set(groups('separate_action')))
+        if getattr(getattr(self.agent,'llm',None),'cloud',False):
+            from core import config
+            if not getattr(self.agent,'workspace_cloud_allowed',config.WORKSPACE_CLOUD_ALLOWED):
+                names.clear()
+            elif not getattr(self.agent,'cloud_write_allowed',config.CLOUD_WRITE_ALLOWED):
+                names = {n for n in names if registry.get_cloud_tier(n)=='read'}
+        if not getattr(self.agent,'allow_tools',True):
+            names.clear()
+        if role.tools - names:
+            raise PermissionError('角色必需工具当前不可用：'+','.join(sorted(role.tools - names)))
+        optional = set(role.optional_tools)
+        if role.inherit_tools:
+            optional.update(names)
+        return replace(task,role=replace(role,tools=role.tools | (optional & names)))
 
     def _material(self, task, context):
         evidence = [read_material(self.agent.context_mgr.read_evidence, key) for key in task.evidence_ids]
@@ -127,6 +157,7 @@ class AgentSubagentExecutor:
         return evidence_id
 
     async def run(self, task, context):
+        task = self._effective_task(task)
         if not task.role.tools:
             material = self._material(task, context)
             material_ref = self._archive_material(material)

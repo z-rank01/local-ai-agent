@@ -42,6 +42,9 @@ class NullTurn:
     def stream(self, host, messages, session_id, conversation_key):
         return None
 
+    def execution_scope(self):
+        return None
+
     async def configure(self, method_id, answer_only):
         return []
 

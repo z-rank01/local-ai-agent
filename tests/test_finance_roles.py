@@ -20,6 +20,26 @@ from tests.subagent_fixtures import role
 
 
 class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_scoped_recipe_accepts_only_read_author_excerpt(self):
+        from plugins.finance.research.roles import adopt_author_materials
+        _, run, _, batch_id = await self.prepare_roles()
+        run.record['workspace_capabilities'] = True
+        stages = run.record['recipe']['stages']
+        stages[0]['required_roles'] = ['finance_evidence']
+        roles = run.record['role_batches'][batch_id]['roles']
+        for role_id in list(roles):
+            if role_id != 'finance_evidence':
+                del roles[role_id]
+        source_id = next(iter(run.sources))
+        material = {'sources':[{'id':source_id,'quote':'营业收入100元'}]}
+        adopted = adopt_author_materials(run, material)
+        self.assertEqual(adopted['sources'][0]['excerpt']['page'], 1)
+        with self.assertRaisesRegex(ValueError, '实际读取材料'):
+            adopt_author_materials(run, {'sources':[{'id':source_id,'quote':'营业收入300万元'}]})
+        roles['finance_evidence']['status'] = 'FAILED'
+        with self.assertRaisesRegex(ValueError, 'finance_evidence'):
+            adopt_author_materials(run, material)
+
     async def prepare_roles(self):
         files, run, draft = await session_tests.ResearchSessionTests().prepare()
         run.record['research_contract_version'] = 3
@@ -68,7 +88,7 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         roles = load_role_specs(Path('plugins'), ToolRegistry(config.TOOLS_DIR).declared_tools)
         expected = {'finance_evidence','finance_calculation','finance_analysis','finance_review'}
         self.assertTrue(expected <= set(roles))
-        self.assertEqual(roles['finance_calculation'].tools, frozenset({'code_exec'}))
+        self.assertEqual(roles['finance_calculation'].optional_tools, frozenset({'code_exec'}))
         self.assertFalse(roles['finance_analysis'].tools)
         for role_id in expected:
             self.assertFalse(roles[role_id].tools & {'research_begin','brief_publish','agent_batch_create'})
@@ -216,12 +236,13 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.record['recipe']['schema_version'], 3)
         with self.assertRaisesRegex(ValueError, '四个金融角色'):
             await run.publication_input({'decision_claim_ids':['invented']})
-        self.assertNotIn('web_fetch', run.tool_names)
+        self.assertIn('web_fetch', run.tool_names)
         self.assertTrue({'code_exec','shell_exec'} <= run.tool_names)
         files.known_tools = frozenset()
         self.assertEqual(run.tool_names, frozenset())
         del files.known_tools
         del run.record['author_workspace_scripts']
+        del run.record['workspace_capabilities']
         self.assertFalse({'code_exec','shell_exec'} & run.tool_names)
         self.assertIn('agent_batch_create', run.tool_names)
         files, run, _, batch_id = await self.prepare_roles()

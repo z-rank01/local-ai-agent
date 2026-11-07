@@ -4,8 +4,7 @@ backend: research-runtime
 tier: core
 cloud: write
 description: >-
-  新研究为v3：先写目标与计划，再用agent_batch_create提交finance_evidence、finance_calculation、finance_analysis、finance_review四角色。
-  作者是编辑，不直接取证、计算或改写角色claims；等待整批终态后选择角色artifacts写稿并发布。
+  新研究为v3：按问题在各阶段选 required_roles。作者可用工作区工具补查，采用已登记的真实成果写作并发布。
   用动态Recipe记录本轮研究目标、阶段产物和检查方式；stage_updates可新增、拆分、合并、跳过和重访作者阶段。
   程序自动记录真实execution回执，模型用active_stage_id选择关联阶段；判断不等于执行成功，不要求固定阶段全部完成。
   开始或推进当前对话的公开投研：先 phase=准备（scope/targets/plan），再用 evidence_requests 取公告目录、
@@ -47,6 +46,7 @@ parameters:
               depends_on: {type: array, items: {type: string}, description: 其他已登记阶段ID；只是研究依赖，不控制执行权限}
               input_refs: {type: array, items: {type: string}, description: 返回artifacts中的实际引用}
               expected_outputs: {type: array, items: {type: string}}
+              required_roles: {type: array, items: {type: string}, description: 本阶段需要哪些金融角色成果；纯事实核实可只选取证，综合报告按问题选择}
               checks: {type: array, items: {type: string}, description: 如何核查，不是已通过声明}
               output_refs: {type: array, items: {type: string}, description: 返回artifacts中的实际产物或回执}
               open_questions: {type: array, items: {type: string}}

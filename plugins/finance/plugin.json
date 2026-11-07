@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "harness_api": 1,
   "adapter": "plugins.finance.service:stock_service",
+  "http_router": "plugins.finance.routes:router",
   "call_policy": "plugins.finance.call_policy:FinanceCallPolicy",
   "turn_policy": "plugins.finance.turn:FinanceTurn",
   "reply_purposes": {
@@ -15,13 +16,16 @@
     {
       "role_id": "finance_evidence",
       "prompt_path": "prompts/evidence.md",
-      "tools": ["web_search", "web_fetch", "stock_public_evidence_find", "stock_public_evidence_read", "stock_report_read", "skill_list", "skill_info", "file_read", "code_exec"],
+      "inherit_tools": true,
+      "optional_tools": ["web_search", "web_fetch", "stock_public_evidence_find", "stock_public_evidence_read", "stock_report_read", "skill_list", "skill_info", "file_read", "code_exec", "shell_exec", "skill_run"],
       "output": {"artifact_kind": "source_excerpts", "recipe_namespace": "evidence", "schema": {"type": "object", "required": ["excerpts"], "properties": {"excerpts": {"type": "array", "items": {"type": "object", "required": ["id", "source_id", "quote"]}}}}}
     },
     {
       "role_id": "finance_calculation",
       "prompt_path": "prompts/calculation.md",
-      "tools": ["code_exec"],
+      "optional_tools": ["code_exec"],
+      "inherit_tools": true,
+      "optional_dependencies": true,
       "depends_on": ["finance_evidence"],
       "output": {
         "artifact_kind": "calculation",
@@ -160,13 +164,17 @@
     },
     {
       "role_id": "finance_analysis",
+      "inherit_tools": true,
       "prompt_path": "prompts/analysis.md",
+      "optional_dependencies": true,
       "depends_on": ["finance_evidence", "finance_calculation"],
       "output": {"artifact_kind": "claims", "recipe_namespace": "analysis", "schema": {"type": "object", "required": ["claims"], "properties": {"claims": {"type": "array"}}}}
     },
     {
       "role_id": "finance_review",
+      "inherit_tools": true,
       "prompt_path": "prompts/review.md",
+      "optional_dependencies": true,
       "depends_on": ["finance_analysis"],
       "output": {"artifact_kind": "claim_checks", "recipe_namespace": "review", "schema": {"type": "object", "required": ["claim_checks", "read_requests"], "properties": {"claim_checks": {"type": "array"}, "read_requests": {"type": "array"}}}}
     }
@@ -237,12 +245,14 @@
     ]
   },
   "tool_roles": {
+    "parent_only": ["research_begin","brief_review","brief_publish"],
     "history_projection": ["brief_publish"],
     "research_blocked": [
       "stock_research_resume", "stock_research_cancel",
       "stock_candidate_screen",
       "stock_market_brief_continue", "stock_track_follow", "stock_track_ignore"
     ],
+    "separate_action": ["stock_research_submit","stock_theme_research_submit","stock_market_brief","stock_account_view"],
     "source_read": [
       "stock_report_read",
       "stock_public_evidence_read"

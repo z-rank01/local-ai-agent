@@ -160,6 +160,7 @@ def _resume_action(params):
 
 
 _TOOL_ACTIONS = {
+    'stock_industry_members': lambda p: {'action':'industry_members','search':p.get('industry',''),'page':p.get('page',1)},
     'stock_account_view': _account_action,
     'stock_research_find': _find_action,
     'stock_candidate_find': _candidate_find_action,

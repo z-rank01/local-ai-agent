@@ -8,7 +8,7 @@ from .session import encoded
 
 REFERENCE = re.compile(r'^/workspace/reports/chat-research/([a-f0-9]{32})/research\.json$')
 METHOD = re.compile(r'^/workspace/\.skill_registry/versions/[a-f0-9]{64}/skills/'
-                    r'(?:harness-stock-research-v[1-4]|market-research-methods-v1)/references/[A-Za-z0-9_-]+\.md$')
+                    r'[A-Za-z0-9_-]+/(?:SKILL\.md|references/(?:[A-Za-z0-9_-]+/)*[\w.-]+\.md)$')
 
 
 async def read_document(session, path):

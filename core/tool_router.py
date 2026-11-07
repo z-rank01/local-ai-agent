@@ -72,9 +72,19 @@ class ToolRouter:
         """A copied router gets independent bindings for this host-owned run."""
         from dataclasses import replace
         from harness.contracts.tool_provider import ContextualTransport
-        context = replace(context, research=getattr(self, 'research', None))
+        context = replace(context, research=getattr(self, 'research', None),
+                          runner_operation=self._skill_version_operation)
         self._providers = {owner: provider.bind(context) if isinstance(provider, ContextualTransport) else provider
                            for owner, provider in self._providers.items()}
+
+    async def _skill_version_operation(self, operation, arguments):
+        if operation not in {'capture-import', 'read', 'freeze'}:
+            raise ValueError('未知技能版本操作')
+        response = await self._client.post(
+            self._backend_urls['skill-runner'] + '/capabilities/skills/' + operation,
+            headers=self._headers('skill-runner'), json=arguments)
+        response.raise_for_status()
+        return response.json()
 
     async def close_context(self):
         for provider in self._providers.values():
@@ -106,10 +116,23 @@ class ToolRouter:
     def tools_for_role(self, role):
         return self._registry.tools_for_role(role)
 
+    def tool_tier_for_cloud(self,name):
+        return self._registry.get_cloud_tier(name)
+
+    @property
+    def research(self):
+        return getattr(self, '_research', None)
+
+    @research.setter
+    def research(self, session):
+        self._research = session
+        self.execution_scope = getattr(session, 'execution_scope', None)
+
     def _check_research_tool(self, tool):
-        research = getattr(self, 'research', None)
-        if research is not None and research.active and tool in research.blocked_tools:
-            raise PermissionError(f'当前聊天研究不开放此工具：{tool}；取证、计算、资料编辑与发布保持可用')
+        scope = getattr(self, 'execution_scope', None)
+        allowed = scope() if scope else None
+        if allowed is not None and tool not in allowed:
+            raise PermissionError(f'当前回合未授权此工具：{tool}')
 
     async def authorize_publication(self, tool, params):
         """A publication tool crosses the same policy and workspace boundary."""

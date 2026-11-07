@@ -128,9 +128,8 @@ class ResearchSession:
 
     def guidance(self):
         role_flow = (self.record or {}).get('research_contract_version') == 3
-        instruction = ('你是作者与编辑。用agent_batch_create同时提交finance_evidence、finance_calculation、'
-            'finance_analysis、finance_review四个角色，再用agent_batch_result等待全部终态。角色成果由程序登记到Recipe，'
-            '不要亲自取证、计算或改写角色claims。发现错误可创建新批次复核。全部必需角色完成后，选择decision_claim_ids、'
+        instruction = ('你是作者与编辑。按Recipe选择所需角色，使用agent_batch_result等待成果。可使用授权工具补查，'
+            '保留角色原始成果。全部必需角色完成后，选择decision_claim_ids、'
             'sources[].artifact_ref、calculation_refs和可选chart_refs，再写稿并走原核对与明确发布。'
             '工作稿可连续局部编辑，修改文件不送审。送审后按差异、原表与意见定向修改；核实列头才采纳新的数字解释。'
             if role_flow else
@@ -445,7 +444,13 @@ class ResearchSession:
     @property
     def blocked_tools(self):
         roles = getattr(self.router, 'tools_for_role', lambda role: set())
-        return RESEARCH_BLOCKED_TOOLS | frozenset(roles('research_blocked'))
+        base = RESEARCH_BLOCKED_TOOLS
+        if (self.record or {}).get('workspace_capabilities') and self.record.get('research_contract_version') == 3:
+            base = {'skill_register', 'skill_unregister', 'skill_update'} | frozenset(roles('separate_action'))
+        return base | frozenset(roles('research_blocked'))
+
+    def execution_scope(self):
+        return self.tool_names if self.active else None
 
     @property
     def tool_names(self):
@@ -456,6 +461,8 @@ class ResearchSession:
         known = getattr(self.router, 'known_tools', None)
         universe = frozenset(known) if known is not None else RESEARCH_FALLBACK_TOOLS
         if self.record and self.record.get('research_contract_version') == 3:
+            if self.record.get('workspace_capabilities'):
+                return universe - self.blocked_tools
             author_only = {'research_begin', 'agent_batch_create', 'agent_batch_status',
                            'agent_batch_result', 'agent_batch_stop', 'brief_review', 'brief_publish',
                            'file_read', 'file_write', 'file_edit', 'file_list', 'skill_list', 'skill_info',
@@ -599,6 +606,7 @@ class ResearchSession:
                 'research_contract_version': 3,
                 'review_protocol': 'delta-v1',
                 'author_workspace_scripts': True,
+                'workspace_capabilities': True,
                 'request_materials': self.request_materials,
                 'model': self.model, 'started_at': datetime.now(timezone.utc).isoformat(),
                 'scope': params['scope'], 'targets': params.get('targets', []),
@@ -631,7 +639,7 @@ class ResearchSession:
                 self.record.setdefault('recipe_history', []).append(old_recipe)
             self.record['recipe'] = recipe
         await self.checkpoint()
-        next_step = ('角色按需读取方法，本轮已成功读取的方法不必重读；使用agent_batch_create提交四个金融角色，'
+        next_step = ('角色按需读取方法，本轮已成功读取的方法不必重读；按工作单使用agent_batch_create提交所需角色，'
                      '再等待整批终态，作者最后选择成果、写作并发布。'
                      if version == 3 else
                      '按需读取项目当前投研方法；本轮已成功读取的方法不必重读，研究不按时间、轮数或进展计数自动结束或交接。')
@@ -772,8 +780,12 @@ class ResearchSession:
         before = self._observed_milestones
         success = event.get('status') == 'ok'
         path = params.get('path', '')
-        if success and name == 'file_read' and any('/skills/'+version+'/references/' in path
-                for version in self.method_families):
+        pinned = re.fullmatch(r'/workspace/\.skill_registry/versions/([0-9a-f]{64})/skills/([\w-]+)/'
+                              r'(?:SKILL\.md|references/(?:[\w-]+/)*[\w.-]+\.md)',path)
+        snapshot = getattr(getattr(self.router,'skill_session',None),'snapshot',{})
+        frozen_method = pinned and snapshot.get('versions',{}).get(pinned[2],{}).get('revision') == pinned[1]
+        if success and name == 'file_read' and (frozen_method or any('/skills/'+version+'/references/' in path
+                for version in self.method_families)):
             self.methods.add(path)
             self.method_text[path] = result.get('content', '')
             self.progress('method', path)

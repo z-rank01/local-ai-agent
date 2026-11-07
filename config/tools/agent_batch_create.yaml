@@ -5,7 +5,7 @@ tier: core
 cloud: write
 description: >-
   按插件已登记的角色创建一层子Agent批次。只选择role_id、明确task和已登记evidence_ids；
-  不能修改角色提示词、工具、模型或权限。返回实际batch_id和角色状态。
+  tool_scope可选，只收窄本次工具。不能扩大父回合权限或改变模型。返回实际batch_id和角色状态。
 parameters:
   type: object
   additionalProperties: false
@@ -20,5 +20,6 @@ parameters:
           role_id: {type: string}
           task: {type: string, minLength: 1}
           evidence_ids: {type: array, items: {type: string}}
+          tool_scope: {type: array, items: {type: string}, description: 选择本任务需要的已授权工具子集}
         required: [role_id, task]
   required: [tasks]
