@@ -75,11 +75,10 @@ def validate_dependencies(roles):
 def load_role_specs(packages, known_tools, config_path=None):
     roles = {}
     manifests = [(m,read_manifest(m,packages)) for m in sorted(packages.glob('*/plugin.json'))]
-    parent_only = {name for _,metadata in manifests for name in metadata.get('tool_roles',{}).get('parent_only',[])}
     if config_path is not None and config_path.exists():
         declarations = json.loads(config_path.read_text(encoding='utf-8')).get('agent_roles', [])
         for value in declarations:
-            role = role_spec(value, known_tools=known_tools,parent_only=parent_only)
+            role = role_spec(value, known_tools=known_tools)
             if role.role_id in roles:
                 raise ValueError('子Agent角色ID冲突：' + role.role_id)
             roles[role.role_id] = role
@@ -96,8 +95,10 @@ def load_role_specs(packages, known_tools, config_path=None):
                 if not path.is_relative_to(manifest.parent.resolve()) or path.suffix not in ('.md','.txt'):
                     raise ValueError('子Agent提示词必须位于当前插件目录内')
                 value['prompt'] = path.read_text(encoding='utf-8')
+            # A package can restrict its own declarations. Live ownership is checked
+            # again by the executor, including for tools supplied by other packages.
             role = role_spec(value, plugin_id=metadata['id'], plugin_version=metadata['version'],
-                             known_tools=known_tools,parent_only=parent_only)
+                             known_tools=known_tools, parent_only=metadata.get('tool_roles', {}).get('parent_only', ()))
             if role.role_id in roles:
                 raise ValueError('子Agent角色ID冲突：' + role.role_id)
             roles[role.role_id] = role
