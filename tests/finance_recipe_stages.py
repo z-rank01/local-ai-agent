@@ -134,6 +134,26 @@ def revision_replay(db, research, workspace, path, rows, show=False):
             if row.get('scope'):
                 item.update(scope=row['scope'], historical_chars=len(messages[-1]['content']),
                             verified_payload=fingerprint(payload)==row['scope'].get('sent_payload_sha256'))
+                from plugins.finance.review_delta import paragraph_packet
+                attempt = row['attempt_refs'][-1]
+                if (item['verified_payload'] and row['scope']['mode']=='expanded' and baseline
+                        and baseline['key']==row['scope']['parent'] and re.fullmatch(r'reviews/\d+',attempt)):
+                    candidate=json.loads((path/(attempt+'-candidate.json')).read_text('utf8'))
+                    if fingerprint(candidate)!=row['candidate']:
+                        raise ValueError('candidate mismatch')
+                    planned=paragraph_packet(payload['diff'],candidate,baseline['issues'],
+                        payload['basis'],payload['question'])
+                    if planned:
+                        projected,scope=planned
+                        projected['table_context']=[r for r in payload.get('table_context',[])
+                                                    if r['source_id'] in scope['source_ids']]
+                        projected['open_findings']=[r for r in payload.get('open_findings',[])
+                            if r['claim'] in {i['claim'] for i in projected['previous_findings']}]
+                        item.update(projected_mode='local', projected_sources=scope['source_ids'],
+                            projected_chars=len(json.dumps(projected,ensure_ascii=False)))
+                item.setdefault('projected_mode',row['scope']['mode'])
+                if row['status']=='COMPLETE':
+                    baseline={'key':row['candidate'],'issues':row.get('issues') or []}
                 if show:
                     item.update(diff=payload.get('diff'),table_context=payload.get('table_context'))
                 continue

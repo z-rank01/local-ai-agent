@@ -826,12 +826,16 @@ class FinanceLoop(Agent):
             full['received_sha256'] = fingerprint(research.read_text)
             payload, scope = plan_revision(full, candidate, baseline)
             if scope['mode'] != 'reuse':
-                payload['open_findings'] = [r for r in (baseline or {}).get('findings',[])
-                                            if r['state'] in ('unverified','retained')]
-                payload['table_context'] = table_context(research.read_text, candidate.get('sources', []), payload)
+                refs = payload.get('sources',candidate.get('sources', []))
+                open_rows = [r for r in (baseline or {}).get('findings',[]) if r['state'] in ('unverified','retained')]
+                if scope['mode']=='local' and 'conclusion_context' not in payload:
+                    claims = {i['claim'] for i in payload['previous_findings']}
+                    open_rows = [r for r in open_rows if r['claim'] in claims]
+                payload['open_findings'] = open_rows
+                payload['table_context'] = table_context(research.read_text, refs, payload)
                 context[1]['content'] = json.dumps(payload, ensure_ascii=False)
                 scope = dict(scope, sent_payload_sha256=fingerprint(payload),
-                             cited_sources=[s['id'] for s in candidate.get('sources',[])],
+                             cited_sources=[s['id'] for s in refs],
                              table_sources=sorted({r['source_id'] for r in payload['table_context']}),
                              artifact_refs=sorted(payload.get('verified_artifacts',payload.get('artifacts',{}))))
         directory=f'reviews/{serial}'
@@ -845,7 +849,7 @@ class FinanceLoop(Agent):
         if scope:
             record['scope'] = scope
             record['author_revision'] = {k:payload[k] for k in ('diff','table_context') if k in payload}
-            record['author_revision']['source_ids'] = [s['id'] for s in candidate.get('sources', [])]
+            record['author_revision']['source_ids'] = scope.get('cited_sources',[])
             if scope['mode'] == 'reuse':
                 prior = research.review_records[baseline['key']]
                 for field in ('issues','checks','claim_checks','claim_provenance','read_requests','read_request_keys','author_revision','findings'):
@@ -910,7 +914,7 @@ class FinanceLoop(Agent):
                     result['issues'], json.loads(visible).get('finding_updates') or [])
                 research.record['review_baseline'] = {'key':key, 'candidate':candidate,
                     'material_sha256':scope['material_sha256'],'evidence_sha256':evidence_hash,
-                    'findings':record['findings']}
+                    'findings':record['findings'],'issues':result['issues']}
             from core import config as _config
             record['read_request_keys']=(await research.queue_review_reads(result['read_requests'])
                                          if _config.PUBLISH_REVIEW_ENFORCE

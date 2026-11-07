@@ -5,6 +5,62 @@ import re
 from harness.runtime.evidence import fingerprint
 
 
+def paragraph_packet(delta, candidate, issues, scope, question):
+    """Prove a narrow edit from the previous finding and a registered citation."""
+    if set(delta) != {'markdown'} or not issues:
+        return None
+    citations = candidate.get('sources', [])
+    relevant = []
+    ids = set()
+    for h in delta['markdown']:
+        if (len(h['before']) != 1 or len(h['after']) != 1 or not h['before_section']
+                or h['after_section'] != h['before_section']):
+            return None
+        if any(word in h['after_section'] for word in ('结论','排序','优先','首选')):
+            return None
+        old,new = h['before'][0],h['after'][0]
+        # Compare the whole sentence after undoing just an evidence-availability
+        # qualification. Preserve dates, direction, entity and the rest of the claim.
+        normalized = re.sub(r'本次未取得(\d{4}年[^的，；]+)的',r'\1没有',new)
+        normalized = re.sub(r'(\d{4})年(\d+月以后)的行业数据本次未取得',
+                            lambda m:m[2]+'没有数据' if m[1]+'年' in old else m[0],normalized)
+        availability = new != old and normalized == old
+        # A single supplementary quarterly amount, keeping the original cumulative
+        # amount and every other value intact. Any changed comparison falls through.
+        metric = re.search(r'，单季(归母净利润)([+-]?\d+(?:\.\d+)?)万元；前三季度累计',new)
+        period = metric and new[:metric.start()]+'；'+new[metric.end():] == old and '第三季度单季' in old
+        if not (availability or period):
+            return None
+        matches = [i for i in issues if i.get('section','').strip(' #') in h['after_section']
+                   and i.get('section','').strip(' #')]
+        if availability:
+            matches += [i for i in issues if any(term in i.get('claim','') and term in old
+                        for term in ('价格指数','行业数据','前七个月'))]
+            matches += [i for i in relevant if any(window in old for window in
+                        re.findall(r'\d{4}年\d+[—至-]\d+月',i['claim']))]
+        refs = {ref for i in matches for ref in re.findall(r'S[0-9a-f]{16}',i.get('evidence',''))}
+        selected = [c for c in citations if c['id'] in refs]
+        if not selected:
+            return None
+        if period:
+            # Match the rounded amount in an original quotation, not just in advice.
+            from decimal import Decimal
+            if not any(abs(Decimal(n.replace(',',''))/10000-Decimal(metric[2])) < Decimal('.5')
+                       for c in selected if '本报告期' in c['quote'] and '单位：元' in c['quote']
+                       for n in re.findall(r'归属于上市公司股东的净利润([+-]?\d[\d,]*\.\d+)',
+                                           re.sub(r'\s+','',c['quote']))):
+                return None
+        ids.update(c['id'] for c in selected)
+        for issue in matches:
+            if issue not in relevant:
+                relevant.append(issue)
+    scope = dict(scope, mode='local',reason='原句仅限定材料范围或补充有原表的单季金额', source_ids=sorted(ids))
+    packet = {'question':question,'as_of':candidate.get('as_of'),'title':candidate.get('title'),
+              'basis':scope,'diff':delta,'previous_findings':relevant,
+              'sources':[c for c in citations if c['id'] in ids]}
+    return packet, scope
+
+
 def visible(candidate):
     result = {k:v for k,v in candidate.items() if k not in ('editorial_notes','review')}
     result['review'] = {k:v for k,v in candidate.get('review', {}).items() if k != 'checks'}
@@ -54,6 +110,9 @@ def plan_revision(payload, candidate, baseline):
     if not delta:
         scope.update(mode='reuse', reason='仅内部编制记录变化')
         return {}, scope
+    narrow = paragraph_packet(delta,candidate,baseline.get('issues',[]),scope,payload['question'])
+    if narrow:
+        return narrow
     if 'markdown' in delta and not any(line.strip() for line in
         set(baseline['candidate']['markdown'].splitlines()) & set(candidate['markdown'].splitlines())):
         scope['reason'] = '正文没有可对应的段落'
