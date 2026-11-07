@@ -1,40 +1,10 @@
 """Default no-op turn policy for conversations without a domain orchestrator."""
-from harness.contracts.turn_policy import TurnGuidance
-
-
-class NullSourceReview:
-    attempts = 0
-    parameter_step = False
-    feedback = ''
-
-    def received(self, event):
-        pass
-
-    def begin(self, feedback):
-        pass
-
-    def explain(self):
-        pass
-
-
 class NullTurn:
     def subagent_extension(self):
         from .subagents.extensions import NullSubagentExtension
         return NullSubagentExtension()
 
-    def __init__(self):
-        self.quality_research = False
-        self.reply_purpose_enabled = False
-        self.source_review_enabled = False
-        self.loop_enabled = False
-        self.source_read_seen = False
-        self.source_review = NullSourceReview()
-        self.source_quote_originals = []
-        self.source_read_records = []
-        self.source_calculation_index = {}
-        self.source_comparison_index = {}
-        self.source_index = []
-        self.delivery_guidance = ''
+    loop_enabled = False
 
     def start(self, history):
         pass
@@ -47,51 +17,6 @@ class NullTurn:
 
     async def configure(self, method_id, answer_only):
         return []
-
-    def update_sources(self, messages, merge_records=False):
-        pass
-
-    def compose_guidance(self, **kwargs):
-        return TurnGuidance()
-
-    def lookup_index(self, index, question):
-        return {'rows': [], 'selection': 'not_applicable', 'note': '', 'version': 'default-turn-v1'}
-
-    def source_index_guidance(self, rows):
-        return ''
-
-    def purpose_view(self, **kwargs):
-        return None
-
-    def analysis_decision(self, content):
-        return False
-
-    def source_tool_for_phase(self, phase):
-        return None
-
-    def source_parameter_tools(self):
-        return ()
-
-    def review_source_tools(self):
-        return frozenset()
-
-    def may_start_literal_quote(self, text):
-        return False
-
-    def original_texts(self, messages):
-        return []
-
-    def original_records(self, messages):
-        return []
-
-    def complete_sources(self, records):
-        return []
-
-    def incomplete_delivery(self, *args, **kwargs):
-        return '本轮未完成；已取得的资料和未核验结果保留。'
-
-    def review_reply(self, **kwargs):
-        return None
 
     def checkpoint_state(self, archive):
         return None

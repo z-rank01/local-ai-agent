@@ -14,7 +14,8 @@ def requested(query: str) -> bool:
     return ('简报' in query and '对比' in query and '页' in query
             and any(word in query for word in ('旧版', '旧版本', '上一版'))
             and any(word in query for word in ('不刷新', '不要刷新', '无需刷新'))
-            and not any(word in query for word in ('事件', '正文', '公司', '影响', '逐条', '原因'))
+            and not any(word in query for word in ('事件', '正文', '公司', '影响', '逐条', '原因',
+                                                   '最新公告', '查公告', '再查', '补查', '联网', '搜索'))
             and not _DATE.search(query)
             and not re.search(r'\d{1,2}月\d{1,2}日', query))
 

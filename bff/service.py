@@ -297,7 +297,12 @@ class ChatSessionService:
 
     async def research_methods(self) -> list[dict]:
         try:
-            return await self._runtime.capability_services['finance'].research_methods()
+            methods = []
+            for service in self._runtime.capability_services.values():
+                discover = getattr(service, 'research_methods', None)
+                if discover:
+                    methods.extend(await discover())
+            return methods
         except (ValueError, OSError, httpx.HTTPError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -348,7 +353,11 @@ class ChatSessionService:
         snapshot = self.workspaces.snapshot(conversation.workspace_id)
         self.workspaces.assert_idle(snapshot)
         try:
-            result = self._runtime.capability_services['finance'].prepare_material(
+            providers = [s.prepare_material for s in self._runtime.capability_services.values()
+                         if callable(getattr(s, 'prepare_material', None))]
+            if len(providers) != 1:
+                raise HTTPException(503, '研究材料需要一个已登记的提供者')
+            result = providers[0](
                 self._store.messages_as_dicts(conversation_id, cloud=True), references,
                 cloud_allowed=snapshot.record['cloud_read'])
         except PermissionError as exc:

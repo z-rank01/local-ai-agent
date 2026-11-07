@@ -312,12 +312,18 @@ def adopt_author_materials(session, params):
                         for row in batch['roles'].values())
                 for batch in session.record.get('role_batches', {}).values())
     stages = session.record['recipe']['stages']
-    scoped = session.record.get('workspace_capabilities') and any('required_roles' in stage for stage in stages)
+    scoped = bool(session.record.get('workspace_capabilities'))
     if scoped:
-        required = {role for stage in stages for role in stage.get('required_roles', [])}
+        if any('required_roles' in stage for stage in stages):
+            required = {role for stage in stages for role in stage.get('required_roles', [])}
+        else:
+            required = {role for batch in session.record.get('role_batches', {}).values()
+                        for role in batch['roles'] if role in ROLE_NAMESPACES}
         completed = {name for batch in session.record.get('role_batches', {}).values()
                      for name,row in batch['roles'].items() if row['status']=='COMPLETE' and row.get('artifact_refs')}
-        if not required or required - completed:
+        if not required:
+            raise ValueError('Recipe尚未指定必要角色或登记实际委派成果')
+        if required - completed:
             raise ValueError('Recipe仍缺少需要的角色成果：'+','.join(sorted(required-completed)))
     elif not ready:
         raise ValueError('请先创建四个金融角色并等待整批终态；作者不能跳过角色直接提交事实或计算')

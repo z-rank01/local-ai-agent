@@ -234,7 +234,7 @@ class FinanceRoleTests(unittest.IsolatedAsyncioTestCase):
         await run.begin({'phase':'准备','scope':'公告', 'plan':['角色研究']})
         self.assertEqual(run.record['research_contract_version'], 3)
         self.assertEqual(run.record['recipe']['schema_version'], 3)
-        with self.assertRaisesRegex(ValueError, '四个金融角色'):
+        with self.assertRaisesRegex(ValueError, '必要角色'):
             await run.publication_input({'decision_claim_ids':['invented']})
         self.assertIn('web_fetch', run.tool_names)
         self.assertTrue({'code_exec','shell_exec'} <= run.tool_names)

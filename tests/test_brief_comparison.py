@@ -8,6 +8,8 @@ class BriefComparisonTests(unittest.TestCase):
         self.assertTrue(requested('获取当前市场简报，不刷新，并打开最新报告第 1、2 页与旧版对比。'))
         self.assertFalse(requested('刷新市场简报并分析事件差异'))
         self.assertFalse(requested('获取当前市场简报，不刷新'))
+        self.assertFalse(requested('对比两家公司的业绩，哪家好？'))
+        self.assertFalse(requested('简报不要刷新，对比旧版第1页，再查最新公告。'))
         self.assertFalse(requested('市场简报不刷新，打开第 1 页与 2026-09-27 的旧版对比'))
         self.assertFalse(requested('市场简报不刷新，打开第 1 页与旧版逐条对比事件影响'))
 

@@ -286,7 +286,7 @@ class FinanceTurn(NullTurn):
 
     def review_reply(self, *, accumulated, messages, session_id, record, review_visible_prefix,
                      pending_tokens, active):
-        from harness.contracts.turn_policy import TurnReview
+        from .review_outcome import TurnReview
         from .source_quotes import (original_texts, original_records, complete_sources,
             unverified_quotes, unverified_absence_claims, quote_feedback, isolate_quote_paragraphs,
             repair_quote_format, _review_payload)

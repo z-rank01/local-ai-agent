@@ -24,6 +24,10 @@ class FinanceLoop(Agent):
     def __init__(self, host=None, **kwargs):
         if host is not None:
             host.derive(self)
+            for flag in ('turn_reply_purpose_enabled', 'turn_loop_enabled',
+                         'turn_source_review_enabled', 'quality_first_research'):
+                if hasattr(host, flag):
+                    setattr(self, flag, getattr(host, flag))
             if hasattr(host, 'original_user_request'):
                 self.original_user_request = host.original_user_request
             self._finance_host = host
@@ -85,10 +89,10 @@ class FinanceLoop(Agent):
             messages = strip_think_tags_from_history(messages)
         evidence_messages = getattr(self, 'evidence_history', messages)
         tools_for_role = getattr(self.registry, 'tools_for_role', lambda role: set())
-        from harness.runtime.turns import NullTurn
+        from .turn import FinanceTurn
         turn = getattr(self, 'turn', None)
         if turn is None:
-            turn = self.registry.create_turn() if hasattr(self.registry, 'create_turn') else NullTurn()
+            turn = FinanceTurn()
         self.turn = turn
         if self._finance_host is None:
             turn.start(evidence_messages)

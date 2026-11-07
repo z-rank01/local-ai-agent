@@ -1,36 +1,10 @@
-"""Provider-owned turn state; execution and authorization stay with the host."""
-from dataclasses import dataclass, field
-from typing import Any, Protocol
-
-
-@dataclass
-class TurnGuidance:
-    calculations: list = field(default_factory=list)
-    content: str = ''
-    cashflow_scope_version: str | None = None
-    has_comparison: bool = False
-    has_coverage: bool = False
-
-
-@dataclass
-class TurnReview:
-    action: str = 'none'
-    message: dict | None = None
-    pending_tokens: list[str] = field(default_factory=list)
-    events: list = field(default_factory=list)
-    pending_text: str | None = None
-    error: str = ''
+"""Host turn contribution contract."""
+from typing import Protocol
 
 
 class TurnPolicy(Protocol):
     def start(self, history: list[dict]) -> None: ...
-    def update_sources(self, messages: list[dict]) -> None: ...
-    def compose_guidance(self, **kwargs) -> TurnGuidance: ...
-    def lookup_index(self, index, question): ...
-    def source_index_guidance(self, rows) -> str: ...
-    def purpose_view(self, **kwargs): ...
-    def analysis_decision(self, content: str) -> bool: ...
-    def review_reply(self, **kwargs) -> TurnReview | None: ...
+    def execution_scope(self) -> set[str] | None: ...
     def stream(self, host, messages: list[dict], session_id: str, conversation_key: str): ...
     async def configure(self, method_id: str, answer_only: bool) -> list[str]: ...
     def checkpoint_state(self, archive): ...

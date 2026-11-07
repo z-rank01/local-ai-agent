@@ -120,9 +120,7 @@ class Agent:
             audit=self.audit, context_mgr=self.context_mgr, prompt_builder=self.prompt_builder,
             memory=self.memory, tool_tier=self.tool_tier, max_rounds=self.max_rounds)
         for name in ('allow_tools', 'workspace_cloud_allowed', 'cloud_write_allowed',
-                     'turn', 'run_control', 'turn_reply_purpose_enabled', 'turn_loop_enabled',
-                     'turn_source_review_enabled',
-                     'quality_first_research', 'continuing_checkpoint'):
+                     'turn', 'run_control', 'continuing_checkpoint'):
             if hasattr(self, name):
                 setattr(target, name, getattr(self, name))
         target.tool_descriptions = dict(getattr(self, 'tool_descriptions', {}))
