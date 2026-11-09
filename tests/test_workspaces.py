@@ -38,6 +38,18 @@ class WorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.manager.manifest()
         return record
 
+    async def test_tool_health_validation_allows_local_forwarding_delay(self):
+        record = {'id':'abc123abc123','version':1,'files_port':1001,'runner_port':1002}
+        response = SimpleNamespace(raise_for_status=lambda:None, json=lambda:{
+            'workspace_id':'abc123abc123','workspace_version':1,
+            'workspace_protocol':2,'token_authenticated':True})
+        client = AsyncMock();client.get.return_value = response
+        with patch('core.workspaces.httpx.AsyncClient') as factory:
+            factory.return_value.__aenter__.return_value = client
+            await self.manager.verify(record)
+        self.assertEqual(factory.call_args.kwargs['timeout'],10)
+        self.assertEqual(client.get.await_count,2)
+
     async def test_background_provider_blocks_config_before_any_save_or_reconcile(self):
         record = self.workspace()
         check = AsyncMock(side_effect=RuntimeError('后台任务未完成'))

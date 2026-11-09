@@ -253,7 +253,7 @@ class WorkspaceManager:
                 (managed / folder).mkdir(parents=True, exist_ok=True)
 
     async def verify(self, record):
-        async with httpx.AsyncClient(timeout=3, trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
             for field in ('files_port', 'runner_port'):
                 response = await client.get(f"http://127.0.0.1:{record[field]}/health", headers={'X-Workspace-Token': tool_token(record['id'])})
                 response.raise_for_status()
