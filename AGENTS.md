@@ -151,6 +151,8 @@ Harness 当前实现：正式聊天的方法型 Skill 通过 Runner 的版本接
 
 旧模型/Dify股票任务仅可查看，不领取、启动、继续或迁移。本文上述截断恢复规则是历史机制说明，不授权恢复旧模型任务；旧UNKNOWN不重发。新任务缺少所属会话时明确拒绝，不能用默认股票模型兜底。
 
+股票专业职责现由同一会话模型直连；每日/周期 Jobs 保留业务编排，WF1/WF2/WF4/WF6 仅作为报告分组，实际调用拆成独立职责回执。B03 继续使用本地确定性规则，B04 无旧模型回退，非完成回执保持待核查。旧 DSL、Dify 导入发布工具、人工桥和旧启动器已移除；历史文档、回执与旧任务仍只读保留。
+
 local_agent是聊天Agent内部的单次本地Gemma4:26b调用；无工具、发布、账户操作或递归权限，主模型已为Gemma4时不开放。只接受本轮已授权材料/登记证据，复用运行控制、轨迹和原模型账本；失败不切换、不下载，取消或缺终态保持UNKNOWN。
 
 通用子Agent通过 `agent_batch_create/status/result/stop` 提供一层委派。角色声明在 `config/subagents.json` 或插件 `agent_roles` 中，工具只能收窄，禁止递归委派、创建研究或发布。可选能力声明在 `ToolRegistry.declared_tools` 校验，执行只使用本轮实际注册的工具子集。Harness BatchRunner只依赖执行协议与可选成果回调，按真实本地终态释放批次和依赖等待；保存或映射失败须返回错误，不能悬置。Core executor/store负责受限上下文、材料归档及父检查点适配；大成果按next_cursor完整恢复，依赖角色取得实际artifacts，父运行停止传播，UNKNOWN不自动重试。ResearchToolTurn在独立来源会话中为子角色web_fetch启用include_file并沿用原save_source，通用turn.research赋值不覆盖来源会话。成果保存于父检查点及task_evidence，不创建独立顶层run或第二数据库。文字issues按reason保存，映射型artifacts按数组语义展开；kind、content、引用与raw_text不改写，非法类型仍失败。多值claims文本用分号连接，页码和字符定位只采用已验证摘录，其他声明标为未确认。角色计算逐项校验并保留错误索引，不把一项错误扩散为整批或改写近似结果；提示角色将result留空由程序计算。金融四角色已声明并接入v3 Recipe，映射仅在plugins/finance/research/roles.py；作者与独立核对共用material_view.py精简视图，只直接展开验证摘录、有效计算、图表及审查建议，原始角色成果沿result_ref和task_evidence完整回读，不在每次请求重复展开。历史v2只作兼容，实际部署与场景状态以股票仓库docs/计划.md为准。
