@@ -158,6 +158,9 @@ def revision_replay(db, research, workspace, path, rows, show=False):
                 revision = payload['revision_context']
             full = {**material, **payload, 'candidate':candidate}
             full.update(methods=methods, revision_context=revision)
+            from plugins.finance.research_review import author_feedback
+            active = author_feedback({'issues':(baseline or {}).get('findings',[])})['issues']
+            full['open_findings'] = [r for r in active if r['state'] in ('unverified','retained')]
             projected, scope = plan_revision(full,candidate,baseline)
             if scope['mode'] != 'reuse':
                 refs = projected.get('sources',candidate.get('sources', []))
@@ -165,8 +168,6 @@ def revision_replay(db, research, workspace, path, rows, show=False):
                          if key in saved and saved[key].get('sha256') ==
                          full['evidence']['sources'].get(key,{}).get('sha256')}
                 projected['table_context'] = table_context(spans,refs,projected)
-                projected['open_findings'] = [r for r in (baseline or {}).get('findings',[])
-                                               if r['state'] in ('unverified','retained')]
                 item['table_source_ids'] = sorted({r['source_id'] for r in projected['table_context']})
             item.update(projected_mode=scope['mode'], projected_scope={
                             k:scope.get(k) for k in ('mode','reason','changed_fields')},

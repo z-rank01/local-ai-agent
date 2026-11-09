@@ -854,12 +854,13 @@ class FinanceLoop(Agent):
         baseline = research.record.get('review_baseline')
         if research.record.get('review_protocol') == 'delta-v1' and research.record.get('research_contract_version') == 3:
             from .review_delta import plan_revision, table_context
+            from .research_review import author_feedback
             full = json.loads(context[1]['content'])
+            active = author_feedback({'issues':(baseline or {}).get('findings',[])})['issues']
+            full['open_findings'] = [r for r in active if r['state'] in ('unverified','retained')]
             payload, scope = plan_revision(full, candidate, baseline)
             if scope['mode'] != 'reuse':
                 refs = payload.get('sources',candidate.get('sources', []))
-                open_rows = [r for r in (baseline or {}).get('findings',[]) if r['state'] in ('unverified','retained')]
-                payload['open_findings'] = open_rows
                 payload['table_context'] = table_context(research.read_text, refs, payload)
                 context[1]['content'] = json.dumps(payload, ensure_ascii=False)
                 scope = dict(scope, sent_payload_sha256=fingerprint(payload),

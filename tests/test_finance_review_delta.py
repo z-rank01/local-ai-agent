@@ -57,6 +57,27 @@ class ReviewDeltaTests(unittest.TestCase):
         self.assertEqual(packet['original_material'][self.candidate['sources'][0]['id']]['received'],
                          ['2025年收入100元'])
 
+    def test_local_revision_limits_claims_and_findings_to_the_change(self):
+        payload = copy.deepcopy(self.payload)
+        payload['decision_claims'].append({'stage_id':'other','claim_id':'other','claim':{
+            'text':'乙公司暂不关注','entity':'乙公司',
+            'evidence_refs':['role:batch:finance_evidence:0:1']}})
+        payload['previous_findings'] = [
+            {'section':'# 结论','claim':'先看甲公司。','evidence':'S1234567890abcdef'},
+            {'section':'## 反证','claim':'乙公司现金流更强','evidence':'S0000000000000000'}]
+        payload['open_findings'] = [
+            {'id':'related','section':'# 结论','claim':'先看甲公司。','state':'unverified'},
+            {'id':'unrelated','section':'## 反证','claim':'乙公司现金流更强','state':'unverified'}]
+        self.baseline['material_sha256'] = material_identity(payload)
+        revised = copy.deepcopy(self.candidate)
+        revised['markdown'] = revised['markdown'].replace('先看甲公司。','优先继续核查甲公司。')
+        packet, scope = plan_revision(payload,revised,self.baseline)
+        self.assertEqual(scope['mode'],'local')
+        self.assertEqual([row['claim_id'] for row in packet['decision_claims']],['claim'])
+        self.assertEqual([row['id'] for row in packet['open_findings']],['related'])
+        self.assertEqual(len(packet['previous_findings']),1)
+        self.assertEqual(scope['source_ids'],['S1234567890abcdef'])
+
     def test_changed_date_expands_without_unrelated_role_material(self):
         revised = {**self.candidate,'as_of':'2026-01-31'}
         packet, scope = plan_revision(self.payload,revised,self.baseline)
@@ -99,3 +120,7 @@ class ReviewDeltaTests(unittest.TestCase):
         self.assertEqual(track_findings(rows,[],[]),rows)
         resolved = track_findings(rows,[],[{'id':rows[0]['id'],'state':'addressed','reason':'已对照原表'}])
         self.assertEqual(resolved[0]['state'],'addressed')
+        optional = track_findings([], [{'section':'补充','claim':'可选建议',
+                                       'category':'optional','severity':'advisory'}], [])
+        self.assertEqual(optional[0]['category'],'optional')
+        self.assertEqual(optional[0]['severity'],'advisory')

@@ -70,6 +70,21 @@ def cited_material(payload, candidate, source_ids):
     return citations, material
 
 
+def related_decisions(decisions, delta):
+    focus = repr(delta)
+    fields = ('text','entity','metric','value','conditions','counterevidence','unresolved')
+    return [row for row in decisions if any(isinstance(row['claim'].get(key),str) and
+            row['claim'][key] in focus for key in fields)]
+
+
+def related_findings(findings, delta):
+    focus = repr(delta)
+    sections = {h[key].strip(' #') for h in delta.get('markdown', [])
+                for key in ('before_section','after_section')}
+    return [row for row in findings if row['claim'] in focus
+            or any(section and section in row['section'] for section in sections)]
+
+
 def scoped_revision(payload, candidate, delta, scope):
     source_ids = {row['id'] for row in candidate.get('sources', [])}
     decisions = decision_claims(payload)
@@ -77,16 +92,21 @@ def scoped_revision(payload, candidate, delta, scope):
         return None
     current = visible(candidate)
     local = set(delta) <= {'markdown','review'} and set(current['review']) <= {'limitations','conflicts'}
+    previous = payload.get('previous_findings', [])
+    open_findings = payload.get('open_findings', [])
     if local:
-        source_ids = revision_sources(payload, source_ids, delta, decisions)
+        decisions = related_decisions(decisions, delta)
+        previous = related_findings(previous, delta)
+        open_findings = related_findings(open_findings, delta)
+        source_ids = revision_sources(payload, source_ids, delta, decisions, previous + open_findings)
     scope.update(mode='local' if local else 'expanded',
                  reason='核对正文差异、核心结论与未结问题' if local else
                         '标题、来源、计算或研究时点变化，核对变更及核心依据',
                  source_ids=sorted(source_ids))
     citations, original_material = cited_material(payload, candidate, source_ids)
-    packet = {k:payload.get(k) for k in ('question','publication_context','decision_surface',
-                                         'previous_findings')}
+    packet = {k:payload.get(k) for k in ('question','publication_context','decision_surface')}
     packet.update(diff=delta, basis=scope, decision_claims=decisions,
+                  previous_findings=previous, open_findings=open_findings,
                   limitations=current['review'], sources=citations,
                   calculations=candidate.get('calculations', []),
                   cited_page_context=[row for row in payload.get('cited_page_context', [])
@@ -99,7 +119,7 @@ def scoped_revision(payload, candidate, delta, scope):
     return packet, scope
 
 
-def revision_sources(payload, source_ids, delta, decisions):
+def revision_sources(payload, source_ids, delta, decisions, findings):
     artifacts = selected_artifacts(payload, set(), decisions)
     refs = {ref for row in decisions for ref in row['claim'].get('evidence_refs', [])}
     refs.update(ref for artifact in artifacts.values()
@@ -107,7 +127,7 @@ def revision_sources(payload, source_ids, delta, decisions):
     linked = {ref[7:] for ref in refs if isinstance(ref,str) and ref.startswith('source:')}
     linked.update(artifact['excerpt']['source_id'] for artifact in artifacts.values()
                   if artifact.get('kind') == 'source_excerpt')
-    focus = repr([delta,payload.get('previous_findings', [])])
+    focus = repr([delta,findings])
     linked.update(key for key in source_ids if key in focus)
     return (linked & source_ids) or source_ids
 
@@ -181,7 +201,9 @@ def track_findings(previous, issues, responses):
             row.update(state=states[key]['state'], reason=states[key]['reason'])
     for issue in issues:
         key = fingerprint([issue['section'],issue['claim']])
-        tracked[key] = {'id':key,'section':issue['section'],'claim':issue['claim'],'state':'unverified'}
+        tracked[key] = {'id':key,'section':issue['section'],'claim':issue['claim'],'state':'unverified',
+                        'category':issue.get('category','core_answer'),
+                        'severity':issue.get('severity','advisory')}
     return list(tracked.values())
 
 
@@ -206,7 +228,8 @@ def table_context(spans, citations, scoped=None):
     focus = None
     if scoped and 'diff' in scoped:
         import json
-        focus = json.dumps([scoped['diff'],scoped.get('previous_findings',[])],ensure_ascii=False)
+        focus = json.dumps([scoped['diff'],scoped.get('previous_findings',[]),
+                            scoped.get('open_findings',[])],ensure_ascii=False)
     for item in citations:
         quote = item.get('quote','')
         if not quote or not re.search(r'\d', quote):
