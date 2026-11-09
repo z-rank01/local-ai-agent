@@ -11,8 +11,8 @@
 | `finance_calculation` | 依据取证成果给出输入、期间、单位和算式；现有Decimal校验生成validated_calculation及figure，失败保留候选但不给作者采用 |
 | `finance_analysis` | 依赖前两类成果，分别提出fact/calculation/inference claims、条件、反证和缺口，不生成或发布最终报告 |
 | `finance_review` | 只读返回claim_checks、issues及read_requests，供作者决定是否复核；不是发布否决权 |
-| 作者编辑 | 等待四个必需角色整批终态后，选择 `decision_claim_ids`、`sources[].artifact_ref`、`calculation_refs` 和可选 `chart_refs` 写稿；不得改写 `owner=subagent` 的阶段、原文、算式或判断，不另开直接取证／计算路径 |
-| `research_begin` | v3只建立目标与作者编辑阶段，不接收直接 `evidence_requests`；`stage_updates` 不能覆盖角色阶段或自填角色claims。返回实际角色归属和artifacts索引 |
+| 作者编辑 | 按Recipe的 `required_roles` 等待本轮所需角色成果；省略声明时按实际委派核验，不要求固定四角色。选择 `decision_claim_ids`、`sources[].artifact_ref`、`calculation_refs` 和可选 `chart_refs` 写稿；不得改写 `owner=subagent` 的阶段、原文、算式或判断 |
+| `research_begin` | v3只建立目标与作者编辑阶段，不接收直接 `evidence_requests`；`stage_updates` 不能覆盖角色阶段或自填角色claims。返回实际角色归属和artifacts索引；作者与角色使用本轮实际授权的其他插件和工作区工具 |
 | 程序回执 | artifacts只登记真实来源、角色成果、已读取方法、工具回执、候选稿及校验后的计算；`role_batches` 与 `owner=subagent` 阶段保存producer_role、result_ref和真实状态，COMPLETE不表示事实认证 |
 | 作者与核对材料视图 | `material_view.py` 直接展开验证摘录、validated_calculation、figure与claim_checks，其他角色成果保留类型、指纹和result_ref；原始回执沿task_evidence完整回读，不在每次请求重复展开。来源received标明VERIFIED_ROLE_EXCERPTS，不以精简投影代替全部已读范围 |
 | 比值与百分数 | 同类量相除时统一货币单位；结果单位“倍”保存小数比例，“%”保存百分数（0.15倍=15%）。显式单位换算常数沿原算式。可省略派生result，由程序按Decimal精度计算；显式结果不符返回计算索引，不改写原稿。主体、期间和业务含义仍由模型核对 |
@@ -128,11 +128,13 @@
 
 ### 新研究的差异复核
 
-delta-v1 只在新建研究时冻结。首稿完整核对，编辑工作文件可以连续进行，下一次送审与本研究上次成功核对的冻结候选比较。局部核对保留原问题、截止日、核心结论及改动前后内容。限制或反证也是核对内容。正文、数字及核心主张变化时扩大材料，无法对应、来源或期间变化时做完整核对。已收到的数字引文邻文供核实表头，替代解释须给出表名、行列与期间，位置不足标为待核实。
+delta-v1 只在新建研究时冻结。首稿完整核对当前候选及其实际采用的claims、引用和依赖，保留角色审查意见，不重复展开未采用来源。下一次送审与本研究上次成功核对的冻结候选比较。局部正文及限制说明变化使用 local，携带差异、当前核心结论、已选claims及相关原文，不再重复整稿；标题、来源、计算或研究时点等变化使用 expanded，附当前提纲和所选依赖。所选角色成果、核心claims或引用来源变化时仍完整核对当前材料。数字变化沿差异取得已收到的引文邻文，核对表头、行列与期间，不能用材料缩小替代语义核查。
 
-原 reviews 结果保存父稿、稿件与依据指纹、范围、实际材料引用和未结意见。仅内部自查或编制备注改变时，记录沿用的回执，实际模型调用次数为零。发布必须携带当前稿的 review_ref 和作者自己的 review_response。UNKNOWN、失败或截断沿原规则收尾。
+材料指纹把同一核心claim的完整对象和stage_id/claim_id引用归一为同一身份；未被当前稿采用的新增阅读不重置基准。局部原文只展开核心claims、差异及未结意见实际关联的引用，不依据特定公司或固定句式走特例。未经核对确认的旧意见继续保留，作者仍可说明异议并明确发布。
 
-开发者使用 python -m tests.finance_recipe_replay <工作区ID> <研究ID> --stage review。revision_replay 将历史原生用量与离线生成的用户消息字符数分别展示。缺少已验证的原调用材料时显示 unconfirmed。表格邻文根据来源哈希匹配后从归档的已接收文本重建。
+原 reviews 结果保存父稿、稿件与依据指纹、范围、实际材料引用和未结意见。作者反馈展开 core_answer 及 blocking；其他非阻断建议保留在原 reviews，并以 archived_advisory_count 计数，不自动成为新的改稿任务。仅内部自查或编制备注改变时，记录沿用的回执，实际模型调用次数为零。发布必须携带当前稿的 review_ref 和作者自己的 review_response。UNKNOWN、失败或截断沿原规则收尾。
+
+开发者使用 python -m tests.finance_recipe_replay <工作区ID> <研究ID> --stage review。revision_replay 将历史原生用量与当前算法离线投影的用户消息字符数分别展示；使用生产同源的角色摘录视图，不把累计原文回读误当作本次新增输入。缺少已验证的原调用材料时显示 unconfirmed，预计字符数不是实际token节省。表格邻文根据来源哈希匹配后从归档的已接收文本重建。
 
 ### 自然问题与方法材料
 
