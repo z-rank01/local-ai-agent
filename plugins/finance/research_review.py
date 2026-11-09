@@ -14,6 +14,13 @@ def previous_findings(records):
             if r.get('category','core_answer') == 'core_answer']
 
 
+def author_feedback(review):
+    issues = review.get('issues') or []
+    visible = [issue for issue in issues if issue.get('category','core_answer') == 'core_answer'
+               or issue.get('severity') == 'blocking']
+    return {**review,'issues':visible,'archived_advisory_count':len(issues)-len(visible)}
+
+
 def reference_review_claims(payload):
     """Use stage-scoped references only for exact copies in the review payload."""
     recipe = payload.get('recipe') or {}

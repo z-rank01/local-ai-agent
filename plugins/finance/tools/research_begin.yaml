@@ -7,10 +7,10 @@ description: >-
   新研究为v3：按问题在各阶段选 required_roles。作者可用工作区工具补查，采用已登记的真实成果写作并发布。
   用动态Recipe记录本轮研究目标、阶段产物和检查方式；stage_updates可新增、拆分、合并、跳过和重访作者阶段。
   程序自动记录真实execution回执，模型用active_stage_id选择关联阶段；判断不等于执行成功，不要求固定阶段全部完成。
-  开始或推进当前对话的公开投研：先 phase=准备（scope/targets/plan），再用 evidence_requests 取公告目录、
-  公告原件、财报字段、公司概况或带时间行情，最后 phase=核对 并 brief_publish。返回本轮研究目录；
-  已登记的 source_id 与保存路径随回执返回，不能猜文件名。公告先 notices 定位 art_code 再 notice 读原件；
-  财报用 finance 取目录字段后把选中的正式报告放进 report_articles 读原件，不能只用目录代替财报。
+  开始或推进当前对话的公开投研：先 phase=准备（scope/targets/plan），在Recipe标明 required_roles，
+  再用agent_batch_create让角色取得公告、财报、公司概况或带时间行情；作者可按本轮授权补查，最后核对并brief_publish。
+  返回本轮研究目录；已登记的 source_id 与保存路径随回执返回，不能猜文件名。公告先定位实际编号再读原件；
+  财报须选正式报告并实际读取，不能只用目录代替财报。evidence_requests仅供历史研究读取，新v3不使用。
 parameters:
   type: object
   properties:
@@ -81,7 +81,7 @@ parameters:
       description: 仅首次准备阶段可用。核验原稿、来源及固定方法版本后创建关联研究，交接父稿和历史意见作为待核实材料；不恢复旧任务、不继承核对资格或UNKNOWN。后续发布使用新目录草稿。
     evidence_requests:
       type: array
-      description: notices/finance/profile/quote必须给symbol，notice必须给实际article。相同参数不重复执行；目录仍需按标题/主体/期间选公告，不能当全文已读。
+      description: 仅历史研究兼容；新v3由角色通过公开工具取证。旧契约的notices/finance/profile/quote必须给symbol，notice必须给实际article。目录仍需按标题/主体/期间选公告，不能当全文已读。
       items:
         type: object
         properties:

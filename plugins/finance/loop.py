@@ -712,8 +712,9 @@ class FinanceLoop(Agent):
             except (Exception, asyncio.CancelledError):
                 await research.save_review_draft(candidate)
                 raise
-            from .research_review import fingerprint, review_blocks
+            from .research_review import fingerprint, review_blocks, author_feedback
             review = research.review_records.get(fingerprint(candidate), {})
+            feedback = author_feedback(review)
             review_ref = fingerprint(candidate) + ':' + review.get('evidence_sha256', '')
             if review.get('status') == 'COMPLETE':
                 # Keep the exact returned handle in durable feedback. A later
@@ -726,9 +727,9 @@ class FinanceLoop(Agent):
             elif name == 'brief_review':
                 result = {'status': 'REVIEW_COMPLETE', 'candidate_sha256': fingerprint(candidate),
                           'review_ref':review_ref,
-                          'review': {key: review[key] for key in (
+                          'review': {key: feedback[key] for key in (
                               'status', 'evidence_sha256', 'issues', 'checks', 'read_requests', 'claim_checks','claim_provenance',
-                              'semantic_certification') if key in review},
+                              'semantic_certification','archived_advisory_count') if key in feedback},
                           'message': '核对建议已保存；本次调用不发布或改写报告。请对照证据自行决定修改或brief_publish，建议不认证事实、不强制采纳。'}
                 review['feedback_returned'] = True
             elif new_contract and (not review.get('feedback_returned')
@@ -736,8 +737,8 @@ class FinanceLoop(Agent):
                     or not isinstance(params.get('review_response'), str) or not params['review_response'].strip()):
                 result = {'status':'REVIEW_READY', 'review_ref':review_ref,
                           'candidate_sha256':fingerprint(candidate),
-                          'review':{key:review[key] for key in ('issues','checks','read_requests','claim_checks',
-                              'claim_provenance','semantic_certification') if key in review},
+                          'review':{key:feedback[key] for key in ('issues','checks','read_requests','claim_checks',
+                              'claim_provenance','semantic_certification','archived_advisory_count') if key in feedback},
                           'message':'本次未发布。请对照原文与原问题判断核心回答是否成立；'
                                     '建议不自动增加用户要求，可补查、修改、收窄结论或有依据地保留异议。'
                                     '明确发布时再次brief_publish，携带本review_ref及简短review_response。'
@@ -854,14 +855,10 @@ class FinanceLoop(Agent):
         if research.record.get('review_protocol') == 'delta-v1' and research.record.get('research_contract_version') == 3:
             from .review_delta import plan_revision, table_context
             full = json.loads(context[1]['content'])
-            full['received_sha256'] = fingerprint(research.read_text)
             payload, scope = plan_revision(full, candidate, baseline)
             if scope['mode'] != 'reuse':
                 refs = payload.get('sources',candidate.get('sources', []))
                 open_rows = [r for r in (baseline or {}).get('findings',[]) if r['state'] in ('unverified','retained')]
-                if scope['mode']=='local' and 'conclusion_context' not in payload:
-                    claims = {i['claim'] for i in payload['previous_findings']}
-                    open_rows = [r for r in open_rows if r['claim'] in claims]
                 payload['open_findings'] = open_rows
                 payload['table_context'] = table_context(research.read_text, refs, payload)
                 context[1]['content'] = json.dumps(payload, ensure_ascii=False)

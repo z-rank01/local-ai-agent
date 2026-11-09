@@ -186,7 +186,7 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(run.review_records[fingerprint(draft)]['semantic_certification'])
         self.assertEqual(run.review_records[fingerprint(draft)]['native_call_id'],'attempt-1')
 
-    async def test_delta_local_then_internal_reuse_and_changed_source(self):
+    async def test_delta_local_then_internal_reuse_and_changed_role_material(self):
         ok={'issues':[],'checks':['当前范围已核对']}
         _,run,draft,agent,calls=await self.setup_review([ok,ok,ok])
         run.record['research_contract_version']=3
@@ -203,7 +203,9 @@ class ReviewTests(unittest.IsolatedAsyncioTestCase):
         await self.review(agent,note)
         self.assertEqual(len(calls),2)
         self.assertTrue(run.review_records[fingerprint(note)]['reused_from'])
-        run.read_text[next(iter(run.sources))].append('新增原件行')
+        run.read_text[next(iter(run.sources))].append('未被当前稿引用的补充阅读')
+        run.record['artifacts']['role:new:finance_evidence:0'] = {
+            'kind':'role_source_excerpts','sha256':'b'*64}
         await self.review(agent,note)
         self.assertEqual(len(calls),3)
         self.assertEqual(run.review_records[fingerprint(note)]['scope']['mode'],'full')

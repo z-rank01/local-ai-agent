@@ -5,62 +5,6 @@ import re
 from harness.runtime.evidence import fingerprint
 
 
-def paragraph_packet(delta, candidate, issues, scope, question):
-    """Prove a narrow edit from the previous finding and a registered citation."""
-    if set(delta) != {'markdown'} or not issues:
-        return None
-    citations = candidate.get('sources', [])
-    relevant = []
-    ids = set()
-    for h in delta['markdown']:
-        if (len(h['before']) != 1 or len(h['after']) != 1 or not h['before_section']
-                or h['after_section'] != h['before_section']):
-            return None
-        if any(word in h['after_section'] for word in ('结论','排序','优先','首选')):
-            return None
-        old,new = h['before'][0],h['after'][0]
-        # Compare the whole sentence after undoing just an evidence-availability
-        # qualification. Preserve dates, direction, entity and the rest of the claim.
-        normalized = re.sub(r'本次未取得(\d{4}年[^的，；]+)的',r'\1没有',new)
-        normalized = re.sub(r'(\d{4})年(\d+月以后)的行业数据本次未取得',
-                            lambda m:m[2]+'没有数据' if m[1]+'年' in old else m[0],normalized)
-        availability = new != old and normalized == old
-        # A single supplementary quarterly amount, keeping the original cumulative
-        # amount and every other value intact. Any changed comparison falls through.
-        metric = re.search(r'，单季(归母净利润)([+-]?\d+(?:\.\d+)?)万元；前三季度累计',new)
-        period = metric and new[:metric.start()]+'；'+new[metric.end():] == old and '第三季度单季' in old
-        if not (availability or period):
-            return None
-        matches = [i for i in issues if i.get('section','').strip(' #') in h['after_section']
-                   and i.get('section','').strip(' #')]
-        if availability:
-            matches += [i for i in issues if any(term in i.get('claim','') and term in old
-                        for term in ('价格指数','行业数据','前七个月'))]
-            matches += [i for i in relevant if any(window in old for window in
-                        re.findall(r'\d{4}年\d+[—至-]\d+月',i['claim']))]
-        refs = {ref for i in matches for ref in re.findall(r'S[0-9a-f]{16}',i.get('evidence',''))}
-        selected = [c for c in citations if c['id'] in refs]
-        if not selected:
-            return None
-        if period:
-            # Match the rounded amount in an original quotation, not just in advice.
-            from decimal import Decimal
-            if not any(abs(Decimal(n.replace(',',''))/10000-Decimal(metric[2])) < Decimal('.5')
-                       for c in selected if '本报告期' in c['quote'] and '单位：元' in c['quote']
-                       for n in re.findall(r'归属于上市公司股东的净利润([+-]?\d[\d,]*\.\d+)',
-                                           re.sub(r'\s+','',c['quote']))):
-                return None
-        ids.update(c['id'] for c in selected)
-        for issue in matches:
-            if issue not in relevant:
-                relevant.append(issue)
-    scope = dict(scope, mode='local',reason='原句仅限定材料范围或补充有原表的单季金额', source_ids=sorted(ids))
-    packet = {'question':question,'as_of':candidate.get('as_of'),'title':candidate.get('title'),
-              'basis':scope,'diff':delta,'previous_findings':relevant,
-              'sources':[c for c in citations if c['id'] in ids]}
-    return packet, scope
-
-
 def visible(candidate):
     result = {k:v for k,v in candidate.items() if k not in ('editorial_notes','review')}
     result['review'] = {k:v for k,v in candidate.get('review', {}).items() if k != 'checks'}
@@ -88,10 +32,84 @@ def changes(before, after):
 
 
 def material_identity(payload):
-    # Leave out execution bookkeeping (tool events, review attempts and working files).
-    return fingerprint({k:payload.get(k) for k in ('question','methods','decision_claims','revision_context','received_sha256')}
-                       | {'sources':payload['evidence']['sources'],
+    candidate = payload['candidate']
+    source_ids = {row['id'] for row in candidate.get('sources', [])}
+    evidence = payload['evidence']['sources']
+    decisions = [{key:row.get(key) for key in ('stage_id','claim_id')}
+                 for row in payload.get('decision_claims') or []]
+    return fingerprint({k:payload.get(k) for k in ('question','methods','revision_context')}
+                       | {'decision_claims':decisions,
+                          'sources':{key:evidence[key] for key in sorted(source_ids) if key in evidence},
                           'role_artifacts':{k:v for k,v in payload['artifacts'].items() if k.startswith('role:')}})
+
+
+def decision_claims(payload):
+    stages = (payload.get('recipe') or {}).get('stages', [])
+    claims = {(stage['id'],claim.get('id')):claim
+              for stage in stages for claim in stage.get('claims', [])}
+    decisions = []
+    for row in payload.get('decision_claims') or []:
+        claim = row.get('claim') or claims.get((row.get('stage_id'), row.get('claim_id')))
+        if not claim:
+            return None
+        decisions.append({**row,'claim':claim})
+    return decisions
+
+
+def cited_material(payload, candidate, source_ids):
+    evidence = payload.get('evidence', {}).get('sources', {})
+    citations = list({fingerprint(row):row for row in candidate.get('sources', [])
+                      if row['id'] in source_ids}.values())
+    material = {}
+    for key in sorted(source_ids):
+        if key not in evidence:
+            continue
+        quotes = {row['quote'] for row in citations if row['id'] == key}
+        source = evidence[key]
+        material[key] = {**source,'received':[text for text in source.get('received', []) if text in quotes]}
+    return citations, material
+
+
+def scoped_revision(payload, candidate, delta, scope):
+    source_ids = {row['id'] for row in candidate.get('sources', [])}
+    decisions = decision_claims(payload)
+    if decisions is None:
+        return None
+    current = visible(candidate)
+    local = set(delta) <= {'markdown','review'} and set(current['review']) <= {'limitations','conflicts'}
+    if local:
+        source_ids = revision_sources(payload, source_ids, delta, decisions)
+    scope.update(mode='local' if local else 'expanded',
+                 reason='核对正文差异、核心结论与未结问题' if local else
+                        '标题、来源、计算或研究时点变化，核对变更及核心依据',
+                 source_ids=sorted(source_ids))
+    citations, original_material = cited_material(payload, candidate, source_ids)
+    packet = {k:payload.get(k) for k in ('question','publication_context','decision_surface',
+                                         'previous_findings')}
+    packet.update(diff=delta, basis=scope, decision_claims=decisions,
+                  limitations=current['review'], sources=citations,
+                  calculations=candidate.get('calculations', []),
+                  cited_page_context=[row for row in payload.get('cited_page_context', [])
+                                      if row['source_id'] in source_ids],
+                  original_material=original_material)
+    if not local:
+        packet['outline'] = [line for line in candidate['markdown'].splitlines() if line.startswith('#')]
+        packet['verified_artifacts'] = selected_artifacts(payload, source_ids, decisions,
+                                                          candidate.get('sources', []))
+    return packet, scope
+
+
+def revision_sources(payload, source_ids, delta, decisions):
+    artifacts = selected_artifacts(payload, set(), decisions)
+    refs = {ref for row in decisions for ref in row['claim'].get('evidence_refs', [])}
+    refs.update(ref for artifact in artifacts.values()
+                for ref in artifact.get('dependency_refs', {}).values())
+    linked = {ref[7:] for ref in refs if isinstance(ref,str) and ref.startswith('source:')}
+    linked.update(artifact['excerpt']['source_id'] for artifact in artifacts.values()
+                  if artifact.get('kind') == 'source_excerpt')
+    focus = repr([delta,payload.get('previous_findings', [])])
+    linked.update(key for key in source_ids if key in focus)
+    return (linked & source_ids) or source_ids
 
 
 def plan_revision(payload, candidate, baseline):
@@ -101,81 +119,31 @@ def plan_revision(payload, candidate, baseline):
              'parent':baseline.get('key') if baseline else None,
              'parent_evidence_sha256':baseline.get('evidence_sha256') if baseline else None}
     if not baseline:
-        return payload, scope
+        return full_revision(payload, candidate), scope
     delta = changes(visible(baseline['candidate']), current)
     scope['changed_fields'] = list(delta)
     if identity != baseline['material_sha256']:
-        scope['reason'] = '核对材料版本变化，重新覆盖引用与依赖'
-        return payload, scope
+        scope['reason'] = '所选角色成果、核心判断或引用来源变化'
+        return full_revision(payload, candidate), scope
     if not delta:
         scope.update(mode='reuse', reason='仅内部编制记录变化')
         return {}, scope
-    narrow = paragraph_packet(delta,candidate,baseline.get('issues',[]),scope,payload['question'])
-    if narrow:
-        return narrow
-    if 'markdown' in delta and not any(line.strip() for line in
-        set(baseline['candidate']['markdown'].splitlines()) & set(candidate['markdown'].splitlines())):
-        scope['reason'] = '正文没有可对应的段落'
+    source_ids = {row['id'] for row in candidate.get('sources', [])}
+    if not source_ids or not source_ids <= payload['evidence']['sources'].keys():
+        scope['reason'] = '无法定位当前稿引用的实际材料'
         return payload, scope
-    local = set(delta) == {'review'} and set(current['review']) <= {'limitations','conflicts'}
-    # Typographic edits preserving every non-space character have local scope.
-    if set(delta) == {'markdown'}:
-        local = all(''.join(''.join(h['before']).split()) == ''.join(''.join(h['after']).split())
-                    for h in delta['markdown'])
-        if not local:
-            local = all(local_citation_edit(h) for h in delta['markdown'])
-    source_ids = {s['id'] for s in candidate.get('sources', [])}
-    if not source_ids or not source_ids <= payload['evidence']['sources'].keys() or set(delta) - {
-            'review','markdown','title','stance','calculations','charts'}:
-        scope['reason'] = '来源、期间或无法定位的字段变化'
-        return payload, scope
-    # Narrative without explicit claim links can affect distant paragraphs. Include
-    # the complete decision surface and all selected claims/calculation dependencies.
-    scope.update(mode='local' if local else 'expanded',
-                 reason='局部文字或限制说明变化' if local else '正文或核心判断变化，覆盖全文与选用依据',
-                 source_ids=sorted(source_ids))
-    scoped = {k:payload.get(k) for k in ('question','publication_context','decision_surface',
-                                         'previous_findings','decision_claims','cited_page_context')}
-    stages = (payload.get('recipe') or {}).get('stages', [])
-    claims = {(s['id'],c.get('id')):c for s in stages for c in s.get('claims', [])}
-    decisions = []
-    for row in payload.get('decision_claims') or []:
-        claim = row.get('claim') or claims.get((row.get('stage_id'), row.get('claim_id')))
-        if not claim:
-            scope.update(mode='full',reason='核心主张引用无法定位')
-            return payload, scope
-        decisions.append({**row,'claim':claim})
-    scoped['decision_claims'] = decisions
-    scoped.update(diff=delta, basis=scope, limitations=current['review'],
-                  sources=candidate['sources'], calculations=candidate.get('calculations', []),
-                  original_material={k:payload['evidence']['sources'][k] for k in sorted(source_ids)
-                                     if k in payload['evidence']['sources']})
-    if local:
-        # The ranking and scope can be expressed anywhere, including the conclusion.
-        scoped['conclusion_context'] = candidate['markdown']
-    else:
-        scoped['candidate'] = current
-        scoped['claim_materials'] = payload.get('claim_materials')
-        scoped['verified_artifacts'] = selected_artifacts(payload, source_ids, decisions)
-    return scoped, scope
+    return scoped_revision(payload, candidate, delta, scope) or (payload, dict(
+        scope, mode='full', reason='核心主张引用无法定位'))
 
 
-def local_citation_edit(hunk):
-    old, new = '\n'.join(hunk['before']), '\n'.join(hunk['after'])
-    if not old or not new or not hunk['before_section'] or hunk['before_section'] != hunk['after_section']:
-        return False
-    if any(term in old+new+hunk['after_section'] for term in
-           ('排序','优先','结论','反证','限制','期间','同比','估值','高于','低于','排除')):
-        return False
-    refs = r'\bS[0-9a-f]{16}\b'
-    return (bool(re.search(refs, old)) and re.findall(refs,old)==re.findall(refs,new)
-            and re.findall(r'[+-]?\d+(?:\.\d+)?%?',old)==re.findall(r'[+-]?\d+(?:\.\d+)?%?',new))
-
-
-def selected_artifacts(payload, source_ids, decisions):
+def selected_artifacts(payload, source_ids, decisions, citations=None):
     artifacts = payload['artifacts']
+    quotes = None if citations is None else {(row['id'],row['quote']) for row in citations}
     refs = {ref for row in decisions for ref in row['claim'].get('evidence_refs', [])}
-    refs.update(k for k,v in artifacts.items() if v.get('excerpt',{}).get('source_id') in source_ids)
+    refs.update(k for k,v in artifacts.items()
+                if v.get('excerpt',{}).get('source_id') in source_ids and
+                (quotes is None or
+                 (v['excerpt']['source_id'],v['excerpt'].get('quote')) in quotes))
     pending = list(refs)
     while pending:
         item = artifacts.get(pending.pop(), {})
@@ -184,6 +152,23 @@ def selected_artifacts(payload, source_ids, decisions):
                 pending.append(ref)
                 refs.add(ref)
     return {k:artifacts[k] for k in sorted(refs) if k in artifacts}
+
+
+def full_revision(payload, candidate):
+    decisions = decision_claims(payload)
+    if decisions is None:
+        return payload
+    source_ids = {row['id'] for row in candidate.get('sources', [])}
+    citations, sources = cited_material(payload, candidate, source_ids)
+    artifacts = selected_artifacts(payload, source_ids, decisions, citations)
+    artifacts.update((ref,artifact) for ref,artifact in payload['artifacts'].items()
+                     if artifact.get('kind') == 'role_claim_checks')
+    selected = {(row.get('stage_id'),row.get('claim_id')) for row in decisions}
+    claim_materials = [row for row in payload.get('claim_materials', [])
+                       if (row.get('stage_id'),row.get('claim_id') or
+                           (row.get('claim') or {}).get('id')) in selected]
+    return {**payload, 'claim_materials':claim_materials,
+            'evidence':{**payload['evidence'],'sources':sources}, 'artifacts':artifacts}
 
 
 def track_findings(previous, issues, responses):

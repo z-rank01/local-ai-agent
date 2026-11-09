@@ -1,22 +1,78 @@
+import copy
+import json
 import unittest
 
-from plugins.finance.review_delta import changes, mark_numeric_advice, paragraph_packet, table_context, track_findings
+from plugins.finance.review_delta import (changes, mark_numeric_advice, material_identity,
+                                          plan_revision, table_context, track_findings)
 
 
 class ReviewDeltaTests(unittest.TestCase):
-    def test_supplementary_amount_must_match_the_right_row(self):
-        old = '第三季度单季收入增长；归母净利润累计下降。'
-        new = '第三季度单季收入增长，单季归母净利润-3407万元；前三季度累计归母净利润累计下降。'
-        delta = changes({'markdown':'## 公司甲\n'+old},{'markdown':'## 公司甲\n'+new})
+    def setUp(self):
         ref = 'S1234567890abcdef'
-        issue = {'section':'公司甲','claim':old,'evidence':ref}
-        source = {'id':ref,'quote':'单位：元 本报告期 归属于上市公司股东的净利润 -34,069,327.41'}
-        candidate = {'sources':[source,{'id':'other','quote':'其他公司'}]}
-        packet,scope = paragraph_packet(delta,candidate,[issue],{},'原问题')
-        self.assertEqual(scope['source_ids'],[ref])
-        self.assertEqual(packet['sources'],[source])
-        source['quote'] = source['quote'].replace('净利润','营业收入')
-        self.assertIsNone(paragraph_packet(delta,candidate,[issue],{},'原问题'))
+        other = 'S0000000000000000'
+        self.candidate = {'title':'行业观察','as_of':'2025-12-31','stance':'继续研究',
+            'markdown':'# 结论\n先看甲公司。\n## 反证\n乙公司现金流更强。\n## 不变说明\n共同期间为2025年。',
+            'sources':[{'id':ref,'quote':'2025年收入100元','locator':'第1页'},
+                       {'id':other,'quote':'乙公司2025年现金流为正'}], 'review':{}}
+        self.payload = {'question':'哪些值得看看','candidate':self.candidate,'methods':{},
+            'decision_claims':[{'stage_id':'stage','claim_id':'claim','claim':{
+                'text':'先看甲公司。','evidence_refs':['role:batch:finance_evidence:0:0']}}],
+            'revision_context':None, 'previous_findings':[], 'decision_surface':{},
+            'publication_context':{}, 'cited_page_context':[],
+            'evidence':{'sources':{ref:{'sha256':'a'*64,'received':['2025年收入100元']},
+                other:{'sha256':'b'*64,'received':['乙公司2025年现金流为正','未选用的额外摘录']}}},
+            'artifacts':{'role:batch:finance_analysis:0':{'kind':'role_claims','content':{'claims':[]}},
+                'role:batch:finance_evidence:0:0':{'kind':'source_excerpt',
+                    'excerpt':{'source_id':ref,'quote':'2025年收入100元'}},
+                'role:batch:finance_evidence:0:1':{'kind':'source_excerpt',
+                    'excerpt':{'source_id':other,'quote':'乙公司2025年现金流为正'}}}}
+        self.baseline = {'key':'previous','candidate':copy.deepcopy(self.candidate),
+                         'material_sha256':material_identity(self.payload),'evidence_sha256':'evidence'}
+
+    def test_first_review_keeps_candidate_and_only_its_actual_material(self):
+        payload = copy.deepcopy(self.payload)
+        payload['evidence']['sources']['Sffffffffffffffff'] = {
+            'sha256':'c'*64,'received':['未采用的来源']}
+        payload['artifacts']['role:other:finance_evidence:0:0'] = {
+            'kind':'source_excerpt','excerpt':{'source_id':'Sffffffffffffffff','quote':'未采用的来源'}}
+        packet, scope = plan_revision(payload,self.candidate,None)
+        self.assertEqual(scope['mode'],'full')
+        self.assertEqual(packet['candidate'],self.candidate)
+        self.assertNotIn('Sffffffffffffffff',packet['evidence']['sources'])
+        self.assertNotIn('role:other:finance_evidence:0:0',packet['artifacts'])
+        self.assertEqual(packet['evidence']['sources']['S0000000000000000']['received'],
+                         ['乙公司2025年现金流为正'])
+
+    def test_narrative_revision_sends_diff_without_whole_candidate(self):
+        revised = copy.deepcopy(self.candidate)
+        revised['markdown'] = revised['markdown'].replace('先看甲公司。','优先继续核查甲公司。')
+        packet, scope = plan_revision(self.payload,revised,self.baseline)
+        self.assertEqual(scope['mode'],'local')
+        self.assertEqual(scope['source_ids'],['S1234567890abcdef'])
+        self.assertNotIn('S0000000000000000',packet['original_material'])
+        self.assertNotIn('candidate',packet)
+        self.assertNotIn('conclusion_context',packet)
+        self.assertNotIn('共同期间为2025年',json.dumps(packet,ensure_ascii=False))
+        self.assertEqual(packet['decision_claims'][0]['claim']['text'],'先看甲公司。')
+        self.assertEqual(packet['original_material'][self.candidate['sources'][0]['id']]['received'],
+                         ['2025年收入100元'])
+
+    def test_changed_date_expands_without_unrelated_role_material(self):
+        revised = {**self.candidate,'as_of':'2026-01-31'}
+        packet, scope = plan_revision(self.payload,revised,self.baseline)
+        self.assertEqual(scope['mode'],'expanded')
+        self.assertNotIn('candidate',packet)
+        self.assertIn('role:batch:finance_evidence:0:0',packet['verified_artifacts'])
+        self.assertNotIn('role:batch:finance_analysis:0',packet['verified_artifacts'])
+        self.assertEqual(packet['outline'],['# 结论','## 反证','## 不变说明'])
+
+    def test_unrelated_reading_and_internal_notes_do_not_restart_full_review(self):
+        payload = {**self.payload,'received_sha256':'newly-read-unrelated-page',
+                   'decision_claims':[{'stage_id':'stage','claim_id':'claim'}]}
+        self.assertEqual(material_identity(payload),self.baseline['material_sha256'])
+        noted = {**self.candidate,'editorial_notes':['排版说明']}
+        packet, scope = plan_revision(payload,noted,self.baseline)
+        self.assertEqual((packet,scope['mode']),({},'reuse'))
 
     def test_removed_counterevidence_keeps_the_original_section(self):
         result = changes({'markdown':'# 排序\n一拖优先\n## 反证\n潍柴现金流更强'},

@@ -43,6 +43,27 @@ class AdvisoryPublicationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(calls), 1)
             self.assertIsNotNone(run.published)  # The writer can publish despite the advice.
 
+    async def test_non_core_advice_is_archived_without_becoming_author_todos(self):
+        issues = [
+            {'section':'补充','claim':'可选背景','reason':'可选补充','evidence':'已有原文',
+             'action':'无需修改','severity':'advisory','category':'optional'},
+            {'section':'报告卡','claim':'发布后检查','reason':'交付后核对','evidence':'系统回执',
+             'action':'发布后检查','severity':'advisory','category':'postpublication'}]
+        with patch.object(config,'PUBLISH_REVIEW_ENFORCE',False):
+            _,run,draft,agent,calls = await reviews.ReviewTests().setup_review([
+                {'issues':issues,'checks':['已核对当前稿与来源']}])
+            await run.write('candidate.json',draft)
+            path=run.record['directory']+'/candidate.json'
+            _,messages=await self.review_file(agent,path)
+            receipt=json.loads(next(m['content'] for m in messages if m.get('tool_name')=='brief_review'))
+            self.assertEqual(receipt['review']['issues'],[])
+            self.assertEqual(receipt['review']['archived_advisory_count'],2)
+            self.assertIn('没有列出核心问题',receipt['publish_instruction'])
+            self.assertEqual(run.review_records[fingerprint(draft)]['issues'],issues)
+            self.assertIsNone(run.published)
+            await self.review_file(agent,path)
+            self.assertEqual(len(calls),1)
+
     async def test_writer_can_revise_after_optional_review_and_keep_both_receipts(self):
         issue = {'section':'结论','claim':'当前状态未核','reason':'只有历史期间',
                  'evidence':'原文','action':'核对期间','severity':'blocking'}

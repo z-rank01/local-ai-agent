@@ -118,11 +118,16 @@ def review_rows(research, path=None):
 
 
 def revision_replay(db, research, workspace, path, rows, show=False):
-    from plugins.finance.review_delta import plan_revision, table_context
+    from types import SimpleNamespace
+    from plugins.finance.review_delta import material_identity, plan_revision, table_context
+    from plugins.finance.research.material_view import author_material_view
     indices = {r.get('local_attempt_id'):r for r in research.get('request_materials', [])}
     evidence_file = path/'evidence-index.json'
     saved = json.loads(evidence_file.read_text('utf8')).get('sources',{}) if evidence_file.exists() else {}
-    baseline = None
+    snapshot = SimpleNamespace(record=research, evidence_index=lambda:{'sources':saved},
+                               artifacts=lambda:research.get('artifacts', {}))
+    material = author_material_view(snapshot)
+    baseline, methods, revision = None, {}, None
     results = []
     for row in rows:
         item = {'attempt':row['native_attempt'], 'usage':row['usage'], 'candidate':row['candidate']}
@@ -134,51 +139,45 @@ def revision_replay(db, research, workspace, path, rows, show=False):
             index = indices[row['native_attempt']]
             messages = confirmed_messages(db,research,workspace,index)
             payload = json.loads(messages[-1]['content'])
-            if row.get('scope'):
-                item.update(scope=row['scope'], historical_chars=len(messages[-1]['content']),
-                            verified_payload=fingerprint(payload)==row['scope'].get('sent_payload_sha256'))
-                from plugins.finance.review_delta import paragraph_packet
-                attempt = row['attempt_refs'][-1]
-                if (item['verified_payload'] and row['scope']['mode']=='expanded' and baseline
-                        and baseline['key']==row['scope']['parent'] and re.fullmatch(r'reviews/\d+',attempt)):
-                    candidate=json.loads((path/(attempt+'-candidate.json')).read_text('utf8'))
-                    if fingerprint(candidate)!=row['candidate']:
-                        raise ValueError('candidate mismatch')
-                    planned=paragraph_packet(payload['diff'],candidate,baseline['issues'],
-                        payload['basis'],payload['question'])
-                    if planned:
-                        projected,scope=planned
-                        projected['table_context']=[r for r in payload.get('table_context',[])
-                                                    if r['source_id'] in scope['source_ids']]
-                        projected['open_findings']=[r for r in payload.get('open_findings',[])
-                            if r['claim'] in {i['claim'] for i in projected['previous_findings']}]
-                        item.update(projected_mode='local', projected_sources=scope['source_ids'],
-                            projected_chars=len(json.dumps(projected,ensure_ascii=False)))
-                item.setdefault('projected_mode',row['scope']['mode'])
-                if row['status']=='COMPLETE':
-                    baseline={'key':row['candidate'],'issues':row.get('issues') or []}
-                if show:
-                    item.update(diff=payload.get('diff'),table_context=payload.get('table_context'))
+            item['historical_chars'] = len(messages[-1]['content'])
+            if not row.get('scope'):
                 continue
-            ref = row['attempt_refs'][-1]
-            if not re.fullmatch(r'reviews/\d+', ref):
+            item.update(scope=row['scope'],
+                        verified_payload=fingerprint(payload)==row['scope'].get('sent_payload_sha256'))
+            if not item['verified_payload']:
+                raise ValueError('review payload fingerprint mismatch')
+            attempt = row['attempt_refs'][-1]
+            if not re.fullmatch(r'reviews/\d+',attempt):
                 raise ValueError('invalid attempt path')
-            candidate = json.loads((path/(ref+'-candidate.json')).read_text('utf8'))
-            if fingerprint(candidate) != row['candidate']:
+            candidate=json.loads((path/(attempt+'-candidate.json')).read_text('utf8'))
+            if fingerprint(candidate)!=row['candidate']:
                 raise ValueError('candidate mismatch')
-            projected, scope = plan_revision(payload,candidate,baseline)
-            if projected:
-                spans = {k:saved[k].get('received',[]) for k,v in payload['evidence']['sources'].items()
-                         if k in saved and saved[k].get('sha256') == v.get('sha256')}
-                projected['table_context'] = table_context(spans, candidate.get('sources', []), projected)
+            if payload.get('methods'):
+                methods = payload['methods']
+            if payload.get('revision_context') is not None:
+                revision = payload['revision_context']
+            full = {**material, **payload, 'candidate':candidate}
+            full.update(methods=methods, revision_context=revision)
+            projected, scope = plan_revision(full,candidate,baseline)
+            if scope['mode'] != 'reuse':
+                refs = projected.get('sources',candidate.get('sources', []))
+                spans = {key:saved[key].get('received',[]) for key in scope.get('source_ids', [])
+                         if key in saved and saved[key].get('sha256') ==
+                         full['evidence']['sources'].get(key,{}).get('sha256')}
+                projected['table_context'] = table_context(spans,refs,projected)
+                projected['open_findings'] = [r for r in (baseline or {}).get('findings',[])
+                                               if r['state'] in ('unverified','retained')]
                 item['table_source_ids'] = sorted({r['source_id'] for r in projected['table_context']})
-            item.update(scope=scope, historical_chars=len(messages[-1]['content']),
-                        projected_chars=len(json.dumps(projected,ensure_ascii=False)) if projected else 0)
+            item.update(projected_mode=scope['mode'], projected_scope={
+                            k:scope.get(k) for k in ('mode','reason','changed_fields')},
+                        projected_chars=len(json.dumps(projected,ensure_ascii=False)))
             if show:
                 item.update(diff=projected.get('diff'), table_context=projected.get('table_context'))
             if row['status']=='COMPLETE':
                 baseline = {'key':row['candidate'],'candidate':candidate,
-                            'evidence_sha256':row['evidence_sha256'],'material_sha256':scope['material_sha256']}
+                            'evidence_sha256':row['evidence_sha256'],
+                            'material_sha256':material_identity(full),
+                            'findings':row.get('findings') or []}
         except (ValueError,KeyError,IndexError,OSError) as exc:
             item['unconfirmed'] = str(exc)
             baseline = None
